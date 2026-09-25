@@ -314,6 +314,11 @@ func TestWriteBaseTestsSection(t *testing.T) {
 			t.Errorf("section lacks %q:\n%s", want, body)
 		}
 	}
+	// The fixed texts carry no character that inline() would turn into an
+	// escaped HTML entity (an apostrophe would render as "&#39;").
+	if strings.Contains(body, "&\\#") {
+		t.Fatalf("an escaped entity in the fixed texts:\n%s", body)
+	}
 	if strings.Contains(body, "TestPass21") || strings.Contains(body, "[x](y)") || strings.Contains(body, "<script>") {
 		t.Fatalf("collapsed or unescaped content rendered:\n%s", body)
 	}
