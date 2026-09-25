@@ -111,6 +111,9 @@ type jestAssertion struct {
 	Title           string   `json:"title"`
 	Status          string   `json:"status"`
 	FailureMessages []string `json:"failureMessages,omitempty"`
+	// Meta carries Vitest task.meta observations (F1, observations.go). Its
+	// decoding never fails, so it can never make a report unreadable.
+	Meta *jestMeta `json:"meta,omitempty"`
 }
 
 // normalizeJestReport keeps only what verification and a reviewer need. Every
@@ -145,9 +148,16 @@ func normalizeJestReport(raw []byte) (string, error) {
 			for k := range a.FailureMessages {
 				a.FailureMessages[k] = truncateUTF8(Redact(a.FailureMessages[k]), 4096)
 			}
+			a.Meta = normalizeJestMeta(a.Meta)
 		}
 	}
 	b, err := json.Marshal(report)
+	if err == nil && !redact.IsFixedPoint(string(b)) && dropJestMeta(&report) {
+		// Observations never turn a readable report into an unreadable one:
+		// every meta is replaced by a fixed marker instead, and the report is
+		// then accepted or rejected on the rest of its content.
+		b, err = json.Marshal(report)
+	}
 	return string(b), err
 }
 

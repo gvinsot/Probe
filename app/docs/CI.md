@@ -58,6 +58,7 @@ None of the v0.4 stages produces exit 1: only a reproduced high/critical hypothe
 <!-- F4:end -->
 
 <!-- F1:begin -->
+**Observation experiments.** They need no policy key and no flag, so they add no release-ordering step: a reviewer running with a verifiable `generated_test` template (Go `["go", "test", "{package}"]` with a Go 1.25 or later image, or Vitest with `{file}` and `{results_out}`) may record them in any v0.4 run. A validated divergence, cited or not, requests human review: exit 2 with `--ci`, never 1. To act on divergences in a following step, read `.divergences | length` from `.swiftproof/confidence-report.json`. Each entry carries both recorded values, the test path and names, and the three check IDs; it records a difference, not which revision is correct. Render reports with the binary that produced them: an older binary's `swiftproof report` silently drops `divergences`, and a consumer validating against an older schema rejects the new fields.
 <!-- F1:end -->
 
 <!-- F5:begin -->
