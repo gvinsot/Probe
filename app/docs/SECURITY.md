@@ -44,6 +44,7 @@ Models still create no evidence. A model may propose hypotheses, write tests and
 <!-- F7:end -->
 
 <!-- F3:begin -->
+**Changed baseline tests (`--base-tests`).** Selection parses committed blobs with `go/parser` and never executes repository code. The hybrid tree is assembled on the host from the already sanitized snapshots: a private copy of the candidate tree in which one package directory's `*_test.go` files and `testdata` are replaced by the baseline's. Secret-bearing file names stay excluded, symlinks are never created or followed, every path is checked, files are created exclusively, and the copy is deleted after the stage; a hashed manifest records what it removed and restored. Both runs use the unchanged check profile and add no mount, volume, network or payload channel. Baseline test code runs against candidate code inside the same sandbox, as generated tests already do. Candidate code writes the hybrid run's log: it can make a baseline test appear to pass, so `PASSES_ON_CANDIDATE` is an observation only, while a forged pass after a real failure makes the result `UNVERIFIED`, and forging a failure only adds a review request. A replayed baseline run never supports `FAILS_ON_CANDIDATE`. The flag is set by whoever invokes SwiftProof; the candidate branch can influence only which of its baseline tests are selected, within fixed limits.
 <!-- F3:end -->
 
 <!-- F6:begin -->

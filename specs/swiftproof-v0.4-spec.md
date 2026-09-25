@@ -456,6 +456,37 @@ Opt-in through the `fuzz` policy object, review only; `--fuzz=false` disables it
 Opt-in with `--base-tests`, review only, Go execution only. The baseline version of each Go test function the change modified or removed runs on the baseline tree and on a hybrid tree: the candidate tree with the affected packages' test files reverted to the baseline. Evidence kind `base_test_differential`, one record per test name; check kinds `base_test_base` and `base_test_hybrid`. The lexical test-edit signals for Go, JS/TS and Python are heuristics, never evidence.
 
 <!-- F3:begin -->
+**Selection.**
+
+- Selection MUST be static: committed baseline and candidate blobs, parsed with `go/parser`; repository code MUST NOT run to select tests.
+- A changed `*_test.go` file with status modified, deleted, or renamed from a test path is considered; added and copied files, and files under `testdata` or `vendor` or below a name starting with `_` or `.`, MUST NOT be. A runnable baseline test is selected as `removed`, `modified` (token digest differs, or the candidate file cannot be read or parsed), `shared_code_changed` (another baseline declaration of the file disappeared or changed) or `file_deleted`. Comment-only and indentation-only edits MUST NOT select a test.
+- At most 50 files are analyzed and 100 tests selected; every unreadable or unparsable file and every overflow MUST be reported as an unverified area. No selection together with such a note is `not_run`, never `no_candidates`.
+
+**Execution.**
+
+- The `generated_test` command MUST pass the verifiable Go template rule; otherwise nothing runs and the section is `not_run`.
+- Each unit (a package directory, or a file with a `{file}` template; at most 50 names, at most 10 units) runs one `base_test_base` check on the baseline snapshot and, only when that check passed, one `base_test_hybrid` check with the identical command on the hybrid tree. The hybrid tree MUST be a private copy of the sanitized candidate snapshot in which exactly the unit directory's `*_test.go` files and `testdata` are replaced by the baseline's, built on the host, recorded in a hashed `base_test_hybrid_manifest` artifact and deleted after the stage. Both checks MUST use the unchanged sandbox profile.
+- A baseline check that failed as a whole MAY be repeated for the tests it records as passed, and a test that passed inside a hybrid check that failed as a whole MAY get one run pair of its own. Neither changes the classification rules.
+- A replayed baseline check MUST NOT support `FAILS_ON_CANDIDATE`: the baseline runs again live with the same kind and command, and the test is classified against that run.
+- Runs MUST honor the 180 s sub-cap, the reviewer reserve and the shared budget (§1.3). A candidate-side compile or run failure MUST stay FAIL, never ERROR.
+
+**Evidence and statuses.**
+
+- One `base_test_differential` record per test and recorded run pair: runner `go_test_json`, exactly one test name, `check_id` the hybrid check, `base_check_id` the baseline check.
+- `FAILS_ON_CANDIDATE` and `PASSES_ON_CANDIDATE` MUST follow `ClassifyExistingTest`: identical commands; baseline PASS with exit 0, an untruncated log, and exactly one run and one pass; candidate FAIL with exit 1–124 and exactly one fail, or PASS with exit 0 and exactly one pass. Everything else is `UNVERIFIED` with a reason.
+- `Finalize` MUST re-derive every item status from the recorded checks, including on re-render, and MUST NOT let a `base_test_differential` record support any hypothesis status.
+- Outputs MUST NOT present `FAILS_ON_CANDIDATE` as a reproduced issue, as proof that the test edit is wrong or deliberate, or as proof that the baseline assertion is intended; nor `PASSES_ON_CANDIDATE` as preserved behavior, an equivalent test, or tamper-proof.
+- Exit effects: never 1; `FAILS_ON_CANDIDATE`, `UNVERIFIED` and `not_run` request review; an infrastructure ERROR or a hybrid tree that cannot be built is exit 4.
+
+**Lexical signals.** `test_assertion_removed`, `test_case_removed`, `test_skip_added` (at most 10 per file), `test_expectation_relaxed` (per hunk, at most 10 per file) and `test_focus_added` (high, at most 5 per file) apply to Go, JavaScript/TypeScript and Python test files in `lint` and `review`. They MUST be labelled as text heuristics and MUST NOT be evidence.
+
+**Acceptance.**
+
+- A candidate that drops a bound and loosens the test asserting it yields `FAILS_ON_CANDIDATE` for that test, with a live baseline PASS and a hybrid FAIL under one command: exit 2 with `--ci`, 0 without, never 1.
+- A test moved to a new candidate file of the same package still compiles on the hybrid tree.
+- An API rename yields `UNVERIFIED` tests and FAIL checks, never ERROR or exit 4.
+- An unverifiable template records `not_run` and runs nothing; `--base-tests` on `lint` or with `--checks=false` exits 3 before any container.
+- Tampered records (wrong kinds, differing commands, duplicate IDs, a replayed baseline for `FAILS_ON_CANDIDATE`, forged pass events) finalize `UNVERIFIED`, and `Finalize` is idempotent.
 <!-- F3:end -->
 
 ## F4. Mutation of added lines

@@ -257,6 +257,15 @@ A stage's JSON object is present exactly when the stage was requested or configu
 <!-- F7:end -->
 
 <!-- F3:begin -->
+### Changed baseline tests on candidate code
+
+`swiftproof review --base-tests` runs the baseline version of every Go test function the change modified or removed on two trees: the baseline, and a hybrid tree, which is the candidate with that test's package test files and `testdata` reverted to the baseline. Each test gets one `base_test_differential` evidence record, re-derived by `Finalize`:
+
+- `FAILS_ON_CANDIDATE`: it passed on the baseline and failed on the hybrid tree. This is a behavior change accompanied by a test edit, for a human to judge; it is not a reproduced issue, and a flaky test can produce it.
+- `PASSES_ON_CANDIDATE`: it passed in both runs. This does not show that behavior is preserved or that the edited test is equivalent.
+- `UNVERIFIED`: no result was drawn, for example because the baseline test does not compile against the candidate code after an API change.
+
+Selection is static (Go syntax; comment and layout edits select nothing). The `generated_test` template must be a verifiable Go template such as `["go", "test", "{package}"]`, and the stage has a 180 s sub-cap inside the shared runtime budget. It never produces exit 1: `FAILS_ON_CANDIDATE`, `UNVERIFIED` and a stage that did not run request review (exit 2 with `--ci`). In `lint` and `review`, lexical signals flag risky test edits in Go, JavaScript/TypeScript and Python (`test_assertion_removed`, `test_case_removed`, `test_skip_added`, `test_expectation_relaxed`, and the high `test_focus_added`); they are heuristics, never evidence. See [changed baseline tests](docs/BASE_TESTS.md).
 <!-- F3:end -->
 
 <!-- F6:begin -->
