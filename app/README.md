@@ -251,6 +251,15 @@ v0.4 adds stages that record more deterministic evidence and depend less on a mo
 A stage's JSON object is present exactly when the stage was requested or configured, and its `status` then says what happened, including `not_run` with a reason. The [v0.4 specification](../specs/swiftproof-v0.4-spec.md) holds the binding rules.
 
 <!-- F8:begin -->
+### Trusted dependency preparation
+
+With a `prepare` object in the trusted base-branch policy, `review` first runs that policy's command once, in one bounded container, on the declared input files exported from the base commit (never from the candidate), and commits the container as a local image that every sandbox run of the review then uses by ID:
+
+```json
+"prepare": { "command": ["go", "mod", "download"], "inputs": ["go.mod", "go.sum"], "network": true }
+```
+
+The container gets the network only when the policy asks for it and `--allow-prepare-network` is passed (`--no-network` always wins); checks stay offline under their unchanged profile. A later review of the same base commit with identical inputs reuses the image without starting a container. Preparation never pulls images and never installs candidate dependencies: a candidate edit to a declared input adds a `prepare_input_changed` signal and an Unverified entry. It fails closed: `failed` or `not_permitted` runs no check and exits 4. The prepared image is environment, not evidence: an equal key means equal inputs, not equal image content, and nothing is claimed about the dependencies. See [dependency preparation](docs/PREPARE.md).
 <!-- F8:end -->
 
 <!-- F7:begin -->
