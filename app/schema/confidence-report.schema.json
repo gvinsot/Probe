@@ -568,7 +568,7 @@
       "type": "object",
       "additionalProperties": false,
       "required": ["status", "indexed_files", "changed_functions", "note"],
-      "description": "Static, approximate impact analysis of changed functions. Interface edges are possible dispatch only, and an absent caller is not proof of absence.",
+      "description": "Static, approximate impact analysis of changed Go functions, built from committed source without executing repository code or loading imports from outside the repository. It is never execution evidence. Interface edges are possible dispatch only, and an absent caller or test is not proof that none exists.",
       "properties": {
         "status": {"type": "string", "enum": ["not_applicable", "indexed", "limited", "unavailable"]},
         "reason": {"type": "string"},
@@ -582,7 +582,8 @@
     "impactFunction": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["path", "line", "end_line", "symbol", "change", "callers", "callers_total", "tests"],
+      "required": ["path", "line", "end_line", "symbol", "change", "callers", "callers_total", "tests", "indexed", "tests_total"],
+      "description": "A changed function or method of a changed non-test Go file. When indexed is false, its callers and tests were not searched and reason says why.",
       "properties": {
         "path": {"$ref": "#/$defs/path"},
         "line": {"$ref": "#/$defs/line"},
@@ -591,13 +592,17 @@
         "change": {"type": "string", "enum": ["body_changed", "signature_changed"]},
         "callers": {"type": "array", "maxItems": 10, "items": {"$ref": "#/$defs/impactCaller"}},
         "callers_total": {"$ref": "#/$defs/count", "description": "Callers the bounded index search found; not a count of all callers."},
-        "tests": {"type": "array", "items": {"$ref": "#/$defs/impactTest"}}
+        "tests": {"type": "array", "maxItems": 20, "items": {"$ref": "#/$defs/impactTest"}},
+        "indexed": {"type": "boolean"},
+        "reason": {"type": "string"},
+        "tests_total": {"$ref": "#/$defs/count", "description": "Reaching tests the bounded index search found; at most 20 are listed. Not a count of every test that exercises the function."}
       }
     },
     "impactCaller": {
       "type": "object",
       "additionalProperties": false,
       "required": ["path", "line", "symbol", "depth", "resolution"],
+      "description": "A reference to a changed function from unchanged, non-test code. A place to review, not a defect; interface resolution is possible dispatch only.",
       "properties": {
         "path": {"$ref": "#/$defs/path"},
         "line": {"$ref": "#/$defs/line"},
@@ -619,7 +624,9 @@
         "resolution": {"type": "string", "enum": ["static", "interface"]},
         "evidence_id": {"$ref": "#/$defs/id"},
         "status": {"type": "string", "enum": ["FAILS_ON_CANDIDATE", "PASSES_ON_CANDIDATE", "UNVERIFIED"]},
-        "reason": {"type": "string"}
+        "reason": {"type": "string"},
+        "via": {"type": "array", "minItems": 2, "maxItems": 4, "items": {"type": "string", "minLength": 1}, "description": "Declarations from the test to the changed function, as found by the static index."},
+        "file_changed": {"type": "boolean"}
       },
       "allOf": [
         {"if": {"required": ["status"], "properties": {"status": {"enum": ["FAILS_ON_CANDIDATE", "PASSES_ON_CANDIDATE"]}}}, "then": {"required": ["evidence_id"]}}

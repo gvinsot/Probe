@@ -49,6 +49,9 @@ None of the v0.4 stages produces exit 1: only a reproduced high/critical hypothe
 <!-- F3:end -->
 
 <!-- F6:begin -->
+### Impact analysis in CI
+
+Impact analysis needs no policy key. It runs in `lint` and `review` by default, so its only release-ordering step is the `--impact` flag itself (item 2 above). Its signals never gate: `impacted_caller` (low) and `analysis_limited` (medium) do not request review under `--ci`, and a limited or unavailable index is not an operational failure. The index reads at most 64 MiB of committed Go source and stops type-checking after 120 s, so on a large Go repository `lint` takes seconds longer and uses memory in proportion to the indexed source ([measured costs](PERFORMANCE.md)). Pass `--impact=false` to skip it; `--impacted-tests` then exits 3.
 <!-- F6:end -->
 
 <!-- F2:begin -->

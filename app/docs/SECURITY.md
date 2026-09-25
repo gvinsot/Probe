@@ -47,6 +47,7 @@ Models still create no evidence. A model may propose hypotheses, write tests and
 <!-- F3:end -->
 
 <!-- F6:begin -->
+**Static impact index (F6).** `lint` and `review` parse and type-check untrusted committed Go source in the SwiftProof process, with the Go standard library only. The index reads Git objects of the candidate commit (and of the base commit for changed files) through the same bounded tree and blob readers as snapshots, skips symlinks, submodules and the paths snapshots exclude, and never runs the go command, cgo, code generation, build scripts or any network access; imports from outside the repository are not loaded. Its work is bounded (64 MiB of source, 5,000 packages, 2,000,000 references, a 120 s limit checked between packages and on every type error), and a panic inside `go/types` is recovered per package and reported as `limited`. Because the candidate controls what is indexed, it can hide callers or add reference sites: the index may therefore only add low-severity `impacted_caller` signals, one medium `analysis_limited` signal and tool observations. It never creates evidence, never removes or lowers a signal, and never supports a dismissal or a `NOT_REPRODUCED` claim. Tool snippets and report strings are redacted.
 <!-- F6:end -->
 
 <!-- F2:begin -->

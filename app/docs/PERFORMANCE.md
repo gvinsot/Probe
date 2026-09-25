@@ -30,6 +30,36 @@ Each block below records measured costs of one v0.4 stage, and nothing that was 
 <!-- F4:end -->
 
 <!-- F6:begin -->
+### Impact analysis (F6a static index)
+
+Measured on 2026-09-26 in `golang:1.26-bookworm` (Go 1.26.8, linux/amd64) on the Windows host of the earlier measurements, in a Docker Desktop VM that exposed 2 CPUs to the container while other builds ran on the host, so times varied by up to 2x between runs; the range over the runs is given (three runs of the first two workloads, two of the third). Each run includes the Git reads (`ls-tree` of both commits and one `cat-file --batch` stream), parsing, type-checking, and the impact of the change. Heap is the heap in use after a garbage collection with the index still referenced, as it is during a review.
+
+| Workload | Indexed Go files | Time per analysis | Allocated per analysis | Heap in use |
+| --- | --- | --- | --- | --- |
+| `BenchmarkIndexSynthetic`: 40 packages of 25 files, each file 10 functions calling into the previous package, one changed function | 1,000 | 286–418 ms | 62 MB | not measured |
+| The SwiftProof repository (`app` and `hub` modules at `8d114b6`), `HEAD~1..HEAD` (15 changed files) | 136 | 274–541 ms | 44 MB | 12.4–13.6 MiB |
+| `GOROOT/src` of Go 1.26.8 as a Git repository (5,609 Go files outside `testdata` and `vendor`), one changed function | 4,072 (the others excluded by the linux/amd64 build constraints, and one file over 2 MiB skipped, so `limited`) | 6.6–8.4 s | 1.9 GB | 429–431 MiB |
+
+The standard library is a stress case, not a typical repository: its module path `std` is not a prefix of its import paths, so every import is treated as outside the repository, and one skipped 2 MiB generated file leaves its large package with many unresolved names. Before imported packages were marked so that `go/types` skips building error messages for missing names, the same run took 20–39 s (three runs), spent mostly sorting that package's names once per unresolved reference; the 120 s limit, also checked on every type error, bounds such cases. Reproduce with:
+
+```sh
+go test ./internal/symbols -run '^
+
+<!-- F7:begin -->
+<!-- F7:end -->
+
+<!-- F8:begin -->
+<!-- F8:end -->
+ -bench IndexSynthetic -benchmem
+SWIFTPROOF_BENCH_REPO=/path/to/git/repo go test ./internal/symbols -run '^
+
+<!-- F7:begin -->
+<!-- F7:end -->
+
+<!-- F8:begin -->
+<!-- F8:end -->
+ -bench AnalyzeRepository -benchtime 3x -benchmem
+```
 <!-- F6:end -->
 
 <!-- F7:begin -->

@@ -108,6 +108,18 @@ The three entries below record the runs that the F0a, F0b and F0d implementers r
 <!-- F5:end -->
 
 <!-- F6:begin -->
+**2026-09-26, F6a static index, callers and tools (branch `feat/f6a-index`).** Windows 11 Pro host with Docker Desktop (the containers saw 2 CPUs; other agents built and tested concurrently); `golang:1.26-bookworm` (Go 1.26.8) and `golang:1.23-bookworm` (Go 1.23.12).
+
+- From `app/` in `golang:1.26-bookworm`: `go vet ./...` and `go test -count=1 ./...` exit 0, including the new `internal/symbols` tests and the impact tests of `cli`, `harness`, `model` and `report`; `CGO_ENABLED=1 go test -race -count=1` of `internal/symbols`, `internal/cli`, `internal/harness` and `internal/report` exits 0. From `hub/`: `go vet ./...` and `go test -count=1 ./...` exit 0. In `golang:1.23-bookworm`: `go vet ./...` from `app/` (with and without the workspace) and the `symbols`, `cli`, `report`, `model` and `harness` tests exit 0.
+- Windows amd64 test binaries: the `symbols`, `report`, `harness` and `cli` suites pass natively on the host; with `SWIFTPROOF_TEST_DOCKER_IMAGE=golang:1.26-bookworm`, the `cli` Docker tests pass (`TestDockerReviewEndToEnd`, `TestDockerReviewSkeletonAroundRealChecks`, `TestDockerDeadlineStopsRunningCheck`). F6a adds no Docker-gated test: the index executes nothing.
+- A Windows binary built from the branch (`-X main.version=F6a-e2e`) on the shop fixture (`price.Total` called by `api.Checkout`, `cart.Cart.Total` reachable through `cart.Totaler` from `notify.Message`; the candidate changes both bodies):
+  - `lint --base main`: exit 0, no check; `impact.status` `indexed`, 6 indexed files, both functions `body_changed`; low `impacted_caller` signals at `api/handler.go:7` (static) and `notify/notify.go:7` (interface); reaching tests `TestTotal` (depth 1) and `TestCheckout` (depth 2); the Impact Analysis section and the stdout line are present.
+  - `lint --impact=false`: no `impact` object, no `impacted_caller` signal, the same review surface (2 of 4 changed lines focused).
+  - Two `lint` runs: identical JSON apart from `generated_at`, identical Markdown.
+  - `review --config policy.json --reviewer=false --ci` (the default Go policy, image `golang:1.26-bookworm`): exit 2 after 65 s; test FAIL, typecheck and build PASS, coverage FAIL; the `impact` object and signals as in lint; no reproduced issue.
+  - `review --checks=false` with a scripted loopback provider calling `find_callers` (`price.Total`, depth 2), `inspect_symbol` (`cart.Totaler.Total`), `find_references` (`(*Cart).Total` and `Totaler`) and `find_callers` with depth 4: exit 0. The index answered the first three with `method: go_static_index` (callers `api.Checkout` at depth 1, `price.TestTotal` at depth 1 and `api.TestCheckout` at depth 2; the implementation `cart.Cart.Total`; the interface call in `notify/notify.go`); `Totaler` got the lexical answer with the index note; depth 4 was refused ("depth must be between 1 and 3"). Every call is audited under its tool name; no evidence and no check were recorded.
+  - `swiftproof report` re-renders of the three reports are byte-identical; the fixture checkout stayed clean; no `swiftproof-` container created by these runs remained.
+- The costs in [performance](PERFORMANCE.md) were measured with `BenchmarkIndexSynthetic` and `BenchmarkAnalyzeRepository` (this repository and `GOROOT/src`). `--impacted-tests` was not exercised: it still records `not_run` until F6b.
 <!-- F6:end -->
 
 <!-- F7:begin -->
