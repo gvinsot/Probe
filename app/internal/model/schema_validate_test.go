@@ -546,6 +546,8 @@ func schemaCases(t *testing.T) (valid, invalid map[string][]edit) {
 		"unverified observation without repeat": {{"evidence/2/status", StatusUnverified}, {"evidence/2/repeat_check_id", d}},
 		"unanchored divergence":                 {{"divergences/0/path", d}, {"divergences/0/line", d}, {"divergences/0/symbol", d}, {"divergences/0/anchor_source", d}},
 		"sha-256 object format commit":          {{"prepare/source_commit", strings.Repeat("0", 64)}},
+		// F2c: a TS/JS fuzz harness run by Vitest or Jest (human decision Q2).
+		"TS/JS fuzz evidence": {{"evidence/3/runner", "jest_json"}, {"evidence/3/path", "web/swiftproof_fuzz_x1.test.ts"}, {"evidence/7/runner", "jest_json"}},
 		"legacy v0.2 report": {
 			{"intent_sha256", d}, {"intent_criteria", d}, {"policy", d}, {"prepare", d}, {"base_tests", d}, {"divergences", d},
 			{"intent_test_failures", d}, {"coverage", d}, {"mutation", d}, {"fuzz", d}, {"impact", d}, {"execution", d},
@@ -559,7 +561,8 @@ func schemaCases(t *testing.T) (valid, invalid map[string][]edit) {
 		"observation evidence without runner":           {{"evidence/2/status", StatusUnverified}, {"evidence/2/runner", d}},
 		"observation evidence status FAILS":             {{"evidence/2/status", StatusFailsOnCandidate}},
 		"fuzz evidence with two test names":             {{"evidence/3/test_names", []string{"A", "B"}}},
-		"fuzz evidence with the jest runner":            {{"evidence/3/runner", "jest_json"}},
+		"fuzz evidence with an unknown runner":          {{"evidence/3/runner", "vitest_json"}},
+		"fuzz evidence without runner":                  {{"evidence/3/runner", d}},
 		"fuzz evidence without base check":              {{"evidence/3/base_check_id", d}},
 		"base test evidence status NOT_DIVERGED":        {{"evidence/4/status", StatusNotDiverged}},
 		"base test evidence with two test names":        {{"evidence/4/test_names", []string{"A", "B"}}},

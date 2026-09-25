@@ -47,10 +47,23 @@ const (
 const (
 	budgetExhaustedText = "Sandbox runtime budget exhausted."
 	budgetReservedText  = "Sandbox runtime reserved for reviewer experiments."
-	// deadlineText names both limits a run context can carry: the overall
-	// --deadline and, for reviewer experiments, the reviewer time limit.
-	deadlineText = "Deadline reached before the run started (the overall --deadline or the reviewer time limit); the run was not started."
+	// deadlineText is recorded when the overall --deadline (context cause
+	// ErrOverallDeadline) expired before the run started.
+	deadlineText = "Overall deadline reached; the run was not started."
+	// callerDeadlineText is recorded when another time limit of the calling
+	// stage expired first, for example the reviewer time limit around a
+	// reviewer-requested experiment; it does not blame --deadline.
+	callerDeadlineText = "The time limit of the requesting stage (for example reviewer.timeout_seconds) expired before the run started; the run was not started."
 )
+
+// expiredText is the SKIPPED text of a run whose context deadline passed
+// before it started.
+func expiredText(ctx context.Context) string {
+	if errors.Is(context.Cause(ctx), ErrOverallDeadline) {
+		return deadlineText
+	}
+	return callerDeadlineText
+}
 
 // auditExecutionCache is the audit tool name of a replayed baseline run.
 const auditExecutionCache = model.AuditStagePrefix + "execution_cache"
@@ -111,7 +124,7 @@ func (h *Harness) runWithOptions(ctx context.Context, kind, dir string, command 
 	case dir == "":
 		c.Status, c.Output = "SKIPPED", "No baseline snapshot available."
 	case errors.Is(ctx.Err(), context.DeadlineExceeded):
-		c.Status, c.Output = "SKIPPED", deadlineText
+		c.Status, c.Output = "SKIPPED", expiredText(ctx)
 	default:
 		key = h.cacheKey(kind, dir, command, script, effective)
 		if key != "" && !o.live {
@@ -148,7 +161,8 @@ func (h *Harness) runWithOptions(ctx context.Context, kind, dir string, command 
 			c.Status = "TIMEOUT"
 		case result.Err != nil:
 			c.Status = "ERROR"
-			c.Output += "\n" + Redact(result.Err.Error())
+			// Redacted as a whole: two redacted parts can join into a new match.
+			c.Output = Redact(c.Output + "\n" + result.Err.Error())
 		case result.ExitCode == 0:
 			c.Status = "PASS"
 		case result.ExitCode >= 125:
@@ -167,7 +181,7 @@ func (h *Harness) runWithOptions(ctx context.Context, kind, dir string, command 
 	if c.Output != "" {
 		if err := h.saveArtifact(c.ID+".log", artifactKind, []byte(c.Output)); err != nil {
 			c.Status = "ERROR"
-			c.Output = truncateUTF8("Unable to retain check output: "+Redact(err.Error())+"\n"+c.Output, h.opts.MaxOutputBytes)
+			c.Output = truncateUTF8(Redact("Unable to retain check output: "+err.Error()+"\n"+c.Output), h.opts.MaxOutputBytes)
 		}
 	}
 	var data []byte
@@ -349,7 +363,7 @@ func (h *Harness) replay(kind string, command []string, key string, e CacheEntry
 	if c.Output != "" {
 		if err := h.saveArtifact(c.ID+".log", artifactKind, []byte(c.Output)); err != nil {
 			c.Status = "ERROR"
-			c.Output = truncateUTF8("Unable to retain check output: "+Redact(err.Error())+"\n"+c.Output, h.opts.MaxOutputBytes)
+			c.Output = truncateUTF8(Redact("Unable to retain check output: "+err.Error()+"\n"+c.Output), h.opts.MaxOutputBytes)
 		}
 	}
 	*ledger = append(*ledger, c)

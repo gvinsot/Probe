@@ -200,6 +200,64 @@ func TestReadBlobsLimitsAndErrors(t *testing.T) {
 	}
 }
 
+// streamBlobs hands each blob out as a reader limited to its size, drains what
+// the callback leaves unread so the next header stays aligned, and calls
+// framed only after the separator; Snapshot relies on it to copy blobs without
+// holding them in memory.
+func TestStreamBlobsDrainsPartialReads(t *testing.T) {
+	dir, r, plain, _ := treeFixture(t)
+	ctx := context.Background()
+	entries, err := r.Tree(ctx, plain)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var oids []string
+	for _, e := range entries {
+		oids = append(oids, e.OID)
+	}
+	var sizes []int64
+	var framed []string
+	err = r.streamBlobs(ctx, oids, 1<<20, func(oid string, size int64, content io.Reader) error {
+		sizes = append(sizes, size)
+		if len(sizes)%2 == 0 {
+			return nil // leave the whole blob unread
+		}
+		_, err := io.CopyN(io.Discard, content, size/2)
+		return err
+	}, func(oid string) error {
+		framed = append(framed, oid)
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Join(framed, ",") != strings.Join(oids, ",") || len(sizes) != len(entries) {
+		t.Fatalf("framed %v, want %v", framed, oids)
+	}
+	for i, e := range entries {
+		if sizes[i] != e.Size {
+			t.Errorf("%s: size %d, want %d", e.Path, sizes[i], e.Size)
+		}
+	}
+	// A reader that returns more than the blob would desynchronize the stream;
+	// the limited reader never yields a byte past the declared size.
+	first := entries[0]
+	want, err := os.ReadFile(filepath.Join(dir, filepath.FromSlash(first.Path)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = r.streamBlobs(ctx, []string{first.OID, first.OID}, 1<<20, func(oid string, size int64, content io.Reader) error {
+		got, err := io.ReadAll(content)
+		if err == nil && string(got) != string(want) {
+			err = fmt.Errorf("blob content %q, want %q", got, want)
+		}
+		return err
+	}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
 // legacySnapshot is Snapshot exactly as it was before it was rebuilt on Tree
 // and ReadBlobs (commit 27c014b). It is the oracle for the byte-for-byte test.
 func legacySnapshot(r *Repository, ctx context.Context, commit, dest string) error {

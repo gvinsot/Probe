@@ -219,8 +219,8 @@ func TestDeadlineReachedIsNotAnOperationalFailure(t *testing.T) {
 			t.Fatal("no check was recorded")
 		}
 		for _, c := range r.Checks {
-			if c.Status != "SKIPPED" {
-				t.Fatalf("check %s ran after the deadline: %s", c.ID, c.Status)
+			if c.Status != "SKIPPED" || !strings.HasPrefix(c.Output, "Overall deadline reached") {
+				t.Fatalf("check %s ran after the deadline: %s %q", c.ID, c.Status, c.Output)
 			}
 		}
 		found := false

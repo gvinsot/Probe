@@ -65,15 +65,16 @@ Budget rules:
 
 4. **Reviewer reserve.** When the reviewer will run, half of `sandbox.max_runtime_seconds` is reserved for its experiments: F3, F6, F2 and F4 use the ceiling `max_runtime_seconds − reserve`. The initial checks and coverage are not limited by the reserve, as in v0.3.
 5. **Parallelism** is confined to the initial checks (`--parallel`, 1..4). Each launch reserves its timeout per rule 2, in configured order, so the sum of in-flight timeouts never exceeds the remaining budget. Every other run is sequential.
-6. **`--deadline D`** (a Go duration from 1m to 24h) sets a stage deadline D − 30 s after the stages are set up, that is after the Git comparison and policy loading. The 30 s are kept for cleanup and writing the report.
-   - Preparation, sandbox runs and the reviewer observe it. Git comparison, static analysis and snapshots do not.
-   - When it is reached: running containers end as TIMEOUT (bounded forced removal); unstarted runs are recorded as SKIPPED "overall deadline reached"; the reviewer stops with its existing incomplete-investigation entry; the report gains the Unverified entry "The overall --deadline was reached; later stages did not run or were cut short."; and `execution.budget.deadline_reached` is true.
+6. **`--deadline D`** (a Go duration from 1m to 24h) sets a stage deadline at the start of the command plus D − 30 s. The 30 s are kept for cleanup and writing the report.
+   - Preparation, sandbox runs and the reviewer observe it. The Git comparison, policy loading, static analysis and snapshots are not interrupted by it, but the time they take counts against D.
+   - When it is reached: running containers end as TIMEOUT (bounded forced removal); unstarted runs are recorded as SKIPPED "Overall deadline reached; the run was not started."; the reviewer stops with its existing incomplete-investigation entry; the report gains the Unverified entry "The overall --deadline was reached; later stages did not run or were cut short."; and `execution.budget.deadline_reached` is true.
+   - A run whose context expired for another reason before it started, such as the reviewer time limit, is recorded as SKIPPED with a text that does not name `--deadline`.
    - Reaching the deadline never produces exit 4 by itself. Preparation is the exception: a preparation cut short fails, and failed preparation exits 4 (§5).
 7. **Worst-case wall clock.** Approximately `T ≈ Git + snapshots + prepare.timeout_seconds + S + reviewer.timeout_seconds + N_runs × 5 s + report write`.
    - S is the sandbox time spent before the reviewer. It never exceeds `sandbox.max_runtime_seconds`, and it exceeds `max_runtime_seconds − reserve` only when the initial checks and coverage alone use more.
    - The reviewer's own sandbox runs fall inside `reviewer.timeout_seconds`. Each run's container cleanup is bounded to 5 s.
    - With the defaults and a reviewer: 600 + 300 + 600 s plus overheads when the initial checks and coverage use less than 300 s, and at most 600 + 600 + 600 s plus overheads.
-   - With `--deadline D`: about D, plus up to 5 s of cleanup per run in flight, plus the Git comparison and snapshot time that the deadline does not interrupt.
+   - With `--deadline D`: at most D plus up to 5 s of cleanup per run in flight, unless the Git comparison, static analysis and snapshot export alone, which the deadline does not interrupt, take longer than D − 30 s.
 
 ## 2. Refinements of v0.2
 
@@ -84,7 +85,7 @@ This is the complete list. Every v0.2 MUST / MUST NOT that is not named here sta
 | R1 | §6 "Require a preloaded trusted Docker image; do not pull/build images from candidate instructions." and "Dependencies are prepared outside review." | When the **base-branch policy** has `prepare`, SwiftProof may derive a local image by running that command on inputs exported from the **base commit** and committing the container. It never pulls (`--pull=never`) and never builds from candidate content. Without `prepare`, the v0.2 rule applies verbatim. | F8 | Policy from `BaseRefCommit`; inputs from `BaseCommit` only; runs before any candidate code; key and label check before reuse; size cap; fail closed (exit 4); a candidate change to an input is a visible signal and Unverified entry. | F8 `TestDockerPrepareOfflineCommitAndReuse`; export-source test (HeadCommit content never exported); not_permitted and size-cap tests |
 | R2 | §6 "Run non-root with read-only root filesystem, dropped capabilities, no new privileges, and CPU/RAM/PID/time/output limits." | **The prepare container only** has a writable root filesystem. It may run as root when the policy says `user: root`, with a fixed minimal capability set, and has network only when the policy and `--allow-prepare-network` both enable it. Every other §6 limit applies to it. **Checks are unchanged.** | F8 | The profile in §F8: `--cap-drop=ALL` plus the fixed list for root, no-new-privileges, sandbox memory/CPU/PID limits, no host env, one read-only inputs mount, bounded log, `--pull=never`. Egress risk documented. | Golden argv test of the prepare profile; Docker test showing no network without the flag |
 | R3 | §6 "Each execution uses fresh disposable state." | With an explicit `--cache-dir`, a baseline-side run of byte-identical inputs may be **replayed** from recorded live executions. A replay never supports a positive status. It supports a negative status only after two agreeing live runs, and the report lists such conclusions. | F7 | Opt-in; key over tree, image ID, policy, docker argv, tool version (§F7); integrity re-check on read; directory outside repo and output, owner-only; contradiction evicts; no raw output persisted. | F0 live-confirmation test; F7 key, poisoning, integrity, contradiction and `replay_backed` tests |
-| R4 | §6 "A coverage run MAY return one coverage profile to the host as a length-declared framed payload…" | The same framed channel, with the same guarantees, also returns a Jest-compatible report (existing since TS support) and an F2 observation stream. There is at most one payload per run. Every recorded `Results` is a `Redact` fixed point, and the total is ≤ `ResultsBudget` (16 MiB) per report. | F0, F1, F2 | Framing, separate bound, artifact hash, fixed-point rule, overflow to artifact-only | F0 fixed-point and budget tests; F2 overflow test |
+| R4 | §6 "A coverage run MAY return one coverage profile to the host as a length-declared framed payload…" | The same framed channel, with the same guarantees, also returns a Jest-compatible report (existing since TS support) and an F2 observation stream (Go or TS/JS). There is at most one payload per run. Every recorded `Results` is a `Redact` fixed point, and the total is ≤ `ResultsBudget` (16 MiB) per report, of which candidate-side runs may use at most half. | F0, F1, F2 | Framing, separate bound, artifact hash, fixed-point rule, overflow to artifact-only, a baseline-side half that candidate output cannot use up | F0 fixed-point and budget tests; F2 overflow test |
 | R5 | §5 "Reference/symbol lookup is textual in this version." | Go lookups may use a static **syntactic** index built on the host from git objects, never executing repository code, and labelled approximate. The textual fallback remains. | F6 | No repository code runs; the approximate label; "empty is not absence" wording | F6 index tests; lexical fallback test |
 | R6 | §10 coverage "The command runs last…" | Coverage runs after test/typecheck/build and before every v0.4 stage and the reviewer. It still shares the same budget. | F0 | Stage order fixed in §1.3 | cli stage-order test |
 | R7 | §8 "`--checks=false` skips initial checks only" | `--checks=false` also disables the v0.4 deterministic stages: fuzz `disabled`, mutation `not_run`, and `--base-tests` / `--impacted-tests` rejected with exit 3. Reviewer-requested execution remains sandboxed. | F0 | Recorded statuses; the existing Unverified entry | flag tests; `record*Skipped` tests |
@@ -118,7 +119,7 @@ Only harness code creates evidence records. The schema's `evidence.runner` enum 
 | `source_observation` | v0.2 | none |
 | `differential_test` | v0.2 | `go_test_json` or `jest_json` |
 | `differential_observation` | F1 | `go_test_json` (Go `t.Attr`) or `jest_json` (Vitest meta in the Jest-compatible report) |
-| `differential_fuzz` | F2 | `go_test_json` for Go; see §F2 for TS/JS |
+| `differential_fuzz` | F2 | `go_test_json` for a Go harness; `jest_json` for a TS/JS harness run by Vitest or Jest, whose single payload is the observation stream (§F2) |
 | `base_test_differential` | F3 | `go_test_json` |
 | `impacted_test_differential` | F6 | `go_test_json` |
 | `intent_test` | F5 | `go_test_json` or `jest_json` |
@@ -222,7 +223,7 @@ A claimed hypothesis status is kept only when it is **valid** (at least one evid
 
 Anything else becomes `UNVERIFIED`. These never support any hypothesis status: `differential_observation` or `differential_fuzz` with `NOT_DIVERGED`; `base_test_differential`; `impacted_test_differential`; `intent_test` with `INTENT_TEST_PASSED`; and every signal, coverage record, mutant, impact record, cache record and prepare record.
 
-A stored evidence status counts only when a verifier re-derives the same status from the recorded checks. Missing or duplicated checks or evidence make a record unverifiable. When two verifiers disagree on an ID, the ID is removed. A `NOT_REPRODUCED` that the verifier re-derived for a generated test is also withdrawn when the same candidate check's observation record holds a key recorded on both sides with different full values, whatever that record's own status (§F1).
+A stored evidence status counts only when a verifier re-derives the same status from the recorded checks. Missing or duplicated checks or evidence make a record unverifiable. When two verifiers disagree on an ID, the ID is removed. A `differential_test` record whose test names or test path would be changed by redaction, or contain the redaction marker, supports nothing, because a re-rendered report could select different results with them; a high `REPRODUCED` claim resting only on such a record therefore requests review instead of producing exit 1. A `DIVERGED` claim is kept only when a cited record is listed in `divergences`, so the Investigation Summary and Behavior Divergences never disagree. A `NOT_REPRODUCED` that the verifier re-derived for a generated test is also withdrawn when the same candidate check's observation record holds a key recorded on both sides with different full values, whatever that record's own status (§F1).
 
 ### 4.3 Export classes
 
@@ -284,6 +285,8 @@ Precedence:
 | Invalid flag combination (§6.5), unknown format, bad `--report-url`, invalid policy key value | 3 | 3 |
 | Report write failure | 4 | 4 |
 
+The log of a candidate-side v0.4 check (`fuzz_candidate`, `fuzz_candidate_confirm`, `base_test_hybrid`, `impacted_test_candidate`, and the mutation ledger's `mutation_control` and `mutant`) is written by candidate code, so its text never makes the check ERROR: such a check is ERROR only for an infrastructure cause (a Docker or executor error, exit code 125 or above, a lost log artifact), and a compile, setup or run failure stays FAIL. The inherited v0.2 log-text rules (a recognized setup failure of a generated test, a `fork/exec` failure line) still apply to the v0.2 kinds, to `generated_test_intent` and to the baseline-side kinds.
+
 ## 6. Report fields and section order
 
 ### 6.1 JSON
@@ -327,7 +330,8 @@ Headings are exact:
 7. `## Changed Baseline Tests on Candidate Code`, only when `base_tests` is present
 8. `## Behavior Divergences`, **always rendered**:
    - with no observation or fuzz evidence: "No observation or fuzz experiment was recorded."
-   - with such evidence but no divergence: "No recorded experiment diverged. Where values were compared, they were equal for the recorded inputs; values are bounded, redacted serializations, and this does not establish equivalent behavior, even for those inputs."
+   - with such evidence, no divergence, and every such record re-derived as `NOT_DIVERGED`: "No recorded experiment diverged. Where values were compared, they were equal for the recorded inputs; values are bounded, redacted serializations, and this does not establish equivalent behavior, even for those inputs."
+   - with such evidence, no divergence, and at least one such record not re-derived as `NOT_DIVERGED` (unverified, unstable or incomparable values, or a stored status the recorded checks do not support): "No validated divergence was recorded. N of M observation or fuzz records are inconclusive or were not accepted as evidence (see Recorded Evidence), so nothing is said about their values; this does not establish equivalent behavior."
    - otherwise one entry per divergence, up to 20 value rows each ("… N more in confidence-report.json"), then the note once.
 9. `## Intent Test Failures` and `## Intent Criteria`, only when an intent, criteria or failures exist
 10. `## Unverified Areas`
@@ -337,7 +341,7 @@ Headings are exact:
 14. `## Mutation of Added Lines`, only when `mutation` is present; killed mutants are counted, never listed
 15. `## Differential Fuzzing`, only when `fuzz` is present; it summarizes outcomes and points to Behavior Divergences for the values
 16. `## Impact Analysis`, only when `impact` is present
-17. `## Recorded Evidence`: an `intent_test` record prints "Candidate check: X (candidate-only; no baseline control)"; a `base_test_differential` record prints "Hybrid-tree check: X; baseline check: Y"; a record with a repeat check adds "; baseline repeat: Z"
+17. `## Recorded Evidence`: an `intent_test` record prints "Candidate check: X (candidate-only; no baseline control)"; a `base_test_differential` record prints "Hybrid-tree check: X; baseline check: Y"; a record with a repeat check adds "; baseline repeat: Z". A stored status other than `UNVERIFIED` that `Finalize` did not re-derive from the recorded checks (or withdrew) is followed by "; as stored; not accepted as evidence".
 18. `## Artifacts`, then the attribution
 
 `intent_judgment` is rendered only after the hypothesis's evidence line, with the fixed label "Model judgment (not evidence): expected change | unexpected change". Every repository or model string goes through the inline escaper, with no code spans and no links.
@@ -369,7 +373,7 @@ An execution-only flag (`--base-tests`, `--fuzz`, `--impacted-tests`, `--cache-d
 
 ### 6.6 Finalize
 
-`Finalize` re-derives every status from recorded checks, in both `review` and `report`. Section finalizers may change only their own section and never set the exit code. Running `Finalize` twice, or `Write` → decode → `Finalize`, MUST yield byte-identical JSON; every recorded `results` value is therefore a fixed point of redaction.
+`Finalize` re-derives every status from recorded checks, in both `review` and `report`. Section finalizers may change only their own section and never set the exit code. Running `Finalize` twice, or `Write` → decode → `Finalize`, MUST yield byte-identical JSON; every recorded `results` value is therefore a fixed point of redaction. Redaction itself is applied repeatedly until the text no longer changes (a single v0.2 pass could leave text that a second pass would still change); text that would need more than 8 changing passes, which only adversarially nested input does, is replaced as a whole by the redaction marker, keeping its line breaks. `reproduced_issues` and `intent_test_failures` copy a hypothesis only after its intent link is normalized, so each copy equals its hypothesis.
 
 ## 7. Release ordering
 

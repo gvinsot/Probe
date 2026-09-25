@@ -86,7 +86,35 @@ func validMode(mode string) bool {
 // is read; callers that want to skip large files filter on TreeEntry.Size
 // first. data is only valid during the call: fn must copy it to keep it. An
 // error from fn stops the stream and is returned unchanged.
+//
+// Each blob is held in memory while fn runs, so peak memory is the largest
+// blob read (at most limit bytes). Snapshot, which only copies blobs to disk,
+// uses the same stream without buffering whole blobs (streamBlobs).
 func (r *Repository) ReadBlobs(ctx context.Context, oids []string, limit int64, fn func(oid string, data []byte) error) error {
+	if limit < 0 {
+		return errors.New("ReadBlobs requires a non-negative size limit")
+	}
+	var buffer, data []byte
+	return r.streamBlobs(ctx, oids, limit, func(oid string, size int64, content io.Reader) error {
+		if int64(cap(buffer)) < size {
+			buffer = make([]byte, size)
+		}
+		data = buffer[:size]
+		_, err := io.ReadFull(content, data)
+		return err
+	}, func(oid string) error {
+		return fn(oid, data)
+	})
+}
+
+// streamBlobs is the one `git cat-file --batch` reader behind ReadBlobs and
+// Snapshot. For each oid, in order, it checks the stream header (object ID,
+// type blob, size at most limit, else ErrLimit before any content is read) and
+// calls read with a reader limited to exactly that blob's content. Content
+// read leaves unread is drained; a stream that ends early fails. After the
+// blob's separator is validated it calls framed, when not nil. An error from
+// read or framed stops the stream and is returned unchanged.
+func (r *Repository) streamBlobs(ctx context.Context, oids []string, limit int64, read func(oid string, size int64, content io.Reader) error, framed func(oid string) error) error {
 	if limit < 0 {
 		return errors.New("ReadBlobs requires a non-negative size limit")
 	}
@@ -122,7 +150,6 @@ func (r *Repository) ReadBlobs(ctx context.Context, oids []string, limit int64, 
 		}
 	}()
 	reader := newBlobReader(stdout)
-	var buffer []byte
 	for _, oid := range oids {
 		size, readErr := reader.header(oid)
 		if readErr != nil {
@@ -134,21 +161,33 @@ func (r *Repository) ReadBlobs(ctx context.Context, oids []string, limit int64, 
 		if size > limit {
 			return fmt.Errorf("blob %s: %w", oid, ErrLimit)
 		}
-		if int64(cap(buffer)) < size {
-			buffer = make([]byte, size)
-		}
-		data := buffer[:size]
-		if _, err = io.ReadFull(reader, data); err != nil {
+		content := &io.LimitedReader{R: reader, N: size}
+		if err = read(oid, size, content); err != nil {
 			if ctx.Err() != nil {
 				return ctx.Err()
 			}
 			return err
 		}
+		// Drain what read left, so the stream stays aligned on the separator.
+		if _, err = io.Copy(io.Discard, content); err != nil {
+			if ctx.Err() != nil {
+				return ctx.Err()
+			}
+			return err
+		}
+		if content.N != 0 {
+			if ctx.Err() != nil {
+				return ctx.Err()
+			}
+			return io.ErrUnexpectedEOF
+		}
 		if err = reader.separator(); err != nil {
 			return err
 		}
-		if err = fn(oid, data); err != nil {
-			return err
+		if framed != nil {
+			if err = framed(oid); err != nil {
+				return err
+			}
 		}
 	}
 	err = c.Wait()

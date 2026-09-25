@@ -13,9 +13,17 @@ import (
 
 // ResultsBudget bounds the total size of Check.Results over both check ledgers
 // of one harness (one report). A capture whose normalized results would exceed
-// what remains follows its consumer's overflow rule: the results are kept only
-// as a hashed artifact, never silently dropped or cut.
+// what remains for its side (resultsRemainingFor) follows its consumer's
+// overflow rule: the results are kept only as a hashed artifact, never silently
+// dropped or cut.
 const ResultsBudget = 16 << 20
+
+// ErrOverallDeadline is the cancellation cause of the context that the overall
+// --deadline bounds (cli sets it with context.WithDeadlineCause). A run whose
+// context expired before it started is recorded as SKIPPED with a text that
+// names the overall deadline only when this is the cause; any other expired
+// deadline, such as the reviewer time limit, gets a neutral text.
+var ErrOverallDeadline = errors.New("overall --deadline reached")
 
 // stageEphemeral writes content at rel under root with O_EXCL, creating missing
 // directories; cleanup removes the file then the directories it created, deepest first.

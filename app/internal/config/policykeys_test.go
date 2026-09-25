@@ -39,7 +39,7 @@ func TestReleaseOrderedKeysRoundTrip(t *testing.T) {
 	c := Default("go")
 	c.Fuzz = &Fuzz{MaxInputs: 16}
 	c.Mutation = &Mutation{Command: []string{"go", "test", "-json", "{package}"}, MaxMutants: 5, TimeoutSeconds: 30, MaxRuntimeSeconds: 120}
-	c.Prepare = &Prepare{Command: []string{"go", "mod", "download"}, Inputs: []string{"go.mod", "go.sum"}, Env: map[string]string{"GOFLAGS": "-mod=mod"}}
+	c.Prepare = &Prepare{Command: []string{"go", "mod", "download"}, Inputs: []string{"go.mod", "go.sum"}, Env: map[string]string{"GOMODCACHE": "/opt/gomod"}}
 	b, err := json.Marshal(c)
 	if err != nil {
 		t.Fatal(err)
@@ -48,7 +48,7 @@ func TestReleaseOrderedKeysRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("configured policy rejected: %v", err)
 	}
-	if got.Fuzz == nil || got.Fuzz.MaxInputs != 16 || got.Mutation == nil || got.Mutation.MaxMutants != 5 || got.Prepare == nil || got.Prepare.Env["GOFLAGS"] != "-mod=mod" {
+	if got.Fuzz == nil || got.Fuzz.MaxInputs != 16 || got.Mutation == nil || got.Mutation.MaxMutants != 5 || got.Prepare == nil || got.Prepare.Env["GOMODCACHE"] != "/opt/gomod" {
 		t.Fatalf("round trip lost a key: %+v %+v %+v", got.Fuzz, got.Mutation, got.Prepare)
 	}
 	var nilFuzz *Fuzz

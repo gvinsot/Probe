@@ -15,9 +15,11 @@ import (
 
 // runBaseTests runs the baseline versions of changed Go tests on candidate
 // code (--base-tests). It returns true on an operational failure. The stub
-// records not_run.
+// records not_run, and an Unverified line so that the review request it causes
+// under --ci has a visible reason.
 func runBaseTests(ctx context.Context, repo *gitrepo.Repository, change model.Change, h *harness.Harness, r *model.Report, errOut io.Writer) (operational bool) {
 	r.BaseTests = baseTestsSection(model.BaseTestsNotRun, "not implemented in this build")
+	r.Unverified = append(r.Unverified, "Baseline versions of changed tests did not run: not implemented in this build")
 	return false
 }
 

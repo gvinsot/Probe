@@ -14,12 +14,14 @@ import (
 )
 
 // runFuzz runs differential fuzzing of changed Go functions when the policy has
-// fuzz and --fuzz is not false. The stub records not_run.
+// fuzz and --fuzz is not false. The stub records not_run, and an Unverified
+// line so that the review request it causes under --ci has a visible reason.
 func runFuzz(ctx context.Context, h *harness.Harness, cfg config.Config, change model.Change, baseDir, candidateDir string, r *model.Report, enabled bool, errOut io.Writer) {
 	if cfg.Fuzz == nil || !enabled {
 		return
 	}
 	r.Fuzz = fuzzSection(cfg, model.FuzzNotRun, "differential fuzzing is not implemented in this build")
+	r.Unverified = append(r.Unverified, "Differential fuzzing did not run: not implemented in this build")
 }
 
 // fuzzSection builds a fuzz section with no function results.

@@ -357,7 +357,8 @@ func (r *Repository) ReadFile(ctx context.Context, commit, file string) ([]byte,
 // Snapshot exports regular tracked files into an empty directory. Symlinks and
 // submodules are rejected, as are files >512 MiB and snapshots >2 GiB. Git archive
 // export-ignore/export-subst attributes are deliberately bypassed via tree blobs.
-// It lists the commit with Tree and streams the blobs with ReadBlobs.
+// It lists the commit with Tree and streams the blobs to disk through the
+// reader behind ReadBlobs, one bounded copy at a time.
 func (r *Repository) Snapshot(ctx context.Context, commit, dest string) error {
 	if !validObjectID(commit) {
 		return errors.New("Snapshot requires a resolved commit identifier")
@@ -422,11 +423,13 @@ func (r *Repository) Snapshot(ctx context.Context, commit, dest string) error {
 		total += e.size
 		oids[i] = e.oid
 	}
+	// Each blob is copied from the stream to its file without being held in
+	// memory as a whole, so memory use does not grow with file size.
 	next := 0
-	err = r.ReadBlobs(ctx, oids, maxSnapshotFile, func(oid string, data []byte) error {
+	err = r.streamBlobs(ctx, oids, maxSnapshotFile, func(oid string, size int64, content io.Reader) error {
 		e := entries[next]
 		next++
-		if oid != e.oid || int64(len(data)) != e.size {
+		if oid != e.oid || size != e.size {
 			return errors.New("Git blob stream does not match the tree listing")
 		}
 		target := filepath.Join(abs, filepath.FromSlash(e.name))
@@ -441,13 +444,13 @@ func (r *Repository) Snapshot(ctx context.Context, commit, dest string) error {
 		if err != nil {
 			return err
 		}
-		_, writeErr := f.Write(data)
+		_, copyErr := io.CopyN(f, content, size)
 		closeErr := f.Close()
-		if writeErr != nil {
-			return writeErr
+		if copyErr != nil {
+			return copyErr
 		}
 		return closeErr
-	})
+	}, nil)
 	if err != nil && ctx.Err() != nil {
 		return ctx.Err()
 	}
