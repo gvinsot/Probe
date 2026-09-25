@@ -118,3 +118,22 @@ The hybrid tree is assembled on the host from the already sanitized snapshots: s
 - Test files excluded by a build constraint in the sandbox do not run and stay `UNVERIFIED`.
 - Only the test's own package directory is reverted: helper packages, `go.mod` and `testdata` elsewhere stay the candidate's, and a failure may come from any of them.
 - Benchmarks, examples and fuzz targets are not selected.
+
+## Example
+
+From a real run (Windows binary, `golang:1.26-bookworm`, 2026-09-26; see [validation](VALIDATION.md)). The candidate drops the upper bound of `Clamp`, loosens `TestClampUpper` from `got != 10` to `got < 10`, moves `TestClampInside` to a new file `extra_test.go`, and adds a skipped `TestLater`. The candidate's own `go test ./...` passes. With `review --base-tests --reviewer=false --ci` the run exits 2 and prints:
+
+```text
+Changed baseline tests on candidate code: 1 FAILS_ON_CANDIDATE, 1 PASSES_ON_CANDIDATE, 0 UNVERIFIED (a failure is a behavior change for a human to judge, not a reproduced issue; see base_tests).
+```
+
+The checks are `test` PASS, then `base_test_base` PASS and `base_test_hybrid` FAIL for `go test . -json -count=1 -run ^(TestClampInside|TestClampUpper)$`, then, because `TestClampInside` passed inside that failed hybrid run, `base_test_base` PASS and `base_test_hybrid` PASS for `-run ^(TestClampInside)$`. The Markdown section reads:
+
+```markdown
+2 baseline versions of changed Go tests selected: 1 FAILS\_ON\_CANDIDATE, 1 PASSES\_ON\_CANDIDATE, 0 UNVERIFIED.
+
+- **FAILS\_ON\_CANDIDATE** TestClampUpper — clamp\_test.go:11–15 (modified by the change); edited version at clamp\_test.go:12–16. It passed on the baseline tree and failed on the candidate tree with its package's test files reverted to the baseline (baseline check check-2, hybrid-tree check check-3); evidence-1. A human decides whether this behavior change is intended.
+- **PASSES\_ON\_CANDIDATE** TestClampInside — clamp\_test.go:17–21 (removed by the change). It passed on the baseline tree and on the candidate tree with its package's test files reverted to the baseline (baseline check check-4, hybrid-tree check check-5); evidence-2.
+```
+
+The same run records `test_expectation_relaxed` and `test_skip_added` (new side) and `test_assertion_removed` (old side) on `clamp_test.go`, and high review targets on both versions of `TestClampUpper`. When the candidate instead renames `Clamp` to `Limit` and updates its tests, the three selected tests are `UNVERIFIED` ("the candidate-side package did not build or set up, so the test did not run"), the hybrid check is FAIL rather than ERROR, and the run exits 2, not 4.

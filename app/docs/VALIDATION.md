@@ -99,6 +99,19 @@ The three entries below record the runs that the F0a, F0b and F0d implementers r
 <!-- F2:end -->
 
 <!-- F3:begin -->
+**2026-09-26, changed baseline tests (F3).** Windows 11 Pro amd64 host (8 CPUs, shared with other concurrent Docker work), Docker Engine 28.4.0, `golang:1.26-bookworm` (image `sha256:a688600ca24f8a4d3ca77f95b0dd40704a9fc787c826660eb7ba0b641b8b175d`) and `golang:1.23-bookworm` (go1.23.12). Branch `feat/f3-base-tests` at `4106be3`, started from `5c0ad17`.
+
+- From `app/`: `go vet ./...` and `go test -count=1 ./...` exit 0 in `golang:1.26-bookworm`; `CGO_ENABLED=1 go test -race` of `suites`, `harness`, `report`, `linter` and `cli` exits 0. From `hub/`: `go vet ./...` and `go test -count=1 ./...` exit 0. In `golang:1.23-bookworm`: `go vet ./...` and the `suites`, `harness`, `report`, `linter`, `cli` and `model` tests exit 0.
+- Windows amd64 test binaries with `SWIFTPROOF_TEST_DOCKER_IMAGE=golang:1.26-bookworm`: `TestDockerBaseTestsRealGo` (harness; containers it launched checked by name afterwards, none left) and `TestDockerBaseTestsEndToEnd` (cli; scenarios A and B below) pass, as do the other harness and cli Docker tests.
+- A Windows binary built from `4106be3` (`-X main.version=F3-e2e`) on scratch fixtures, with policies passed by `--config` (commands `test` and `generated_test`) and `TMP` pointed at a scratch directory:
+  - A (the candidate drops the upper bound of `Clamp`, loosens `TestClampUpper`, moves `TestClampInside` to a new `extra_test.go`, adds a comment inside `TestClampNegative` and a skipped `TestLater`), `review --base-tests --reviewer=false --ci`: exit 2. `test` PASS. `base_tests` `ran` with two tests: `TestClampUpper` (`modified`) `FAILS_ON_CANDIDATE` from `base_test_base` PASS and `base_test_hybrid` FAIL under one command; `TestClampInside` (`removed`) `PASSES_ON_CANDIDATE` from a run pair of its own after passing inside that failed hybrid run. `TestClampNegative` was not selected. Signals `test_expectation_relaxed`, `test_skip_added` and `test_assertion_removed` on `clamp_test.go`; high review targets on both versions of `TestClampUpper`. Without `--ci`: exit 0, same results.
+  - B (the candidate renames `Clamp` to `Limit` and updates its tests): exit 2, not 4. The three selected tests are `UNVERIFIED` ("the candidate-side package did not build or set up, so the test did not run"); the `base_test_hybrid` check is FAIL, and no check is ERROR.
+  - C (scenario A without `--base-tests`): exit 2, no `base_tests` object and no `base_test_*` check. The published v0.2.0 binary on the same fixture and policy also exits 2 (a high `public_api_change` signal in both).
+  - D: `lint --base-tests` and `review --base-tests --checks=false` exit 3 and write no report directory.
+  - E (`generated_test` is `["go", "test", "./..."]`): exit 2; `base_tests` `not_run` with the template reason; no `base_test_*` check.
+  - F (`max_runtime_seconds` 1): exit 2, not 4. `test` TIMEOUT; `base_test_base` SKIPPED ("Sandbox runtime budget exhausted."); `base_tests` `not_run` ("no run started: Sandbox runtime budget exhausted.").
+  - After every scenario the fixture checkout was clean, no harness directory was left in the scratch temporary directory, and no container with a mount under it remained. `swiftproof report` re-rendered all six reports byte-identically, and all six JSON reports validate against the schema (`TestSchemaValidatesReportFiles`).
+  - Each base-test run took 6 to 17 s on this host (the Go build cache starts empty in every sandbox run).
 <!-- F3:end -->
 
 <!-- F4:begin -->
