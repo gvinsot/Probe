@@ -96,6 +96,12 @@ The three entries below record the runs that the F0a, F0b and F0d implementers r
 <!-- F1:end -->
 
 <!-- F2:begin -->
+**2026-09-26, differential fuzzing core (F2a).** Windows 11 Pro host, Docker Engine 28.4.0, `golang:1.26-bookworm` and `golang:1.23-bookworm` (go1.23.12). Scope: the new `internal/fuzz` package (selection, seeded corpus, harness rendering, stream normalization, comparison, and the orchestration against a runner interface). The fuzz stage of the CLI is still the F0 stub; the harness, report and CLI wiring come with the rest of F2.
+
+- From `app/`: `go vet ./...` and `go test -count=1 ./...` exit 0 in `golang:1.26-bookworm`, and `CGO_ENABLED=1 go test -race ./internal/fuzz/` exits 0. From `hub/`: `go vet ./...` and `go test ./...` exit 0. In `golang:1.23-bookworm`: `go vet ./...` and the `fuzz`, `harness` and `linter` tests exit 0.
+- `TestGeneratedHarnessCompilesAndObserves` passed in both images. Rendered harnesses compile and run with the go tool in a module that declares `go 1.13`. Their streams record a divide-by-zero panic, a slice sorted in place, NaN, -0 and 0 as three values, nil and empty slices apart, error messages, a pointer cycle, a timeout followed by a poisoned function, and a process exit mid-function followed by a function that never started.
+- A Windows amd64 test binary with `SWIFTPROOF_TEST_DOCKER_IMAGE=golang:1.26-bookworm`: `TestDockerFuzzCalcFixture` passed in 94 s. It ran four containers with the sandbox isolation flags, 20.7 s to 26.6 s each. Percent diverged at `Percent(0, 0)` (`int(0)` against `panic(error("runtime error: integer divide by zero"))`); Discount diverged at `Discount(Cents(1000))` (`calc.Cents(900)` against `calc.Cents(1000)`); Join was not_diverged; Stamp was inconclusive (64 of 64 inputs unstable); Halt was inconclusive ("the candidate process ended while evaluating input 5: Halt(7)"). The harness file was removed from both snapshots, and no container of the test remained.
+- A Windows binary built from the branch (`-X main.version=F2a-e2e`), on a two-commit calc fixture with a policy containing `"fuzz": {}`: `review --reviewer=false --ci` exited 2 in 84 s. Test, typecheck, build and coverage PASS; `fuzz.status` was `not_run` with "differential fuzzing is not implemented in this build", the F0 stub. The checkout stayed clean. A second run with a private temporary directory left no container and no temporary file of its own, and `swiftproof report` re-rendered both files byte-identically.
 <!-- F2:end -->
 
 <!-- F3:begin -->

@@ -50,6 +50,13 @@ Models still create no evidence. A model may propose hypotheses, write tests and
 <!-- F6:end -->
 
 <!-- F2:begin -->
+### Differential fuzzing (F2)
+
+- **Host side.** Selection and rendering only parse and print Go source (`go/parser`, `go/format`, and `go/build.MatchFile` over in-memory files). No repository code runs on the host. Repository code runs only through the check sandbox, with the reviewed `generated_test` command; fuzzing adds no mount, volume, Docker flag, environment variable or command key.
+- **Harness integrity.** The harness file is rendered from fixed template text, `strconv` literals and identifiers that the package declares, each re-checked as an identifier. Every identifier the file declares carries a suffix drawn at random for each run, so code under review cannot declare a colliding name in advance. The file is written without overwriting anything on both revisions, runs byte-identical on both, and is removed afterwards.
+- **Observation stream.** Each revision writes its own stream from inside its own process. Code under review can therefore suppress, pad or fabricate the observations of its own revision: it can hide a divergence, or show one that is itself behavior of the candidate. It cannot write the baseline's stream or change the comparison. The host accepts a stream only when every line is the byte-exact canonical form of one record in the expected order, and rejects the whole stream otherwise. It keeps only redacted display cuts of at most 256 bytes and compares SHA-256 hashes computed in the sandbox, so redaction never changes a comparison; the stored stream must be unchanged by redaction. The report therefore holds hashes of values that the code under review returned.
+- **Derived outcomes.** Every outcome is derived only from the recorded checks (status, log and normalized stream) by one comparison. A stream, log, command or check kind edited in a saved report gives a different outcome, or an inconclusive one, when the outcome is derived again. Reports stay unsigned: a consistent forgery of the whole JSON remains possible.
+- **Models** cannot start, parameterize or read a fuzz run before its evidence exists. No reviewer tool starts one.
 <!-- F2:end -->
 
 <!-- F4:begin -->

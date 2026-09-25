@@ -449,6 +449,74 @@ A generated test may record values instead of asserting them: Go through `testin
 Opt-in through the `fuzz` policy object, review only; `--fuzz=false` disables it for a run. Changed package-level Go functions whose signature is unchanged and whose parameters can be generated run on identical seeded inputs (seed scheme `swiftproof-fuzz/v1`) on both revisions, with one confirmation pair when the first pair differs. No model is involved. TS/JS support follows §1.2 decision 2 and the rules below. Evidence kind `differential_fuzz`; check kinds `fuzz_base`, `fuzz_candidate`, `fuzz_base_confirm` and `fuzz_candidate_confirm`.
 
 <!-- F2:begin -->
+### F2.1 Selection (Go)
+
+Selection MUST only parse the baseline and candidate snapshots on the host (`go/parser`, and `go/build.MatchFile` over in-memory files). It MUST NOT execute repository code. It reads at most 1,000 Go files per package directory and revision, 2 MiB per file and 32 MiB per directory. A bound that is hit, or a file that does not parse, MUST become a skip reason, never a silent drop.
+
+A **changed function** is a package-level function declared in a changed non-test `.go` file (status modified, added, or renamed within its directory), outside `testdata`, `vendor` and directories the go tool ignores, whose body token digest differs between the revisions. The digest ignores comments, layout and the semicolons the scanner inserts at line ends. A function that exists on one revision only, or whose body digest is unchanged, is not rewritten and is not listed.
+
+A changed function is planned only when every rule below holds. Otherwise `fuzz.skipped` lists it with the reason of the first rule that fails:
+
+| Rule | Skip reason |
+| --- | --- |
+| No receiver | methods are not fuzzed in this version |
+| No type parameters on either revision | generic functions are not fuzzed in this version |
+| Declared once in its package on each revision | function is declared more than once in the package |
+| A Go body on both revisions | function has no Go body on one revision |
+| On both revisions, its file has no `//go:build` or `// +build` line and its name builds on linux/amd64 and linux/arm64 | file has build constraints |
+| No file of the package imports `"C"` | package uses cgo |
+| One package clause per revision, the same on both | package has more than one package clause; package name differs between revisions |
+| No package-level declaration of the package, test files included, reuses a predeclared identifier | predeclared identifier shadowed |
+| Identical types-only signature text on both revisions | signature changed |
+| Every parameter type is generated | parameter type T is not generated in this version; named type T differs between revisions |
+
+File-level reasons (line 0): sensitive path excluded from the sandbox; file moved to another directory; file is not in the candidate snapshot; package could not be read within the selection bounds.
+
+**Generated parameter types:** `bool`, `string`, `int`, `int8` to `int64`, `rune`, `uint`, `uint8` to `uint64`, `byte`, `float32` and `float64`; a package-local named type or alias whose underlying type is one of them and whose declaration prints identically on both revisions; and `[]E`, `[N]E` (decimal `N` from 0 to 16) and `...E` of those. `int` and `uint` are 64-bit, as on the sandbox platforms linux/amd64 and linux/arm64. Maps, pointers, structs, interfaces, functions, channels, complex numbers, `uintptr`, qualified types such as `time.Duration`, and nested composites are not generated.
+
+**Order and budget.** Functions are ordered by the highest severity of the new-side signals overlapping them, then exported before unexported, then path and line. Packages are taken in the order of their best function up to `max_packages`, then functions up to `max_functions`. The rest are skipped with "fuzz budget reached (max_packages)" or "fuzz budget reached (max_functions)". One package run plans at most 1,024 inputs: each function gets `min(max_inputs, 1024 / functions of the package)`, and a function without parameters gets exactly one.
+
+### F2.2 Seeded corpus
+
+- The seed of a function MUST be the first eight bytes, big-endian, of SHA-256 over `swiftproof-fuzz/v1`, NUL, the package directory, NUL, the function name, NUL and the signature text. It MUST NOT depend on commits, file paths, run identifiers or time, so the inputs stay the same across updates of a pull request.
+- The generator is SplitMix64, implemented by SwiftProof rather than taken from `math/rand`, so the corpus does not change with the Go version. Any change to the corpus MUST come with a new seed scheme.
+- Order: first, every parameter at its first edge value. Then each parameter runs through its other edge values while the others stay at their first. Then seeded random inputs follow: each value is an edge value or a random value with equal probability; strings have at most 64 bytes, from a biased alphabet with occasional multibyte characters, control characters and invalid UTF-8; slices have 0 to 8 elements and are nil one time in ten.
+- Edge values: for integers, 0, 1, -1, 2, -2, 7, 10, 100, -100, 255, 256, 1000, 65535, the 32-bit bounds, and each kind's minimum, maximum and their neighbours; for runes also letters, a multibyte rune, U+10FFFF, a surrogate and 0x110000; for floats also 0.5, 0.1, 1e-9, 1e6, the largest and smallest magnitudes, both infinities, NaN and negative zero; for strings the empty string, spaces, separators, a newline, a tab, NUL, multibyte text, a right-to-left override, an invalid byte, `../` and 64 bytes; for slices nil, empty, one element, two elements in both orders, a repeated element, and four elements ascending and descending; for arrays the zero value and the first edge values in both orders.
+- Inputs are deduplicated by their call text, for example `Discount(Cents(1000))`. An input whose call text redaction would alter is dropped, so every call is a stable observation key that redaction leaves unchanged.
+
+### F2.3 Observation harness
+
+- One internal `_test.go` file per package, `<dir>/swiftproof_fuzz_<suffix>_test.go`, is rendered on the host. `<suffix>` is 16 hexadecimal digits drawn at random for each run. Every import name, package-level identifier and test-function local of the file starts with `swiftproofFuzz<suffix>`, and the tests are named `TestSwiftProofFuzz_<suffix>_<n>`, so code under review cannot declare a colliding identifier in advance. Rendering MUST refuse an identifier that the package declares on either revision, and then draws a new suffix.
+- The only repository-derived text in the file is the package name, the function names and the named parameter types, each re-checked as an identifier the package declares. Literals are produced by `strconv`. The file MUST NOT use `fmt`, and MUST compile with the language features of Go 1.13.
+- The harness MUST NOT assert anything. Its tests pass unless the observation file cannot be written.
+- For every input, each function is evaluated twice with fresh arguments, each evaluation in its own goroutine and bounded by `call_timeout_ms`. The canonical encoding of an evaluation records the results, a recovered panic as `panic(...)`, and each slice argument after the call. Results carry a type prefix; numbers use `strconv` forms that keep NaN, the infinities and negative zero apart; nil stays distinct from empty; maps are sorted by encoded key; struct fields are read in order through reflection, unexported ones included; pointers are followed with a cycle marker and never printed as addresses; and errors are encoded as their messages. The encoding is bounded to 64 KiB, depth 16 and 1,024 elements per container, and a record says when a bound was reached.
+- An evaluation that exceeds `call_timeout_ms` ends the function with a `timeout` stop and poisons the process: later functions record only a `poisoned` stop. A `runtime.Goexit`, or a panic outside the called function, ends the function with a `goexit` or `abort` stop.
+- The same file runs on both revisions and in the confirmation pair.
+
+### F2.4 Observation stream
+
+- The harness appends one JSON line per record to `/tmp/swiftproof-observations.jsonl`, which returns on the framed payload channel (R4). A `begin` record carries the planned count. One `obs` record per input carries its index, the SHA-256 and byte length of the full encoding, a display cut of at most 256 bytes of valid UTF-8 (smaller when the payload budget requires it), and three flags: panicked, unstable (the two evaluations differed) and truncated. A `stop` record carries its reason. An `end` record repeats the count.
+- Validation MUST be all-or-nothing. Every line MUST be the byte-exact canonical form of one record. Functions MUST appear in harness order, each opening with a `begin` of its planned count. Indices MUST be consecutive from 0, and nothing may follow a function's `end` or `stop`. After a `timeout`, later functions may only record `poisoned`. Any violation rejects the whole stream.
+- The normalized stream stored in `Check.Results` gives, per function, its state: `complete`, `stopped`, `interrupted` (the records end without an `end` or `stop`, so the process ended) or `not_started`. It also gives the stop reason and the input being evaluated when the function ended. Per record, it gives the host-rendered call, the hash, the length, the redacted display and the flags. It MUST be canonical JSON and unchanged by redaction; otherwise it is rejected. Redaction changes displays only: comparisons use the hashes computed in the sandbox.
+
+### F2.5 Comparison and outcomes
+
+- The records of a run MAY be used for a function only when all of these hold: the check is PASS with exit code 0, or FAIL with exit code 1 to 124; its log is not truncated; the log records exactly one run and one pass of that function's test, in one package; and its stream parses and plans the same number of inputs. A FAIL check still supports the functions whose tests passed before its process ended. The checks used for one function MUST share one recorded command and one package, and their streams MUST describe the same inputs.
+- Live-baseline rule (§3.4): candidate-side and confirmation checks MUST NOT be replays. The first baseline run MAY be a replay only when its cache entry recorded at least two agreeing live runs. `diverged` always rests on the live `fuzz_base_confirm` check.
+- Per input: *not recorded* when either first-pair record is missing; *unstable* when either first-pair record is flagged unstable; *compared* when the hashes and lengths are equal. When they differ, the confirmation pair decides: *unstable* when either revision does not reproduce its own first hash or is flagged unstable, *compared* and *diverged* otherwise, and *unconfirmed* without confirmation records. `inputs = compared + unstable + unconfirmed + not_recorded`, and `diverged <= compared`.
+- Outcome: `diverged` when any input diverged; otherwise `inconclusive` when a difference could not be confirmed; otherwise `not_diverged` when both first-pair functions are complete and at least one input was compared; otherwise `inconclusive`, with a reason that names the input being evaluated when a process ended or a function stopped. A timeout, a crash, a process exit, a `runtime.Goexit` or instability MUST NEVER yield `diverged`.
+- The counterexample is the divergent input with the shortest call text, then the lowest index, with both display values. It is the smallest divergent input tried; there is no shrinking. A divergence lists at most 32 divergent inputs, the counterexample first.
+- Packages run sequentially in plan order. One confirmation pair runs for a package when its first pair shows a difference and the `fuzz.max_runtime_seconds` sub-cap has time left.
+- A function whose package run recorded checks gets one `differential_fuzz` evidence record: `DIVERGED`, `NOT_DIVERGED` or `UNVERIFIED`, runner `go_test_json`, the harness path, the one test name, and the first pair as `check_id` and `base_check_id`. A function without a recorded run (sub-cap or deadline reached, harness not staged) is `inconclusive` without evidence.
+- Outcomes are derived only from recorded checks, by the same comparison whenever they are computed. A saved report whose streams, logs, commands or check kinds were edited therefore yields a different outcome, or `inconclusive`, when the outcome is derived again.
+
+**Non-claims specific to fuzzing.** `not_diverged` says that the recorded encodings of the tried inputs were equal. It never establishes equivalent behavior, not even for those inputs: encodings are bounded and redacted, errors are compared by message, and other side effects (files, globals, standard output, goroutines) are not observed. `diverged` records a difference, never which revision is right. Code under review writes the stream of its own revision and can hide or fabricate its own differences. It cannot write the baseline's stream or change the comparison.
+
+**Acceptance (Go core).**
+
+- The design's calc fixture, run in real containers with the sandbox isolation flags: `Percent` is `diverged` at `Percent(0, 0)`, with `int(0)` against `panic(error("runtime error: integer divide by zero"))`; `Discount` is `diverged` at `Discount(Cents(1000))`, with `calc.Cents(900)` against `calc.Cents(1000)`; `Join` is `not_diverged`; `Stamp` is `inconclusive` because every input is unstable; `Halt` is `inconclusive` with the candidate process-exit pointer at `Halt(7)`. It takes four checks, and neither snapshot keeps a harness file.
+- The rendered harness compiles and runs with the go tool in a module that declares `go 1.13`, and its stream distinguishes panics, slice mutation after the call, NaN, negative zero, and nil versus empty.
+- Every malformed stream in the test table is rejected as a whole, and every edited normalized stream fails to parse.
 <!-- F2:end -->
 
 ## F3. Baseline versions of changed tests on candidate code
