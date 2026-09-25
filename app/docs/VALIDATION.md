@@ -111,6 +111,23 @@ The three entries below record the runs that the F0a, F0b and F0d implementers r
 <!-- F6:end -->
 
 <!-- F7:begin -->
+### F7a execution cache
+
+**2026-09-26, opt-in baseline execution cache (F7a).** Windows 11 Pro amd64 host, Docker Engine 28.4.0; `golang:1.26-bookworm` (image `sha256:a688600ca24f…`) and `golang:1.23-bookworm` (go1.23.12).
+
+- From `app/`: `go vet ./...` and `go test -count=1 ./...` exit 0 in `golang:1.26-bookworm`; `CGO_ENABLED=1 go test -race -count=1` of `internal/execcache`, `internal/harness`, `internal/report` and `internal/cli` exit 0. From `hub/`: `go vet ./...` and `go test ./...` exit 0. In `golang:1.23-bookworm`: `go vet ./...` and the `execcache`, `harness`, `report`, `cli` and `model` tests exit 0.
+- Windows amd64 test binaries run natively: the `execcache` suite (including the Windows case-variant and symlink cases) and the `report` suite pass. With `SWIFTPROOF_TEST_DOCKER_IMAGE=golang:1.26-bookworm`, the whole `harness` suite passes, including `TestDockerExecutionCachePinsAndReplays` (the image pinned to its ID, `docker run` of that ID, a third identical baseline run replayed), and the whole `cli` suite passes, including `TestDockerExecutionCacheEndToEnd` (five reviews against one cache directory, 174 s).
+- End-to-end runs with a Windows binary built from the branch (`-X main.version=F7a-e2e`), on a three-branch Go fixture (`main`, a `candidate` that drops a lower bound, a `benign` branch that only adds a function), with the policy passed through `--config` from outside the fixture, a scripted loopback provider (`create_test`, `run_generated_test`, then `submit_hypothesis` citing the returned evidence with its status) and one new `--cache-dir` outside the fixture and the report directories:
+  - `review --base main --head candidate --ci --parallel 3`: exit 1. Test, typecheck, build and coverage PASS with no cache field; `generated_test_base` PASS with `cache.status` `stored`, `live_runs` 1; candidate FAIL; `REPRODUCED`. `execution.cache`: `enabled`, `image_id` `sha256:a688600c…`, `runtime` `28.4.0 linux/x86_64`, `stored` 1, `hits` 0; `parallelism` requested 3, effective 1.
+  - The same review with `--checks=false`: exit 1; the baseline run was not served after one live run: `stored`, `live_runs` 2, `hits` 0.
+  - Repeated: exit 1. `generated_test_base` replayed (`hit`, `live_runs` 2, 0 ms), candidate FAIL, then `generated_test_base` run again live (`stored`, `live_runs` 3); the evidence cites the live check as `base_check_id` and its description records the confirmation; one `stage:execution_cache` HIT audit event; `replay_backed` empty.
+  - `--head benign`: exit 0 with `--ci`. Baseline replayed (`live_runs` 3), candidate PASS, `NOT_REPRODUCED`; `execution.replay_backed` is `["evidence-1"]`, and the Markdown lists it.
+  - One byte of the entry file changed (`live_runs` 3 to 9) and the benign review repeated: exit 0; `rejected` 1; the baseline ran live and started a new entry (`live_runs` 1); `replay_backed` empty.
+  - `--cache-dir` inside the fixture repository, inside `--out`, and a directory junction: exit 3 before any container, no report directory, nothing created in the repository. `lint --cache-dir` and `lint --parallel 2`: exit 3.
+  - `review` without `--cache-dir`: exit 1; `execution.cache.status` `disabled` with "not requested (the execution cache is opt-in with --cache-dir)"; no check has cache provenance; no cache line on stdout; the cache directory's files unchanged.
+  - `swiftproof report` re-renders of five of these reports: exit 0, Markdown and JSON byte-identical.
+  - The fixture checkout stayed clean, no generated test file leaked into it, and no `swiftproof-` container of these runs remained. The key of the same experiment differed between two builds of the branch, as the executable digest is part of it.
+- Not run: the `--parallel` concurrency (F7b's part; this build runs the initial checks one at a time and records effective 1) and a comparison of `--parallel 1` and `--parallel 3` wall clocks.
 <!-- F7:end -->
 
 <!-- F8:begin -->

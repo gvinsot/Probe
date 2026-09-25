@@ -43,6 +43,14 @@ None of the v0.4 stages produces exit 1: only a reproduced high/critical hypothe
 <!-- F8:end -->
 
 <!-- F7:begin -->
+### Execution cache in CI
+
+`--cache-dir` is optional; an ephemeral runner gains nothing from it unless the directory survives between reviews. When you persist it:
+
+- **Never restore it from a cache scope that a pull request can write.** With `actions/cache`, a `pull_request` job runs the pull request's own workflow file and can save entries under the pull request's scope, which later runs of that pull request restore. Save the directory only from a job that runs the base branch's workflow on the base branch (for example a `push` to `main`), restore it in pull-request jobs with `actions/cache/restore` only, and key it on the base commit.
+- Keep it outside the checkout and outside `--out` (for example under `$RUNNER_TEMP` or a runner-local directory); a location inside either exits 3. On Unix runners it must be owned by the runner user with mode 0700.
+- A forged or stale entry cannot produce exit 1, a divergence or a `FAILS_ON_CANDIDATE` result; it can turn an otherwise `UNVERIFIED` experiment into a negative conclusion, which the report lists in `execution.replay_backed`. Treat the directory like the SwiftProof binary: only trusted jobs write it.
+- Entries are tied to the exact SwiftProof executable, so re-pinning the release starts a new set of entries. A cache hit, rejection or contradiction never changes the exit code.
 <!-- F7:end -->
 
 <!-- F3:begin -->
