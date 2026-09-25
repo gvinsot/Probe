@@ -114,6 +114,25 @@ The three entries below record the runs that the F0a, F0b and F0d implementers r
 <!-- F7:end -->
 
 <!-- F8:begin -->
+### F8 dependency preparation
+
+**2026-09-26, branch `feat/f8-prepare` at `8f05f99`.** Windows 11 Pro host with Docker Desktop (Docker Engine 28.4.0, containerd image store), shared with other builds; `golang:1.26-bookworm` (go1.26.8, `sha256:a688600ca24f…`) and `golang:1.23-bookworm` (go1.23.12).
+
+- In `golang:1.26-bookworm`, from `app/`: `go vet ./...` and `go test -count=1 ./...` exit 0; `CGO_ENABLED=1 go test -race` of `internal/prepare`, `internal/cli`, `internal/report` and `internal/gitrepo` exit 0. From `hub/`: `go vet ./...` and `go test ./...` exit 0. In `golang:1.23-bookworm`: `go vet ./...` and the `prepare`, `gitrepo`, `cli`, `report`, `config` and `model` tests exit 0.
+- Windows amd64 test binaries run on the host with `SWIFTPROOF_TEST_DOCKER_IMAGE=golang:1.26-bookworm -test.count=1`: `prepare` (31 passed), `gitrepo` (20 passed; the symlink-ancestor test skips on Windows), `report` (57 passed) and `cli` (46 passed) all exit 0. `TestDockerPrepareOfflineCommitAndReuse` committed an image with the base layers plus one and the policy env; a check in it found the prepared file and the same check failed on the base image; the prepare container listed only `lo` under `/sys/class/net`, ran as UID 65534 in `/swiftproof/work` with `HOME=/swiftproof/home` and no host variable; the second run reused the image without starting a container; a `user: root` build had `CapEff` `00000000000000db`. `TestDockerPrepareFailureAndShadowedOutputs` and `TestDockerReviewUsesPreparedImage` passed, as did the F0 `cli` Docker tests.
+- End-to-end runs with a Windows binary built from `8f05f99` (`-X main.version=F8-e2e`), on a scratch Go module requiring `github.com/google/go-cmp v0.7.0`, with `--reviewer=false --ci` and a policy passed through `--config` from outside the fixture: `sandbox.image` `golang:1.26-bookworm@sha256:a688600c…`, `prepare` = `go mod download` on `go.mod` and `go.sum`, `network: true`.
+  1. Without `--allow-prepare-network`: exit 4, `prepare.status` `not_permitted`, no check, audit `stage:prepare` SKIPPED.
+  2. With `--allow-prepare-network`: exit 0, `built` (3,640 ms; committed layer 897,024 bytes); test, typecheck and build PASS offline in the derived image; a `prepare_output` artifact; the image tagged `swiftproof-prepared:<key>-<commit>` with the key, source-commit and base-image labels.
+  3. The same review without the flag: exit 0, `reused` (579 ms), checks PASS; `docker events` recorded no `swiftproof-prepare-*` container created during the run.
+  4. A branch adding `github.com/google/uuid v1.6.0` to `go.mod` and `go.sum`: exit 2, `reused`; `prepare_input_changed` signals on both files; test, typecheck and build FAIL (the module is not in the prepared cache); the changed-inputs Unverified entry; no reproduced issue.
+  5. The same fixture with a policy without `prepare`: exit 2, checks FAIL with "could not create module cache", showing that run 2 used the derived image.
+  6. After `docker image rm` of the tag, `--allow-prepare-network --no-network`: exit 4, `not_permitted`.
+  7. `max_added_mb: 1` with an offline command writing 2,000,000 random bytes: exit 4, `failed` ("adds 2031616 bytes … over prepare.max_added_mb (1 MiB); the image was removed").
+  8. `sleep 300` as the command with `--deadline 1m`: exit 4 after 30 s, `failed` ("the overall --deadline was reached during dependency preparation"), audit TIMEOUT, and the deadline Unverified entry.
+
+  `swiftproof report` re-rendered all eight reports byte-identically, and all eight validate against the branch schema (Python `jsonschema`, Draft 2020-12). The fixture checkout stayed clean, and no `swiftproof-prepare-` container and no prepared image remained. The same scenarios gave the same statuses and exit codes with a binary built from the working tree before the commit; its timings are in [performance](PERFORMANCE.md).
+
+Not exercised: the classic `overlay2` image store (the layer and size checks ran on the containerd store only), Node and Python recipes, and a `user: root` review through the CLI (only the package Docker test built as root).
 <!-- F8:end -->
 
 <!-- F9:begin -->
