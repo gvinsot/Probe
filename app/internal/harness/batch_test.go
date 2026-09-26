@@ -277,9 +277,10 @@ func TestRunChecksParallelFourNeverExceedsTheBudget(t *testing.T) {
 
 // When the budget cannot cover two full timeouts, the checks run one at a time
 // and end exactly as they do sequentially: the first takes what remains, the
-// rest are skipped.
+// rest are skipped. No check can then run beside another, so the capacity of
+// the Docker server is not read.
 func TestRunChecksExhaustedBudgetMatchesOneAtATime(t *testing.T) {
-	useDocker(t, capacityDocker(8, 16<<30))
+	forbidDocker(t)
 	h := batchFixture(t, 3, func(o *Options) { o.Timeout, o.MaxRuntime = 100*time.Millisecond, 50*time.Millisecond })
 	var c concurrency
 	h.execute = func(ctx context.Context, _ string, _ []string, _ io.Writer) execution {
@@ -298,7 +299,8 @@ func TestRunChecksExhaustedBudgetMatchesOneAtATime(t *testing.T) {
 	}
 
 	// A budget used up before the initial checks: every check is SKIPPED, as
-	// one at a time, and the note does not say that any of them ran.
+	// one at a time, no container can start, and the note does not say that
+	// any of them ran.
 	spentBefore := batchFixture(t, 3, func(o *Options) { o.Timeout, o.MaxRuntime = 100*time.Millisecond, 50*time.Millisecond })
 	calls := countingExec(spentBefore, "ok\n")
 	spentBefore.mu.Lock()
@@ -309,9 +311,55 @@ func TestRunChecksExhaustedBudgetMatchesOneAtATime(t *testing.T) {
 			t.Fatalf("check after the budget was used up %+v", check)
 		}
 	}
-	if p := spentBefore.Execution().Parallelism; *calls != 0 || p.Effective != 1 || p.Note != parallelNoSandboxNote {
+	if p := spentBefore.Execution().Parallelism; *calls != 0 || p.Effective != 1 || p.Note != parallelNoSandboxNote+" "+parallelBudgetUsedNote {
 		t.Fatalf("parallelism %+v, executor calls %d", p, *calls)
 	}
+}
+
+// The capacity of the Docker server is read only when the budget left covers
+// two full per-run timeouts: just below that, every check runs alone, with no
+// Docker call; at exactly two, one call, and two checks run together.
+func TestRunChecksProbesOnlyWhenTheBudgetCoversTwoTimeouts(t *testing.T) {
+	quick := func(h *Harness, c *concurrency) {
+		h.execute = func(_ context.Context, _ string, _ []string, out io.Writer) execution {
+			c.enter()
+			defer c.leave()
+			time.Sleep(10 * time.Millisecond)
+			fmt.Fprint(out, "ok\n")
+			return execution{ExitCode: 0}
+		}
+	}
+
+	t.Run("below_two_timeouts", func(t *testing.T) {
+		forbidDocker(t)
+		h := batchFixture(t, 3, func(o *Options) { o.Timeout, o.MaxRuntime = 10*time.Second, 20*time.Second-time.Millisecond })
+		var c concurrency
+		quick(h, &c)
+		for _, check := range h.RunChecks(context.Background(), initialKinds) {
+			if check.Status != "PASS" {
+				t.Fatalf("check %+v", check)
+			}
+		}
+		if p := h.Execution().Parallelism; c.peak.Load() != 1 || p.Effective != 1 || p.Note != parallelSerialNote+" "+parallelBudgetNote {
+			t.Fatalf("parallelism %+v (peak %d)", p, c.peak.Load())
+		}
+	})
+
+	t.Run("two_timeouts", func(t *testing.T) {
+		docker := capacityDocker(8, 16<<30)
+		useDocker(t, docker)
+		h := batchFixture(t, 3, func(o *Options) { o.Timeout, o.MaxRuntime = 10*time.Second, 20*time.Second })
+		var c concurrency
+		quick(h, &c)
+		for _, check := range h.RunChecks(context.Background(), initialKinds) {
+			if check.Status != "PASS" {
+				t.Fatalf("check %+v", check)
+			}
+		}
+		if p := h.Execution().Parallelism; docker.calls != 1 || p.Effective != 2 || p.Note != parallelBudgetNote+" "+parallelSemanticsNote {
+			t.Fatalf("parallelism %+v, docker calls %d", p, docker.calls)
+		}
+	})
 }
 
 // normalizedRecords lists what a run of the initial checks recorded, without

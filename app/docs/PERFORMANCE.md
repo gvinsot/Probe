@@ -52,7 +52,7 @@ Measured on 2026-09-26 on the same host (the Docker Desktop VM reports 2 CPUs an
 
 - Test and typecheck mostly took longer when they ran together than alone (the upper ends of their ranges are 4.4 to 4.7 s higher), as the two sandboxes shared the VM's 2 CPUs, and `spent_ms` reached 61,464 ms against at most 50,941 ms: the budget charges each check's own time, so running checks together can use more of `sandbox.max_runtime_seconds`, not less.
 - With two at a time, build (0.6 to 0.9 s) ran alone in a second group, and coverage (10.8 to 19.0 s) always runs alone after the initial checks.
-- The ranges overlap, and single reviews of the same change varied by more than 15 s on this shared host, so these numbers do not establish a speed-up. The capacity probe (`docker info`) adds one call per review with `--parallel` above 1. Measure `--parallel 1` against a higher value on your own runners before relying on it.
+- The ranges overlap, and single reviews of the same change varied by more than 15 s on this shared host, so these numbers do not establish a speed-up. The capacity probe (`docker info`) adds at most one call per review with `--parallel` above 1, and none when no two checks could run at the same time. Measure `--parallel 1` against a higher value on your own runners before relying on it.
 <!-- F7:end -->
 
 <!-- F8:begin -->

@@ -42,8 +42,12 @@ const (
 	// that had expired or was cancelled, an exhausted budget, no command); the
 	// recorded checks say why each did not run.
 	parallelNoSandboxNote = "No initial check started a sandbox."
-	// parallelBudgetNote says that the budget rule made a group smaller.
+	// parallelBudgetNote says that the budget rule made a group smaller, or
+	// kept every group at a single check.
 	parallelBudgetNote = "The remaining sandbox runtime budget did not cover the full per-run timeout of every check of a group, so fewer checks ran at the same time."
+	// parallelBudgetUsedNote says that no initial check could start a
+	// sandbox because the runtime budget was already used up.
+	parallelBudgetUsedNote = "The sandbox runtime budget was used up before the initial checks started."
 	// parallelUnstartedNote says that a group had members recorded without a
 	// container (no command, time limit reached, budget exhausted).
 	parallelUnstartedNote = "Some checks of a group were recorded without starting a sandbox, so fewer ran at the same time."
@@ -92,10 +96,11 @@ func (h *Harness) RunChecks(ctx context.Context, kinds []string) []model.Check {
 	if requested < 1 {
 		requested = 1
 	}
-	limit, reasons := h.initialCheckLimit(ctx, requested, len(kinds))
+	// budgetBound: the budget rule alone keeps every group at a single check.
+	limit, reasons, budgetBound := h.initialCheckLimit(ctx, requested, len(kinds))
 	// started counts the containers launched while ctx was live: a run
 	// launched on a context that had already ended starts no container.
-	widest, largest, started, shrunk := 1, 1, 0, false
+	widest, largest, started, shrunk := 1, 1, 0, budgetBound
 	for next := 0; next < len(kinds); {
 		allowed := min(limit, len(kinds)-next)
 		n := h.groupSize(allowed)
@@ -178,13 +183,17 @@ func (h *Harness) runGroup(ctx context.Context, kinds []string) ([]model.Check, 
 	return checks, launched
 }
 
-// initialCheckLimit returns how many initial checks may run at the same time
-// and the reasons it is below requested. It asks the Docker server for its
-// capacity only when more than one check could run at the same time and a
-// container can start at all. Caller holds h.mu.
-func (h *Harness) initialCheckLimit(ctx context.Context, requested, count int) (int, []string) {
+// initialCheckLimit returns how many initial checks may run at the same time,
+// the reasons it is below requested, and whether the budget rule alone keeps
+// it at 1 (RunChecks then gives the budget reason when a check started). It
+// asks the Docker server for its capacity only when more than one check could
+// run at the same time (more than one requested and configured, and a budget
+// left that covers two full per-run timeouts) and a container can start at
+// all (an open harness, an image, a live context, a budget not used up).
+// Caller holds h.mu.
+func (h *Harness) initialCheckLimit(ctx context.Context, requested, count int) (int, []string, bool) {
 	if requested <= 1 {
-		return 1, nil
+		return 1, nil, false
 	}
 	limit, reasons := requested, []string(nil)
 	if count < limit {
@@ -196,17 +205,25 @@ func (h *Harness) initialCheckLimit(ctx context.Context, requested, count int) (
 		}
 	}
 	if limit <= 1 {
-		return 1, reasons
+		return 1, reasons, false
 	}
 	switch {
 	case h.closed:
-		return 1, append(reasons, "The sandbox harness was closed.")
+		return 1, append(reasons, "The sandbox harness was closed."), false
 	case h.opts.Image == "":
-		return 1, append(reasons, "No sandbox image is configured.")
+		return 1, append(reasons, "No sandbox image is configured."), false
 	case errors.Is(ctx.Err(), context.DeadlineExceeded):
-		return 1, append(reasons, "The time limit was reached before the initial checks started.")
+		return 1, append(reasons, "The time limit was reached before the initial checks started."), false
 	case ctx.Err() != nil:
-		return 1, append(reasons, "The review was cancelled before the initial checks started.")
+		return 1, append(reasons, "The review was cancelled before the initial checks started."), false
+	case h.opts.MaxRuntime-h.spent-h.reserved <= 0:
+		// Every check is SKIPPED by the budget gate, as one at a time.
+		return 1, append(reasons, parallelBudgetUsedNote), false
+	case h.groupSize(2) < 2:
+		// The budget left covers fewer than two full per-run timeouts, and it
+		// only shrinks while RunChecks holds h.mu: every group is a single
+		// check, whatever the Docker server could hold.
+		return 1, reasons, true
 	}
 	probe, cancel := context.WithTimeout(ctx, probeTimeout)
 	info, err := dockerutil.ServerInfo(probe, dockerRunner)
@@ -215,7 +232,7 @@ func (h *Harness) initialCheckLimit(ctx context.Context, requested, count int) (
 		err = fmt.Errorf("docker info reported %d CPUs and %d bytes of memory", info.NCPU, info.MemTotal)
 	}
 	if err != nil {
-		return 1, append(reasons, "The capacity of the Docker server could not be read: "+truncateUTF8(strings.TrimSpace(Redact(err.Error())), 256))
+		return 1, append(reasons, "The capacity of the Docker server could not be read: "+truncateUTF8(strings.TrimSpace(Redact(err.Error())), 256)), false
 	}
 	if capacity := sandboxCapacity(info, h.opts.CPUs, h.opts.MemoryMB); capacity < limit {
 		// The note gives the capacity the probe found. The limit stays at
@@ -228,7 +245,7 @@ func (h *Harness) initialCheckLimit(ctx context.Context, requested, count int) (
 			reasons = append(reasons, fmt.Sprintf("%s: room for %s of %s and %d MiB at a time.", server, plural(capacity, "sandbox"), plural(h.opts.CPUs, "CPU"), h.opts.MemoryMB))
 		}
 	}
-	return limit, reasons
+	return limit, reasons, false
 }
 
 // plural returns "1 noun" or "n nouns" (nouns ending in x take "es").
