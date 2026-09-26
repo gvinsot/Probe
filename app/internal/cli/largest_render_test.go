@@ -7,8 +7,11 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
+	"runtime"
+	"runtime/debug"
 	"strings"
 	"testing"
 	"time"
@@ -147,54 +150,67 @@ func TestLargestReportReRendersWithinTheInputLimit(t *testing.T) {
 		// turns 16 s into about five minutes.
 		t.Skip("skipped under the race detector")
 	}
+	// Keep the heap near what the test holds, so that it also runs inside a
+	// 1 GiB sandbox next to other test binaries (the repository's own
+	// SwiftProof policy runs go test there). Without a limit the process
+	// peaked at about 680 MB.
+	defer debug.SetMemoryLimit(debug.SetMemoryLimit(256 << 20))
 	dir := t.TempDir()
-	r := largestReport()
-	report.Finalize(&r, true)
 	first := filepath.Join(dir, "review")
-	if err := report.Write(first, &r, []string{report.FormatMarkdown, report.FormatJSON}); err != nil {
-		t.Fatal(err)
-	}
+	func() {
+		r := largestReport()
+		if n := resultsBytes(r); n < harness.ResultsBudget*9/10 {
+			t.Fatalf("the fixture fills only %d bytes of the %d-byte results budget", n, harness.ResultsBudget)
+		}
+		report.Finalize(&r, true)
+		if err := report.Write(first, &r, []string{report.FormatMarkdown, report.FormatJSON}); err != nil {
+			t.Fatal(err)
+		}
+		t.Logf("%d checks, %d mutation checks and %d bytes of structured results", len(r.Checks), len(r.Mutation.Checks), resultsBytes(r))
+	}()
+	runtime.GC()
 	input := filepath.Join(first, "confidence-report.json")
 	info, err := os.Stat(input)
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Logf("review report: %d bytes (%.1f MiB) for %d checks, %d mutation checks and %d bytes of structured results",
-		info.Size(), float64(info.Size())/(1<<20), len(r.Checks), len(r.Mutation.Checks), resultsBytes(r))
+	t.Logf("review report: %d bytes (%.1f MiB)", info.Size(), float64(info.Size())/(1<<20))
 	if info.Size() > 64<<20 {
 		t.Fatalf("the report is %d bytes, over the 64 MiB input limit of swiftproof report", info.Size())
 	}
-	if resultsBytes(r) < harness.ResultsBudget*9/10 {
-		t.Fatalf("the fixture fills only %d bytes of the %d-byte results budget", resultsBytes(r), harness.ResultsBudget)
-	}
-	render := func(from, to string) (json, md []byte) {
+	render := func(from, to string) {
 		t.Helper()
 		var stdout, stderr bytes.Buffer
 		if code := Run(context.Background(), []string{"report", "--input", from, "--out", to}, &stdout, &stderr, "test"); code != 0 {
 			t.Fatalf("report exit %d: %s", code, stderr.String())
 		}
-		json, err := os.ReadFile(filepath.Join(to, "confidence-report.json"))
-		if err != nil {
-			t.Fatal(err)
-		}
-		md, err = os.ReadFile(filepath.Join(to, "CONFIDENCE_REPORT.md"))
-		if err != nil {
-			t.Fatal(err)
-		}
-		return json, md
+		runtime.GC()
 	}
-	json1, md1 := render(input, filepath.Join(dir, "again"))
-	json2, md2 := render(filepath.Join(dir, "again", "confidence-report.json"), filepath.Join(dir, "third"))
-	if !bytes.Equal(json1, json2) || !bytes.Equal(md1, md2) {
-		t.Fatal("re-rendering the re-rendered report changed it")
+	again, third := filepath.Join(dir, "again"), filepath.Join(dir, "third")
+	render(input, again)
+	render(filepath.Join(again, "confidence-report.json"), third)
+	for _, name := range []string{"confidence-report.json", "CONFIDENCE_REPORT.md"} {
+		if fileDigest(t, filepath.Join(again, name)) != fileDigest(t, filepath.Join(third, name)) {
+			t.Fatalf("re-rendering the re-rendered report changed %s", name)
+		}
 	}
-	original, err := os.ReadFile(input)
+	if fileDigest(t, input) != fileDigest(t, filepath.Join(again, "confidence-report.json")) {
+		t.Fatal("re-rendering the review report changed its JSON")
+	}
+}
+
+func fileDigest(t *testing.T, path string) string {
+	t.Helper()
+	f, err := os.Open(path)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !bytes.Equal(original, json1) {
-		t.Fatal("re-rendering the review report changed its JSON")
+	defer f.Close()
+	h := sha256.New()
+	if _, err := io.Copy(h, f); err != nil {
+		t.Fatal(err)
 	}
+	return hex.EncodeToString(h.Sum(nil))
 }
 
 func resultsBytes(r model.Report) int {
