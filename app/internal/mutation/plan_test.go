@@ -199,3 +199,18 @@ func TestOSArchConstrained(t *testing.T) {
 		}
 	}
 }
+
+// Fixed texts reach the Markdown through inline(), which turns quotes and
+// apostrophes into HTML entities; they use neither.
+func TestFixedTextsHaveNoQuotes(t *testing.T) {
+	for _, text := range []string{
+		skipNoAddedLines, skipIgnoredPath, skipOSArchName, skipUnreadable, skipNoTestFile, skipTotalCap,
+		skipParse, skipConstraint, skipGenerated, skipCgo,
+		reasonNoCandidates, reasonCoverageOnly, reasonBudget, reasonCancelled, reasonStoppedRun, reasonAborted,
+		reasonWorkspaceError, reasonPatchFailed, reasonApplyFailed, survivorSummary, model.MutationNote,
+	} {
+		if strings.ContainsAny(text, `'"`) {
+			t.Errorf("fixed text with a quote: %q", text)
+		}
+	}
+}

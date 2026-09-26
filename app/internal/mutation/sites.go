@@ -65,7 +65,7 @@ const (
 	skipParse      = "the file does not parse as Go source"
 	skipConstraint = "the file has a //go:build or // +build constraint; files a build may exclude are not mutated"
 	skipGenerated  = "the file is marked as generated code"
-	skipCgo        = "the file uses cgo (import \"C\")"
+	skipCgo        = "the file uses cgo (it imports the C pseudo-package)"
 )
 
 // FileSites parses src and returns its mutation sites whose whole replaced

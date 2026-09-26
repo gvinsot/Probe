@@ -27,7 +27,7 @@ const maxReportedFiles = 500
 // Fixed file skip reasons produced by planning.
 const (
 	skipNoAddedLines = "no added lines"
-	skipIgnoredPath  = "the path has a component starting with \"_\" or \".\", or a testdata or vendor directory, which the go command ignores or treats specially"
+	skipIgnoredPath  = "the path has a component that starts with an underscore or a dot, or a testdata or vendor directory, which the go command ignores or treats specially"
 	skipOSArchName   = "the file name has a GOOS or GOARCH suffix; files a build may exclude are not mutated"
 	skipUnreadable   = "the file could not be read from the candidate snapshot (an excluded path, not a regular text file, or larger than 1 MiB)"
 	skipNoTestFile   = "no _test.go file in this package directory"

@@ -239,6 +239,9 @@ func TestMarkdownMutationSection(t *testing.T) {
 	if strings.Contains(body, "<img") || strings.Contains(body, "](http") {
 		t.Fatalf("raw HTML or a link reached the Markdown:\n%s", body)
 	}
+	if strings.Contains(body, "&\\#39;") || strings.Contains(body, "&\\#34;") {
+		t.Fatalf("a fixed text rendered a quote as an entity:\n%s", body)
+	}
 	if stray := strayHeadings(md); len(stray) > 0 {
 		t.Fatalf("stray headings %q", stray)
 	}
