@@ -150,3 +150,10 @@ The checks are `test` PASS, then `base_test_base` PASS and `base_test_hybrid` FA
 The same run records `test_expectation_relaxed` and `test_skip_added` (new side) and `test_assertion_removed` (old side) on `clamp_test.go`, and high review targets on both versions of `TestClampUpper`. When the candidate instead renames `Clamp` to `Limit` and updates its tests, the three selected tests are `UNVERIFIED` ("the candidate-side package did not build or set up, so the test did not run"), the hybrid check is FAIL rather than ERROR, and the run exits 2, not 4.
 
 When the candidate drops the bound and changes no test function, but adds `//go:build never` before the package clause of `clamp_test.go`, its own `go test ./...` passes with no test file and no risk signal fires. With `--base-tests` all three tests of the file are selected as `shared_code_changed` ("its file changed outside the test function"), `TestClampUpper` is `FAILS_ON_CANDIDATE` and the other two are `PASSES_ON_CANDIDATE`, and the run exits 2 with `--ci`; the published v0.2.0 binary exits 0 on the same fixture.
+
+## See also
+
+- [Impact analysis](IMPACT.md#impacted-tests---impacted-tests): unchanged tests that reach changed functions, with the same `FAILS_ON_CANDIDATE` statuses.
+- [Execution cache](EXECUTION_CACHE.md): a replayed baseline never supports `FAILS_ON_CANDIDATE`.
+- [Exports](EXPORTS.md): the `base_test_fails_on_candidate` class.
+- [Security boundaries](SECURITY.md).

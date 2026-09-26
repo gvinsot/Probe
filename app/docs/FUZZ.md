@@ -217,3 +217,10 @@ Not fuzzed (2):
 ```
 
 The recorded signature of `joinParts` is `(parts) with JSDoc types (string[])`. The `spin(7)` loop was interrupted by the call timeout, and the candidate test still passed; `stamp` recorded two different values for every input on the candidate. The same fixture with `["jest", "{file}", "--json", "--outputFile={results_out}"]` and a ts-jest configuration gave the same outcomes, reasons, counts and counterexamples in 17 s (six containers of 2.2 s to 3.2 s). Without a TypeScript transform, Jest could not load the harness on the baseline: both `fuzz_base` checks were ERROR ("the TS/JS fuzz harness did not load or start on the baseline"), the candidate checks FAIL, every function `inconclusive`, and the review exited 4. Whether the `discount`, `lookup` and `sorted` differences are intended is for a human to decide.
+
+## See also
+
+- [Observation experiments](OBSERVATIONS.md): the other source of Behavior Divergences, with model-chosen inputs.
+- [Execution cache](EXECUTION_CACHE.md): the live-baseline rule for the confirmation pair.
+- [Dependency preparation](PREPARE.md): an image with the test runner and dependencies for TS/JS harnesses.
+- [Exports](EXPORTS.md): the `fuzz_divergence` class.

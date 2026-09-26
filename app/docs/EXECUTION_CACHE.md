@@ -154,3 +154,10 @@ swiftproof review --base main --parallel 3
 **What the report says.** `execution.parallelism` records `requested`, `effective` (the most initial checks that ran at the same time) and a `note` built from fixed sentences: that no initial check started a sandbox, when none did (no image, a closed harness, an expired or cancelled review, a used-up budget); why `effective` is below `requested` (fewer checks, the Docker server's capacity as the probe found it, an unreadable capacity, the budget rule, checks of a group that were recorded without starting a sandbox); and, when checks ran at the same time, the rules above. A review whose initial checks did not run records that `--parallel` had no effect. With `--parallel` above 1, standard output gets `Initial checks: up to E at a time (requested R).`, and the Markdown ends **Automated Checks** with the same values and the note.
 
 **What it does not claim.** Concurrent sandboxes share the Docker host's CPUs, memory and disk, within each sandbox's own limits, so a check can take longer than it would alone, reach its timeout and be charged more of `sandbox.max_runtime_seconds`, which leaves less of it for later stages. No speed-up is claimed without a measurement ([measured costs](PERFORMANCE.md#parallel-initial-checks)); run your checks with `--parallel 1` and with a higher value and compare.
+
+## See also
+
+- [Changed baseline tests](BASE_TESTS.md), [impacted tests](IMPACT.md#impacted-tests---impacted-tests), [differential fuzzing](FUZZ.md) and [observation experiments](OBSERVATIONS.md): the stages whose baseline-side runs are eligible and their live re-runs.
+- [Dependency preparation](PREPARE.md): with `prepare`, the image is already an image ID.
+- [CI integration](CI.md#execution-cache-in-ci): never restore the directory from a cache scope a pull request can write.
+- [Security boundaries](SECURITY.md).
