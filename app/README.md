@@ -290,6 +290,9 @@ Selection is static (Go syntax; comment and layout edits select nothing unless t
 <!-- F4:end -->
 
 <!-- F1:begin -->
+### Observation experiments
+
+A generated test may record values instead of asserting a guessed one: Go tests call `t.Attr("swiftproof.<key>", value)` (Go 1.25 or later in the sandbox image) and Vitest tests set `task.meta.swiftproof`; Jest reports carry no per-test metadata. When the named test passes on both revisions, `run_generated_test` compares the recorded values key by key and records a `differential_observation` evidence record. A key whose candidate value differs triggers exactly one live baseline repeat. The record is `DIVERGED` when two baseline runs agreed and the candidate recorded a different value, `NOT_DIVERGED` when every compared value was equal, and `UNVERIFIED` otherwise (unstable, redacted, duplicated or one-sided values, a failing run). Every validated divergence is listed in `divergences` and in the Behavior Divergences section with both values, cited or not; a human decides which value is intended. A divergence requests review (exit 2 with `--ci`) and never produces exit 1; `NOT_DIVERGED` supports no hypothesis status, and a both-pass generated test whose recorded values differ, or cannot be shown equal (redacted, unconverted or unreadable), no longer supports `NOT_REPRODUCED`. There is no policy key and no flag. See [observation experiments](docs/OBSERVATIONS.md).
 <!-- F1:end -->
 
 <!-- F5:begin -->

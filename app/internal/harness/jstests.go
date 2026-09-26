@@ -111,6 +111,9 @@ type jestAssertion struct {
 	Title           string   `json:"title"`
 	Status          string   `json:"status"`
 	FailureMessages []string `json:"failureMessages,omitempty"`
+	// Meta carries Vitest task.meta observations (F1, observations.go). Its
+	// decoding never fails, so it can never make a report unreadable.
+	Meta *jestMeta `json:"meta,omitempty"`
 }
 
 // normalizeJestReport keeps only what verification and a reviewer need. Every
@@ -120,6 +123,12 @@ type jestAssertion struct {
 // can only be inconclusive. The caller rejects a result that is not a Redact
 // fixed point after encoding.
 func normalizeJestReport(raw []byte) (string, error) {
+	return normalizeJestReportAs(raw, "")
+}
+
+// normalizeJestReportAs is normalizeJestReport; when dropMeta is not "", every
+// kept Vitest meta is replaced by that fixed marker (dropJestMeta).
+func normalizeJestReportAs(raw []byte, dropMeta string) (string, error) {
 	if !utf8.Valid(raw) {
 		return "", errors.New("test results are not valid UTF-8")
 	}
@@ -145,9 +154,19 @@ func normalizeJestReport(raw []byte) (string, error) {
 			for k := range a.FailureMessages {
 				a.FailureMessages[k] = truncateUTF8(Redact(a.FailureMessages[k]), 4096)
 			}
+			a.Meta = normalizeJestMeta(a.Meta)
 		}
 	}
+	if dropMeta != "" {
+		dropJestMeta(&report, dropMeta)
+	}
 	b, err := json.Marshal(report)
+	if err == nil && !redact.IsFixedPoint(string(b)) && dropJestMeta(&report, metaDropped) {
+		// Observations never turn a readable report into an unreadable one:
+		// every meta is replaced by a fixed marker instead, and the report is
+		// then accepted or rejected on the rest of its content.
+		b, err = json.Marshal(report)
+	}
 	return string(b), err
 }
 
@@ -172,6 +191,11 @@ const resultsOverBudget = "structured results exceeded the report budget; retain
 // ResultsBudget for the run's side (resultsRemainingFor: candidate-side
 // results share at most half of it) are retained as the hashed test_results
 // artifact only, and the check becomes ERROR.
+//
+// Vitest observations (task.meta) never decide that: when the normalized
+// report would exceed the payload limit or what remains of the results budget,
+// it is normalized again with every meta replaced by a fixed marker, and that
+// smaller report is accepted or rejected on the rest of its content.
 func (h *Harness) runWithResultsOptions(ctx context.Context, kind, dir string, command []string, o runOptions) model.Check {
 	o.capture = ResultsPath
 	c, payload, truncated := h.runWithOptions(ctx, kind, dir, command, o)
@@ -184,6 +208,11 @@ func (h *Harness) runWithResultsOptions(ctx context.Context, kind, dir string, c
 		err = errors.New("the test runner did not emit one complete JSON report at " + config.ResultsPlaceholder)
 	} else {
 		results, err = normalizeJestReport(raw)
+	}
+	if err == nil && (len(results) > PayloadLimit(h.opts.MaxOutputBytes) || len(results) > h.resultsRemainingFor(kind)) {
+		if smaller, dropErr := normalizeJestReportAs(raw, metaTooLarge); dropErr == nil && len(smaller) < len(results) {
+			results = smaller
+		}
 	}
 	if err == nil && !redact.IsFixedPoint(results) {
 		err = errors.New("test results are unreadable: redaction would alter the normalized report")
