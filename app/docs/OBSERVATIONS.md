@@ -26,7 +26,7 @@ test("observe discount", ({ task }) => {
 });
 ```
 
-Vitest copies `task.meta` into the report; console output cannot reach it. SwiftProof keeps a canonical, redacted form: string values as they are, every other JSON value re-encoded with sorted object keys and numbers as written. JSON drops `undefined` and turns `NaN` into `null`, so record such values with `String(x)`.
+Vitest copies `task.meta` into the report; console output cannot reach it. SwiftProof keeps each value as canonical JSON text with its type: a string is recorded quoted (`"4"`), a number as written (`4`), an object with sorted keys. The number `4` and the string `"4"` are therefore different values. JSON drops `undefined` and turns `NaN` into `null`, so record such values with `String(x)`. A value whose canonical text exceeds 1024 bytes, or a key longer than 200 bytes, is kept only as a fixed stand-in that carries its length and a sha256 of its redacted text; a stand-in is never compared.
 
 **Jest** reports carry no per-test metadata, so a Jest template cannot record observations. A generated test that declares observations but records none gets an `UNVERIFIED` observation record that says so.
 
@@ -50,7 +50,7 @@ Each key gets one row status:
 | `EQUAL` | The baseline and the candidate recorded the same value, and the baseline repeat, if one ran, recorded it too. |
 | `DIVERGED` | The baseline, the baseline repeat and the candidate each recorded the key exactly once; the two baseline runs recorded the same value and the candidate a different one. |
 | `UNSTABLE` | The baseline repeat did not record the value of the first baseline run. |
-| `INCOMPARABLE` | The key is invalid, or was recorded more than once in one run, or on one revision only; a value contains `[REDACTED]`, would be altered by redaction, or exceeds 1024 bytes; or two differing values look like a memory address or a source position. |
+| `INCOMPARABLE` | The key is invalid, or was recorded more than once in one run, or on one revision only; a value contains `[REDACTED]`, would be altered by redaction, exceeds 1024 bytes or is the stand-in of a longer Vitest value; a Go value was too long for the test runner to convert; or two differing values look like a memory address or a source position. |
 
 When at least one key differs and nothing else prevents a comparison, SwiftProof runs the staged generated test **once more on the baseline**, live, as a check of kind `generated_test_base_repeat`. That run is never served from the execution cache and is charged to the sandbox runtime budget like any other run. Only this one repeat runs per experiment.
 
@@ -66,7 +66,7 @@ A `DIVERGED` experiment retains the generated test source as a hashed `generated
 
 ## Hypotheses and the report
 
-The reviewer may submit a hypothesis with status `DIVERGED` that cites a `differential_observation` record. `report.Finalize` re-derives every observation record from the recorded checks with the same function the harness used, and a stored status counts only when the recomputation agrees. A `DIVERGED` hypothesis is kept only when a cited record is re-derived as `DIVERGED`, its repeat check was executed in this run (never replayed), and the record is listed in `divergences`; otherwise the hypothesis is `UNVERIFIED`. A `DIVERGED` claim citing the `differential_test` of the same runs is `UNVERIFIED`. A `NOT_DIVERGED` record may rest on a replayed baseline only when two agreeing live runs recorded that entry.
+The reviewer may submit a hypothesis with status `DIVERGED` that cites a `differential_observation` record. `report.Finalize` re-derives every observation record from the recorded checks with the same function the harness used, and a stored status counts only when the recomputation agrees. A `DIVERGED` hypothesis is kept only when a cited record is re-derived as `DIVERGED`, its repeat check was executed in this run (never replayed), and the record is listed in `divergences`; otherwise the hypothesis is `UNVERIFIED`. A `DIVERGED` claim citing the `differential_test` of the same runs is `UNVERIFIED`. A `NOT_DIVERGED` record may rest on a replayed baseline only when the opt-in execution cache entry was stored after two live runs that agreed on the pass/fail status and the exit code. The replayed baseline values come from one recorded live run, not from two runs that recorded the same values, and the conclusion is replay-backed: the report lists it in `execution.replay_backed`.
 
 `divergences[]` in `confidence-report.json` lists every validated `DIVERGED` observation record, cited or not, with its test path and names, the three check IDs (baseline, candidate, repeat), the citing hypotheses and the `DIVERGED` rows only (at most 32). An entry is anchored at the path and line of the lowest-numbered citing hypothesis whose path is a changed, non-deleted file (`anchor_source: "hypothesis"`, a model-chosen location); otherwise it has no anchor.
 
@@ -111,7 +111,15 @@ When no experiment diverged, the section says whether values were compared and f
 
 ## A difference is never hidden behind a passing test
 
-The `differential_test` of the same runs passes on both revisions, so on its own it could support `NOT_REPRODUCED` even though the recorded values differ. `report.Finalize` therefore withdraws a re-derived `NOT_REPRODUCED` whose candidate check also recorded a difference: a key recorded on both revisions with different full values, or a key recorded on one revision only. This holds whatever the observation record's own status is (for example when the only differing key was unstable), and the values are read again from the checks of the `differential_test` record itself, so removing the observation record from a saved report does not lift the rule. The withdrawn record is shown as "as stored; not accepted as evidence", and a hypothesis resting on it becomes `UNVERIFIED`.
+The `differential_test` of the same runs passes on both revisions, so on its own it could support `NOT_REPRODUCED` even though the recorded values differ. `report.Finalize` therefore withdraws a re-derived `NOT_REPRODUCED` whose runs may have recorded a difference. Only full values recorded readably on both revisions, with no redaction marker, can show that nothing differs. The rule fails closed and counts each of these as a possible difference:
+
+- a key recorded on both revisions with different full values;
+- a key recorded on one revision only;
+- a key whose value could not be read on either revision (for example a Go value too long for the test runner to convert);
+- a key or value that holds `[REDACTED]`, because equal redacted texts do not establish equal original values;
+- observations that could not be read at all on either revision (a channel error, or Vitest observations replaced by a fixed marker).
+
+This holds whatever the observation record's own status is (for example when the only differing key was unstable), and the values are read again from the checks of the `differential_test` record itself, so removing the observation record from a saved report does not lift the rule. Two stand-ins of long Vitest values count as different when their lengths or hashes differ. The withdrawn record is shown as "as stored; not accepted as evidence", and a hypothesis resting on it becomes `UNVERIFIED`.
 
 ## What is and is not claimed
 
@@ -129,15 +137,15 @@ Both channels can be written by code executing in the sandbox. They are kept apa
 - In Vitest, console output cannot reach `task.meta`; the test code and the code it calls can.
 - Code that sabotages its own test process (for example by writing directly to the process's standard output descriptors) can forge anything a passing test can. This is the same limit as for `NOT_REPRODUCED`, and it is why these records are observations, not proof.
 
-Values are redacted before they are parsed, compared, displayed or sent to a provider. Equal redacted values prove nothing and are `INCOMPARABLE`; a value that redaction would alter after decoding (for example a JSON-escaped credential) is `INCOMPARABLE` too. A normalized Vitest meta that redaction would alter is replaced by a fixed marker, and when the metas would make an otherwise readable runner report unreadable, they are all replaced by a marker instead, so observations never change whether the pass or fail of the test itself is established. Reports remain unsigned.
+Values are redacted before they are parsed, compared, displayed or sent to a provider. Equal redacted values prove nothing and are `INCOMPARABLE`; a value that redaction would alter after decoding (for example a JSON-escaped credential) is `INCOMPARABLE` too. A normalized Vitest meta that redaction would alter is replaced by a fixed marker. When the metas would make an otherwise readable runner report unreadable, or push it over the payload limit or the results budget, they are all replaced by a marker instead. Observations therefore never change whether the pass or fail of the test itself is established. Reports remain unsigned.
 
 ## Budgets and limits
 
 - At most one extra baseline run per experiment, only when a key differs. It consumes runtime budget, not the `max_generated_tests` budget. When the budget is exhausted, the repeat is recorded as `SKIPPED` and the record is `UNVERIFIED`.
 - 32 keys per run, keys up to 200 bytes, values compared up to 1024 bytes, 256-byte display cuts, 20 rows per divergence in Markdown and 32 in JSON.
-- Go values longer than the test runner's line limit (about 4 KiB) are not converted into `attr` events; the key is `INCOMPARABLE`.
+- Go values longer than the test runner's line limit (about 4 KiB) are not converted into `attr` events; the key is `INCOMPARABLE`, and the both-pass `NOT_REPRODUCED` of the same test is withdrawn, because equality is then unknown.
 - Each Go observation appears twice in the log (an `attr` event and its echoed output line), so it costs about twice its size in `sandbox.max_output_bytes`. A truncated log makes the check an ERROR (exit 4), as for any generated test.
-- Vitest observations travel inside the structured results, which share the report's results budget.
+- Vitest observations travel inside the structured results, which share the report's results budget. Values over 1024 bytes and keys over 200 bytes are kept as stand-ins of about 100 bytes. When the kept observations would still push a report over the per-run payload limit or over what remains of its side's results budget, every observation in that report is replaced by a fixed marker (the record is then `UNVERIFIED`), and the report is accepted or rejected on the rest of its content.
 
 ## Exit codes
 

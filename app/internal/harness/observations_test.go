@@ -146,6 +146,9 @@ func TestNormalizeJestMeta(t *testing.T) {
 	for i := 0; i <= observe.MaxKeys; i++ {
 		many = append(many, fmt.Sprintf(`"k%02d":1`, i))
 	}
+	longValue := `"` + strings.Repeat("<", observe.MaxValueBytes) + `"` // 1026 bytes as canonical text
+	longKey := strings.Repeat("k", observe.MaxKeyBytes+1)
+	standIn := func(text string) string { return marker(observe.Oversized(text)) }
 	for _, tc := range []struct {
 		name string
 		in   *jestMeta
@@ -155,13 +158,18 @@ func TestNormalizeJestMeta(t *testing.T) {
 		{"no observations", &jestMeta{}, ""},
 		{"null observations", meta("null"), ""},
 		{"strings kept", meta(`{"b":"2","a":"1"}`), `{"a":"1","b":"2"}`},
-		{"canonical values", meta(`{"n":5,"f":0.10,"big":12345678901234567890,"o":{"b":2,"a":[1,"x"]},"nul":null,"t":true,"s":"<x>"}`), `{"big":"12345678901234567890","f":"0.10","n":"5","nul":"null","o":"{\"a\":[1,\"x\"],\"b\":2}","s":"\u003cx\u003e","t":"true"}`},
+		{"canonical values keep their type", meta(`{"n":5,"f":0.10,"big":12345678901234567890,"o":{"b":2,"a":[1,"x"]},"nul":null,"t":true,"s":"<x>","ns":"5"}`), `{"big":12345678901234567890,"f":0.10,"n":5,"ns":"5","nul":null,"o":{"a":[1,"x"],"b":2},"s":"<x>","t":true}`},
 		{"redacted values", meta(`{"k":"password=abc"}`), `{"k":"[REDACTED]"}`},
+		{"non-string value altered by redaction", meta(`{"k":{"password":"abc"}}`), `{"k":"[REDACTED]"}`},
+		{"value too long to compare", meta(`{"k":` + longValue + `}`), `{"k":` + standIn(longValue) + `}`},
+		{"value that fits", meta(`{"k":"` + strings.Repeat("<", observe.MaxValueBytes-2) + `"}`), `{"k":"` + strings.Repeat("<", observe.MaxValueBytes-2) + `"}`},
+		{"key too long to compare", meta(`{"` + longKey + `":1}`), `{` + standIn(longKey) + `:1}`},
 		{"credential-like key", meta(`{"password":"abc"}`), marker(metaUnstable)},
 		{"keys equal after redaction", meta(`{"sk-aaaaaaaaaaaa":"1","sk-bbbbbbbbbbbb":"2"}`), marker(metaCollision)},
 		{"too many keys", meta("{" + strings.Join(many, ",") + "}"), marker(metaTooMany)},
 		{"string", meta(`"forged"`), marker(metaNotObject)},
 		{"known marker", meta(marker(metaDropped)), marker(metaDropped)},
+		{"size marker", meta(marker(metaTooLarge)), marker(metaTooLarge)},
 		{"array", meta(`[1,2]`), marker(metaNotObject)},
 		{"number", meta(`5`), marker(metaNotObject)},
 	} {
@@ -215,7 +223,7 @@ func TestJestMetaNeverBreaksValidation(t *testing.T) {
 		{`{"other":1}`, nil, false},
 		{`{"swiftproof":[1]}`, nil, true},
 		{`{"swiftproof":"forged"}`, nil, true},
-		{`{"swiftproof":{"total([10],0.5)":5,"obj":{"b":2,"a":1},"nan":null}}`, map[string]string{"total([10],0.5)": "5", "obj": `{"a":1,"b":2}`, "nan": "null"}, false},
+		{`{"swiftproof":{"total([10],0.5)":5,"obj":{"b":2,"a":1},"nan":null,"label":"<b>5</b>"}}`, map[string]string{"total([10],0.5)": "5", "obj": `{"a":1,"b":2}`, "nan": "null", "label": `"<b>5</b>"`}, false},
 	} {
 		results, err := normalizeJestReport([]byte(jestReportWithMeta(path, title, "passed", tc.meta)))
 		if err != nil || !redact.IsFixedPoint(results) {
@@ -613,7 +621,7 @@ func TestVitestObservationDivergence(t *testing.T) {
 		t.Fatalf("runs %d, checks %+v", run, checks)
 	}
 	for _, c := range checks {
-		if c.Status != "PASS" || !redact.IsFixedPoint(c.Results) || !strings.Contains(c.Results, `"shape":"{\"a\":1,\"b\":2}"`) {
+		if c.Status != "PASS" || !redact.IsFixedPoint(c.Results) || !strings.Contains(c.Results, `"shape":{"a":1,"b":2}`) {
 			t.Fatalf("check %s: %s %s", c.ID, c.Status, c.Results)
 		}
 	}
@@ -706,5 +714,216 @@ func TestObservationToolDescriptions(t *testing.T) {
 				t.Errorf("%s description lacks %q", tool, fragment)
 			}
 		}
+	}
+}
+
+// An ordinary JS/TS experiment (no observation in its source or its runs)
+// whose checks produced no runner report keeps exactly its single
+// differential_test record: a run without a report recorded no observation.
+func TestPlainJSExperimentWithoutAReportRecordsNoObservation(t *testing.T) {
+	const path, title = "src/plain.test.ts", "applies the discount once"
+	plain := "import { test, expect } from \"vitest\";\n\ntest(\"" + title + "\", () => {\n  expect(1).toBe(1);\n});\n"
+	passing := jestReportWithMeta(path, title, "passed", "")
+	candidateWritesNothing := func(run int) string {
+		if run == 1 {
+			return ""
+		}
+		return passing
+	}
+	for _, tc := range []struct {
+		name     string
+		template []string
+		setup    func(h *Harness)
+		report   func(run int) string // "" writes no report
+		statuses []string
+	}{
+		{"vitest candidate writes no report", vitestTemplate, nil, candidateWritesNothing, []string{"PASS", "ERROR"}},
+		{"jest candidate writes no report", []string{"npx", "--no", "jest", "{file}", "--json", "--outputFile={results_out}"}, nil, candidateWritesNothing, []string{"PASS", "ERROR"}},
+		{"both runs skipped by the budget", vitestTemplate, func(h *Harness) {
+			h.opts.MaxRuntime = time.Hour
+			h.spent = h.opts.MaxRuntime
+		}, func(int) string { return passing }, []string{"SKIPPED", "SKIPPED"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			h := tsFixture(t)
+			h.opts.Commands["generated_test"] = tc.template
+			if tc.setup != nil {
+				tc.setup(h)
+			}
+			run := 0
+			h.executeCapture = func(_ context.Context, _ string, _ []string, _, payload io.Writer) execution {
+				if report := tc.report(run); report != "" {
+					fmt.Fprint(payload, coverageFrame(report))
+				}
+				run++
+				return execution{ExitCode: 0}
+			}
+			call(t, h, "create_test", map[string]any{"path": path, "content": plain})
+			var result map[string]any
+			if err := json.Unmarshal(call(t, h, "run_generated_test", map[string]any{"test_id": "generated-test-1"}), &result); err != nil {
+				t.Fatal(err)
+			}
+			checks := h.Checks()
+			if len(checks) != len(tc.statuses) {
+				t.Fatalf("checks %+v", checks)
+			}
+			for i, c := range checks {
+				if c.Status != tc.statuses[i] {
+					t.Fatalf("check %s is %s, want %s", c.ID, c.Status, tc.statuses[i])
+				}
+			}
+			if evidence := h.Evidence(); len(evidence) != 1 || evidence[0].Kind != model.EvidenceDifferentialTest {
+				t.Fatalf("an ordinary experiment gained records: %+v", evidence)
+			}
+			if _, ok := result["observation"]; ok {
+				t.Fatalf("the tool result carries an observation: %v", result["observation"])
+			}
+		})
+	}
+}
+
+// jestReportWithMetas renders a Jest-compatible report for one file with one
+// passing top-level assertion per title, each carrying the raw meta JSON.
+func jestReportWithMetas(file string, titles []string, metas []string) string {
+	var assertions []string
+	for i, title := range titles {
+		assertions = append(assertions, fmt.Sprintf(`{"ancestorTitles":[],"title":%q,"status":"passed","meta":%s}`, title, metas[i]))
+	}
+	return fmt.Sprintf(`{"testResults":[{"assertionResults":[%s],"status":"passed","message":"","name":"/workspace/%s"}]}`, strings.Join(assertions, ","), file)
+}
+
+// The number 4 and the string "4" are different recorded values: a Vitest
+// value keeps its JSON type.
+func TestVitestValueTypesStayDistinct(t *testing.T) {
+	h := tsFixture(t)
+	const path, title = "src/obs.test.ts", "observe total"
+	values := []string{`4`, `"4"`, `4`}
+	run := 0
+	h.executeCapture = func(_ context.Context, _ string, _ []string, _, payload io.Writer) execution {
+		fmt.Fprint(payload, coverageFrame(jestReportWithMeta(path, title, "passed", `{"swiftproof":{"total([10],0.5)":`+values[run]+`}}`)))
+		run++
+		return execution{ExitCode: 0}
+	}
+	call(t, h, "create_test", map[string]any{"path": path, "content": observationTSSource})
+	call(t, h, "run_generated_test", map[string]any{"test_id": "generated-test-1"})
+	obs := evidenceOfKind(h, model.EvidenceDifferentialObservation)
+	if run != 3 || len(obs) != 1 || obs[0].Status != model.StatusDiverged {
+		t.Fatalf("runs %d, observation %+v", run, obs)
+	}
+	checks := h.Checks()
+	re, _ := EvaluateObservations(RunnerJest, checks[0], checks[1], &checks[2], path, []string{title})
+	if d := re.Diverged(); len(d) != 1 || d[0].Base != "4" || d[0].Candidate != `"4"` {
+		t.Fatalf("rows %+v", re.Observations)
+	}
+}
+
+// Recorded Vitest values never turn a readable PASS or FAIL generated-test
+// check into ERROR: a value too long to compare is kept as a bounded stand-in,
+// and when the kept metas still make the normalized report exceed the payload
+// limit or the results budget, they are replaced by a fixed marker instead.
+func TestLargeVitestMetaNeverMakesACheckUnreadable(t *testing.T) {
+	const path, title = "src/obs.test.ts", "observe total"
+	// 174 KiB of '<' in one value: HTML escaping would make it about 1 MiB,
+	// twice the 512 KiB payload limit of the fixture, while the raw report fits.
+	huge := `{"swiftproof":{"total([10],0.5)":"` + strings.Repeat("<", 174*1024) + `"}}`
+	small := `{"swiftproof":{"total([10],0.5)":"5"}}`
+	// Three tests with 32 values of 1000 '<' each: every value fits the
+	// compared bound, and the escaped report (about 580 KB) exceeds the limit.
+	titles := []string{"observe a", "observe b", "observe c"}
+	var sources, bigMetas, smallMetas []string
+	for _, name := range titles {
+		sources = append(sources, "test(\""+name+"\", ({ task }) => {\n  (task.meta as any).swiftproof = values();\n});\n")
+		var pairs []string
+		for k := 0; k < observe.MaxKeys; k++ {
+			pairs = append(pairs, fmt.Sprintf(`"k%02d":"%s"`, k, strings.Repeat("<", 1000)))
+		}
+		bigMetas = append(bigMetas, `{"swiftproof":{`+strings.Join(pairs, ",")+`}}`)
+		smallMetas = append(smallMetas, `{"swiftproof":{"k00":"1"}}`)
+	}
+	manySource := "import { test } from \"vitest\";\nimport { values } from \"./values\";\n\n" + strings.Join(sources, "\n")
+	one := []string{title}
+	for _, tc := range []struct {
+		name             string
+		source           string
+		names            []string
+		base, candidate  string
+		candidateExit    int
+		differential     string
+		standIn, dropped bool
+		prefill          int // candidate-side results already recorded
+	}{
+		{"one huge value", observationTSSource, one, jestReportWithMeta(path, title, "passed", small), jestReportWithMeta(path, title, "passed", huge), 0, model.StatusNotReproduced, true, false, 0},
+		{"one huge value on a failing candidate", observationTSSource, one, jestReportWithMeta(path, title, "passed", small), jestReportWithMeta(path, title, "failed", huge), 1, model.StatusReproduced, true, false, 0},
+		{"many values over the payload limit", manySource, titles, jestReportWithMetas(path, titles, smallMetas), jestReportWithMetas(path, titles, bigMetas), 0, model.StatusNotReproduced, false, true, 0},
+		{"values over the candidate results share", observationTSSource, one, jestReportWithMeta(path, title, "passed", small), jestReportWithMeta(path, title, "passed", `{"swiftproof":{"k":"`+strings.Repeat("<", 1000)+`"}}`), 0, model.StatusNotReproduced, false, true, ResultsBudget/2 - 2000},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			h := tsFixture(t)
+			baseID, candidateID := "check-1", "check-2"
+			if tc.prefill > 0 {
+				h.mu.Lock()
+				filler := strings.Repeat("f", tc.prefill)
+				h.checks = []model.Check{{ID: "check-1", Kind: model.CheckGeneratedCandidate, Status: "PASS", Results: filler}}
+				h.resultsBytes = len(filler)
+				h.mu.Unlock()
+				baseID, candidateID = "check-2", "check-3"
+			}
+			if raw := len(tc.candidate); raw > PayloadLimit(h.opts.MaxOutputBytes) {
+				t.Fatalf("the raw candidate report (%d bytes) does not fit the payload channel", raw)
+			}
+			reports := []string{tc.base, tc.candidate}
+			run := 0
+			h.executeCapture = func(_ context.Context, _ string, _ []string, _, payload io.Writer) execution {
+				fmt.Fprint(payload, coverageFrame(reports[run]))
+				exit := 0
+				if run == 1 {
+					exit = tc.candidateExit
+				}
+				run++
+				return execution{ExitCode: exit}
+			}
+			call(t, h, "create_test", map[string]any{"path": path, "content": tc.source})
+			call(t, h, "run_generated_test", map[string]any{"test_id": "generated-test-1"})
+			candidate := findCheck(t, h, candidateID)
+			if candidate.Kind != model.CheckGeneratedCandidate || candidate.Status == "ERROR" || candidate.Results == "" || len(candidate.Results) > PayloadLimit(h.opts.MaxOutputBytes) {
+				t.Fatalf("candidate check %s (%s): %s (%d bytes of results)\n%s", candidate.ID, candidate.Kind, candidate.Status, len(candidate.Results), candidate.Output)
+			}
+			if !redact.IsFixedPoint(candidate.Results) {
+				t.Fatal("the recorded results are not a Redact fixed point")
+			}
+			if tc.standIn != strings.Contains(candidate.Results, observe.OversizedPrefix) || tc.dropped != strings.Contains(candidate.Results, metaTooLarge) {
+				t.Fatalf("stand-in %v, dropped %v in %.300s", strings.Contains(candidate.Results, observe.OversizedPrefix), strings.Contains(candidate.Results, metaTooLarge), candidate.Results)
+			}
+			if d := evidenceOfKind(h, model.EvidenceDifferentialTest); len(d) != 1 || d[0].Status != tc.differential {
+				t.Fatalf("differential evidence %+v", d)
+			}
+			if o := evidenceOfKind(h, model.EvidenceDifferentialObservation); len(o) != 1 || o[0].Status != model.StatusUnverified {
+				t.Fatalf("observation evidence %+v", o)
+			}
+			// What the candidate recorded may still differ, so a both-pass test
+			// cannot hide it.
+			bs, _ := ObservationSet(RunnerJest, findCheck(t, h, baseID), path, tc.names)
+			cs, _ := ObservationSet(RunnerJest, candidate, path, tc.names)
+			if !observe.Differ(bs, cs) {
+				t.Fatal("a replaced or oversized candidate value hides the difference")
+			}
+		})
+	}
+}
+
+// A declared observation experiment whose runs produced no report is
+// UNVERIFIED because the runs did not both pass, not because nothing was
+// recorded.
+func TestDeclaredVitestExperimentWithoutAReport(t *testing.T) {
+	h := tsFixture(t)
+	const path = "src/obs.test.ts"
+	h.executeCapture = func(context.Context, string, []string, io.Writer, io.Writer) execution {
+		return execution{ExitCode: 0}
+	}
+	call(t, h, "create_test", map[string]any{"path": path, "content": observationTSSource})
+	call(t, h, "run_generated_test", map[string]any{"test_id": "generated-test-1"})
+	obs := evidenceOfKind(h, model.EvidenceDifferentialObservation)
+	if len(obs) != 1 || obs[0].Status != model.StatusUnverified || !strings.Contains(obs[0].Description, reasonNotBothPass) || strings.Contains(obs[0].Description, reasonDeclaredNotFound) {
+		t.Fatalf("observation %+v", obs)
 	}
 }

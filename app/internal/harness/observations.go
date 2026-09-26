@@ -38,7 +38,6 @@ const (
 	reasonLogUnreadable    = "the check log could not be read line by line"
 	reasonLineLimit        = "the value exceeded the runner's line limit and was not converted into an observation event"
 	reasonResultsBad       = "the runner's JSON report could not be read"
-	reasonResultsFile      = "the runner's JSON report does not hold exactly one result for the generated file"
 	reasonNoNames          = "no generated test name is known"
 	reasonCommandsDiffer   = "the baseline and candidate runs used different commands"
 	reasonNotBothPass      = "observations are compared only when the generated test passes on both revisions"
@@ -58,6 +57,7 @@ const (
 	metaUnstable    = "swiftproof: the observations would be altered by redaction"
 	metaUnencodable = "swiftproof: the observations could not be encoded"
 	metaDropped     = "swiftproof: observations were dropped because the report would be altered by redaction"
+	metaTooLarge    = "swiftproof: observations were dropped because the report would exceed its size budget"
 )
 
 // metaReasons maps each marker to the channel-error reason it stands for.
@@ -68,6 +68,7 @@ var metaReasons = map[string]string{
 	metaUnstable:    "the recorded observations would be altered by redaction",
 	metaUnencodable: "the recorded observations could not be encoded",
 	metaDropped:     "the recorded observations were dropped because the runner's report would be altered by redaction",
+	metaTooLarge:    "the recorded observations were dropped because the runner's report would exceed the payload or results budget",
 }
 
 // jestMeta is the part of a Vitest assertion's task.meta that observation
@@ -98,13 +99,52 @@ func metaMarker(text string) json.RawMessage {
 	return b
 }
 
+// canonicalJSON encodes a decoded JSON value (decoded with UseNumber)
+// canonically: object keys sorted, numbers as written, no HTML escaping and no
+// insignificant whitespace. A recorded Vitest value is compared as this text,
+// so its JSON type stays part of the value: the number 4 is 4 and the string
+// "4" is "4", quoted.
+func canonicalJSON(v any) (string, error) {
+	var b bytes.Buffer
+	encoder := json.NewEncoder(&b)
+	encoder.SetEscapeHTML(false)
+	if err := encoder.Encode(v); err != nil {
+		return "", err
+	}
+	return strings.TrimSuffix(b.String(), "\n"), nil
+}
+
+// keptMetaValue returns the canonical text normalizeJestMeta keeps for one
+// recorded value. A string is redacted. A value whose canonical text is still
+// not a Redact fixed point (for example an object holding "password":"x")
+// becomes the redaction marker as a string, and a text longer than
+// observe.MaxValueBytes becomes its stand-in (observe.Oversized) as a string,
+// so no kept value can be compared beyond those bounds or inflate the report.
+// The result is a fixed point of keptMetaValue.
+func keptMetaValue(v any) (string, error) {
+	if s, isString := v.(string); isString {
+		v = redact.Redact(s)
+	}
+	text, err := canonicalJSON(v)
+	if err != nil {
+		return "", err
+	}
+	if !redact.IsFixedPoint(text) {
+		text = `"` + redact.Marker + `"`
+	}
+	if len(text) > observe.MaxValueBytes {
+		return canonicalJSON(observe.Oversized(text))
+	}
+	return text, nil
+}
+
 // normalizeJestMeta keeps only a canonical, redacted form of the observations:
-// a JSON object of at most observe.MaxKeys string values whose keys and values
-// are redacted, whose non-string values are re-encoded canonically (sorted
-// object keys, numbers kept as written), and whose encoding is a Redact fixed
-// point. Anything else becomes one fixed marker string, so no untrusted text of
-// a rejected meta is kept. It returns nil when there is nothing to keep, and it
-// is idempotent.
+// a JSON object of at most observe.MaxKeys keys whose keys are redacted (a key
+// longer than observe.MaxKeyBytes becomes its stand-in, observe.Oversized),
+// whose values are kept by keptMetaValue with their JSON type, and whose
+// encoding is a Redact fixed point. Anything else becomes one fixed marker
+// string, so no untrusted text of a rejected meta is kept. It returns nil when
+// there is nothing to keep, and it is idempotent.
 func normalizeJestMeta(m *jestMeta) *jestMeta {
 	if m == nil {
 		return nil
@@ -133,43 +173,43 @@ func normalizeJestMeta(m *jestMeta) *jestMeta {
 	if len(object) > observe.MaxKeys {
 		return marker(metaTooMany)
 	}
-	kept := make(map[string]string, len(object))
+	kept := make(map[string]json.RawMessage, len(object))
 	for key, value := range object {
-		s, isString := value.(string)
-		if !isString {
-			encoded, err := json.Marshal(value)
-			if err != nil {
-				return marker(metaUnencodable)
-			}
-			s = string(encoded)
+		text, err := keptMetaValue(value)
+		if err != nil {
+			return marker(metaUnencodable)
 		}
 		key = redact.Redact(key)
+		if len(key) > observe.MaxKeyBytes {
+			key = observe.Oversized(key)
+		}
 		if _, taken := kept[key]; taken {
 			return marker(metaCollision)
 		}
-		kept[key] = redact.Redact(s)
+		kept[key] = json.RawMessage(text)
 	}
-	encoded, err := json.Marshal(kept)
+	encoded, err := canonicalJSON(kept)
 	if err != nil {
 		return marker(metaUnencodable)
 	}
-	if !redact.IsFixedPoint(string(encoded)) {
+	if !redact.IsFixedPoint(encoded) {
 		return marker(metaUnstable)
 	}
-	return &jestMeta{Observations: encoded}
+	return &jestMeta{Observations: json.RawMessage(encoded)}
 }
 
-// dropJestMeta replaces every kept meta with a fixed marker. It is used when
-// the normalized report as a whole is not a Redact fixed point, so that
-// observations can never make an otherwise readable report unreadable. It
-// reports whether anything changed.
-func dropJestMeta(report *jestReport) bool {
+// dropJestMeta replaces every kept meta with the fixed marker text. It is used
+// when the normalized report as a whole is not a Redact fixed point, or would
+// exceed the payload or results budget, so that observations can never make
+// an otherwise readable report unreadable. It reports whether anything
+// changed.
+func dropJestMeta(report *jestReport, text string) bool {
 	changed := false
 	for i := range report.TestResults {
 		for j := range report.TestResults[i].AssertionResults {
 			a := &report.TestResults[i].AssertionResults[j]
 			if a.Meta != nil {
-				a.Meta = &jestMeta{Observations: metaMarker(metaDropped)}
+				a.Meta = &jestMeta{Observations: metaMarker(text)}
 				changed = true
 			}
 		}
@@ -251,10 +291,21 @@ func extractGoObservations(output string, names []string) observe.Set {
 
 // extractJestObservations reads the normalized meta of exactly the named
 // top-level tests in the report entry for the generated file.
+//
+// A check without a report (a run that ended in ERROR, TIMEOUT or SKIPPED, or
+// whose report could not be recorded) and a report without exactly one entry
+// for the file recorded nothing: the set is empty, not a channel error, so an
+// ordinary experiment whose run did not produce a report gains no observation
+// record. Whether the named executions passed is decided by
+// EvaluateObservations, never here. Only results that are present but do not
+// parse (which a harness-recorded check never holds) are a channel error.
 func extractJestObservations(results, path string, names []string) observe.Set {
 	var s observe.Set
+	if results == "" {
+		return s
+	}
 	var report jestReport
-	if results == "" || json.Unmarshal([]byte(results), &report) != nil {
+	if json.Unmarshal([]byte(results), &report) != nil {
 		s.Fail(reasonResultsBad)
 		return s
 	}
@@ -263,14 +314,12 @@ func extractJestObservations(results, path string, names []string) observe.Set {
 	for i := range report.TestResults {
 		if report.TestResults[i].Name == want {
 			if file != nil {
-				s.Fail(reasonResultsFile)
-				return s
+				return observe.Set{}
 			}
 			file = &report.TestResults[i]
 		}
 	}
 	if file == nil {
-		s.Fail(reasonResultsFile)
 		return s
 	}
 	wanted := map[string]bool{}
@@ -287,8 +336,9 @@ func extractJestObservations(results, path string, names []string) observe.Set {
 }
 
 // recordMeta records the entries of one normalized meta object in order, so
-// that a key present twice in a (tampered) report is seen twice. A marker or
-// anything but an object of strings is a channel error.
+// that a key present twice in a (tampered) report is seen twice. Each value is
+// recorded as its canonical JSON text (canonicalJSON), so its type is part of
+// what is compared. A marker or anything but an object is a channel error.
 func recordMeta(s *observe.Set, test string, raw json.RawMessage) {
 	var text string
 	if json.Unmarshal(raw, &text) == nil {
@@ -301,6 +351,7 @@ func recordMeta(s *observe.Set, test string, raw json.RawMessage) {
 	}
 	notObject := metaReasons[metaNotObject]
 	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder.UseNumber()
 	if token, err := decoder.Token(); err != nil || token != json.Delim('{') {
 		s.Fail(notObject)
 		return
@@ -312,12 +363,17 @@ func recordMeta(s *observe.Set, test string, raw json.RawMessage) {
 			s.Fail(notObject)
 			return
 		}
-		var value string
+		var value any
 		if err := decoder.Decode(&value); err != nil {
 			s.Fail(notObject)
 			return
 		}
-		s.Record(test, key, value)
+		text, err := canonicalJSON(value)
+		if err != nil {
+			s.Fail(notObject)
+			return
+		}
+		s.Record(test, key, text)
 	}
 	if token, err := decoder.Token(); err != nil || token != json.Delim('}') {
 		s.Fail(notObject)
@@ -394,7 +450,8 @@ func declaresObservations(path, content string) bool {
 //
 // It records nothing, and returns nil, when neither run recorded an
 // observation and the source declares none, so ordinary experiments are
-// unchanged. Otherwise it records one differential_observation evidence
+// unchanged; a run that produced no report (ERROR, TIMEOUT, SKIPPED) recorded
+// none. Otherwise it records one differential_observation evidence
 // record. When a key differs it runs exactly one live baseline repeat
 // (generated_test_base_repeat, never served from the execution cache and
 // charged to the runtime budget). A DIVERGED experiment retains the generated
@@ -429,7 +486,7 @@ func (h *Harness) observeGenerated(ctx context.Context, t *generatedTest, runner
 	if repeat != nil {
 		e.RepeatCheckID = repeat.ID
 	}
-	if outcome.Status == model.StatusUnverified && baseSet.Empty() && candidateSet.Empty() && declared {
+	if outcome.Status == model.StatusUnverified && outcome.Reason != reasonNotBothPass && baseSet.Empty() && candidateSet.Empty() && declared {
 		e.Description += " (" + reasonDeclaredNotFound + ")"
 	}
 	if outcome.Status == model.StatusDiverged && !t.Reproduced {

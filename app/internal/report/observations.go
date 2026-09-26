@@ -119,12 +119,16 @@ func observationDivergences(r *model.Report, l *ledger) []model.Divergence {
 // both-pass NOT_REPRODUCED generated test that shares that candidate check, so
 // an observed difference is never hidden behind it.
 //
-// Two extensions make the rule fail closed: a key recorded on one side only
-// also counts as a difference, and the values are also read from the checks of
-// every differential_test record itself, so removing the observation record
-// from a saved report does not lift the mask. Validity rules (duplicates,
-// redaction, bounds, passing runs) are deliberately ignored here: they decide
-// what may support a divergence, never what may hide one.
+// The rule is extended to fail closed (observe.Differ): whatever does not
+// establish equal full values also counts as a difference. That is a key
+// recorded on one side only, a key whose value could not be read on either
+// side, a key or value holding the redaction marker (equal redacted texts say
+// nothing about the original values), and a channel error on either side. The
+// values are also read from the checks of every differential_test record
+// itself, so removing the observation record from a saved report does not lift
+// the mask. Other validity rules (duplicates, bounds, passing runs) are
+// ignored here: they decide what may support a divergence, never what may hide
+// one.
 func observationMasks(r *model.Report, l *ledger) map[string]bool {
 	masked := map[string]bool{}
 	for _, recorded := range r.Evidence {

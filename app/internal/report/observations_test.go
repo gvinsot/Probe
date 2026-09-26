@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/gvinsot/SwiftProof/app/internal/model"
+	"github.com/gvinsot/SwiftProof/app/internal/observe"
 	"github.com/gvinsot/SwiftProof/app/internal/redact"
 )
 
@@ -441,5 +442,97 @@ func TestObservationFinalizeIsIdempotent(t *testing.T) {
 	}
 	if r.Hypotheses[0].Status != model.StatusDiverged || r.Hypotheses[1].Status != model.StatusUnverified {
 		t.Fatalf("statuses %s %s", r.Hypotheses[0].Status, r.Hypotheses[1].Status)
+	}
+}
+
+// lineLimitLog renders a passing run of the observation test whose value for
+// key was too long for test2json: the framed line stays an output event.
+func lineLimitLog(key, value string) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, `{"Action":"run","Package":"example.com/m/pkg","Test":%q}`+"\n", obsTest)
+	for _, chunk := range []string{"\x16=== ATTR  " + obsTest + " swiftproof." + key + " " + value[:len(value)/2], value[len(value)/2:] + "\n"} {
+		line, _ := json.Marshal(map[string]string{"Action": "output", "Package": "example.com/m/pkg", "Test": obsTest, "Output": chunk})
+		b.Write(line)
+		b.WriteByte('\n')
+	}
+	fmt.Fprintf(&b, `{"Action":"pass","Package":"example.com/m/pkg","Test":%q}`+"\n", obsTest)
+	return b.String()
+}
+
+// Whatever does not establish equal full values withdraws a both-pass
+// NOT_REPRODUCED: a value the runner could not convert, values that redaction
+// made equal, and observations that could not be read at all. Equal values
+// that were compared in full keep it.
+func TestUnknownEqualityWithdrawsNotReproduced(t *testing.T) {
+	claim := model.Hypothesis{ID: "h2", Title: "Label unchanged", Severity: "high", Status: "NOT_REPRODUCED", Rationale: "passes on both", EvidenceIDs: []string{"evidence-1"}, Path: "price.go", Line: 3}
+	const title, path = "observe total", "src/obs.test.ts"
+	vitest := func(r *model.Report, base, candidate string) {
+		command := []string{"npx", "--no", "vitest", "run", path, "--reporter=json", "--outputFile=/tmp/swiftproof-test-results.json"}
+		results := func(meta string) string {
+			return `{"testResults":[{"name":"/workspace/` + path + `","status":"passed","assertionResults":[{"ancestorTitles":[],"title":"` + title + `","status":"passed","meta":{"swiftproof":` + meta + `}}]}]}`
+		}
+		r.Checks = []model.Check{
+			{ID: "check-1", Kind: model.CheckGeneratedBase, Status: "PASS", Command: command, Results: results(base)},
+			{ID: "check-2", Kind: model.CheckGeneratedCandidate, Status: "PASS", Command: command, Results: results(candidate)},
+		}
+		r.Evidence = r.Evidence[:1]
+		r.Evidence[0].Runner, r.Evidence[0].Path, r.Evidence[0].TestNames = "jest_json", path, []string{title}
+	}
+	standIn := func(text string) string { b, _ := json.Marshal(observe.Oversized(text)); return string(b) }
+	notObject := `"swiftproof: observations were not a key/value object"`
+	for _, tc := range []struct {
+		name   string
+		mutate func(*model.Report)
+		want   string
+	}{
+		{"candidate value too long for the runner", func(r *model.Report) {
+			r.Checks[0] = obsCheck("check-1", model.CheckGeneratedBase, "Label(1)", `"ok"`)
+			r.Checks[1] = obsCheck("check-2", model.CheckGeneratedCandidate)
+			r.Checks[1].Output = lineLimitLog("Label(1)", strings.Repeat("x", 5000))
+			r.Checks = r.Checks[:2]
+			r.Evidence[1].Status, r.Evidence[1].RepeatCheckID = model.StatusUnverified, ""
+		}, model.StatusUnverified},
+		{"both values too long for the runner", func(r *model.Report) {
+			r.Checks[0] = obsCheck("check-1", model.CheckGeneratedBase)
+			r.Checks[0].Output = lineLimitLog("Label(1)", strings.Repeat("x", 5000))
+			r.Checks[1] = obsCheck("check-2", model.CheckGeneratedCandidate)
+			r.Checks[1].Output = lineLimitLog("Label(1)", strings.Repeat("x", 5000))
+			r.Checks = r.Checks[:2]
+			r.Evidence = r.Evidence[:1]
+		}, model.StatusUnverified},
+		{"values equal only after redaction", func(r *model.Report) {
+			r.Checks[0] = obsCheck("check-1", model.CheckGeneratedBase, "Secret()", "password=a1")
+			r.Checks[1] = obsCheck("check-2", model.CheckGeneratedCandidate, "Secret()", "password=b2")
+			r.Checks = r.Checks[:2]
+			r.Evidence[1].Status, r.Evidence[1].RepeatCheckID = model.StatusUnverified, ""
+		}, model.StatusUnverified},
+		{"attr line that no longer parses", func(r *model.Report) {
+			r.Checks[1] = obsCheck("check-2", model.CheckGeneratedCandidate, "Discount(100,10)", "90", "Discount(5,33)", "4")
+			r.Checks[1].Output += `{"Action":"attr","Test":"` + obsTest + `","Key":"swiftproof.x","Value":"[REDACTED]` + "\n"
+			r.Checks = r.Checks[:2]
+			r.Evidence = r.Evidence[:1]
+		}, model.StatusUnverified},
+		{"vitest markers on both sides", func(r *model.Report) { vitest(r, notObject, notObject) }, model.StatusUnverified},
+		{"vitest stand-ins of different values", func(r *model.Report) {
+			vitest(r, `{"k":`+standIn(strings.Repeat("a", 2000))+`}`, `{"k":`+standIn(strings.Repeat("b", 2000))+`}`)
+		}, model.StatusUnverified},
+		{"vitest stand-ins of equal values", func(r *model.Report) {
+			vitest(r, `{"k":`+standIn(strings.Repeat("a", 2000))+`}`, `{"k":`+standIn(strings.Repeat("a", 2000))+`}`)
+		}, model.StatusNotReproduced},
+		{"vitest number against string", func(r *model.Report) { vitest(r, `{"k":4}`, `{"k":"4"}`) }, model.StatusUnverified},
+		{"vitest equal values", func(r *model.Report) { vitest(r, `{"k":4,"s":"x"}`, `{"s":"x","k":4}`) }, model.StatusNotReproduced},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			r := observationReport()
+			r.Hypotheses = []model.Hypothesis{claim}
+			tc.mutate(r)
+			Finalize(r, true)
+			if got := r.Hypotheses[0].Status; got != tc.want {
+				t.Fatalf("NOT_REPRODUCED claim became %s, want %s", got, tc.want)
+			}
+			if tc.want == model.StatusUnverified && r.ExitCode != 2 {
+				t.Fatalf("exit %d", r.ExitCode)
+			}
+		})
 	}
 }

@@ -223,9 +223,19 @@ func TestSummaryAndDiverged(t *testing.T) {
 	}
 }
 
+// Differ fails closed: only full values recorded readably on both sides, with
+// no redaction marker and no channel error, can show that nothing differs.
 func TestDiffer(t *testing.T) {
-	var lineLimit Set
-	lineLimit.Invalidate(test, "a", "too long")
+	unreadable := func(pairs ...string) Set {
+		s := set(pairs...)
+		s.Invalidate(test, "a", "too long")
+		return s
+	}
+	failed := func(pairs ...string) Set {
+		s := set(pairs...)
+		s.Fail("fixed reason")
+		return s
+	}
 	for _, tc := range []struct {
 		name            string
 		base, candidate Set
@@ -235,16 +245,50 @@ func TestDiffer(t *testing.T) {
 		{"both empty", Set{}, Set{}, false},
 		{"value differs", set("a", "1"), set("a", "2"), true},
 		{"redacted values differ", set("a", "[REDACTED]"), set("a", "x"), true},
-		{"redacted values equal", set("a", "[REDACTED]"), set("a", "[REDACTED]"), false},
+		{"redacted values equal", set("a", "[REDACTED]"), set("a", "[REDACTED]"), true},
+		{"partly redacted values equal", set("a", "user [REDACTED]"), set("a", "user [REDACTED]"), true},
+		{"redacted key", set("token=[REDACTED]", "1"), set("token=[REDACTED]", "1"), true},
+		{"escaped secret, equal and unaltered", set("a", "password=abc"), set("a", "password=abc"), false},
 		{"candidate only", set("a", "1"), set("a", "1", "b", "2"), true},
 		{"baseline only", set("a", "1", "b", "2"), set("a", "1"), true},
 		{"repeated equal values", set("a", "1"), set("a", "1", "a", "1"), false},
 		{"forged second value", set("a", "1"), set("a", "1", "a", "2"), true},
-		{"unreadable value on one side only", lineLimit, set("b", "1"), true},
-		{"unreadable against recorded", lineLimit, set("a", "1"), false},
+		{"unreadable value on one side only", unreadable(), set("b", "1"), true},
+		{"unreadable against recorded", unreadable(), set("a", "1"), true},
+		{"recorded against unreadable", set("a", "1"), unreadable(), true},
+		{"unreadable on both sides", unreadable(), unreadable(), true},
+		{"channel error on the candidate", set("a", "1"), failed("a", "1"), true},
+		{"channel error on the baseline, nothing recorded", failed(), Set{}, true},
+		{"equal stand-ins", set("a", `"`+Oversized("x")+`"`), set("a", `"`+Oversized("x")+`"`), false},
+		{"different stand-ins", set("a", `"`+Oversized("x")+`"`), set("a", `"`+Oversized("y")+`"`), true},
+		{"stand-ins of redacted values", set("a", Oversized("[REDACTED]")), set("a", Oversized("[REDACTED]")), true},
 	} {
 		if got := Differ(tc.base, tc.candidate); got != tc.want {
 			t.Errorf("%s: %v, want %v", tc.name, got, tc.want)
 		}
+	}
+}
+
+// A stand-in for a value too long to compare keeps its length and hash: it is
+// never compared and never a valid key, but two different values stay
+// different.
+func TestOversizedStandIn(t *testing.T) {
+	long := strings.Repeat("<", MaxValueBytes+1)
+	s := Oversized(long)
+	if !strings.HasPrefix(s, OversizedPrefix+fmt.Sprintf("%d bytes, sha256 ", len(long))) || len(s) > 200 || strings.Contains(s, "<") {
+		t.Fatalf("stand-in %q", s)
+	}
+	if Oversized(long) != s || Oversized(long+"x") == s {
+		t.Fatal("stand-ins are not a function of the text")
+	}
+	if strings.Contains(s, "[REDACTED]") || !strings.HasSuffix(Oversized("a [REDACTED] b"), " [REDACTED]") {
+		t.Fatal("only the stand-in of a redacted text carries the marker")
+	}
+	o := Compare(set("a", `"`+s+`"`), set("a", `"`+s+`"`), nil)
+	if row := rowOf(t, o, "a"); row.Status != model.ObservationIncomparable || row.Reason != reasonValueTooLong || o.Status != model.StatusUnverified {
+		t.Fatalf("equal stand-ins were compared: %+v", row)
+	}
+	if keyProblem(s) != reasonKeyInvalid {
+		t.Fatal("a stand-in is a valid key")
 	}
 }

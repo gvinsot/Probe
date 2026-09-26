@@ -104,6 +104,16 @@ The three entries below record the runs that the F0a, F0b and F0d implementers r
   - (d) A `DIVERGED` claim citing the `differential_test`: exit 2; the hypothesis is `UNVERIFIED`; the divergence stays listed with no citing hypothesis.
   - (e) A TypeScript fixture with `swiftproof-ts-test:local` and a Vitest template: exit 2; `DIVERGED` on `discount(5,33)` (`4`, `3`), with a non-string meta value re-encoded canonically. The same experiment through a Jest template, on a CommonJS fixture with a `package.json` (Jest in this image has no TypeScript transform configured): exit 2; the observation record is `UNVERIFIED` ("… Jest reports carry no per-test metadata"), and the `DIVERGED` claim becomes `UNVERIFIED`.
   - Every `swiftproof report` re-render was byte-identical (JSON and Markdown); the seven reports and their re-renders validate against the schema (`TestSchemaValidatesReportFiles`); every fixture checkout stayed clean.
+
+**2026-09-26, observation oracle review fixes (F1).** Same host, Docker Engine 28.4.0 and images as the entry above.
+
+- From `app/`: `go vet ./...` and `go test -count=1 ./...` exit 0 in `golang:1.26-bookworm`; `CGO_ENABLED=1 go test -race` of `internal/observe`, `internal/harness`, `internal/report`, `internal/reviewer` and `internal/cli` exit 0. From `hub/`: `go vet ./...` and `go test -count=1 ./...` exit 0. In `golang:1.23-bookworm`: `go vet ./...` and the `observe`, `harness`, `report`, `reviewer` and `model` tests exit 0. The tests added in this round fail when run against the previous implementation files (with the two new identifiers stubbed).
+- Windows amd64 test binaries: `harness` with both test images, all ten Docker tests pass (including `TestDockerGoObservationIntegration` and `TestDockerTSObservationIntegration`, Vitest and Jest); `cli` with the Go image, its three Docker tests pass. No `swiftproof-` container created by these runs remained.
+- A Windows binary built from the branch (`-X main.version=F1fix-e2e`) with the scripted loopback provider, `review --checks=false --ci`:
+  - Go `Discount` rewrite with a critical `DIVERGED` claim: exit 2, three PASS checks, `divergences[0]` holds `Discount(5,33)` with baseline `4` and candidate `3`. Equivalent rewrite with a `NOT_REPRODUCED` claim: exit 0, `NOT_DIVERGED`, the claim is kept.
+  - A candidate `Label(1)` returning 5000 bytes (too long for test2json to convert) with a high `NOT_REPRODUCED` claim: exit 2; the observation record is `UNVERIFIED` (one incomparable key), the `differential_test` is rendered "as stored; not accepted as evidence", and the claim is `UNVERIFIED`.
+  - Vitest `discount` rewrite: exit 2, `DIVERGED` on `discount(5,33)` (`4`, `3`). The same test recording an extra 180000-character `"<"` string: exit 2, the three checks PASS (no ERROR), the long value is kept as a stand-in and `INCOMPARABLE`, and the record is `DIVERGED` on `discount(5,33)`. A test recording `discount(100,10)` as a number and as `String(...)` with a `NOT_REPRODUCED` claim: exit 0, `NOT_DIVERGED` with rows `90` and `"90"`, the claim is kept.
+  - Every `swiftproof report` re-render was byte-identical (JSON and Markdown), the twelve reports validate against the schema (`TestSchemaValidatesReportFiles`), and every fixture checkout stayed clean.
 <!-- F1:end -->
 
 <!-- F2:begin -->

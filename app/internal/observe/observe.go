@@ -14,6 +14,7 @@
 package observe
 
 import (
+	"crypto/sha256"
 	"fmt"
 	"regexp"
 	"sort"
@@ -41,7 +42,27 @@ const (
 	MaxValueBytes = 1024
 	// DisplayBytes is the UTF-8-safe display cut of a value in a row.
 	DisplayBytes = 256
+	// OversizedPrefix starts the stand-in (Oversized) that replaces a recorded
+	// Vitest key or value too long to be compared. It contains whitespace, so
+	// a stand-in is never a valid key, and a value containing it is never
+	// compared.
+	OversizedPrefix = "swiftproof: not kept: "
 )
+
+// Oversized returns the fixed stand-in for a recorded key or value that is too
+// long to be compared: its length and the sha256 of text, which the caller has
+// already redacted. Two stand-ins are equal only when the texts were, so
+// Differ still sees a difference between two long values; Compare never
+// compares a value that contains the stand-in. When text holds the redaction
+// marker, so does the stand-in, because equal redacted texts do not establish
+// equal original values.
+func Oversized(text string) string {
+	s := fmt.Sprintf("%s%d bytes, sha256 %x", OversizedPrefix, len(text), sha256.Sum256([]byte(text)))
+	if strings.Contains(text, redact.Marker) {
+		s += " " + redact.Marker
+	}
+	return s
+}
 
 // Fixed row reasons. They never contain recorded text.
 const (
@@ -206,13 +227,13 @@ func keyProblem(name string) string {
 }
 
 // valueProblem returns why a recorded value cannot be compared, or "". A value
-// altered by redaction proves nothing when it equals another; a longer value
-// is outside the compared bound.
+// altered by redaction proves nothing when it equals another; a longer value,
+// or the stand-in that replaced one (Oversized), is outside the compared bound.
 func valueProblem(v string) string {
 	if strings.Contains(v, redact.Marker) || !redact.IsFixedPoint(v) {
 		return reasonValueRedacted
 	}
-	if len(v) > MaxValueBytes {
+	if len(v) > MaxValueBytes || strings.Contains(v, OversizedPrefix) {
 		return reasonValueTooLong
 	}
 	return ""
@@ -244,8 +265,9 @@ func display(v string) (string, bool) {
 // Per key, in order:
 //   - INCOMPARABLE when the key is invalid or was not readable on any side,
 //     when it was recorded more than once on any side, when any recorded value
-//     contains the redaction marker, is not a Redact fixed point or exceeds
-//     MaxValueBytes, or when it was recorded on one revision only;
+//     contains the redaction marker, is not a Redact fixed point, exceeds
+//     MaxValueBytes or holds the stand-in of a longer value (Oversized), or
+//     when it was recorded on one revision only;
 //   - EQUAL when the baseline and the candidate recorded the same value and the
 //     repeat, if any, recorded it too;
 //   - UNSTABLE when the repeat did not record the first baseline value;
@@ -388,20 +410,43 @@ func compareKey(k Key, base, candidate Set, repeat *Set) model.Observation {
 	return row
 }
 
-// Differ reports whether the baseline and the candidate recorded different
-// things for any key: a key present on one side only, or a key recorded on both
-// sides with at least one pair of different full values. It ignores every
-// validity rule (duplicates, redaction, bounds, channel errors) and is used
-// only to withdraw a both-pass NOT_REPRODUCED conclusion: an observed
-// difference must never be hidden behind it.
+// Differ reports whether the baseline and the candidate may have recorded
+// different things. It is used only to withdraw a both-pass NOT_REPRODUCED
+// conclusion, so that an observed difference is never hidden behind it, and it
+// fails closed: whatever does not establish equal full values counts as a
+// possible difference. That is:
+//   - a channel error on either side (the observations could not be read);
+//   - a key present on one side only;
+//   - a key that either side recorded without a readable value (for example a
+//     Go value too long for the test runner to convert), since equality is
+//     then unknown;
+//   - a key name or a value that holds the redaction marker, since equal
+//     redacted texts do not establish equal original values;
+//   - a key recorded on both sides with at least one pair of different full
+//     values.
+//
+// Other validity rules (duplicates, bounds, key syntax, build-dependent
+// values) are ignored: they decide what may support a divergence, never what
+// may hide one. A value that is not a Redact fixed point but holds no marker
+// was not altered by redaction (it was decoded from an escaped form), so it is
+// compared exactly like any other value.
 func Differ(base, candidate Set) bool {
+	if base.err != "" || candidate.err != "" {
+		return true
+	}
 	for _, pair := range [][2]Set{{base, candidate}, {candidate, base}} {
 		a, b := pair[0], pair[1]
 		for _, k := range a.order {
-			if !b.present(k) {
+			if !b.present(k) || strings.Contains(k.Name, redact.Marker) {
+				return true
+			}
+			if _, unreadable := a.invalid[k]; unreadable {
 				return true
 			}
 			for _, av := range a.values[k] {
+				if strings.Contains(av, redact.Marker) {
+					return true
+				}
 				for _, bv := range b.values[k] {
 					if av != bv {
 						return true
