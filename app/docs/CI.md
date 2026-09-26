@@ -68,10 +68,12 @@ None of the v0.4 stages produces exit 1: only a reproduced high/critical hypothe
 
 `--format sarif,pr-comment` writes `confidence-report.sarif` and `PR_COMMENT.md`, which list only findings backed by recorded sandbox evidence ([exports](EXPORTS.md)). SwiftProof itself never contacts GitHub; a workflow may post the rendered files with its own token. The formats and `--report-url` make an older binary exit 3, so pass them only after the re-pin described above; the included `review.yml` and `pr-review.yml` do not pass them.
 
-- **Upload SARIF only when the exit code is 0, 1 or 2, `executionSuccessful` is true** (`.runs[0].invocations[0]` in the SARIF file), **and no notification of kind `no_execution`, `stage_not_run` or `omitted_findings` is present.** An upload closes every earlier alert of its category that it lacks as "fixed", so an empty or partial upload would close alerts that nothing re-examined. That covers an upload after an operational failure, a SKIPPED, TIMEOUT or ERROR check, or a reached deadline, and also one from a run where:
+- **Upload SARIF only when the exit code is 0, 1 or 2, `executionSuccessful` is true** (`.runs[0].invocations[0]` in the SARIF file), **and no notification of kind `no_execution`, `stage_not_run` or `omitted_findings` is present.** An upload closes every earlier alert of its category that it lacks as "fixed". The gate skips the uploads where the report records that execution failed, did not happen or was cut: an operational failure, a SKIPPED, TIMEOUT or ERROR check, or a reached deadline, and a run where:
   - nothing executed (`lint`, or `review` without checks and reviewer), where `executionSuccessful` is still true;
   - a configured stage did not run;
   - the 1000-result cap cut findings.
+
+  **The gate protects only against these cases.** Reproduced, observed-divergence and intent-test findings come from the reviewer model's experiments and exist only for what the model chose to test in that run, so any upload, after a complete reviewer run as well as after one that stopped early, may close earlier alerts of these classes as "fixed" although nothing re-examined them. A reviewer that stopped early ("Reviewer incomplete: …", an exhausted iteration, tool-call or input budget) shows only as an `unverified_area` notification and passes the gate, and so does a stage that ran without finishing every item (for example a mutation section `incomplete`). A stricter gate also requires `jq -e '.runs[0].properties.swiftproof.unverified_areas == 0'` to succeed on the rendered SARIF file: that count includes every recorded unverified area and `UNVERIFIED` hypothesis, also those the notification cap leaves out. It skips more uploads, and it still does not make an alert's "fixed" state a re-examination.
 
   Upload only `review` output, with one category per workflow; `lint` output never has results. The "fixed" state is GitHub's, never a SwiftProof claim, and "no new alerts" or an empty comment is not an approval: keep branch protection with human review.
 - **Post `PR_COMMENT.md` as a comment, never into the pull-request description.** The description is the usual `--intent-file` source.
@@ -151,7 +153,7 @@ jobs:
                    all(.toolExecutionNotifications[]; .properties.swiftproof_kind | IN("no_execution", "stage_not_run", "omitted_findings") | not)' \
             rendered/confidence-report.sarif \
             && echo "upload=true" >> "$GITHUB_OUTPUT" || echo "upload=false" >> "$GITHUB_OUTPUT"
-      - name: Upload SARIF only for a successful, unabridged execution
+      - name: Upload SARIF only when the gate passes
         if: steps.pr.outputs.upload == 'true'
         uses: github/codeql-action/upload-sarif@<pinned-sha>
         with:

@@ -486,6 +486,14 @@ func artifactURI(p string) (string, bool) {
 	return strings.Join(segments, "/"), true
 }
 
+// Fixed texts of the per-area and per-hypothesis SARIF notifications. The
+// hypothesis text holds for every UNVERIFIED hypothesis, including one the
+// model itself submitted as UNVERIFIED: Finalize accepted no other status.
+const (
+	unverifiedAreaText       = "Unverified area %d of %d. Its text can quote reviewer-model output, so it is not exported; the record is in confidence-report.json (unverified)."
+	unverifiedHypothesisText = "is UNVERIFIED: SwiftProof accepted no evidence-backed status for it. The reviewer model's text is not exported; the record is in confidence-report.json."
+)
+
 // sarifNotifications lists, at level warning, everything an empty or short
 // result list must not hide: an operational failure, the absence of any
 // execution, stages that did not run, findings the cap omitted, findings
@@ -493,8 +501,11 @@ func artifactURI(p string) (string, bool) {
 // unverified areas and hypotheses. They are emitted in that order, so that the
 // notification cap drops the per-check, per-area and per-hypothesis items
 // before any unanchored finding, whose notification is its only SARIF form.
-// An UNVERIFIED hypothesis is named by its ID only: the reviewer model's text
-// of a claim that the evidence does not support is never exported.
+// Unverified areas and hypotheses have fixed text: an area by its position, an
+// UNVERIFIED hypothesis by its ID. An area's note can quote reviewer-model
+// output (a rejected tool name, a generated test title, a provider error), and
+// the model's text of a hypothesis without an evidence-backed status is never
+// exported, so neither can carry approval wording into the SARIF log.
 func sarifNotifications(s exportStatus, unanchored []finding, omitted int) []sarifNotification {
 	var out []sarifNotification
 	add := func(kind, text string) {
@@ -529,11 +540,11 @@ func sarifNotifications(s exportStatus, unanchored []finding, omitted int) []sar
 	for _, c := range s.ChecksNotPassed {
 		add("check_not_passed", "Check "+quoted(sarifText(c.ID, 64))+" ("+sarifText(c.Kind, 64)+") is "+sarifText(c.Status, 32)+"; inspect its recorded output.")
 	}
-	for _, u := range s.UnverifiedNotes {
-		add("unverified_area", "Unverified area: "+sarifText(u, maxReasonBytes))
+	for i := range s.UnverifiedNotes {
+		add("unverified_area", fmt.Sprintf(unverifiedAreaText, i+1, len(s.UnverifiedNotes)))
 	}
 	for _, h := range s.UnverifiedHypotheses {
-		add("unverified_hypothesis", "Hypothesis "+quoted(sarifText(h.ID, 64))+" stayed UNVERIFIED: the recorded evidence does not support its claimed status. The reviewer model's text is not exported; the record is in confidence-report.json.")
+		add("unverified_hypothesis", "Hypothesis "+quoted(sarifText(h.ID, 64))+" "+unverifiedHypothesisText)
 	}
 	if len(out) > maxNotifications {
 		rest := len(out) - (maxNotifications - 1)

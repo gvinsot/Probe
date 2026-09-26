@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
+	"regexp"
 	"strings"
 
 	"github.com/gvinsot/SwiftProof/app/internal/model"
@@ -63,9 +64,9 @@ func ValidFormat(format string) bool {
 // [A-Za-z0-9._~:/?#!$&*+,;=%-]. The character set cannot close a Markdown link
 // or start raw HTML: parentheses, brackets, quotes, backslashes, backticks,
 // spaces, angle brackets and "@" are all refused. The URL is the one string of
-// the exports that the report's sanitizing never sees, so a URL that the
-// credential redaction would change (a token in its query, for example) is
-// refused rather than written into the comment.
+// the exports that the report's sanitizing never sees, so a URL that looks as
+// if it carries a credential (reportURLCredential) is refused rather than
+// written into the comment.
 func ValidateReportURL(s string) error {
 	if s == "" {
 		return errors.New("the report URL is empty")
@@ -94,10 +95,95 @@ func ValidateReportURL(s string) error {
 	if u.Hostname() == "" {
 		return errors.New("the report URL must name a host")
 	}
-	if !redact.IsFixedPoint(s) {
-		return errors.New("the report URL appears to contain a credential, which SwiftProof's redaction would mask; pass a URL without secrets")
+	if what := reportURLCredential(s); what != "" {
+		return fmt.Errorf("the report URL appears to contain a credential (%s); pass a URL without secrets", what)
 	}
 	return nil
+}
+
+// urlTokenShapes are the credential shapes of the redaction rules
+// (internal/redact), anchored where a token can start: at the beginning of the
+// text or after a character that cannot be part of the token. The redaction
+// rules have no such anchor, which suits free text but refuses ordinary report
+// URLs: "flask-sqlalchemy", "task-scheduler" and "disk-usage-report" contain
+// "sk-" followed by eight token characters. A refused URL stops the whole run
+// with exit 3, so the URL check uses these anchored shapes instead of the
+// redaction itself.
+var urlTokenShapes = []struct {
+	what string
+	re   *regexp.Regexp
+}{
+	{`a value shaped like an "sk-" key`, regexp.MustCompile(`(?:^|[^A-Za-z0-9_-])sk-[A-Za-z0-9_-]{8,}`)},
+	{"a value shaped like a GitHub token", regexp.MustCompile(`(?:^|[^A-Za-z0-9_-])(?:gh[pousr]_|github_pat_)[A-Za-z0-9_]{8,}`)},
+	{"a value shaped like an AWS access key ID", regexp.MustCompile(`(?:^|[^A-Za-z0-9_-])AKIA[A-Z0-9]{16}`)},
+	{"a value shaped like a JSON Web Token", regexp.MustCompile(`(?:^|[^A-Za-z0-9_-])eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}`)},
+	{"a bearer token", regexp.MustCompile(`(?i)(?:^|[^A-Za-z0-9_-])bearer(?:\s|\+)+[A-Za-z0-9._~+/=-]`)},
+	{"a private key", regexp.MustCompile(`(?i)-----BEGIN[A-Z +]*PRIVATE(?:\s|\+)+KEY`)},
+}
+
+// Parameter names that carry credentials, compared in lower case without "-",
+// "_" and ".": a name that contains one of credentialNameParts or equals one of
+// credentialNames. They cover the names of the redaction's assignment rule
+// (api_key, access_token, auth_token, client_secret, secret, password, passwd,
+// authorization) and the usual signed-URL parameters (sig, X-Amz-Signature,
+// X-Amz-Credential, X-Amz-Security-Token, X-Goog-Signature).
+var (
+	credentialNameParts = []string{"token", "secret", "password", "passwd", "passphrase", "signature", "credential", "apikey", "accesskey", "privatekey"}
+	credentialNames     = map[string]bool{"sig": true, "pwd": true, "pass": true, "key": true, "auth": true, "authorization": true, "jwt": true, "bearer": true, "session": true, "sessionid": true}
+	credentialNameFold  = strings.NewReplacer("-", "", "_", "", ".", "")
+)
+
+// reportURLCredential describes the credential that the report URL s appears
+// to carry, or returns "" when it finds none. In s and in its percent-decoded
+// form it looks for a token shape of the redaction rules that starts at a
+// token boundary (urlTokenShapes) and, after the host, for a parameter named
+// like a credential: the name of every "name=value" or "name:value" piece
+// between the separators "/", "?", "&", "#" and ";", so query, fragment and
+// path parameters all count. It is a best-effort guard against a URL that
+// carries a secret, not a guarantee that none remains.
+func reportURLCredential(s string) string {
+	texts := []string{s}
+	if decoded, err := url.PathUnescape(s); err == nil && decoded != s {
+		texts = append(texts, decoded)
+	}
+	for _, text := range texts {
+		for _, shape := range urlTokenShapes {
+			if shape.re.MatchString(text) {
+				return shape.what
+			}
+		}
+		rest := strings.TrimPrefix(text, "https://")
+		if i := strings.IndexAny(rest, "/?#"); i >= 0 {
+			rest = rest[i:]
+		} else {
+			rest = ""
+		}
+		for _, piece := range strings.FieldsFunc(rest, func(r rune) bool { return strings.ContainsRune("/?&#;", r) }) {
+			i := strings.IndexAny(piece, "=:")
+			if i <= 0 {
+				continue
+			}
+			if credentialName(piece[:i]) {
+				return fmt.Sprintf("a parameter named %q", redact.TruncateUTF8(piece[:i], 64))
+			}
+		}
+	}
+	return ""
+}
+
+// credentialName reports whether a URL parameter name reads as the name of a
+// credential.
+func credentialName(name string) bool {
+	folded := strings.ToLower(credentialNameFold.Replace(name))
+	if credentialNames[folded] {
+		return true
+	}
+	for _, part := range credentialNameParts {
+		if strings.Contains(folded, part) {
+			return true
+		}
+	}
+	return false
 }
 
 func reportURLByte(c byte) bool {

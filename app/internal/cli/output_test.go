@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -30,6 +31,12 @@ func TestReportOptions(t *testing.T) {
 		{"no host", []string{"pr-comment"}, "https:///runs/1", 0, "--report-url: the report URL must name a host"},
 		{"too long", []string{"pr-comment"}, "https://example.invalid/" + strings.Repeat("a", 490), 0, "exceeds 512 bytes"},
 		{"credential", []string{"pr-comment"}, "https://example.invalid/run?token=ghp_0123456789abcdefghij", 0, "--report-url: the report URL appears to contain a credential"},
+		{"credential parameter name", []string{"pr-comment"}, "https://example.invalid/run#access_token=abc", 0, "--report-url: the report URL appears to contain a credential"},
+		// "sk-" followed by eight token characters inside a repository name is
+		// not a key.
+		{"flask-sqlalchemy run", []string{"sarif", "pr-comment"}, "https://github.com/pallets-eco/flask-sqlalchemy/actions/runs/1", 1, ""},
+		{"task-scheduler run", []string{"pr-comment"}, "https://github.com/acme/task-scheduler/actions/runs/1", 1, ""},
+		{"disk-usage-report job", []string{"pr-comment"}, "https://ci.example.com/job/disk-usage-report/1", 1, ""},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -112,6 +119,29 @@ func TestLintExportsAndRerender(t *testing.T) {
 	}
 	if !strings.Contains(readFile(t, filepath.Join(dir, "full", "PR_COMMENT.md")), "[CONFIDENCE\\_REPORT.md and confidence-report.json]("+url+")") {
 		t.Fatal("report URL not linked")
+	}
+}
+
+// A run URL of a repository whose name contains "sk-" followed by eight token
+// characters (flask-sqlalchemy, task-scheduler) is accepted by lint and by the
+// publisher's re-render, and linked in the comment.
+func TestReportURLOfOrdinaryRepositoryNames(t *testing.T) {
+	dir := fixture(t)
+	for i, url := range []string{"https://github.com/pallets-eco/flask-sqlalchemy/actions/runs/123456789", "https://github.com/acme/task-scheduler/actions/runs/1"} {
+		var out, errOut bytes.Buffer
+		lintOut := filepath.Join(dir, fmt.Sprintf("lint-%d", i))
+		if code := Run(context.Background(), []string{"lint", "--repo", dir, "--base", "main", "--out", lintOut, "--format", "json,pr-comment", "--report-url", url}, &out, &errOut, "test"); code != 0 {
+			t.Fatalf("lint %s: exit %d: %s", url, code, errOut.String())
+		}
+		renderOut := filepath.Join(dir, fmt.Sprintf("render-%d", i))
+		if code := Run(context.Background(), []string{"report", "--input", filepath.Join(lintOut, "confidence-report.json"), "--out", renderOut, "--format", "sarif,pr-comment", "--report-url", url}, &out, &errOut, "test"); code != 0 {
+			t.Fatalf("report %s: exit %d: %s", url, code, errOut.String())
+		}
+		for _, d := range []string{lintOut, renderOut} {
+			if !strings.Contains(readFile(t, filepath.Join(d, "PR_COMMENT.md")), "("+url+")") {
+				t.Fatalf("%s: report URL not linked", d)
+			}
+		}
 	}
 }
 

@@ -317,9 +317,27 @@ func TestPRCommentGolden(t *testing.T) {
 }
 
 func TestValidateReportURL(t *testing.T) {
-	for _, ok := range []string{"https://github.com/o/r/actions/runs/1", "https://example.invalid", "https://example.invalid:8443/a/b?c=d&e=f#g", "https://h/%20"} {
+	for _, ok := range []string{"https://github.com/o/r/actions/runs/1", "https://example.invalid", "https://example.invalid:8443/a/b?c=d&e=f#g", "https://h/%20",
+		// Repository, job and host names that contain a token prefix inside a
+		// word are ordinary: the redaction rules, which have no word boundary,
+		// would mask "sk-sqlalchemy", "sk-scheduler" or "sk-assessment".
+		"https://github.com/pallets-eco/flask-sqlalchemy/actions/runs/123456789",
+		"https://github.com/pallets-eco/flask-sqlalchemy/actions/runs/1",
+		"https://github.com/acme/task-scheduler/actions/runs/1",
+		"https://github.com/acme/risk-assessment/actions/runs/1",
+		"https://ci.example.com/job/disk-usage-report/1",
+		"https://desk-automation.example.com/runs/1",
+		"https://github.com/acme/tokenizer/actions/runs/1",
+		"https://github.com/acme/r/actions/runs/1/job/2#step:4:12",
+		"https://dev.azure.com/o/p/_build/results?buildId=12&view=results",
+		"https://ci.example.com/view?author=me&monkey=1&passes=3",
+		"https://github.com/acme/r/pull/7/checks?check_run_id=1",
+	} {
 		if err := ValidateReportURL(ok); err != nil {
 			t.Errorf("%q refused: %v", ok, err)
+		}
+		if _, _, err := renderFormat(FormatPRComment, Sanitize(finalized(exportFixture(), true)), writeOptions{reportURL: ok}); err != nil {
+			t.Errorf("%q not rendered: %v", ok, err)
 		}
 	}
 	for _, bad := range []string{"", "http://example.invalid", "javascript:alert(1)", "https://", "https:///x", "https://user:pw@example.invalid", "https://user@example.invalid",
@@ -330,8 +348,8 @@ func TestValidateReportURL(t *testing.T) {
 			t.Errorf("%q accepted", bad)
 		}
 	}
-	// The URL bypasses the report's sanitizing, so a URL that the credential
-	// redaction would change is refused instead of being written into the
+	// The URL bypasses the report's sanitizing, so a URL that looks as if it
+	// carries a credential is refused instead of being written into the
 	// comment.
 	for _, secret := range []string{
 		"https://example.invalid/run?token=ghp_0123456789abcdefghijABCDEFGHIJ",
@@ -339,6 +357,26 @@ func TestValidateReportURL(t *testing.T) {
 		"https://example.invalid/run?x=1&client_secret=abc",
 		"https://example.invalid/a/sk-0123456789abcdef",
 		"https://example.invalid/dl?sig=eyJhbGciOiJIUzI1.eyJzdWIiOiIxMjM0.SflKxwRJSMeKKF2QT4",
+		// Token shapes at a token boundary, whatever the parameter name.
+		"https://example.invalid/run?q=ghp_0123456789abcdef",
+		"https://example.invalid/run?q=x&r=github_pat_0123456789abcdef",
+		"https://example.invalid/AKIAABCDEFGHIJKLMNOP/x",
+		"https://example.invalid/jwt/eyJhbGciOiJIUzI1.eyJzdWIiOiIxMjM0.SflKxwRJSMeKKF2QT4",
+		"https://sk-0123456789abcdef.example.invalid/r",
+		"https://example.invalid/x?h=Bearer%20abcdef",
+		"https://example.invalid/x?h=bearer+abcdef",
+		"https://example.invalid/k/-----BEGIN%20RSA%20PRIVATE%20KEY-----",
+		// Credential parameter names in the query, the fragment and the path,
+		// also percent-encoded.
+		"https://example.invalid/run#access_token=abc",
+		"https://example.invalid/run?X-Amz-Signature=abc&X-Amz-Credential=def",
+		"https://example.invalid/run?X-Amz-Security-Token=abc",
+		"https://example.invalid/run?api-key=abc",
+		"https://example.invalid/run?sig=abc",
+		"https://example.invalid/run?key=abc",
+		"https://example.invalid/run;password=abc",
+		"https://example.invalid/secret:abc/run",
+		"https://example.invalid/run?%74oken=abc",
 	} {
 		err := ValidateReportURL(secret)
 		if err == nil || !strings.Contains(err.Error(), "credential") {
