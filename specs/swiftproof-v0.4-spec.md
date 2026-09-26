@@ -522,7 +522,7 @@ The baseline execution cache is opt-in with an explicit `--cache-dir` and replay
 
 - Unit tests with a fake executor, also under the race detector: checks that end in reverse order are recorded, saved and audited in configured order, and did run at the same time; concurrency never exceeds the limit; with `--parallel 4` the reserved and charged time never exceeds `max_runtime_seconds`, every concurrent run gets the full per-run timeout, and a group shrinks when the budget cannot cover full timeouts (four checks run as two groups of two); an exhausted budget gives the sequential outcome (the first run takes what remains, the rest are SKIPPED); with `--parallel` 1, 3 and 4, the recorded checks, artifacts and audit events equal those of one `Run` per kind; the Docker capacity caps the limit by CPUs and by memory, and a failed or unreadable probe means one at a time; there is no Docker call when one check at a time is requested, when there is one check, without an image, after the deadline or on a closed harness; an overall deadline during a group ends its runs as TIMEOUT and skips later groups; a reader of the ledger never sees part of a group.
 - Docker-gated test: on a real image, with room for two sandboxes, the test and typecheck containers overlap in time, the checks keep configured order and their real statuses, each run's time is charged, and no container of the test survives.
-- The F0 regression guard for `run.go` (`run_test.go`) passes unchanged after the plan / execute / record split.
+- F0's `run_test.go`, which pins the `run.go` semantics, passes unchanged after the plan / execute / record split.
 <!-- F7:end -->
 
 ## F8. Trusted dependency preparation
