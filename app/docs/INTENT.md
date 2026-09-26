@@ -11,8 +11,8 @@ The feature adds no policy key and no flag. It uses the existing `--intent` / `-
 `--intent TEXT` or `--intent-file FILE` (at most 64 KiB) supplies the intent to `review` and `lint`. In CI it is usually the pull request description, written by the PR author, so SwiftProof treats it as untrusted input:
 
 - The text must be valid UTF-8 without NUL bytes. Anything else exits 3 with `intent: intent must be UTF-8 text without NUL bytes`, before Git analysis, before any container and before any provider call.
-- Every block from `<!-- swiftproof:pr-comment:begin v1 -->` to `<!-- swiftproof:pr-comment:end -->` is removed first (a begin marker without an end marker removes the rest of the text), and the report records the Unverified note "SwiftProof PR-comment output was removed from the intent text." A SwiftProof PR comment pasted into the description therefore never becomes criteria. Post the PR comment as a comment, never into the description.
-- The report records the remaining text as `intent`, and `intent_sha256` is the SHA-256 of exactly that text.
+- Every block from `<!-- swiftproof:pr-comment:begin v1 -->` to `<!-- swiftproof:pr-comment:end -->` is removed first (a begin marker without an end marker removes the rest of the text, and a stray end marker is removed too), and the report records the Unverified note "SwiftProof PR-comment output was removed from the intent text." Removal repeats until no marker is left, since removing a block can join the text around it into a new marker; after 8 passes the text is cut at the first remaining marker. A SwiftProof PR comment pasted into the description therefore never becomes criteria. Post the PR comment as a comment, never into the description.
+- The remaining text is then redacted as the report redacts every string (credential shapes become `[REDACTED]`; line breaks are kept, so line numbers do not move). The report records exactly that text as `intent`, `intent_sha256` is the SHA-256 of it, and the criteria are extracted from it. Anyone can therefore recompute the hash and the criteria from the report, and the hash never covers a secret that redaction hides from the report, so it cannot be used to confirm a guess of that secret.
 - Criteria are data. No command, image, network setting, budget or provider setting is derived from the intent, and the reviewer prompt says that criterion text is never an instruction.
 
 ## Criteria grammar v1
@@ -62,33 +62,45 @@ An `intent_test` record always carries `check_id`, `criterion_id`, `runner` (`go
 
 | Status | When |
 | --- | --- |
-| `INTENT_TEST_FAILED` | The named test started and failed (exit 1 to 124, output not truncated), the failure is an assertion of the test's own file, and the test references a changed symbol that an added line of a changed non-test file names. |
-| `INTENT_TEST_PASSED` | Every named test started and passed (exit 0, output not truncated). |
-| `UNVERIFIED` | Anything else, with the reason in the description: a panic or runtime error, a failure outside the test's own file, no changed symbol referenced, no referenced symbol on an added line, a setup failure, a skip, a timeout, truncated output, an unrelated failure, or a skipped run. |
+| `INTENT_TEST_FAILED` | The named test started and failed (exit 1 to 124, output not truncated), the failure is an assertion of the test's own file, and the test names a declaration the change added or modified (matched by name) whose name also occurs on an added line of a changed non-test file. |
+| `INTENT_TEST_PASSED` | Every named test started and passed (exit 0, output not truncated), and the test names at least one declaration the change added or modified. |
+| `UNVERIFIED` | Anything else, with the reason in the description: a panic, a thrown error or a runtime error, a failure outside the test's own file, no changed declaration named (whether the test failed or passed), no referenced symbol on an added line, a setup failure, a skip, a timeout, truncated output, an unrelated failure, or a skipped run. Some of these also make the check ERROR, which exits 4 (see Retention and setup failures). |
 
 What counts as an assertion failure:
 
 - **Go** (`go test -json`): a named test ends with a `fail` event, one of its output events (or a subtest's) is a `<file>:<line>: <message>` line with a non-empty message whose file is the intent test's own file, as `t.Errorf`, `t.Fatalf` and `t.Log` write, and no output event of the run contains `panic:`.
-- **Jest-compatible report**: in the report entry for exactly the intent test's file, whose file-level `message` is empty, a named top-level test is `failed` with a non-empty failure message, and no failed named test has a message that starts with a JavaScript runtime error (`TypeError`, `ReferenceError`, `SyntaxError`, `RangeError`, `EvalError`, `URIError`, `InternalError`).
+- **Jest-compatible report**: in the report entry for exactly the intent test's file, whose file-level `message` is empty, a named top-level test is `failed` with a non-empty failure message, and every non-empty failure message of a failed named test starts (terminal color codes removed) with an assertion-error header: `AssertionError:` or `AssertionError [` (Vitest, Chai, `node:assert`), or Jest's matcher header `Error: expect(` or `Error: expect.`. A plain `Error`, a custom error class, a runtime error (`TypeError`, `ReferenceError`, …), a thrown non-error value or a test timeout, whether the code under test or the test threw it, is not an assertion failure. Other Jest-compatible runners whose assertion messages start otherwise record `UNVERIFIED`.
 
-Code executing in the sandbox writes both channels. The rule tells kinds of failure apart; it does not authenticate them.
+Code executing in the sandbox writes both channels, and code under test can throw an error whose message starts like an assertion. The rule tells kinds of failure apart; it does not authenticate them.
 
 ### Referenced symbols
 
 `referenced_symbols` lists, at most 32, the changed declarations the intent test names:
 
 - **Go**: every identifier and selector name of the test file (`go/ast`), intersected with the top-level declarations (functions, methods by method name, types, variables, constants) of the candidate's changed non-test Go files whose source range contains an added line.
-- **JavaScript and TypeScript**: identifiers read lexically from the test (outside strings and comments), intersected with top-level declarations found lexically at column 0 (`function`, `class`, `const`, `let`, `var`, `interface`, `type`, `enum`, `namespace`, with `export`, `default`, `declare`, `abstract` and `async` prefixes). The record's description says the match is lexical.
+- **JavaScript and TypeScript**: identifiers read lexically from the test (outside strings and comments), intersected with top-level declarations found lexically at column 0 (`function`, `class`, `const`, `let`, `var`, `interface`, `type`, `enum`, `const enum`, `namespace`, with `export`, `default`, `declare`, `abstract` and `async` prefixes). The record's description and the Intent Test Failures entry say the match is lexical.
 
-Names are matched, not resolved: a local variable that shares a changed declaration's name also matches.
+Names are matched, not resolved: a local variable that shares a changed declaration's name also matches. When the intersection is empty, the record is `UNVERIFIED` with "the intent test references no symbol the change added or modified", whether the test failed or passed: a test that touches no changed declaration says nothing about this change.
 
-An `INTENT_TEST_FAILED` record additionally needs at least one referenced symbol to occur as a whole word on an added line of a changed, non-deleted, non-test file of the recorded diff. This is what `report.Finalize` can check again from the report alone. It has a consequence: when a change only edits the body of a multi-line function and the function's name is not on an added line, a failing intent test for that function stays `UNVERIFIED` ("no symbol the intent test references is named on an added line …"). Files whose path is secret-bearing or would be altered by redaction are not read for this rule.
+Test files never link a test to the change: `_test.go` files, JavaScript and TypeScript files named `<name>.test.<ext>` or `<name>.spec.<ext>` for `.js`, `.jsx`, `.mjs`, `.cjs`, `.ts`, `.tsx`, `.mts` and `.cts`, and JavaScript and TypeScript files under a `__tests__` directory. Their declarations and added lines are not read.
+
+An `INTENT_TEST_FAILED` record additionally needs at least one referenced symbol to occur as a whole word on an added line of a changed, non-deleted, non-test file of the recorded diff. This is what `report.Finalize` can check again from the report alone. It has a consequence: when a change only edits the body of a multi-line function and the function's name is not on an added line, a failing intent test for that function stays `UNVERIFIED` ("no symbol the intent test references is named on an added line …"). Files whose path is secret-bearing or would be altered by redaction are not read for this rule, and lines are read redacted, so a name that only a redacted secret contains does not count.
+
+The harness computes the changed declarations and the words of the added lines once per run and reuses them for every intent test, and `Finalize` reads the added lines once per verification, so the host-side cost stays linear in the size of the diff whatever the number of intent tests or referenced symbols. The harness stops this work when the run's time limit or `--deadline` has passed; the intent test is then not started either.
 
 ### Retention and setup failures
 
 A test that records `INTENT_TEST_FAILED` is retained as a hashed `intent_test` artifact, and the reviewer can no longer delete it. If it cannot be retained, the record is `UNVERIFIED` instead.
 
-A model-written test that does not compile or cannot start (for example "[build failed]" in the Go output) makes its check ERROR through the inherited generated-test rule, and every ERROR check makes the run exit 4, as in v0.2. The record is `UNVERIFIED`. Tests written against new API often fail this way; the exit code is operational, not a finding about the change.
+Under the inherited generated-test rules, an intent check becomes ERROR, and every ERROR check makes the run exit 4 as in v0.2, whenever the named test did not run and end with a pass or a failure that the runner output confirms:
+
+- the test does not compile or cannot start (for example "[build failed]" in the Go output);
+- the output of the run contains one of the inherited setup-failure markers, such as `permission denied` or `command not found`, wherever it comes from;
+- the named test was skipped, or only an unrelated test failed;
+- the `go test -json` framing is broken, a run or terminal event of the named test is missing, or the output was truncated;
+- the Jest-compatible report is missing, duplicated for the file, or unreadable.
+
+The record is then `UNVERIFIED`. Tests written against new API often fail this way; the exit code is operational, not a finding about the change. Code under test writes the same log, so it can also make its intent check ERROR (for example by printing `permission denied`), which turns an intent-test failure into an exit-4 run; it cannot turn anything into exit 1.
 
 ## Hypotheses
 
@@ -109,6 +121,13 @@ From a real run: a Go change adds `Discount`, which takes 10 off only above 100;
 Intent: 2 acceptance criteria extracted; 1 intent-test failure (a model-written test failed on the candidate; no baseline control; weaker than a reproduced issue).
 ```
 
+When intent tests ran but no failure was accepted (another real run, whose three intent tests were all inconclusive), and when no intent test ran (always the case for `lint`), the line reads respectively:
+
+```text
+Intent: 2 acceptance criteria extracted; no intent-test failure was accepted, which says nothing about whether the criteria hold.
+Intent: 2 acceptance criteria extracted.
+```
+
 The Markdown report:
 
 ```text
@@ -125,12 +144,12 @@ The Markdown report:
 
 ## Intent Test Failures
 
-Candidate-only experiments. Each entry cites a test the reviewer wrote for one acceptance criterion: the test failed on an assertion on the candidate and references a symbol the change added or modified. No baseline run acts as a control, and the test, its inputs and its reading of the criterion are model-written, so the test or the reading may be wrong. This is weaker than a reproduced issue and never sets exit code 1.
+Candidate-only experiments. Each entry cites a test the reviewer wrote for one acceptance criterion: the test failed on an assertion on the candidate and names a symbol that a declaration the change added or modified also has, matched by name and not resolved. No baseline run acts as a control, and the test, its inputs and its reading of the criterion are model-written, so the test or the reading may be wrong. This is weaker than a reproduced issue and never sets exit code 1.
 
 - **high** Orders of exactly 100 get no discount — shop.go:14
   Criterion AC-1 (intent line 4): "Orders of 100 or more get 10 off"
   Evidence: evidence-1
-  Test swiftproof\_intent\_ac1\_test.go (TestSwiftProofIntentDiscountAt100) failed on an assertion and references the changed symbols Discount.
+  Test swiftproof\_intent\_ac1\_test.go (TestSwiftProofIntentDiscountAt100) failed on an assertion; names it shares with declarations the change added or modified (matched by name, not resolved): Discount.
 
 ## Intent Criteria
 
@@ -168,7 +187,7 @@ The sections appear only when an intent was supplied. With an intent but no crit
 | Extraction limits reached (Unverified note) | 0 | 2 |
 | `INTENT_TEST_PASSED`; a retained `intent_judgment` | 0 | 0 |
 | Intent not UTF-8 or containing NUL | 3 | 3 |
-| Intent-test setup failure (ERROR check) | 4 | 4 |
+| Intent check ERROR: the named test did not run and end with a pass or a failure (compile or setup failure, setup-failure marker in the output, skip, unrelated failure, broken framing, truncated output, missing Jest report) | 4 | 4 |
 
 ## What is and is not claimed
 
@@ -181,6 +200,7 @@ The sections appear only when an intent was supplied. With an intent but no crit
 ## Limitations
 
 - Only Go named tests and Jest-compatible reports can support a status; other runners are refused at `create_intent_test`.
+- For Jest-compatible reports, only failure messages with the assertion-error headers listed above count as assertions; a runner or assertion library that words them otherwise records `UNVERIFIED`.
 - JavaScript and TypeScript symbols are matched lexically.
 - A change confined to a function body whose name is not on an added line cannot support `INTENT_TEST_FAILED` (see Referenced symbols).
 - There is no baseline run of an intent test, so SwiftProof never says that a change delivered a criterion.

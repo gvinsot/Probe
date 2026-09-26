@@ -225,8 +225,8 @@ func shopRepo(t *testing.T, files, candidate map[string]string) string {
 
 // A real review of a Go change: the intent test for AC-1 fails on an assertion
 // and becomes an INTENT_TEST_FAILED hypothesis, which requests review (exit 2
-// with --ci, never 1); the passing AC-2 test supports nothing; the judgment on
-// an unsupported claim is dropped with a note.
+// with --ci, 0 without, never 1); the passing AC-2 test supports nothing; the
+// judgment on an unsupported claim is dropped with a note.
 func TestDockerIntentEndToEnd(t *testing.T) {
 	image := os.Getenv("SWIFTPROOF_TEST_DOCKER_IMAGE")
 	if image == "" {
@@ -245,9 +245,15 @@ func TestDockerIntentEndToEnd(t *testing.T) {
 		t.Fatalf("exit %d, want 2\n%s", code, output)
 	}
 	assertIntentReport(t, dir, r, output, "go_test_json")
-	if !strings.Contains(output, "references the changed symbols Discount") {
+	if !strings.Contains(output, "failed on an assertion; names it shares with declarations the change added or modified (matched by name, not resolved): Discount.") {
 		t.Fatalf("referenced symbols not rendered:\n%s", output)
 	}
+	// Without --ci the same run requests nothing through the exit code: 0.
+	code, r, output = runIntentReview(t, dir, image, []string{"go", "test", "{package}"}, intentScript(failing, passing, "shop.go"), false)
+	if code != 0 || r.ExitCode != 0 {
+		t.Fatalf("without --ci: exit %d (report %d), want 0\n%s", code, r.ExitCode, output)
+	}
+	assertIntentReport(t, dir, r, output, "go_test_json")
 }
 
 // The same review of a TypeScript change with a Vitest template (image
@@ -273,5 +279,8 @@ func TestDockerTSIntentEndToEnd(t *testing.T) {
 	assertIntentReport(t, dir, r, output, "jest_json")
 	if !strings.Contains(r.Evidence[0].Description, "matched lexically") {
 		t.Fatalf("description %q", r.Evidence[0].Description)
+	}
+	if !strings.Contains(output, "(matched by name, not resolved; read lexically for JavaScript/TypeScript): discount.") {
+		t.Fatalf("lexical label not rendered:\n%s", output)
 	}
 }

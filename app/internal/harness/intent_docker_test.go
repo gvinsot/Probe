@@ -48,7 +48,7 @@ func intentDockerFixture(t *testing.T, image string, files, candidate map[string
 		change.Files = append(change.Files, f)
 	}
 	diff, _ := json.Marshal(change)
-	h, err := New(Options{BaseDir: base, CandidateDir: head, ArtifactDir: t.TempDir(), Image: image, Timeout: 3 * time.Minute, MaxRuntime: 20 * time.Minute, MaxOutputBytes: 64 * 1024, MaxGeneratedTests: 10, Diff: string(diff),
+	h, err := New(Options{BaseDir: base, CandidateDir: head, ArtifactDir: t.TempDir(), Image: image, Timeout: 3 * time.Minute, MaxRuntime: 20 * time.Minute, MaxOutputBytes: 64 * 1024, MaxGeneratedTests: 12, Diff: string(diff),
 		IntentCriteria: intentCriteria, Commands: map[string][]string{"generated_test": template}})
 	if err != nil {
 		t.Fatal(err)
@@ -104,7 +104,8 @@ const (
 
 // A real go test -json run: an assertion failure of the intent test's own file
 // that names the new Discount is INTENT_TEST_FAILED; a pass, a panic, a
-// compile error and a failure that references no changed symbol are not.
+// compile error, and a failure or a pass of a test that references no changed
+// symbol are not.
 func TestDockerIntentGoRunner(t *testing.T) {
 	image := os.Getenv("SWIFTPROOF_TEST_DOCKER_IMAGE")
 	if image == "" {
@@ -124,6 +125,7 @@ func TestDockerIntentGoRunner(t *testing.T) {
 		{"panic", "swiftproof_intent_panic_test.go", test("TestIntentPanic", "\tvar xs []int\n\t_ = Discount(xs[3])\n"), model.StatusUnverified, "FAIL", reasonNotAssertion, []string{"Discount"}},
 		{"compile error", "swiftproof_intent_build_test.go", test("TestIntentBuild", "\t_ = Discount(100, 2)\n"), model.StatusUnverified, "ERROR", reasonInconclusive, []string{"Discount"}},
 		{"no changed symbol", "swiftproof_intent_noref_test.go", test("TestIntentNoRef", "\tif got := Total([]int{1}); got != 2 {\n\t\tt.Fatalf(\"Total = %d\", got)\n\t}\n"), model.StatusUnverified, "FAIL", reasonNoReference, nil},
+		{"pass without a changed symbol", "swiftproof_intent_norefpass_test.go", test("TestIntentNoRefPass", "\tif got := Total([]int{1}); got != 1 {\n\t\tt.Fatalf(\"Total = %d\", got)\n\t}\n"), model.StatusUnverified, "PASS", reasonNoReference, nil},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			result := createAndRunIntent(t, h, "AC-1", tc.path, tc.content)
@@ -141,7 +143,7 @@ func TestDockerIntentGoRunner(t *testing.T) {
 			c, _ := ValidateExecution(e.Runner, result.CandidateCheck, e.Path, e.TestNames)
 			var change model.Change
 			_ = json.Unmarshal([]byte(h.opts.Diff), &change)
-			if status, _ := IntentOutcome(e.Runner, c, e.Path, e.TestNames, e.ReferencedSymbols, change); status != e.Status {
+			if status, _ := IntentOutcome(e.Runner, c, e.Path, e.TestNames, e.ReferencedSymbols, NewIntentWords(change)); status != e.Status {
 				t.Fatalf("re-derived %s, stored %s", status, e.Status)
 			}
 		})
@@ -155,7 +157,7 @@ func TestDockerIntentGoRunner(t *testing.T) {
 			t.Fatalf("intent tests left in %s: %q", root, matches)
 		}
 	}
-	if len(*names) != 5 {
+	if len(*names) != 6 {
 		t.Fatalf("%d containers, want one per intent test", len(*names))
 	}
 	noContainersLeft(t, *names)
@@ -167,7 +169,8 @@ const (
 )
 
 // A real Vitest run (image SWIFTPROOF_TEST_TS_IMAGE): an expect() failure is
-// INTENT_TEST_FAILED through the Jest-compatible report, a runtime error is not.
+// INTENT_TEST_FAILED through the Jest-compatible report; a runtime error and a
+// thrown Error are not.
 func TestDockerTSIntentVitestRunner(t *testing.T) {
 	image := os.Getenv("SWIFTPROOF_TEST_TS_IMAGE")
 	if image == "" {
@@ -183,6 +186,13 @@ func TestDockerTSIntentVitestRunner(t *testing.T) {
 	result = createAndRunIntent(t, h, "AC-1", "src/shop.runtime.test.ts", runtime)
 	if e := result.Evidence; e.Status != model.StatusUnverified || !strings.Contains(e.Description, reasonNotAssertion) || result.CandidateCheck.Status != "FAIL" {
 		t.Fatalf("runtime error: %+v\n%s", e, result.CandidateCheck.Results)
+	}
+	// An Error thrown on the way (here by the test itself, as code under test
+	// could) is not an assertion failure either.
+	thrown := "import { test } from \"vitest\";\nimport { discount } from \"./shop\";\n\ntest(\"throws instead of asserting\", () => {\n  const got = discount(100);\n  if (got !== 90) throw new Error(\"got \" + got);\n});\n"
+	result = createAndRunIntent(t, h, "AC-1", "src/shop.thrown.test.ts", thrown)
+	if e := result.Evidence; e.Status != model.StatusUnverified || !strings.Contains(e.Description, reasonNotAssertion) || result.CandidateCheck.Status != "FAIL" || !strings.Contains(result.CandidateCheck.Results, "Error: got 100") {
+		t.Fatalf("thrown error: %+v\n%s", e, result.CandidateCheck.Results)
 	}
 	noContainersLeft(t, *names)
 }

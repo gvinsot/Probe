@@ -2,6 +2,7 @@ package acceptance
 
 import (
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -164,4 +165,78 @@ func TestNamedOnAndIntersect(t *testing.T) {
 			t.Errorf("IsIdentifier(%q)", s)
 		}
 	}
+}
+
+// The added lines may come in any order; a declaration's first and last lines
+// count.
+func TestChangedDeclarationsUnsortedAddedLines(t *testing.T) {
+	got := GoChangedDeclarations("cart.go", []byte(cartSource), []int{30, 28, 17, 4})
+	if want := []string{"Discount", "Limit", "Other", "Total"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("Go: %q, want %q", got, want)
+	}
+	src := "export function a() {\n  return 1;\n}\nexport function b() {\n  return 2;\n}\nexport function c() {}\n"
+	if got, want := JSChangedDeclarations(src, []int{7, 3, 1}), []string{"a", "c"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("JS: %q, want %q", got, want)
+	}
+	for _, tc := range []struct {
+		sorted     []int
+		start, end int
+		want       bool
+	}{
+		{nil, 1, 9, false},
+		{[]int{5}, 5, 5, true},
+		{[]int{5}, 6, 9, false},
+		{[]int{5}, 1, 4, false},
+		{[]int{2, 8}, 3, 7, false},
+		{[]int{2, 8}, 3, 8, true},
+		{[]int{2, 8}, 1, 2, true},
+	} {
+		if got := overlaps(tc.sorted, tc.start, tc.end); got != tc.want {
+			t.Errorf("overlaps(%v, %d, %d) = %v", tc.sorted, tc.start, tc.end, got)
+		}
+	}
+}
+
+func TestJSConstEnumDeclarations(t *testing.T) {
+	src := "export const enum Color {\n  Red,\n}\nconst enumValue = 1;\ndeclare const enum Mode { A }\nenum Plain { B }\nexport const enumerate = () => 1;\n"
+	got := JSChangedDeclarations(src, []int{1, 2, 3, 4, 5, 6, 7})
+	if want := []string{"Color", "Mode", "Plain", "enumValue", "enumerate"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("%q, want %q", got, want)
+	}
+}
+
+func TestAddWordsMatchesNamedOn(t *testing.T) {
+	text := "func Discount(total int) $x 9abc _y é日本Rate DiscountRate a-b " + strings.Repeat("z", 129) + " " + strings.Repeat("w", 128)
+	set := map[string]bool{}
+	AddWords(set, text)
+	want := map[string]bool{"func": true, "Discount": true, "total": true, "int": true, "$x": true, "_y": true, "Rate": true, "DiscountRate": true, "a": true, "b": true, strings.Repeat("w", 128): true}
+	if !reflect.DeepEqual(set, want) {
+		t.Fatalf("words %q", sortedKeys(set))
+	}
+	for _, s := range []string{"Discount", "Rate", "abc", "9abc", "x", "$x", "Disc", "b", strings.Repeat("w", 128)} {
+		if IsIdentifier(s) && set[s] != NamedOn(text, s) {
+			t.Errorf("%q: AddWords %v, NamedOn %v", s, set[s], NamedOn(text, s))
+		}
+	}
+}
+
+func FuzzAddWordsMatchesNamedOn(f *testing.F) {
+	f.Add("func Discount(total int) int {", "Discount")
+	f.Add("x := DiscountRate", "Discount")
+	f.Add("é$Discount_1 9x", "x")
+	f.Fuzz(func(t *testing.T, text, symbol string) {
+		if !IsIdentifier(symbol) {
+			return
+		}
+		set := map[string]bool{}
+		AddWords(set, text)
+		if set[symbol] != NamedOn(text, symbol) {
+			t.Fatalf("AddWords(%q)[%q] = %v, NamedOn %v", text, symbol, set[symbol], NamedOn(text, symbol))
+		}
+		for w := range set {
+			if !IsIdentifier(w) || !NamedOn(text, w) {
+				t.Fatalf("word %q of %q", w, text)
+			}
+		}
+	})
 }

@@ -37,11 +37,18 @@ const MaxReferencedSymbols = 32
 const maxSymbolFiles = 2000
 
 // intentState is the harness state of the intent tests. Caller holds h.mu.
+// Everything derived from the change is computed once, on first use, so that
+// the host-side work of any number of intent-test runs stays linear in the
+// size of the diff.
 type intentState struct {
 	created int // intent tests created, deleted ones included
+	// change is the recorded change parsed from Options.Diff.
+	change *model.Change
 	// decls caches the changed declarations of the candidate per language
-	// ("go", or "js" for JavaScript and TypeScript), computed on first use.
+	// ("go", or "js" for JavaScript and TypeScript).
 	decls map[string][]string
+	// words is the linking rule's word set of change (IntentWords).
+	words *IntentWords
 }
 
 var errIntentUnavailable = errors.New("intent tests require acceptance criteria")
@@ -53,7 +60,7 @@ const (
 	// Reasons appended to the description of an UNVERIFIED intent_test record.
 	reasonNoReference  = "the intent test references no symbol the change added or modified"
 	reasonNotOnAdded   = "no symbol the intent test references is named on an added line of a changed non-test file, so the report cannot re-derive the link to the change"
-	reasonNotAssertion = "the intent test did not fail on an assertion of its own file: a panic, a runtime error or a failure outside the test is inconclusive"
+	reasonNotAssertion = "the intent test did not fail on an assertion of its own file: a panic, an error thrown by the code under test, a runtime error or a failure outside the test is inconclusive"
 	reasonInconclusive = "the named intent test must start and end on the candidate with a pass or a failure that the runner output confirms; setup failures, skips, timeouts, truncated output and unrelated failures are inconclusive"
 	reasonNotRetained  = "the failing intent test could not be retained as an artifact"
 	notePassed         = "a pass says nothing about whether the criterion holds"
@@ -125,10 +132,10 @@ func (h *Harness) createIntentTest(criterionID, path, content, description strin
 //
 //   - INTENT_TEST_FAILED: the verified named execution failed (exit 1..124,
 //     untruncated) on an assertion of the test's own file, not on a panic or a
-//     runtime error, and the test references a changed symbol that an added
-//     line of a changed non-test file names;
+//     runtime error, and the test names a changed declaration whose name an
+//     added line of a changed non-test file contains;
 //   - INTENT_TEST_PASSED: the verified named execution passed (exit 0,
-//     untruncated);
+//     untruncated) and the test names at least one changed declaration;
 //   - UNVERIFIED: anything else, with the reason in the description.
 //
 // A failing test is retained as an intent_test artifact and cannot be
@@ -148,10 +155,9 @@ func (h *Harness) runIntentTest(ctx context.Context, id string) (any, error) {
 	if runner == "" {
 		return nil, errors.New("the generated_test command has no named-test runner whose output SwiftProof can check for this intent test")
 	}
-	var change model.Change
-	_ = json.Unmarshal([]byte(h.opts.Diff), &change)
-	// Changed declarations are read before the test is staged.
-	symbols, lexical := h.referencedSymbols(t, change)
+	// Changed declarations are read before the test is staged. When ctx ends
+	// first, no symbol is recorded; the run is then not started either.
+	symbols, lexical := h.referencedSymbols(ctx, t)
 	cleanup, err := stageEphemeral(h.candidate, t.Path, t.Content)
 	if err != nil {
 		return nil, err
@@ -165,7 +171,9 @@ func (h *Harness) runIntentTest(ctx context.Context, id string) (any, error) {
 	}
 	c, _ = ValidateExecution(runner, c, t.Path, names)
 	h.replaceCheck(c)
-	status, reason := IntentOutcome(runner, c, t.Path, names, symbols, change)
+	// referencedSymbols returned symbols only after building the word set,
+	// which IntentOutcome reads only for a failure with symbols.
+	status, reason := IntentOutcome(runner, c, t.Path, names, symbols, h.intent.words)
 	if status == model.StatusIntentTestFailed && !t.Reproduced {
 		if err := h.saveArtifact(t.ID+"-"+filepath.Base(t.Path), model.ArtifactIntentTest, []byte(t.Content)); err != nil {
 			status, reason = model.StatusUnverified, reasonNotRetained
@@ -200,24 +208,33 @@ func (h *Harness) runIntentTest(ctx context.Context, id string) (any, error) {
 // IntentOutcome derives the status of an intent test from its candidate check,
 // which the caller has already validated with ValidateExecution for runner,
 // path and names. symbols are the changed symbols the test references, and
-// change is the recorded change. It returns INTENT_TEST_PASSED for a verified
-// pass (exit 0, untruncated); INTENT_TEST_FAILED when the verified named
-// execution failed (exit 1..124, untruncated) on an assertion of the test's own
-// file (IntentAssertionFailed), symbols holds 1 to MaxReferencedSymbols
-// recordable identifiers, and at least one of them is named on an added line
-// of a changed non-test file (IntentSymbolsNamed); UNVERIFIED with a fixed
-// reason otherwise. The harness and report.Finalize both use it.
-func IntentOutcome(runner string, c model.Check, path string, names, symbols []string, change model.Change) (status, reason string) {
+// words is the word set of the recorded change (NewIntentWords). It returns
+// INTENT_TEST_PASSED for a verified pass (exit 0, untruncated) of a test whose
+// symbols hold 1 to MaxReferencedSymbols recordable identifiers;
+// INTENT_TEST_FAILED when the verified named execution failed (exit 1..124,
+// untruncated) on an assertion of the test's own file (IntentAssertionFailed),
+// symbols holds 1 to MaxReferencedSymbols recordable identifiers, and at least
+// one of them is named on an added line of a changed non-test file
+// (IntentWords.Named); UNVERIFIED with a fixed reason otherwise, including a
+// pass or a failure of a test that names no changed declaration. The harness
+// and report.Finalize both use it; words is read only for a failure that
+// reaches the last rule. A nil words names nothing.
+func IntentOutcome(runner string, c model.Check, path string, names, symbols []string, words *IntentWords) (status, reason string) {
+	referenced := len(symbols) > 0 && len(symbols) <= MaxReferencedSymbols && recordableSymbols(symbols)
 	switch {
+	case c.Status == "PASS" && c.ExitCode == 0 && !c.Truncated && !referenced:
+		// A pass of a test that names no changed declaration concerns code
+		// the change did not touch: inconclusive, like such a failure.
+		return model.StatusUnverified, reasonNoReference
 	case c.Status == "PASS" && c.ExitCode == 0 && !c.Truncated:
 		return model.StatusIntentTestPassed, ""
 	case c.Status != "FAIL" || c.ExitCode < 1 || c.ExitCode > 124 || c.Truncated:
 		return model.StatusUnverified, reasonInconclusive
 	case !IntentAssertionFailed(runner, c, path, names):
 		return model.StatusUnverified, reasonNotAssertion
-	case len(symbols) == 0 || len(symbols) > MaxReferencedSymbols || !recordableSymbols(symbols):
+	case !referenced:
 		return model.StatusUnverified, reasonNoReference
-	case !IntentSymbolsNamed(change, symbols):
+	case !words.Named(symbols):
 		return model.StatusUnverified, reasonNotOnAdded
 	}
 	return model.StatusIntentTestFailed, ""
@@ -230,8 +247,10 @@ func IntentOutcome(runner string, c model.Check, path string, names, symbols []s
 // identifiers intersected with the changed top-level declarations found
 // lexically (lexical is then true). Names are matched, not resolved. The
 // symbols that an added line names come first, and at most
-// MaxReferencedSymbols recordable identifiers are kept. Caller holds h.mu.
-func (h *Harness) referencedSymbols(t *generatedTest, change model.Change) (symbols []string, lexical bool) {
+// MaxReferencedSymbols recordable identifiers are kept. When ctx ends before
+// the changed declarations and the word set are known, it returns no symbol.
+// Caller holds h.mu.
+func (h *Harness) referencedSymbols(ctx context.Context, t *generatedTest) (symbols []string, lexical bool) {
 	var used []string
 	language := "go"
 	if isJSTestPath(t.Path) {
@@ -243,11 +262,16 @@ func (h *Harness) referencedSymbols(t *generatedTest, change model.Change) (symb
 			return nil, false
 		}
 	}
+	decls, ok := h.changedDeclarations(ctx, language)
+	words := h.intentWords(ctx)
+	if !ok || words == nil {
+		return nil, lexical
+	}
 	var named, other []string
-	for _, s := range acceptance.Intersect(used, h.changedDeclarations(language, change)) {
+	for _, s := range acceptance.Intersect(used, decls) {
 		switch {
 		case !recordableSymbol(s):
-		case IntentSymbolsNamed(change, []string{s}):
+		case words.Named([]string{s}):
 			named = append(named, s)
 		default:
 			other = append(other, s)
@@ -260,17 +284,44 @@ func (h *Harness) referencedSymbols(t *generatedTest, change model.Change) (symb
 	return symbols, lexical
 }
 
+// intentChange returns the recorded change, parsed from Options.Diff once.
+// Caller holds h.mu.
+func (h *Harness) intentChange() model.Change {
+	if h.intent.change == nil {
+		var change model.Change
+		_ = json.Unmarshal([]byte(h.opts.Diff), &change)
+		h.intent.change = &change
+	}
+	return *h.intent.change
+}
+
+// intentWords returns the word set of the recorded change, built once, or nil
+// when ctx ends before it is complete (nothing is cached then). Caller holds
+// h.mu.
+func (h *Harness) intentWords(ctx context.Context) *IntentWords {
+	if h.intent.words == nil {
+		change := h.intentChange()
+		words, err := addedWords(ctx, change)
+		if err != nil {
+			return nil
+		}
+		h.intent.words = &IntentWords{change: change, words: words}
+	}
+	return h.intent.words
+}
+
 // changedDeclarations returns, once per language, the top-level declarations
 // of the candidate snapshot that contain an added line of a changed non-test
-// file. Caller holds h.mu.
-func (h *Harness) changedDeclarations(language string, change model.Change) []string {
+// file. ctx is checked before each file; when it ends, ok is false and nothing
+// is cached. Caller holds h.mu.
+func (h *Harness) changedDeclarations(ctx context.Context, language string) (names []string, ok bool) {
 	if names, ok := h.intent.decls[language]; ok {
-		return names
+		return names, true
 	}
 	set := map[string]bool{}
 	files := 0
-	for _, f := range change.Files {
-		if f.Binary || f.Status == "D" || isTestPath(f.Path) || sensitivePath(f.Path) {
+	for _, f := range h.intentChange().Files {
+		if f.Binary || f.Status == "D" || intentTestFile(f.Path) || sensitivePath(f.Path) {
 			continue
 		}
 		if language == "go" && !strings.HasSuffix(f.Path, ".go") || language == "js" && !isJSSourcePath(f.Path) {
@@ -282,6 +333,9 @@ func (h *Harness) changedDeclarations(language string, change model.Change) []st
 		}
 		if files++; files > maxSymbolFiles {
 			break
+		}
+		if ctx.Err() != nil {
+			return nil, false
 		}
 		path, err := safePath(h.candidate, f.Path)
 		if err != nil {
@@ -301,7 +355,7 @@ func (h *Harness) changedDeclarations(language string, change model.Change) []st
 			set[n] = true
 		}
 	}
-	names := make([]string, 0, len(set))
+	names = make([]string, 0, len(set))
 	for n := range set {
 		names = append(names, n)
 	}
@@ -310,7 +364,26 @@ func (h *Harness) changedDeclarations(language string, change model.Change) []st
 		h.intent.decls = map[string][]string{}
 	}
 	h.intent.decls[language] = names
-	return names
+	return names, true
+}
+
+// intentTestFile reports a test file for the linking rules: the v0.2 test
+// file names (isTestPath), plus JavaScript and TypeScript sources named
+// <name>.test.<ext> or <name>.spec.<ext> for every extension isJSSourcePath
+// accepts (.jsx, .mjs, .cjs, .mts and .cts included) or placed in a
+// __tests__ directory. A declaration or an added line of such a file never
+// links an intent test to the change.
+func intentTestFile(path string) bool {
+	if isTestPath(path) {
+		return true
+	}
+	if !isJSSourcePath(path) {
+		return false
+	}
+	slashed := strings.ToLower(filepath.ToSlash(path))
+	base := slashed[strings.LastIndexByte(slashed, '/')+1:]
+	stem := strings.TrimSuffix(base, filepath.Ext(base))
+	return strings.HasSuffix(stem, ".test") || strings.HasSuffix(stem, ".spec") || strings.HasPrefix(slashed, "__tests__/") || strings.Contains(slashed, "/__tests__/")
 }
 
 // isJSSourcePath reports a JavaScript or TypeScript source file name.
@@ -366,14 +439,62 @@ func verifiablePath(path string) bool {
 	return redact.IsFixedPoint(path) && !strings.Contains(path, redact.Marker)
 }
 
-// IntentSymbolsNamed reports whether at least one recordable symbol of symbols
-// occurs as a whole word on an added line of a changed, non-deleted, non-test
-// file of change. Binary and secret-bearing files, and files whose path or old
-// path redaction would alter, are skipped, and lines are read redacted, so the
-// answer is the same before and after report sanitizing.
+// IntentWords holds the linking rule of INTENT_TEST_FAILED for one recorded
+// change: the whole words on the added lines of its changed, non-deleted,
+// non-test files (intentTestFile). Binary and secret-bearing files, and files
+// whose path or old path redaction would alter, are skipped, and lines are
+// read redacted, so the answer is the same before and after report
+// sanitizing. The set is built once, on first use, in one pass over the added
+// lines, so that the cost of any number of lookups stays linear in the size of
+// the diff. An IntentWords is not safe for concurrent use.
+type IntentWords struct {
+	change model.Change
+	words  map[string]bool // nil until built
+}
+
+// NewIntentWords returns the linking rule of change; the word set is built on
+// the first call of Named.
+func NewIntentWords(change model.Change) *IntentWords { return &IntentWords{change: change} }
+
+// Named reports whether at least one recordable symbol of symbols occurs as a
+// whole word on an added line of a file the rule reads. A nil IntentWords
+// names nothing.
+func (w *IntentWords) Named(symbols []string) bool {
+	if w == nil {
+		return false
+	}
+	if w.words == nil {
+		w.words, _ = addedWords(context.Background(), w.change)
+	}
+	for _, s := range symbols {
+		if recordableSymbol(s) && w.words[s] {
+			return true
+		}
+	}
+	return false
+}
+
+// IntentSymbolsNamed is NewIntentWords(change).Named(symbols), for a single
+// question about a change.
 func IntentSymbolsNamed(change model.Change, symbols []string) bool {
+	return NewIntentWords(change).Named(symbols)
+}
+
+// intentLinkedFile reports a changed file whose added lines the linking rule
+// reads.
+func intentLinkedFile(f model.ChangedFile) bool {
+	return !f.Binary && f.Status != "D" && verifiablePath(f.Path) && (f.OldPath == "" || verifiablePath(f.OldPath)) &&
+		!intentTestFile(f.Path) && !sensitivePath(f.Path) && !sensitivePath(f.OldPath)
+}
+
+// addedWords returns the identifier words of the redacted added lines of the
+// files intentLinkedFile accepts (acceptance.AddWords). ctx is checked every
+// 1024 added lines; when it ends, the partial set is discarded.
+func addedWords(ctx context.Context, change model.Change) (map[string]bool, error) {
+	words := map[string]bool{}
+	n := 0
 	for _, f := range change.Files {
-		if f.Binary || f.Status == "D" || !verifiablePath(f.Path) || f.OldPath != "" && !verifiablePath(f.OldPath) || isTestPath(f.Path) || sensitivePath(f.Path) || sensitivePath(f.OldPath) {
+		if !intentLinkedFile(f) {
 			continue
 		}
 		for _, hunk := range f.Hunks {
@@ -381,25 +502,22 @@ func IntentSymbolsNamed(change model.Change, symbols []string) bool {
 				if !addedDiffLine(l.Kind) {
 					continue
 				}
-				content := redact.Redact(l.Content)
-				for _, s := range symbols {
-					if recordableSymbol(s) && acceptance.NamedOn(content, s) {
-						return true
-					}
+				if n++; n%1024 == 0 && ctx.Err() != nil {
+					return nil, ctx.Err()
 				}
+				acceptance.AddWords(words, redact.Redact(l.Content))
 			}
 		}
 	}
-	return false
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	return words, nil
 }
 
 // goAssertionLine matches the "<file>:<line>: <message>" line the testing
 // package writes for t.Error, t.Fatal and t.Log.
 var goAssertionLine = regexp.MustCompile(`^\s*([^\s:]+\.go):[0-9]+: (.*)$`)
-
-// jsRuntimeError matches a failure message that starts with a JavaScript
-// runtime error rather than an assertion.
-var jsRuntimeError = regexp.MustCompile(`^\s*(?:TypeError|ReferenceError|SyntaxError|RangeError|EvalError|URIError|InternalError)\b`)
 
 // IntentAssertionFailed reports whether a failing, validated intent-test
 // check failed on an assertion rather than on a panic, a runtime error or a
@@ -411,8 +529,10 @@ var jsRuntimeError = regexp.MustCompile(`^\s*(?:TypeError|ReferenceError|SyntaxE
 //     of the run contains "panic:";
 //   - jest_json: in the report for exactly the intent test's file, whose
 //     file-level message is empty, a named top-level test failed with a
-//     non-empty failure message, and no failed named test has a message that
-//     starts with a JavaScript runtime error (TypeError, ReferenceError, ...).
+//     non-empty failure message, and every non-empty failure message of a
+//     failed named test starts with an assertion-error header
+//     (jsAssertionMessage): an Error or custom error thrown by the code under
+//     test, a runtime error or a timeout is not an assertion failure.
 //
 // Code running in the sandbox writes both channels: the rule tells kinds of
 // failure apart, it does not authenticate them.
@@ -508,16 +628,39 @@ func jestAssertionFailed(results, path string, names []string) bool {
 		if len(a.AncestorTitles) != 0 || !wanted[a.Title] || a.Status != "failed" {
 			continue
 		}
-		message := false
 		for _, m := range a.FailureMessages {
-			if jsRuntimeError.MatchString(m) {
+			if strings.TrimSpace(m) == "" {
+				continue
+			}
+			if !jsAssertionMessage(m) {
 				return false
 			}
-			message = message || strings.TrimSpace(m) != ""
+			asserted = true
 		}
-		asserted = asserted || message
 	}
 	return asserted
+}
+
+// ansiColor matches the terminal color sequences some runners write into
+// failure messages.
+var ansiColor = regexp.MustCompile("\x1b\\[[0-9;]*m")
+
+// jsAssertionMessage reports a failure message whose first line, without
+// color sequences, is the header of an assertion error: "AssertionError:" or
+// "AssertionError [" (Vitest and Chai expect/assert, node:assert), or a Jest
+// matcher header "Error: expect(" or "Error: expect." (expect(...).toBe,
+// expect.assertions). Anything else, such as an Error, a custom error class,
+// a runtime error (TypeError, ReferenceError, ...), a thrown non-error value
+// or a test timeout, is not an assertion failure.
+func jsAssertionMessage(m string) bool {
+	first, _, _ := strings.Cut(ansiColor.ReplaceAllString(m, ""), "\n")
+	first = strings.TrimSpace(first)
+	for _, header := range []string{"AssertionError:", "AssertionError [", "Error: expect(", "Error: expect."} {
+		if strings.HasPrefix(first, header) {
+			return true
+		}
+	}
+	return false
 }
 
 // intentToolDefinitions returns the reviewer tool definitions of the intent
@@ -533,7 +676,7 @@ func intentToolDefinitions() []map[string]any {
 		definition(IntentCreateTool, "Create a test for one acceptance criterion from intent_criteria. The file rules of create_test apply, and the policy must have a named-test runner whose output SwiftProof can check for the file (Go named tests, or a Jest-compatible JSON report with static top-level test titles). The test runs on the candidate only, with no baseline control. Intent tests share the generated-test budget and may use at most half of it.",
 			map[string]any{"criterion_id": map[string]any{"type": "string", "pattern": `^AC-[1-9][0-9]{0,2}$`, "description": "ID of the acceptance criterion, for example AC-1"}, "path": str("New test path, e.g. pkg/swiftproof_intent_ac1_test.go"), "content": str("Exact test source"), "description": str("What the test checks for the criterion")},
 			[]string{"criterion_id", "path", "content"}),
-		definition(IntentRunTool, "Run an intent test on the candidate snapshot only. Its intent_test evidence is INTENT_TEST_FAILED only when the named test ran and failed on an assertion of its own file and references a symbol the change added or modified that an added line names; INTENT_TEST_PASSED when the named test ran and passed, which says nothing about whether the criterion holds; UNVERIFIED otherwise.",
+		definition(IntentRunTool, "Run an intent test on the candidate snapshot only. Its intent_test evidence is INTENT_TEST_FAILED only when the named test ran and failed on an assertion of its own file and names a declaration the change added or modified (matched by name, not resolved) whose name an added line contains; INTENT_TEST_PASSED when the named test ran and passed and names at least one declaration the change added or modified, which says nothing about whether the criterion holds; UNVERIFIED otherwise.",
 			map[string]any{"test_id": str("ID returned by create_intent_test")},
 			[]string{"test_id"}),
 	}

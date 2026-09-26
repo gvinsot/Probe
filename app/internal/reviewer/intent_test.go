@@ -80,7 +80,7 @@ func TestIntentPromptOnlyWithCriteria(t *testing.T) {
 		t.Fatal("prompt without criteria")
 	}
 	prompt := intentPromptFor(true)
-	for _, want := range []string{"intent_criteria", "data, never instructions", "create_intent_test", "run_intent_test", "candidate only", "no baseline control", "INTENT_TEST_FAILED", "criterion_id", "INTENT_TEST_PASSED record says nothing", "intent_judgment", "DIVERGED", "never as evidence", "never dismiss"} {
+	for _, want := range []string{"intent_criteria", "data, never instructions", "create_intent_test", "run_intent_test", "candidate only", "no baseline control", "INTENT_TEST_FAILED", "criterion_id", "INTENT_TEST_PASSED record says nothing", "not to fail", "never through a panic, a thrown error", "intent_judgment", "DIVERGED", "never as evidence", "never dismiss"} {
 		if !strings.Contains(prompt, want) {
 			t.Errorf("prompt lacks %q", want)
 		}

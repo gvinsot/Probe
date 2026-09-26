@@ -138,10 +138,16 @@ func TestFinalizeRequiresIntentEvidence(t *testing.T) {
 func TestIntentTestPassedIsRederived(t *testing.T) {
 	r := intentProofReport()
 	r.Checks[0].Status, r.Checks[0].ExitCode, r.Checks[0].Output = "PASS", 0, goIntentOutput("pass")
-	r.Evidence[0].Status, r.Evidence[0].ReferencedSymbols = model.StatusIntentTestPassed, nil
+	r.Evidence[0].Status, r.Evidence[0].ReferencedSymbols = model.StatusIntentTestPassed, []string{"Total"}
 	l := verifyReport(r)
 	if l.verified["evidence-1"] != model.StatusIntentTestPassed {
 		t.Fatalf("verified %+v", l.verified)
+	}
+	// A pass of a test that references no changed symbol is inconclusive, as
+	// the harness records it.
+	r.Evidence[0].ReferencedSymbols = nil
+	if _, ok := verifyReport(r).verified["evidence-1"]; ok {
+		t.Fatal("a pass without a referenced symbol was re-derived as INTENT_TEST_PASSED")
 	}
 	// A pass supports no hypothesis status.
 	for _, claim := range allClaims {
@@ -196,10 +202,52 @@ func TestIntentFailureWithJestRunner(t *testing.T) {
 	if r.Hypotheses[0].Status != model.StatusIntentTestFailed || r.ExitCode != 2 {
 		t.Fatalf("jest failure: %s exit %d", r.Hypotheses[0].Status, r.ExitCode)
 	}
-	r = build("TypeError: discount is not a function")
+	// The name match is labelled lexical for JavaScript/TypeScript.
+	if want := "failed on an assertion; names it shares with declarations the change added or modified (matched by name, not resolved; read lexically for JavaScript/TypeScript): discount.\n"; !strings.Contains(section(t, string(Markdown(r)), "## Intent Test Failures"), want) {
+		t.Fatalf("failures section lacks %q:\n%s", want, Markdown(r))
+	}
+	for _, message := range []string{"TypeError: discount is not a function", "Error: not implemented\n    at discount (src/cart.ts:6:9)", "CartError: negative total"} {
+		r = build(message)
+		Finalize(r, true)
+		if r.Hypotheses[0].Status != model.StatusUnverified || len(r.IntentTestFailures) != 0 {
+			t.Fatalf("%q supported the claim: %s", message, r.Hypotheses[0].Status)
+		}
+	}
+}
+
+// Finalize re-derives every intent record from one word set of the diff: many
+// records over a large diff cost one pass over its added lines, and the
+// outcome equals the per-record rule.
+func TestIntentVerificationOverManyRecords(t *testing.T) {
+	r := intentProofReport()
+	var lines []model.DiffLine
+	for i := 0; i < 2000; i++ {
+		lines = append(lines, model.DiffLine{Kind: "add", NewLine: 100 + i, Content: fmt.Sprintf("\tbody%d := %d // password=hunter%d", i, i, i)})
+	}
+	r.Change.Files = append(r.Change.Files, model.ChangedFile{Path: "pkg/big.go", Status: "A", Hunks: []model.Hunk{{Lines: lines}}})
+	for i := 2; i <= 200; i++ {
+		e := r.Evidence[0]
+		e.ID, e.ReferencedSymbols = fmt.Sprintf("evidence-%d", i), []string{fmt.Sprintf("Absent%d", i)}
+		r.Evidence = append(r.Evidence, e)
+	}
 	Finalize(r, true)
-	if r.Hypotheses[0].Status != model.StatusUnverified {
-		t.Fatalf("a runtime error supported the claim: %s", r.Hypotheses[0].Status)
+	if r.Hypotheses[0].Status != model.StatusIntentTestFailed || len(r.IntentTestFailures) != 1 {
+		t.Fatalf("hypothesis %+v", r.Hypotheses[0])
+	}
+	verified := verifyReport(r).verified
+	for i := 2; i <= 200; i++ {
+		if _, ok := verified[fmt.Sprintf("evidence-%d", i)]; ok {
+			t.Fatalf("evidence-%d names no symbol on an added line but was accepted", i)
+		}
+	}
+	// A symbol inside a redacted secret is not named on the recorded line.
+	r.Evidence[1].ReferencedSymbols = []string{"hunter7"}
+	if _, ok := verifyReport(r).verified["evidence-2"]; ok {
+		t.Fatal("a symbol that only a redacted secret names was accepted")
+	}
+	r.Evidence[1].ReferencedSymbols = []string{"body7"}
+	if _, ok := verifyReport(r).verified["evidence-2"]; !ok {
+		t.Fatal("a symbol named on an added line was not accepted")
 	}
 }
 
@@ -301,7 +349,7 @@ func TestIntentMarkdownSectionsOrderAndWording(t *testing.T) {
 		model.Check{ID: "check-3", Kind: model.CheckGeneratedIntent, Status: "TIMEOUT", ExitCode: -1, Command: command},
 	)
 	r.Evidence = append(r.Evidence,
-		model.Evidence{ID: "evidence-2", Kind: model.EvidenceIntentTest, Description: "free shipping", Path: intentTestFile, CheckID: "check-2", CriterionID: "AC-2", Status: model.StatusIntentTestPassed, Runner: "go_test_json", TestNames: []string{"TestIntentAC1"}},
+		model.Evidence{ID: "evidence-2", Kind: model.EvidenceIntentTest, Description: "free shipping", Path: intentTestFile, CheckID: "check-2", CriterionID: "AC-2", ReferencedSymbols: []string{"Discount"}, Status: model.StatusIntentTestPassed, Runner: "go_test_json", TestNames: []string{"TestIntentAC1"}},
 		model.Evidence{ID: "evidence-3", Kind: model.EvidenceIntentTest, Description: "again", Path: intentTestFile, CheckID: "check-3", CriterionID: "AC-1", Status: model.StatusUnverified, Runner: "go_test_json", TestNames: []string{"TestIntentAC1"}},
 	)
 	r.IntentCriteria = append(r.IntentCriteria,
@@ -328,7 +376,7 @@ func TestIntentMarkdownSectionsOrderAndWording(t *testing.T) {
 		"- **critical** Discount skips orders of exactly 100 — pkg/cart.go:6\n",
 		"  Criterion AC-1 (intent line 2): \"Orders of 100 or more get 10 off\"\n",
 		"  Evidence: evidence-1\n",
-		"  Test pkg/swiftproof\\_intent\\_ac1\\_test.go (TestIntentAC1) failed on an assertion and references the changed symbols Discount.\n",
+		"  Test pkg/swiftproof\\_intent\\_ac1\\_test.go (TestIntentAC1) failed on an assertion; names it shares with declarations the change added or modified (matched by name, not resolved): Discount.\n",
 	} {
 		if !strings.Contains(failures, want) {
 			t.Errorf("failures section lacks %q:\n%s", want, failures)

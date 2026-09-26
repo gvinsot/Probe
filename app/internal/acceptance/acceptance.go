@@ -75,12 +75,50 @@ func CheckEncoding(text string) error {
 	return nil
 }
 
+// maxStripPasses bounds the removal passes of StripPRComments.
+const maxStripPasses = 8
+
 // StripPRComments removes every block from model.PRCommentBegin to
 // model.PRCommentEnd, markers included; a begin marker without an end marker
-// removes everything after it. It reports whether anything was removed. A
-// stray end marker is removed too, so that no marker survives in the text.
+// removes everything after it, and a stray end marker is removed too. It
+// reports whether anything was removed.
+//
+// Removing a block can join the text around it into a new marker (for example
+// "<!-- swiftproof:pr-" + block + "comment:begin v1 -->"), so the removal is
+// repeated until neither marker occurs. Every pass removes at least one
+// marker, and after maxStripPasses passes the text is cut at the first marker
+// that remains, as for an unterminated block. The result therefore never
+// contains a marker, and StripPRComments of its result removes nothing.
 func StripPRComments(text string) (string, bool) {
 	removed := false
+	for pass := 0; containsPRMarker(text); pass++ {
+		removed = true
+		if pass == maxStripPasses {
+			// No marker starts before the first one, so the prefix holds none.
+			return text[:firstPRMarker(text)], true
+		}
+		text = stripPRCommentsOnce(text)
+	}
+	return text, removed
+}
+
+func containsPRMarker(text string) bool {
+	return strings.Contains(text, model.PRCommentBegin) || strings.Contains(text, model.PRCommentEnd)
+}
+
+// firstPRMarker is the index of the first begin or end marker of text, which
+// contains at least one.
+func firstPRMarker(text string) int {
+	i, j := strings.Index(text, model.PRCommentBegin), strings.Index(text, model.PRCommentEnd)
+	if i < 0 || j >= 0 && j < i {
+		return j
+	}
+	return i
+}
+
+// stripPRCommentsOnce is one removal pass: every begin..end block, the rest of
+// the text after an unterminated begin marker, then every stray end marker.
+func stripPRCommentsOnce(text string) string {
 	var b strings.Builder
 	rest := text
 	for {
@@ -88,7 +126,6 @@ func StripPRComments(text string) (string, bool) {
 		if i < 0 {
 			break
 		}
-		removed = true
 		b.WriteString(rest[:i])
 		after := rest[i+len(model.PRCommentBegin):]
 		j := strings.Index(after, model.PRCommentEnd)
@@ -99,12 +136,7 @@ func StripPRComments(text string) (string, bool) {
 		rest = after[j+len(model.PRCommentEnd):]
 	}
 	b.WriteString(rest)
-	out := b.String()
-	if strings.Contains(out, model.PRCommentEnd) {
-		out = strings.ReplaceAll(out, model.PRCommentEnd, "")
-		removed = true
-	}
-	return out, removed
+	return strings.ReplaceAll(b.String(), model.PRCommentEnd, "")
 }
 
 var (

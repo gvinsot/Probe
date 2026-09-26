@@ -16,7 +16,7 @@ import (
 
 // Fixed texts of the intent sections.
 const (
-	intentFailuresIntro = "Candidate-only experiments. Each entry cites a test the reviewer wrote for one acceptance criterion: the test failed on an assertion on the candidate and references a symbol the change added or modified. No baseline run acts as a control, and the test, its inputs and its reading of the criterion are model-written, so the test or the reading may be wrong. This is weaker than a reproduced issue and never sets exit code 1."
+	intentFailuresIntro = "Candidate-only experiments. Each entry cites a test the reviewer wrote for one acceptance criterion: the test failed on an assertion on the candidate and names a symbol that a declaration the change added or modified also has, matched by name and not resolved. No baseline run acts as a control, and the test, its inputs and its reading of the criterion are model-written, so the test or the reading may be wrong. This is weaker than a reproduced issue and never sets exit code 1."
 	noIntentFailureText = "No hypothesis rests on an accepted intent-test failure. This does not mean that the change does what the intent asks."
 	noCriteriaText      = "No acceptance criteria were extracted: the intent contains no Markdown list item in scope (criteria grammar v1). This does not mean that the intent states no requirement. Intent tests require criteria."
 	criteriaIntro       = "Acceptance criteria are Markdown list items copied verbatim from the supplied intent (criteria grammar v1%s). IDs are positional and belong to exactly this intent text. Extraction is not understanding of the intent. An intent test runs on the candidate only, with no baseline control; a test that ran without failing says nothing about whether its criterion holds."
@@ -42,6 +42,10 @@ const (
 func verifyIntentTests(r *model.Report, l *ledger) map[string]string {
 	out := map[string]string{}
 	criteria := criterionIndex(r.IntentCriteria)
+	// One word set per verification, built only when a record reaches the
+	// linking rule: the cost stays linear in the size of the diff, whatever
+	// the number of records.
+	words := harness.NewIntentWords(r.Change)
 	for _, recorded := range r.Evidence {
 		if recorded.Kind != model.EvidenceIntentTest {
 			continue
@@ -50,7 +54,7 @@ func verifyIntentTests(r *model.Report, l *ledger) map[string]string {
 		if !ok || e.Kind != model.EvidenceIntentTest {
 			continue
 		}
-		if status := intentTestStatus(e, l, criteria, r.Change); status != "" && status == e.Status {
+		if status := intentTestStatus(e, l, criteria, words); status != "" && status == e.Status {
 			out[e.ID] = status
 		}
 	}
@@ -59,7 +63,7 @@ func verifyIntentTests(r *model.Report, l *ledger) map[string]string {
 
 // intentTestStatus is the positive status the recorded check of one intent
 // test supports, or "".
-func intentTestStatus(e model.Evidence, l *ledger, criteria map[string]model.IntentCriterion, change model.Change) string {
+func intentTestStatus(e model.Evidence, l *ledger, criteria map[string]model.IntentCriterion, words *harness.IntentWords) string {
 	if _, known := criteria[e.CriterionID]; !known {
 		return ""
 	}
@@ -74,7 +78,7 @@ func intentTestStatus(e model.Evidence, l *ledger, criteria map[string]model.Int
 	if !known {
 		return ""
 	}
-	status, _ := harness.IntentOutcome(e.Runner, c, e.Path, e.TestNames, e.ReferencedSymbols, change)
+	status, _ := harness.IntentOutcome(e.Runner, c, e.Path, e.TestNames, e.ReferencedSymbols, words)
 	if status == model.StatusUnverified {
 		return ""
 	}
@@ -141,7 +145,11 @@ func writeIntentSections(b *bytes.Buffer, r *model.Report) {
 			if !ok || e.Kind != model.EvidenceIntentTest || e.CriterionID != h.CriterionID || l.verified[id] != model.StatusIntentTestFailed {
 				continue
 			}
-			fmt.Fprintf(b, "  Test %s (%s) failed on an assertion and references the changed symbols %s.\n", inline(e.Path), inline(strings.Join(e.TestNames, ", ")), inline(strings.Join(e.ReferencedSymbols, ", ")))
+			lexical := ""
+			if e.Runner == harness.RunnerJest {
+				lexical = "; read lexically for JavaScript/TypeScript"
+			}
+			fmt.Fprintf(b, "  Test %s (%s) failed on an assertion; names it shares with declarations the change added or modified (matched by name, not resolved%s): %s.\n", inline(e.Path), inline(strings.Join(e.TestNames, ", ")), lexical, inline(strings.Join(e.ReferencedSymbols, ", ")))
 		}
 	}
 	line(b, "\n## Intent Criteria\n")

@@ -17,14 +17,19 @@ var identifierPattern = regexp.MustCompile(`^[A-Za-z_$][A-Za-z0-9_$]{0,127}$`)
 // starting with a digit).
 func IsIdentifier(s string) bool { return identifierPattern.MatchString(s) }
 
-// overlaps reports whether any line of added lies in [start, end].
-func overlaps(added []int, start, end int) bool {
-	for _, n := range added {
-		if n >= start && n <= end {
-			return true
-		}
-	}
-	return false
+// sortedLines returns a sorted copy of the added line numbers, so that
+// overlaps costs a binary search rather than a scan per declaration.
+func sortedLines(added []int) []int {
+	out := append([]int(nil), added...)
+	sort.Ints(out)
+	return out
+}
+
+// overlaps reports whether any line of sorted, a sorted list of line numbers,
+// lies in [start, end].
+func overlaps(sorted []int, start, end int) bool {
+	i := sort.SearchInts(sorted, start)
+	return i < len(sorted) && sorted[i] <= end
 }
 
 // GoChangedDeclarations returns the names of the top-level declarations of a
@@ -36,6 +41,7 @@ func GoChangedDeclarations(filename string, src []byte, added []int) []string {
 	if len(added) == 0 {
 		return nil
 	}
+	added = sortedLines(added)
 	fset := token.NewFileSet()
 	file, err := parser.ParseFile(fset, filename, src, parser.SkipObjectResolution)
 	if err != nil {
@@ -92,8 +98,10 @@ func GoIdentifiers(filename string, src []byte) ([]string, error) {
 }
 
 // jsDeclaration matches a top-level JavaScript/TypeScript declaration at
-// column 0 and captures its name.
-var jsDeclaration = regexp.MustCompile(`^(?:export[ \t]+(?:default[ \t]+)?)?(?:declare[ \t]+)?(?:abstract[ \t]+)?(?:async[ \t]+)?(?:function\*?|class|const|let|var|interface|type|enum|namespace)[ \t]+\*?[ \t]*([A-Za-z_$][A-Za-z0-9_$]*)`)
+// column 0 and captures its name. "const enum" is tried before "const", so
+// that "export const enum Color" captures Color while "const enumValue" still
+// captures enumValue.
+var jsDeclaration = regexp.MustCompile(`^(?:export[ \t]+(?:default[ \t]+)?)?(?:declare[ \t]+)?(?:abstract[ \t]+)?(?:async[ \t]+)?(?:function\*?|class|const[ \t]+enum|const|let|var|interface|type|enum|namespace)[ \t]+\*?[ \t]*([A-Za-z_$][A-Za-z0-9_$]*)`)
 
 // JSChangedDeclarations is the lexical counterpart of GoChangedDeclarations
 // for JavaScript and TypeScript. A top-level declaration is a line at column
@@ -105,6 +113,7 @@ func JSChangedDeclarations(src string, added []int) []string {
 	if len(added) == 0 {
 		return nil
 	}
+	added = sortedLines(added)
 	lines := strings.Split(src, "\n")
 	names := map[string]bool{}
 	for i := 0; i < len(lines); i++ {
@@ -190,14 +199,17 @@ func JSIdentifiers(src string) []string {
 	return sortedKeys(names)
 }
 
+// wordByte reports an ASCII letter, digit, _ or $: the bytes a whole word is
+// made of.
+func wordByte(c byte) bool {
+	return c == '_' || c == '$' || c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9'
+}
+
 // NamedOn reports whether symbol occurs in text as a whole word: the bytes
 // around the occurrence are not ASCII letters, digits, _ or $.
 func NamedOn(text, symbol string) bool {
 	if symbol == "" {
 		return false
-	}
-	part := func(c byte) bool {
-		return c == '_' || c == '$' || c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9'
 	}
 	for from := 0; from < len(text); {
 		i := strings.Index(text[from:], symbol)
@@ -206,12 +218,34 @@ func NamedOn(text, symbol string) bool {
 		}
 		i += from
 		end := i + len(symbol)
-		if (i == 0 || !part(text[i-1])) && (end == len(text) || !part(text[end])) {
+		if (i == 0 || !wordByte(text[i-1])) && (end == len(text) || !wordByte(text[end])) {
 			return true
 		}
 		from = i + 1
 	}
 	return false
+}
+
+// AddWords adds to set every whole word of text that IsIdentifier accepts:
+// every maximal run of ASCII letters, digits, _ and $ that does not start with
+// a digit and has at most 128 bytes. For an identifier s, NamedOn(text, s)
+// holds exactly when AddWords adds s, so a set built once in one pass over the
+// text answers NamedOn for any number of identifiers.
+func AddWords(set map[string]bool, text string) {
+	for i := 0; i < len(text); {
+		if !wordByte(text[i]) {
+			i++
+			continue
+		}
+		j := i + 1
+		for j < len(text) && wordByte(text[j]) {
+			j++
+		}
+		if w := text[i:j]; !set[w] && IsIdentifier(w) {
+			set[strings.Clone(w)] = true
+		}
+		i = j
+	}
 }
 
 // Intersect returns the names present in both sorted lists, sorted.

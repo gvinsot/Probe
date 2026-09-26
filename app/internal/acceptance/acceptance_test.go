@@ -230,6 +230,62 @@ func TestStripPRComments(t *testing.T) {
 	}
 }
 
+// Removing a block or a stray end marker can join the text around it into a
+// new marker; the removal repeats until none is left.
+func TestStripPRCommentsNeverLeavesAMarker(t *testing.T) {
+	begin, end := model.PRCommentBegin, model.PRCommentEnd
+	block := begin + "\n- Reproduced: 1 issue\n" + end
+	// Split points inside the markers, so that the halves join again.
+	bl, br := begin[:len("<!-- swiftproof:pr-")], begin[len("<!-- swiftproof:pr-"):]
+	el, er := end[:len("<!-- swiftproof:pr-comment")], end[len("<!-- swiftproof:pr-comment"):]
+	nested := func(levels int) string { // one end marker is rebuilt per pass
+		return strings.Repeat(el, levels) + strings.Repeat(er, levels)
+	}
+	for _, tc := range []struct{ name, in, out string }{
+		{"begin rebuilt by a removed block", "- keep\n" + bl + block + br + "\n- swallowed\n", "- keep\n"},
+		{"end rebuilt by a removed block", "- keep\n" + el + block + er + "\n- after\n", "- keep\n\n- after\n"},
+		{"end rebuilt by a removed stray end", "- keep " + el + end + er + " tail\n", "- keep  tail\n"},
+		{"begin rebuilt by a removed stray end", "- keep " + bl + end + br + " swallowed\n", "- keep "},
+		{"nesting within the pass bound", "- a " + nested(maxStripPasses) + " b\n", "- a  b\n"},
+		{"nesting beyond the pass bound is cut at the first marker", "- a " + nested(3*maxStripPasses) + " b\n", "- a " + strings.Repeat(el, 2*maxStripPasses-1)},
+	} {
+		got, removed := StripPRComments(tc.in)
+		if got != tc.out || !removed {
+			t.Errorf("%s: StripPRComments(%q) = %q, %v; want %q", tc.name, tc.in, got, removed, tc.out)
+		}
+		if strings.Contains(got, begin) || strings.Contains(got, end) {
+			t.Errorf("%s: a marker survived in %q", tc.name, got)
+		}
+		if again, removedAgain := StripPRComments(got); again != got || removedAgain {
+			t.Errorf("%s: not a fixed point: %q -> %q", tc.name, got, again)
+		}
+	}
+}
+
+func FuzzStripPRComments(f *testing.F) {
+	begin, end := model.PRCommentBegin, model.PRCommentEnd
+	for _, seed := range []string{
+		"", "- a\n", begin + "x" + end, "a" + begin, "a" + end + "b",
+		"<!-- swiftproof:pr-" + begin + end + "comment:begin v1 -->",
+		"<!-- swiftproof:pr-comment" + end + ":end -->",
+		strings.Repeat("<!-- swiftproof:pr-comment", 20) + strings.Repeat(":end -->", 20),
+	} {
+		f.Add(seed)
+	}
+	f.Fuzz(func(t *testing.T, text string) {
+		got, removed := StripPRComments(text)
+		if strings.Contains(got, begin) || strings.Contains(got, end) {
+			t.Fatalf("a marker survived in %q", got)
+		}
+		if removed != (strings.Contains(text, begin) || strings.Contains(text, end)) || !removed && got != text || len(got) > len(text) {
+			t.Fatalf("StripPRComments(%q) = %q, %v", text, got, removed)
+		}
+		if again, removedAgain := StripPRComments(got); again != got || removedAgain {
+			t.Fatalf("not a fixed point: %q -> %q", got, again)
+		}
+	})
+}
+
 func FuzzParse(f *testing.F) {
 	for _, seed := range []string{
 		"", "- a\n- b\n", "## Acceptance criteria\n- [ ] x\n  y\n# End\n- z\n", "```\n- a\n```\n- b",

@@ -19,6 +19,7 @@ import (
 	"github.com/gvinsot/SwiftProof/app/internal/acceptance"
 	"github.com/gvinsot/SwiftProof/app/internal/config"
 	"github.com/gvinsot/SwiftProof/app/internal/model"
+	"github.com/gvinsot/SwiftProof/app/internal/report"
 )
 
 // intentDocument is a PR description with prose, two criteria in scope, an
@@ -56,6 +57,49 @@ func TestParseIntent(t *testing.T) {
 	for _, bad := range []string{"- a\xffb", "- a\x00b"} {
 		if _, err := parseIntent(bad); err == nil || err.Error() != "intent must be UTF-8 text without NUL bytes" {
 			t.Fatalf("%q: %v", bad, err)
+		}
+	}
+}
+
+// The intent is redacted before it is hashed and parsed: intent_sha256 is the
+// SHA-256 of exactly the intent the report records, so it never lets anyone
+// confirm a guess of a secret that redaction hides, and the criteria can be
+// extracted again from the recorded intent.
+func TestParseIntentHashesTheRecordedText(t *testing.T) {
+	for _, intent := range []string{
+		"## Acceptance criteria\n- Staging login uses password=hunter2 for now\n- Orders of 100 or more get 10 off\n",
+		"## Acceptance criteria\n- Sign with\n  -----BEGIN RSA PRIVATE KEY-----\n  MIIEsecret\n  -----END RSA PRIVATE KEY-----\n- Orders of 100 or more get 10 off\n",
+		// Removing a PR-comment block joins a secret, which is then redacted.
+		"## Acceptance criteria\n- Staging login uses password" + model.PRCommentBegin + "x" + model.PRCommentEnd + "=hunter2 for now\n- Orders of 100 or more get 10 off\n",
+	} {
+		doc, err := parseIntent(intent)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if strings.Contains(doc.Text, "hunter2") || strings.Contains(doc.Text, "MIIEsecret") || !strings.Contains(doc.Text, "[REDACTED]") {
+			t.Fatalf("recorded intent %q", doc.Text)
+		}
+		stripped, _ := acceptance.StripPRComments(intent)
+		if guess := sha256.Sum256([]byte(stripped)); doc.SHA256 == hex.EncodeToString(guess[:]) {
+			t.Fatal("intent_sha256 hashes the unredacted intent")
+		}
+		if len(doc.Criteria) != 2 || doc.Criteria[1] != (model.IntentCriterion{ID: "AC-2", Text: "Orders of 100 or more get 10 off", Line: strings.Count(intent[:strings.Index(intent, "- Orders")], "\n") + 1}) {
+			t.Fatalf("criteria %+v", doc.Criteria)
+		}
+		for _, c := range doc.Criteria {
+			if strings.Contains(c.Text, "hunter2") || strings.Contains(c.Text, "MIIEsecret") {
+				t.Fatalf("criterion %q", c.Text)
+			}
+		}
+		// What the report writes is what was hashed and parsed.
+		saved := report.Sanitize(&model.Report{Intent: doc.Text, IntentSHA256: doc.SHA256, IntentCriteria: doc.Criteria})
+		sum := sha256.Sum256([]byte(saved.Intent))
+		if saved.Intent != doc.Text || saved.IntentSHA256 != hex.EncodeToString(sum[:]) || !reflect.DeepEqual(saved.IntentCriteria, doc.Criteria) {
+			t.Fatalf("saved intent %q sha %s criteria %+v", saved.Intent, saved.IntentSHA256, saved.IntentCriteria)
+		}
+		again, err := parseIntent(saved.Intent)
+		if err != nil || again.Text != doc.Text || again.SHA256 != doc.SHA256 || !reflect.DeepEqual(again.Criteria, doc.Criteria) {
+			t.Fatalf("parsing the recorded intent again gave %+v", again)
 		}
 	}
 }
@@ -109,7 +153,8 @@ func TestLintRecordsIntentCriteria(t *testing.T) {
 	if string(members["intent_test_failures"]) != "[]" {
 		t.Fatalf("intent_test_failures %s", members["intent_test_failures"])
 	}
-	if !strings.Contains(output, "Intent: 2 acceptance criteria extracted; 0 intent-test failures.") {
+	// lint runs no intent test: the line states the extraction count alone.
+	if !strings.Contains(output, "Intent: 2 acceptance criteria extracted.\n") || strings.Contains(output, "intent-test failure") {
 		t.Fatalf("stdout:\n%s", output)
 	}
 }
@@ -184,16 +229,29 @@ func TestIntentExtractionLimitsAreUnverified(t *testing.T) {
 func TestIntentLine(t *testing.T) {
 	for _, tc := range []struct {
 		criteria, failures int
+		ran                bool // a generated_test_intent check is recorded
 		want               string
 	}{
-		{0, 0, ""},
-		{1, 0, "Intent: 1 acceptance criterion extracted; 0 intent-test failures."},
-		{3, 1, "Intent: 3 acceptance criteria extracted; 1 intent-test failure (a model-written test failed on the candidate; no baseline control; weaker than a reproduced issue)."},
-		{3, 2, "Intent: 3 acceptance criteria extracted; 2 intent-test failures (model-written tests failed on the candidate; no baseline control; weaker than a reproduced issue)."},
+		{0, 0, true, ""},
+		{1, 0, false, "Intent: 1 acceptance criterion extracted."},
+		{3, 0, false, "Intent: 3 acceptance criteria extracted."},
+		{1, 0, true, "Intent: 1 acceptance criterion extracted; no intent-test failure was accepted, which says nothing about whether the criterion holds."},
+		{3, 0, true, "Intent: 3 acceptance criteria extracted; no intent-test failure was accepted, which says nothing about whether the criteria hold."},
+		{3, 1, true, "Intent: 3 acceptance criteria extracted; 1 intent-test failure (a model-written test failed on the candidate; no baseline control; weaker than a reproduced issue)."},
+		{3, 2, true, "Intent: 3 acceptance criteria extracted; 2 intent-test failures (model-written tests failed on the candidate; no baseline control; weaker than a reproduced issue)."},
 	} {
 		r := &model.Report{IntentCriteria: make([]model.IntentCriterion, tc.criteria), IntentTestFailures: make([]model.Hypothesis, tc.failures)}
-		if got := intentLine(r); got != tc.want {
-			t.Errorf("%d/%d: %q", tc.criteria, tc.failures, got)
+		r.Checks = []model.Check{{Kind: model.CheckGeneratedCandidate}}
+		if tc.ran {
+			r.Checks = append(r.Checks, model.Check{Kind: model.CheckGeneratedIntent})
+		}
+		got := intentLine(r)
+		if got != tc.want {
+			t.Errorf("%d/%d ran %v: %q", tc.criteria, tc.failures, tc.ran, got)
+		}
+		// Never a count of failures beside the criteria count without its caveat.
+		if strings.Contains(got, " 0 ") || strings.Contains(got, "/") {
+			t.Errorf("%q reads as a ratio", got)
 		}
 	}
 	// The line keeps its place among the stage lines.

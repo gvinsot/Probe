@@ -256,6 +256,10 @@ func TestIntentOutcomes(t *testing.T) {
 			fmt.Fprintln(w, "# example.test/pkg\npkg/swiftproof_intent_ac1_test.go:6:12: undefined: Discount\nFAIL\texample.test/pkg [build failed]")
 			return execution{ExitCode: 1}
 		}, model.StatusUnverified, "ERROR", reasonInconclusive},
+		{"pass without a changed symbol", "package pkg\n\nimport \"testing\"\n\nfunc TestIntentAC1(t *testing.T) { _ = Total(nil) }\n", nil, func(w io.Writer) execution {
+			goIntentEvents(w, "TestIntentAC1", "pass")
+			return execution{}
+		}, model.StatusUnverified, "PASS", reasonNoReference},
 		{"skip", intentGoTest, nil, func(w io.Writer) execution {
 			goIntentEvents(w, "TestIntentAC1", "skip")
 			return execution{}
@@ -443,6 +447,16 @@ func TestIntentJestRunner(t *testing.T) {
 		{"empty message", jestIntentResults("failed", "", ""), 1, model.StatusUnverified, "FAIL"},
 		{"pass", jestIntentResults("passed", ""), 0, model.StatusIntentTestPassed, "PASS"},
 		{"missing report", "", 1, model.StatusUnverified, "ERROR"},
+		// Only an assertion-error header counts as an assertion failure.
+		{"thrown Error", jestIntentResults("failed", "", "Error: not implemented\n    at discount (/workspace/src/cart.ts:6:9)"), 1, model.StatusUnverified, "FAIL"},
+		{"custom error class", jestIntentResults("failed", "", "CartError: negative total"), 1, model.StatusUnverified, "FAIL"},
+		{"timeout", jestIntentResults("failed", "", "Error: Test timed out in 5000ms."), 1, model.StatusUnverified, "FAIL"},
+		{"thrown value", jestIntentResults("failed", "", "thrown: \"x\""), 1, model.StatusUnverified, "FAIL"},
+		{"assertion and a thrown error", jestIntentResults("failed", "", "AssertionError: expected 100 to be 90", "Error: cleanup failed"), 1, model.StatusUnverified, "FAIL"},
+		{"Jest matcher", jestIntentResults("failed", "", "Error: expect(received).toBe(expected) // Object.is equality\n\nExpected: 90\nReceived: 100"), 1, model.StatusIntentTestFailed, "FAIL"},
+		{"colored Jest matcher", jestIntentResults("failed", "", "Error: \x1b[2mexpect(\x1b[22m\x1b[31mreceived\x1b[39m\x1b[2m).\x1b[22mtoBe\x1b[2m(\x1b[22m\x1b[32mexpected\x1b[39m\x1b[2m)\x1b[22m"), 1, model.StatusIntentTestFailed, "FAIL"},
+		{"expect.assertions", jestIntentResults("failed", "", "Error: expect.assertions(1)\n\nExpected one assertion to be called but received zero assertion calls."), 1, model.StatusIntentTestFailed, "FAIL"},
+		{"node assert", jestIntentResults("failed", "", "AssertionError [ERR_ASSERTION]: 100 == 90"), 1, model.StatusIntentTestFailed, "FAIL"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			h := tsIntentFixture(t)
@@ -527,7 +541,7 @@ func TestIntentOutcomeRules(t *testing.T) {
 	fail.Output = b.String()
 	names := []string{"TestIntentAC1"}
 	change := cartChange(5)
-	if status, _ := IntentOutcome(RunnerGo, fail, intentTestPath, names, []string{"Discount"}, change); status != model.StatusIntentTestFailed {
+	if status, _ := IntentOutcome(RunnerGo, fail, intentTestPath, names, []string{"Discount"}, NewIntentWords(change)); status != model.StatusIntentTestFailed {
 		t.Fatalf("baseline case %s", status)
 	}
 	for _, tc := range []struct {
@@ -566,16 +580,22 @@ func TestIntentOutcomeRules(t *testing.T) {
 		if tc.runner != "" {
 			runner = tc.runner
 		}
-		if status, reason := IntentOutcome(runner, check, intentTestPath, names, symbols, ch); status != model.StatusUnverified || reason == "" {
+		if status, reason := IntentOutcome(runner, check, intentTestPath, names, symbols, NewIntentWords(ch)); status != model.StatusUnverified || reason == "" {
 			t.Errorf("%s: %s %q", tc.name, status, reason)
 		}
 	}
-	// A pass needs no referenced symbol.
+	// A pass needs a referenced changed declaration, but not one named on an
+	// added line (the word set is not read).
 	pass := model.Check{Status: "PASS"}
-	if status, _ := IntentOutcome(RunnerGo, pass, intentTestPath, names, nil, model.Change{}); status != model.StatusIntentTestPassed {
+	if status, _ := IntentOutcome(RunnerGo, pass, intentTestPath, names, []string{"Total"}, nil); status != model.StatusIntentTestPassed {
 		t.Fatal("pass")
 	}
-	if status, _ := IntentOutcome(RunnerGo, model.Check{Status: "PASS", Truncated: true}, intentTestPath, names, nil, model.Change{}); status != model.StatusUnverified {
+	for _, symbols := range [][]string{nil, {}, {"1bad"}, {"Total", "ghp_abcdefgh1234"}} {
+		if status, reason := IntentOutcome(RunnerGo, pass, intentTestPath, names, symbols, nil); status != model.StatusUnverified || reason != reasonNoReference {
+			t.Fatalf("pass with symbols %q: %s %q", symbols, status, reason)
+		}
+	}
+	if status, _ := IntentOutcome(RunnerGo, model.Check{Status: "PASS", Truncated: true}, intentTestPath, names, []string{"Total"}, nil); status != model.StatusUnverified {
 		t.Fatal("truncated pass")
 	}
 	// A whole-word match only.
@@ -583,5 +603,93 @@ func TestIntentOutcomeRules(t *testing.T) {
 	renamed.Files[0].Hunks[0].Lines[0].Content = "func DiscountRate(total int) int {"
 	if IntentSymbolsNamed(renamed, []string{"Discount"}) {
 		t.Fatal("a prefix matched")
+	}
+}
+
+// The changed declarations and the linking rule's word set are computed once
+// per harness, so the host-side cost of any number of intent-test runs stays
+// linear in the size of the diff, and an ended context computes nothing.
+func TestIntentLinkingIsComputedOnce(t *testing.T) {
+	h := intentFixture(t)
+	h.execute = func(_ context.Context, _ string, _ []string, out io.Writer) execution {
+		goIntentEvents(out, "TestIntentAC1", "fail", "    swiftproof_intent_ac1_test.go:7: Discount(100) = 100, want 90\n")
+		return execution{ExitCode: 1}
+	}
+	call(t, h, IntentCreateTool, map[string]any{"criterion_id": "AC-1", "path": intentTestPath, "content": intentGoTest})
+	ended, cancel := context.WithCancel(context.Background())
+	cancel()
+	h.mu.Lock()
+	symbols, _ := h.referencedSymbols(ended, h.tests["intent-test-1"])
+	words, decls := h.intent.words, h.intent.decls
+	h.mu.Unlock()
+	if len(symbols) != 0 || words != nil || len(decls) != 0 {
+		t.Fatalf("an ended context computed symbols %q, words %v, declarations %v", symbols, words != nil, decls)
+	}
+	if e := runIntent(t, h, "intent-test-1").Evidence; e.Status != model.StatusIntentTestFailed {
+		t.Fatalf("first run %+v", e)
+	}
+	h.mu.Lock()
+	words, decls = h.intent.words, h.intent.decls
+	h.mu.Unlock()
+	if words == nil || words.words == nil || !reflect.DeepEqual(decls["go"], []string{"Discount"}) {
+		t.Fatalf("words %v, declarations %v", words, decls)
+	}
+	if e := runIntent(t, h, "intent-test-1").Evidence; e.Status != model.StatusIntentTestFailed {
+		t.Fatalf("second run %+v", e)
+	}
+	h.mu.Lock()
+	reused := h.intent.words == words
+	h.mu.Unlock()
+	if !reused {
+		t.Fatal("the word set was rebuilt")
+	}
+}
+
+func TestIntentTestFileNames(t *testing.T) {
+	for path, want := range map[string]bool{
+		"pkg/cart_test.go": true, "src/cart.test.ts": true, "src/cart.spec.tsx": true, "src/cart.test.jsx": true, "src/cart.spec.jsx": true,
+		"src/cart.test.mjs": true, "src/cart.test.cjs": true, "src/cart.test.mts": true, "src/cart.spec.mts": true, "src/cart.test.cts": true,
+		"src/__tests__/cart.ts": true, "__tests__/helpers.js": true, "SRC/Cart.Test.MJS": true,
+		"pkg/cart.go": false, "src/cart.ts": false, "src/cart.mjs": false, "src/testing.ts": false, "src/contest.ts": false, "src/__tests__.ts": false, "docs/cart.test.md": false,
+	} {
+		if got := intentTestFile(path); got != want {
+			t.Errorf("intentTestFile(%q) = %v", path, got)
+		}
+	}
+	// Neither an added line nor a declaration of such a file links an intent
+	// test to the change.
+	src := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(src, "src"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	line := "export function discount(total) { return total; }"
+	for _, name := range []string{"cart.test.mjs", "cart.mjs"} {
+		if err := os.WriteFile(filepath.Join(src, "src", name), []byte(line+"\n"), 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	file := func(path string) model.ChangedFile {
+		return model.ChangedFile{Path: path, Status: "A", Hunks: []model.Hunk{{Lines: []model.DiffLine{{Kind: "add", NewLine: 1, Content: line}}}}}
+	}
+	for _, tc := range []struct {
+		path string
+		want []string
+	}{{"src/cart.test.mjs", nil}, {"src/cart.mjs", []string{"discount"}}} {
+		change := model.Change{Files: []model.ChangedFile{file(tc.path)}}
+		if IntentSymbolsNamed(change, []string{"discount"}) != (tc.want != nil) {
+			t.Errorf("%s: linking rule", tc.path)
+		}
+		diff, _ := json.Marshal(change)
+		h, err := New(Options{CandidateDir: src, BaseDir: t.TempDir(), ArtifactDir: t.TempDir(), Image: "test-image:local", MaxGeneratedTests: 10, Diff: string(diff), IntentCriteria: intentCriteria})
+		if err != nil {
+			t.Fatal(err)
+		}
+		h.mu.Lock()
+		decls, ok := h.changedDeclarations(context.Background(), "js")
+		h.mu.Unlock()
+		h.Close()
+		if !ok || !reflect.DeepEqual(decls, tc.want) && !(len(decls) == 0 && tc.want == nil) {
+			t.Errorf("%s: declarations %q", tc.path, decls)
+		}
 	}
 }
