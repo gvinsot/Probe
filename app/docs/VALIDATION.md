@@ -172,6 +172,7 @@ The three entries below record the runs that the F0a, F0b and F0d implementers r
   - A Vitest template with a Go function changed too: no container; `not_run` with the Go template reason and an Unverified line, the TS/JS functions listed as "not fuzzed: the fuzz stage did not run (see fuzz.reason)"; exit 2.
   - The F2b calc fixture with the Go template: exit 2 in 43 s, the outcomes of the F2b entries, and `web/price.ts:1 price` with the template reason.
   - Every report re-rendered byte-identically with `swiftproof report` and validates against the schema (`TestSchemaValidatesReportFiles`). One hash at `lookup`'s counterexample in the candidate stream of the Vitest report, replaced in place: the re-render kept exit 2, made only `lookup` inconclusive ("the recorded outcome could not be derived again from the recorded checks and observation streams"), listed two divergences (`discount`, `sorted`), and re-rendering that output again was byte-identical.
+  - The Vitest template on three one-function modules, `web/m.mjs` (JSDoc `{number}`, imported as `./m.mjs` from a `.test.js` harness), `web/c.tsx` and `web/t.mts` (imported as `./c` and `./t.mts` from `.test.ts` harnesses): exit 2; eight PASS fuzz checks; `half` and `twice` not diverged, and `neg` (`-n` rewritten as `0 - n`) diverged, the two revisions recording `-0` and `0` for `neg(0)`.
   - After every run the private temporary directory was empty, the checkout unchanged, and no container that mounted the run's directories remained.
 <!-- F2:end -->
 
