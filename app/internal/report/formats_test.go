@@ -10,10 +10,10 @@ import (
 
 func TestValidFormat(t *testing.T) {
 	for format, want := range map[string]bool{
-		FormatMarkdown: true, FormatJSON: true,
+		FormatMarkdown: true, FormatJSON: true, FormatSARIF: true, FormatPRComment: true,
+
 		"": false, "Markdown": false, "JSON": false, " json": false, "html": false,
-		// F9 adds these; this build must refuse them.
-		"sarif": false, "pr-comment": false,
+		"SARIF": false, "pr_comment": false, "prcomment": false, "sarif ": false,
 	} {
 		if ValidFormat(format) != want {
 			t.Errorf("ValidFormat(%q) = %v", format, !want)
@@ -23,13 +23,13 @@ func TestValidFormat(t *testing.T) {
 
 func TestRenderFormat(t *testing.T) {
 	r := Sanitize(proofReport())
-	for format, name := range map[string]string{FormatMarkdown: "CONFIDENCE_REPORT.md", FormatJSON: "confidence-report.json"} {
+	for format, name := range map[string]string{FormatMarkdown: "CONFIDENCE_REPORT.md", FormatJSON: "confidence-report.json", FormatSARIF: "confidence-report.sarif", FormatPRComment: "PR_COMMENT.md"} {
 		got, data, err := renderFormat(format, r, writeOptions{})
 		if err != nil || got != name || len(data) == 0 || data[len(data)-1] != '\n' {
 			t.Errorf("%s: name %q, %d bytes, err %v", format, got, len(data), err)
 		}
 	}
-	if _, _, err := renderFormat("sarif", r, writeOptions{}); err == nil {
+	if _, _, err := renderFormat("bogus", r, writeOptions{}); err == nil {
 		t.Fatal("unknown format rendered")
 	}
 }
@@ -76,7 +76,7 @@ func TestWriteOptionsAndDefaults(t *testing.T) {
 // Every format is validated before anything is rendered or written.
 func TestWriteValidatesEveryFormatFirst(t *testing.T) {
 	dir := t.TempDir()
-	if err := Write(dir, &model.Report{}, []string{FormatMarkdown, FormatJSON, "sarif"}); err == nil {
+	if err := Write(dir, &model.Report{}, []string{FormatMarkdown, FormatJSON, FormatSARIF, "bogus"}); err == nil {
 		t.Fatal("expected an error for a format this build does not render")
 	}
 	entries, err := os.ReadDir(dir)

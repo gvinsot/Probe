@@ -909,4 +909,46 @@ Outcome:
 `--format sarif` and `--format pr-comment` write findings of the §4.3 classes only, read from finalized fields; `--report-url` adds a validated link to the PR comment. SwiftProof publishes nothing itself.
 
 <!-- F9:begin -->
+**Formats and options.**
+
+- `--format` MUST accept `sarif` (`confidence-report.sarif`) and `pr-comment` (`PR_COMMENT.md`) in `lint`, `review` and `report`; the default stays `markdown,json`. Every requested format MUST be rendered in memory before any file is written, and a render error MUST write nothing.
+- `--report-url` MUST be refused with exit 3, before any container starts, unless `pr-comment` is requested and the URL is `https`, names a host, has no user information, is at most 512 bytes and uses only `[A-Za-z0-9._~:/?#!$&*+,;=%-]`. Since the report's sanitizing never sees it, it MUST also be refused when it, or its percent-decoded form, contains a private-key header or a token shape of the credential redaction that starts at a token boundary (the start of the URL or a character other than `[A-Za-z0-9_-]`), or a query, fragment or path parameter whose name reads as a credential. A token prefix inside a word (`flask-sqlalchemy`, `task-scheduler`) MUST NOT cause a refusal. The pr-comment renderer MUST re-validate it. SwiftProof MUST NOT fetch it.
+- Rendering MUST NOT change the exit code, any status, or the Markdown and JSON reports, and MUST NOT execute anything or make a network request. SwiftProof MUST NOT post a comment or upload SARIF.
+
+**Findings.**
+
+- Only the seven §4.3 classes MAY become findings, each read from its Finalize-derived source (`reproduced_issues`; `base_tests.tests[]` and `impact.changed_functions[].tests[]` with `FAILS_ON_CANDIDATE`; `divergences[]` by kind; `intent_test_failures`; `mutation.mutants[]` with `SURVIVED`).
+- A finding MUST be kept only when every cited evidence record resolves exactly once in `evidence`, has the class's kind, and re-derives from the recorded checks, at render time, to the class's status (a surviving mutant re-derives through the mutation verifier), and when it cites at least one check and every cited check resolves exactly once in `checks` together with `mutation.checks`.
+- Signals, review targets, coverage, impact, prepare and cache records, killed and other non-surviving mutants, `NOT_*`, `PASSES_ON_CANDIDATE` and `INTENT_TEST_PASSED` records, `UNVERIFIED`, `NOT_REPRODUCED` and `DISMISSED` hypotheses MUST NOT be findings. `intent_judgment` MUST NOT be read or rendered.
+- Findings MUST be ordered by class, then severity, path, line and identity, and capped at 1000 with the remainder counted. Titles and values MUST be cut at 256 bytes and reasons at 512.
+
+**Locations.**
+
+- A location MUST be emitted only for a changed, non-deleted, non-binary file of the recorded change. A model-chosen location MUST be labelled "model-chosen location", and its line MUST be kept only when the recorded diff has it on the candidate side; otherwise it MUST be file-level. Fuzz changed functions, candidate test ranges and mutated lines keep their lines.
+- A finding without a location MUST NOT be a SARIF result; it MUST be listed in the PR comment and reported as a SARIF notification. Impacted tests are always unanchored.
+- Reproduced and observed-divergence findings MUST carry the retained `generated_test` artifact and its sha256 when exactly one retained artifact matches the test file name (SARIF `relatedLocations` and properties).
+
+**SARIF.**
+
+- The log MUST be SARIF 2.1.0 with one run, `message.text` only (never `message.markdown`), exactly one location per result, `partialFingerprints` `swiftproof/v1`, and the attribution in the log's `properties.attribution`. Rule IDs and levels MUST follow §4.3; `error` MUST occur only for a reproduced high or critical hypothesis.
+- `invocations[0].executionSuccessful` MUST be `false` when the exit code is 4, when a check in `checks` is `ERROR`, `SKIPPED` or `TIMEOUT`, or when `execution.budget.deadline_reached` is true. `toolExecutionNotifications` MUST list, at level `warning`, each unverified area, each stage that did not run, each check in `checks` that did not pass, each unanchored finding, omitted findings, and the absence of any execution. The operational-failure, no-execution, stage, omitted-findings and unanchored-finding notifications MUST come before the per-check, per-area and per-hypothesis ones, so that the notification cap drops the latter first. A hypothesis that stayed `UNVERIFIED` MUST be named by its ID only, with a fixed text that holds for every `UNVERIFIED` hypothesis (including one the model submitted as `UNVERIFIED`): the reviewer model's text of such a hypothesis MUST NOT appear in either export. An unverified area MUST be listed by its position with a fixed text: its note can quote model output and MUST NOT appear in either export.
+- No rule, result or property MAY carry a precision, a security severity, a confidence, a percentage, or a result `kind` of `pass`, `informational` or `notApplicable`. Untrusted message fragments MUST have control and bidirectional characters removed and brackets escaped.
+
+**PR comment.**
+
+- The body MUST sit between `model.PRCommentBegin` and `model.PRCommentEnd` and MUST start with a status block that is not a finding: the exit code; the counts of unverified areas, of checks in `checks` that did not pass (the mutation ledger excluded) and of stages that did not run (sections `not_run`, `tests_status` `not_run`, prepare `failed` or `not_permitted`); and the sentence "No finding is not approval."
+- Every repository, model or report string MUST go through `commentText`: control and bidirectional characters replaced; a zero-width space after `@`, inside `://` and `www.`, after a `:` followed by `[A-Za-z0-9_+-]`, after a `#` followed by a digit, and after the `-` of `GH-` followed by a digit; then `&`, `<` and `>` HTML-escaped and the Markdown punctuation backslash-escaped as `inline()` does. Quotes MUST NOT become numeric entities, and the output MUST NOT contain a `#` directly followed by a digit. The only link MUST be the validated `--report-url`, besides the constant attribution URL, and the only raw HTML the two markers. Bare commit SHAs and custom autolink references that a repository configures are not neutralized.
+- The file MUST be at most 60 000 bytes; findings that do not fit MUST be replaced by a fixed pointer to `confidence-report.json` with their count.
+- The `intent_test_failed` text MUST be "A model-written test for <criterion ID> failed on the candidate; there is no baseline control, and the test or its reading of the criterion may be wrong.", followed by the `intent_test` artifact sha256.
+- No export MAY present a finding as an approval, "LGTM", "no issues", "safe to merge", a confirmed defect or the revision that is right.
+
+**Acceptance.**
+
+- A reproduced high hypothesis through Docker gives exit 1, one SARIF result `swiftproof/reproduced` at level `error` on the hypothesis's changed line, whose evidence IDs equal the JSON's, and a PR comment listing it; `swiftproof report` re-renders both files byte for byte.
+- A hypothesis citing a nonexistent evidence ID gives no finding in either file, `"results": []`, and a status block counting the unverified hypothesis.
+- For every class, a valid record gives one finding; removing the checks and evidence, or forcing the statuses without them and finalizing, gives none; each tampered record (unresolved or duplicated IDs, another kind or status, a record not re-derived, an ID in both check ledgers) gives none.
+- `lint` exports have no result and say that no checks or experiments ran; an unknown format and every invalid `--report-url` combination exit 3 without writing a report.
+- Hostile titles, paths, IDs, versions and reasons (including quotes and `GH-12`) produce no heading, mention, link, HTML, emoji shortcode or `#` followed by a digit, and a 500-finding comment stays within 60 000 bytes with the count of findings not shown.
+- An `UNVERIFIED` hypothesis whose title reads as an approval appears in neither export except by its ID, and an unverified-area note naming a rejected tool `LGTM_approved_safe_to_merge_no_issues` appears in neither export; a `--report-url` carrying a token exits 3, and the run URLs of `pallets-eco/flask-sqlalchemy` and `acme/task-scheduler` are accepted.
+- The SARIF files of the validation runs validate against the SARIF 2.1.0 JSON schema.
 <!-- F9:end -->
