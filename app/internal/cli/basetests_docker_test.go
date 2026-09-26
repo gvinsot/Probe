@@ -57,7 +57,7 @@ func TestDockerBaseTestsEndToEnd(t *testing.T) {
 	writeReviewerPolicy(t, policy, cfg)
 
 	t.Run("A_test_edit_hides_a_behavior_change", func(t *testing.T) {
-		dir := clampFixture(t)
+		dir := baseTestsClampFixture(t)
 		code, r, out, console := baseTestsReview(t, dir, policy, "--ci")
 		if code != 2 {
 			t.Fatalf("exit %d, want 2 (never 1): checks %+v\n%s", code, r.Checks, console)

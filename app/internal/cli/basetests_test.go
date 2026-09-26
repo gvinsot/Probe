@@ -77,9 +77,9 @@ func TestClampInside(t *testing.T) {
 `
 )
 
-// clampFixture is the scenario A repository: the candidate drops the upper
+// baseTestsClampFixture is the scenario A repository: the candidate drops the upper
 // bound and edits the tests that asserted it.
-func clampFixture(t *testing.T) string {
+func baseTestsClampFixture(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
 	git(t, dir, "init", "-b", "main")
@@ -178,7 +178,7 @@ func openChange(t *testing.T, dir, base, head string) (*gitrepo.Repository, mode
 // with no image, every run is SKIPPED, the section is not_run with that reason,
 // and the Unverified entry names it.
 func TestRunBaseTestsSelectsAndRecords(t *testing.T) {
-	dir := clampFixture(t)
+	dir := baseTestsClampFixture(t)
 	repo, change := openChange(t, dir, "main", "candidate")
 	h := stageHarness(t, repo, change, []string{"go", "test", "{package}"})
 	r := &model.Report{}
@@ -231,7 +231,7 @@ func TestRunBaseTestsSelectsFileLevelEdits(t *testing.T) {
 }
 
 func TestRunBaseTestsWithoutVerifiableTemplate(t *testing.T) {
-	dir := clampFixture(t)
+	dir := baseTestsClampFixture(t)
 	repo, change := openChange(t, dir, "main", "candidate")
 	h := stageHarness(t, repo, change, []string{"go", "test", "./..."})
 	r := &model.Report{}
@@ -274,7 +274,7 @@ func TestRunBaseTestsNothingSelected(t *testing.T) {
 }
 
 func TestRunBaseTestsCancelledPlanning(t *testing.T) {
-	dir := clampFixture(t)
+	dir := baseTestsClampFixture(t)
 	repo, change := openChange(t, dir, "main", "candidate")
 	h := stageHarness(t, repo, change, []string{"go", "test", "{package}"})
 	ctx, cancel := context.WithDeadlineCause(context.Background(), time.Now().Add(-time.Second), harness.ErrOverallDeadline)
@@ -323,7 +323,7 @@ func TestBaseTestsLine(t *testing.T) {
 
 // Flag rules from the command line: nothing starts and nothing is written.
 func TestBaseTestsFlagExitsThree(t *testing.T) {
-	dir := clampFixture(t)
+	dir := baseTestsClampFixture(t)
 	for _, args := range [][]string{
 		{"lint", "--base-tests"},
 		{"review", "--base-tests", "--checks=false"},
@@ -344,7 +344,7 @@ func TestBaseTestsFlagExitsThree(t *testing.T) {
 // Lint records no base_tests section and still reports the lexical test
 // signals; re-rendering a report without the section keeps it absent.
 func TestLintAndRenderWithoutBaseTests(t *testing.T) {
-	dir := clampFixture(t)
+	dir := baseTestsClampFixture(t)
 	forbidExecution(t)
 	code, r, members, _ := runReport(t, context.Background(), dir, "lint", "--base", "main", "--head", "candidate")
 	if code != 0 {
