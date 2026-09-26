@@ -59,7 +59,7 @@ Only function bodies are mutated, and a mutant is generated only when **every li
 
 `drop_error` is not generated when the dropped expression holds every use of an imported package in the file (for example the only `errors.New` of a file that imports `errors`): the import would become unused and the mutant could not compile. The analysis is syntactic and host-side (`go/parser` over at most 1 MiB per file); repository code is never executed or type-checked with importers to find mutants. Enumeration stops at 2,000 candidate mutants per file and 20,000 per review, and the report says so. A mutant whose replacement would merge with a neighbouring character into another token is not generated either (`-1+-4` would become the decrement in `-1--4`, `a**p` would open a comment in `a/*p`).
 
-Every mutant is applied as one byte splice that must find its original text at the recorded position, keep the number of lines, not merge with a neighbouring character, and still parse; otherwise it is `INCONCLUSIVE` without a run. Every mutant the enumeration generates meets these conditions; on 2026-09-26 all 241,506 candidate mutants of the 2,977 non-test files of the go1.26.8 standard library that were not skipped applied.
+Every mutant is applied as one byte splice that must find its original text at the recorded position, keep the number of lines, not merge with a neighbouring character, and still parse; otherwise it is `INCONCLUSIVE` without a run. Every mutant the enumeration generates is meant to meet these conditions: on 2026-09-26, with every line treated as added, Apply accepted all 241,504 candidate mutants generated for the 2,977 non-test files of the go1.26.8 standard library that were not skipped (before the neighbouring-character rule, two of 241,506 were refused).
 
 ## Selection and order
 
@@ -160,7 +160,7 @@ Mutation of added lines (ran): 8 mutants selected of 8 generated; 4 killed, 4 su
 The Markdown section listed the four survivors, none of the killed mutants, and the skipped file:
 
 ```text
-Surviving mutants (the package's tests all passed with the change):
+Surviving mutants (no test that the command ran for the package failed with the change; skipped tests are not counted):
 
 - **mutant-2** boundary at price/price.go:15 in Discount: replaced &lt; with &lt;=; control check mutation-check-1, mutant check mutation-check-3; 2 named tests passed in package ./price; patch sha256 182beec344cc1715f681a18a1389bc2e2f62b04341ef83b5e6cb1a512c7941f9
 - **mutant-3** increment\_constant at price/price.go:15 in Discount: replaced 0 with \(0+1\); control check mutation-check-1, mutant check mutation-check-4; 2 named tests passed in package ./price; patch sha256 345cda6583935d9b0bc5da14af581a64f08b22608365f870441d3f00a8cbea11
