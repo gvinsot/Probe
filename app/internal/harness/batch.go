@@ -39,10 +39,11 @@ const (
 	parallelUnstartedNote = "Some checks of a group were recorded without starting a sandbox, so fewer ran at the same time."
 	// parallelSemanticsNote closes the note whenever checks ran at the same
 	// time. It states the rules, not an outcome: concurrent containers share
-	// the Docker host.
+	// the Docker host. The fixed notes avoid apostrophes, which the Markdown
+	// renderer escapes as entities.
 	parallelSemanticsNote = "Checks that ran at the same time are recorded in configured order (check IDs, artifacts and audit events). " +
 		"Each was started only while the remaining sandbox runtime budget covered the full per-run timeout of every check running with it, " +
-		"so each had the policy's per-run timeout, and the budget charges each check's own run time, as for checks run one at a time. " +
+		"so each had the per-run timeout of the policy, and each is charged its own run time, as when checks run one at a time. " +
 		"Concurrent sandboxes share the Docker host, so a check can take longer than it would alone."
 )
 
@@ -191,7 +192,7 @@ func (h *Harness) initialCheckLimit(ctx context.Context, requested, count int) (
 		err = fmt.Errorf("docker info reported %d CPUs and %d bytes of memory", info.NCPU, info.MemTotal)
 	}
 	if err != nil {
-		return 1, append(reasons, "The Docker server's capacity could not be read: "+truncateUTF8(strings.TrimSpace(Redact(err.Error())), 256))
+		return 1, append(reasons, "The capacity of the Docker server could not be read: "+truncateUTF8(strings.TrimSpace(Redact(err.Error())), 256))
 	}
 	if capacity := sandboxCapacity(info, h.opts.CPUs, h.opts.MemoryMB); capacity < limit {
 		limit = max(capacity, 1)

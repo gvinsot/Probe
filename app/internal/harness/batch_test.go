@@ -376,8 +376,8 @@ func TestRunChecksParallelismCappedByDockerCapacity(t *testing.T) {
 		{"cpus_two", capacityDocker(2, 32<<30), 3, 1, 1024, 2, []string{"The Docker server reports 2 CPUs and 32768 MiB of memory: room for 2 sandboxes of 1 CPU and 1024 MiB at a time. " + parallelSemanticsNote}},
 		{"memory", capacityDocker(16, 3<<30), 4, 1, 2048, 1, []string{parallelSerialNote, "3072 MiB of memory: room for 1 sandbox"}},
 		{"enough", capacityDocker(16, 64<<30), 3, 2, 1024, 3, []string{parallelSemanticsNote}},
-		{"zero_cpus", capacityDocker(0, 64<<30), 3, 2, 1024, 1, []string{parallelSerialNote, "capacity could not be read: docker info reported 0 CPUs"}},
-		{"probe_error", &fakeDocker{info: func() (string, error) { return "", errors.New("Cannot connect to the Docker daemon") }}, 3, 2, 1024, 1, []string{parallelSerialNote, "The Docker server's capacity could not be read: docker info"}},
+		{"zero_cpus", capacityDocker(0, 64<<30), 3, 2, 1024, 1, []string{parallelSerialNote, "could not be read: docker info reported 0 CPUs"}},
+		{"probe_error", &fakeDocker{info: func() (string, error) { return "", errors.New("Cannot connect to the Docker daemon") }}, 3, 2, 1024, 1, []string{parallelSerialNote, "The capacity of the Docker server could not be read: docker info"}},
 		{"server_error", &fakeDocker{info: func() (string, error) {
 			return `{"ServerVersion":"28.4.0","NCPU":8,"MemTotal":1,"ServerErrors":["daemon unhealthy"]}`, nil
 		}}, 3, 2, 1024, 1, []string{"could not be read", "daemon unhealthy"}},
