@@ -50,15 +50,12 @@ func analyzeImpact(ctx context.Context, repo *gitrepo.Repository, change model.C
 }
 
 // runImpactedTests runs the unchanged tests that statically reach changed code
-// on baseline and candidate (--impacted-tests, F6b). It returns true on an
-// operational failure. The stub records tests_status not_run, and an Unverified
-// line so that the review request it causes under --ci has a visible reason.
+// on baseline and candidate (--impacted-tests, F6b). It selects them from the
+// impact section, which res.report also points to, and records the outcome
+// there (see runImpactedStage in impacted.go). It returns true when a run of
+// the stage was recorded as ERROR, an operational failure.
 func runImpactedTests(ctx context.Context, h *harness.Harness, r *model.Report, res impactResult, errOut io.Writer) (operational bool) {
-	if r.Impact != nil {
-		r.Impact.TestsStatus, r.Impact.TestsReason = model.ImpactTestsNotRun, "not implemented in this build"
-		r.Unverified = append(r.Unverified, "Impacted tests did not run: not implemented in this build")
-	}
-	return false
+	return runImpactedStage(ctx, h, r, errOut)
 }
 
 // recordImpactedTestsSkipped records why a requested --impacted-tests stage did

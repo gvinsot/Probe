@@ -15,8 +15,24 @@ import (
 
 // verifyImpactedTests re-derives the status of every
 // impacted_test_differential evidence record from its recorded checks (F6b).
+// It returns FAILS_ON_CANDIDATE or PASSES_ON_CANDIDATE for a record whose
+// checks support exactly that stored status, and nothing for any other record
+// (see impactedEvidenceStatus in impacted.go).
 func verifyImpactedTests(r *model.Report, l *ledger) map[string]string {
-	return nil
+	out := map[string]string{}
+	for _, recorded := range r.Evidence {
+		if recorded.Kind != model.EvidenceImpactedTestDifferential {
+			continue
+		}
+		e, ok := l.item(recorded.ID)
+		if !ok || e.Kind != model.EvidenceImpactedTestDifferential {
+			continue
+		}
+		if status := impactedEvidenceStatus(e, l); status != "" && status == e.Status {
+			out[e.ID] = status
+		}
+	}
+	return out
 }
 
 // Markdown bounds of the Impact Analysis section; the JSON keeps every listed
