@@ -16,9 +16,10 @@ const (
 	MutantNotRun         = "NOT_RUN"
 )
 
-// MutationNote is the fixed note of the mutation section. F4 owns its final
-// text; this neutral sentence makes no claim.
-const MutationNote = "See the documentation for what this section does and does not establish."
+// MutationNote is the fixed note of the mutation section (no apostrophe, so
+// the Markdown renders it without entities). It states what a
+// mutant outcome records and what it does not establish.
+const MutationNote = "Each mutant is one deterministic change to an added line of a changed non-test Go file. It runs the go test command of the policy for the package of that file only, in a private copy of the candidate, after an unmutated control run of the same command passed with at least one named test. A surviving mutant records only that no test this command ran for that package failed with the change and at least one passed (skipped tests are not counted): the mutant may be semantically equivalent to the original code, tests of other packages were not run, and it is not evidence of a defect, of a missing test or of dead code. A killed mutant records only that a named test failed with the change; it is counted, never listed, and is no reassurance about the tests. Outcomes are read from test logs that code running in the sandbox can also write. Deleted lines, test files and non-Go files are not mutated. There is no mutation score."
 
 type MutationLimits struct {
 	MaxMutants        int `json:"max_mutants"`
@@ -47,6 +48,11 @@ type Mutant struct {
 	TestsRun       int      `json:"tests_run,omitempty"`
 	FailedTests    []string `json:"failed_tests,omitempty"`
 	Reason         string   `json:"reason,omitempty"`
+	// F4 additions (not in Appendix A): where the replaced span starts and ends
+	// and the function that encloses it.
+	Column  int    `json:"column,omitempty"`   // 1-based byte column of the replaced span on Line
+	EndLine int    `json:"end_line,omitempty"` // last line of a replaced span that covers several lines
+	Symbol  string `json:"symbol,omitempty"`   // enclosing function, "Recv.Name" for a method
 }
 
 // Mutation is the mutation section. It is present exactly when the policy has
@@ -68,4 +74,8 @@ type Mutation struct {
 	NotRun       int            `json:"not_run"`
 	Checks       []Check        `json:"checks"` // mutation ledger: mutation-check-N
 	Note         string         `json:"note"`
+	// CoverageSkipped counts candidate mutants on added lines that a passing,
+	// measured coverage run reported as not executed; they were not generated
+	// (F4 addition, not in Appendix A).
+	CoverageSkipped int `json:"coverage_skipped,omitempty"`
 }

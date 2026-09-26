@@ -1,0 +1,6 @@
+{"ImportPath":"example.test/probe/build [example.test/probe/build.test]","Action":"build-output","Output":"# example.test/probe/build [example.test/probe/build.test]\n"}
+{"ImportPath":"example.test/probe/build [example.test/probe/build.test]","Action":"build-output","Output":"build/b.go:3:33: invalid operation: a - \"x\" (mismatched types int and untyped string)\n"}
+{"ImportPath":"example.test/probe/build [example.test/probe/build.test]","Action":"build-fail"}
+{"Time":"2026-09-25T23:03:50.18065239Z","Action":"start","Package":"example.test/probe/build"}
+{"Time":"2026-09-25T23:03:50.181096608Z","Action":"output","Package":"example.test/probe/build","Output":"FAIL\texample.test/probe/build [build failed]\n"}
+{"Time":"2026-09-25T23:03:50.181162382Z","Action":"fail","Package":"example.test/probe/build","Elapsed":0.001,"FailedBuild":"example.test/probe/build [example.test/probe/build.test]"}

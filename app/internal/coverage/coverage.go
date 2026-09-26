@@ -88,6 +88,9 @@ type Result struct {
 	coverage model.Coverage
 	signals  []model.Signal
 	byPath   map[string]model.CoverageFile
+	// notExecuted holds, per measured file, the added lines the run reported as
+	// not executed (read through NotExecuted, lines.go).
+	notExecuted map[string][]int
 }
 
 // Report returns the serializable measurement.
@@ -135,6 +138,7 @@ func Analyze(p *Profile, run Run, change model.Change) Result {
 		coverage: model.Coverage{Status: StatusMeasured, CheckID: run.CheckID, ProfileSHA256: run.SHA256, Command: run.Command, Files: []model.CoverageFile{}, Note: Note},
 		byPath:   map[string]model.CoverageFile{},
 	}
+	result.notExecuted = map[string][]int{}
 	for _, f := range change.Files {
 		if !inScope(f) {
 			continue
@@ -176,6 +180,7 @@ func Analyze(p *Profile, run Run, change model.Change) Result {
 		result.coverage.NotMeasuredLines += file.NotMeasuredLines
 		result.coverage.Files = append(result.coverage.Files, file)
 		result.byPath[f.Path] = file
+		result.notExecuted[f.Path] = notExecuted
 		for _, r := range runs(notExecuted) {
 			if len(result.signals) >= maxSignals {
 				break
