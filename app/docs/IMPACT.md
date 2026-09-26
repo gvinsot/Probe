@@ -13,8 +13,9 @@ It is static and approximate. It never executes repository code, never creates e
 - Every `go.mod` defines a module; a directory belongs to its innermost module. Files outside every module are not indexed.
 - Files are selected as the go command would select them for `linux/amd64` with cgo enabled (file-name suffixes and `//go:build` lines), then parsed and type-checked with the Go standard library (`go/parser`, `go/types`), one package at a time, in dependency order. A package's in-package test files are checked with it; an external test package (`package x_test`) is checked on its own.
 - Imports from outside the repository are **not loaded**: they are replaced by empty packages, so calls into them are not resolved. The index never runs the go command, cgo, `go generate`, build scripts, gopls or any other tool, and uses no network.
+- Every recorded position is the file's own path and line. `//line` directives, which generated code often contains and the candidate controls, are ignored, so they cannot move a site to another file name or line.
 
-The index is built only when the change touches at least one Go file. Otherwise the section says `not_applicable` and the reviewer tools stay lexical.
+The index is built only when the change touches at least one Go file it may read: a Go file under `testdata` or `vendor`, in a directory whose name starts with `_` or `.`, or on a sensitive path does not count. Otherwise the section says `not_applicable` and the reviewer tools stay lexical.
 
 ## Enabling and disabling
 
@@ -57,12 +58,12 @@ At most 10 `impacted_caller` signals are added per changed function and 100 per 
 
 | `impact.status` | Meaning |
 | --- | --- |
-| `not_applicable` | No Go file changed; no index was built. |
-| `indexed` | The index was built without a known gap. It remains approximate (see above). |
-| `limited` | The index was built, but part of it is known to be missing. `reason` lists each cause: files larger than 2 MiB, files that could not be parsed, files whose package clause differs from their directory's package, `go.mod` files without a readable module path or with a duplicate module path, packages whose type check stopped, the reference limit, the unresolved-call limit, the time limit, changed files that could not be compared, or changed functions beyond the listed 200. |
+| `not_applicable` | No indexable Go file changed; no index was built. Go files may still have changed under `testdata`, `vendor`, ignored directories or sensitive paths, which the index never reads. |
+| `indexed` | The index was built and searched without a known gap. It remains approximate (see above). |
+| `limited` | The index was built, but part of it or of its searches is known to be missing. `reason` lists each cause: files larger than 2 MiB, files that could not be parsed, files whose package clause differs from their directory's package, `go.mod` files without a readable module path or with a duplicate module path (counted in one reason), packages whose type check stopped, the reference limit, the unresolved-call limit, the time limit, changed files that could not be compared, changed functions beyond the listed 200, the caller or reaching-test search stopping at its visit limit or at the time limit, the reaching-test search stopping at its declaration limit, and interface methods not checked because more than 200 share one method name. `reason` is cut at 4 KiB. |
 | `unavailable` | No index could be built: no `go.mod`, a tree over the file or byte limits, more packages than the limit, or a Git read failure. Changed functions are still listed, as not indexed. |
 
-A changed function the index does not hold (for example one in a `_windows.go` file, excluded by the `linux/amd64` constraints) has `indexed: false` and a `reason`; its callers and tests were not searched.
+A changed function the index does not hold (for example one in a `_windows.go` file, excluded by the `linux/amd64` constraints) has `indexed: false` and a `reason`; its callers and tests were not searched. A method declared on an alias receiver (`type C = Cart`) is keyed by the aliased type (`cart.Cart.Total`) and found at its position. An indexed function whose caller or reaching-test search met a bound keeps what was found, has `indexed: true` and a `reason` naming the bound, and the section is `limited`.
 
 ## Report fields
 
@@ -82,18 +83,18 @@ The Markdown report has an `## Impact Analysis` section after Changed-line Execu
 Impact analysis (static Go index, approximate): 2 changed Go functions; 2 caller sites in unchanged code and 2 reaching tests, counted per function.
 ```
 
-It prints nothing when no Go file changed, and the reason when the index is unavailable.
+It prints nothing when no indexable Go file changed, and the reason when the index is unavailable.
 
 ## Reviewer tools
 
-When an index exists, `find_references`, `inspect_symbol` and `find_callers` answer from it for Go functions and methods. Every answer carries `"method": "go_static_index"` and a fixed `limitations` text, and redacted one-line snippets of at most 240 bytes.
+When an index exists, `find_references`, `inspect_symbol` and `find_callers` answer from it for Go functions and methods. Every answer carries `"method": "go_static_index"` and a fixed `limitations` text, and one-line snippets of at most 240 bytes taken from the redaction of the whole file, as `read_file` and `search` show it (a credential whose key and value sit on different lines is masked there).
 
 - A symbol may be a full key (`example.test/shop/price.Total`), a key suffix (`price.Total`), a package-qualified name, a bare name (`Total`, `Cart.Total`) or the `(*T).M` form. Several matches return the candidates instead.
 - `find_references`: every recorded site, static then through interfaces, at most 100, plus unresolved method calls of the same name (`name_matches`, at most 20).
-- `find_callers` (`depth` 1 to 3, default 1): the reference sites of the symbol, then of the declarations holding them, breadth first, at most 100 results and 5,000 visits, each with its depth and `via` chain. Test functions are listed but not followed.
+- `find_callers` (`depth` 1 to 3, default 1): the reference sites of the symbol, then of the declarations holding them, breadth first, at most 100 results and 5,000 visits, each with its depth and `via` chain. Test functions are listed but not followed, and the references of an interface method are followed once per query.
 - `inspect_symbol`: the declaration (with `changed` when the change modified it), the number of reference sites, what it references, the interface methods a method may be dispatched from or the methods that implement an interface method, and the reaching tests.
 
-A symbol that is not an indexed Go function or method (a type, a variable, TypeScript code) gets the lexical answer with an `index` note saying why; so does every query when no index exists. Index answers are observations: they never create evidence records.
+A symbol that is not an indexed Go function or method (a type, a variable, TypeScript code) gets the lexical answer with an `index` note saying why; so does every query when no index exists. Index answers are observations: they never create evidence records. An answer that met one of its bounds (listed entries, visits, work units, time, or the 200 interface methods checked per method name) has `"truncated": true` and a `truncated_note`; a query stops with an error when the reviewer's own time limit ends first.
 
 ## Limits
 
@@ -106,13 +107,16 @@ A symbol that is not an indexed Go function or method (a type, a variable, TypeS
 | Recorded references | 2,000,000 | later references dropped; `limited` |
 | Unresolved method calls | 200,000 | later ones dropped; `limited` |
 | Changed functions listed | 200 | the rest omitted; `limited` |
-| Time | 120 s | checked between packages and on each type error; remaining packages not indexed; `limited` |
+| Time | 120 s for the whole analysis | checked between packages, on each type error and during the impact searches; remaining packages are not indexed, or remaining callers and tests are not searched; `limited` |
+| Impact searches | 10,000,000 visits for the callers of all changed functions, and as many for their reaching tests (each reference visited or interface method checked costs at least one) | the functions not fully searched keep what was found and get a `reason`; `limited` |
+| Reaching-test search | 50,000 declarations per changed function | the search stops; `limited` |
+| Interface methods checked | 200 per method name | the others are not checked, so interface calls may be missing; `limited` |
 | Depth | 3 | callers and tests beyond it are not searched |
 | Callers listed / signals | 10 per function; 100 signals per run | `callers_total` and the `analysis_limited` signal state the rest |
 | Reaching tests listed | 20 per function | `tests_total` counts all found |
-| Tool answers | 100 results, 5,000 visits, 20 candidates, 20 name matches | `truncated` |
+| Tool answers | 100 results, 5,000 visits, 2,000,000 work units and 10 s per query, 20 candidates, 20 name matches | `truncated` |
 
-The time limit makes the result depend on the machine when it is reached; it is then reported. Measured costs are in [performance](PERFORMANCE.md).
+The time limit makes the result depend on the machine when it is reached; it is then reported. `--deadline` counts the analysis against the overall deadline but does not interrupt it; a cancelled run (for example Ctrl-C) stops it between packages and during the searches. Measured costs are in [performance](PERFORMANCE.md).
 
 ## Exit effects
 
@@ -120,7 +124,7 @@ The static section never changes the exit code: `impacted_caller` (low) and `ana
 
 ## Trust and security
 
-The index parses and type-checks untrusted committed source in process, with the standard library only. It runs no repository code, no tool and no network access, reads only committed Git objects of the candidate commit (and of the base commit for the changed files), and skips sensitive paths and symlinks. Its work is bounded by the limits above; a panic inside `go/types` is recovered per package and reported as `limited`. An imported package is marked so that `go/types` does not build error messages for names it lacks, which would otherwise cost a lookup over the imported package per missing name. The candidate fully controls what is indexed, so it can hide callers (reflection, function values) or add reference sites: the index therefore only adds low-severity signals and tool observations. Snippets and report strings are redacted.
+The index parses and type-checks untrusted committed source in process, with the standard library only. It runs no repository code, no tool and no network access, reads only committed Git objects of the candidate commit (and of the base commit for the changed files), and skips sensitive paths and symlinks. Its work is bounded by the limits above: reading and parsing by the file and byte limits, type-checking by the package limit and the time limit, which is checked between packages and on each type error (the check of one package that produces no error is not interrupted), and the impact searches and tool queries by their visit and work budgets and time limits. A panic inside `go/types` is recovered per package and reported as `limited`. `//line` directives are ignored, so the candidate cannot move a recorded site to another file or line. An imported package is marked so that `go/types` does not build error messages for names it lacks, which would otherwise cost a lookup over the imported package per missing name. The candidate fully controls what is indexed, so it can hide callers (reflection, function values) or add reference sites: the index therefore only adds low-severity signals and tool observations. Snippets and report strings are redacted.
 
 ## What this does not claim
 

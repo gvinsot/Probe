@@ -583,7 +583,7 @@
       "type": "object",
       "additionalProperties": false,
       "required": ["path", "line", "end_line", "symbol", "change", "callers", "callers_total", "tests", "indexed", "tests_total"],
-      "description": "A changed function or method of a changed non-test Go file. When indexed is false, its callers and tests were not searched and reason says why.",
+      "description": "A changed function or method of a changed non-test Go file. When indexed is false, its callers and tests were not searched and reason says why. When indexed is true and reason is present, a search bound was reached and callers or tests may be missing.",
       "properties": {
         "path": {"$ref": "#/$defs/path"},
         "line": {"$ref": "#/$defs/line"},

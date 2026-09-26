@@ -81,7 +81,18 @@ type Index struct {
 	indexedFiles int
 
 	mu   sync.Mutex
-	impl map[int32][]int32
+	impl map[int32]implEntry
+
+	snipMu        sync.Mutex
+	redacted      map[int32][]string // whole-file redaction of indexed files, split in lines
+	redactedBytes int
+}
+
+// implEntry is the cached result of implementers: the interface methods, and
+// whether candidates beyond maxImplementCandidates were left unchecked.
+type implEntry struct {
+	ids    []int32
+	capped bool
 }
 
 // builder is the state of one index construction.
@@ -295,6 +306,22 @@ func funcKey(fn *types.Func) string {
 	return pkg.Path() + "." + fn.Name()
 }
 
+// position returns the line and column of pos in the file as parsed, without
+// applying //line directives: the candidate writes those, and they could
+// otherwise move a recorded site to any file name and line (for example into
+// a _test.go name, which would hide a caller). The file itself is always the
+// repository path the index parsed, never a directive's name.
+func (b *builder) position(pos token.Pos) (line, col int) {
+	p := b.fset.PositionFor(pos, false)
+	return p.Line, p.Column
+}
+
+// line is the unadjusted line of pos (see position).
+func (b *builder) line(pos token.Pos) int {
+	l, _ := b.position(pos)
+	return l
+}
+
 func (b *builder) file(p string) int32 {
 	if id, ok := b.fileID[p]; ok {
 		return id
@@ -327,14 +354,14 @@ func (b *builder) extract(n *pkgNode, pkg *types.Package, info *types.Info) {
 	type body struct {
 		caller int32
 		node   ast.Node
-		file   *ast.File
+		path   string // the repository path of the file holding node
 	}
 	var bodies []body
 	for i, f := range n.files {
 		filePath := n.paths[i]
 		testFile := strings.HasSuffix(filePath, "_test.go")
 		initDecl := func(pos token.Pos) int32 {
-			return b.declare(Decl{Key: initKey, Package: pkg.Path(), PkgName: pkg.Name(), Name: "init", Path: filePath, Line: b.fset.Position(pos).Line, EndLine: b.fset.Position(pos).Line, Kind: KindPackageInit})
+			return b.declare(Decl{Key: initKey, Package: pkg.Path(), PkgName: pkg.Name(), Name: "init", Path: filePath, Line: b.line(pos), EndLine: b.line(pos), Kind: KindPackageInit})
 		}
 		for _, d := range f.Decls {
 			switch decl := d.(type) {
@@ -355,7 +382,7 @@ func (b *builder) extract(n *pkgNode, pkg *types.Package, info *types.Info) {
 					}
 					id = b.declare(Decl{
 						Key: key, Package: pkg.Path(), PkgName: pkg.Name(), Name: name, Path: filePath,
-						Line: b.fset.Position(decl.Pos()).Line, EndLine: b.fset.Position(decl.End()).Line,
+						Line: b.line(decl.Pos()), EndLine: b.line(decl.End()),
 						Kind: kind, Test: testFile && isTestFunc(decl, f), Signature: types.ObjectString(fn, qualifier),
 					})
 					if kind == KindMethod {
@@ -365,7 +392,7 @@ func (b *builder) extract(n *pkgNode, pkg *types.Package, info *types.Info) {
 					}
 				}
 				if decl.Body != nil {
-					bodies = append(bodies, body{id, decl.Body, f})
+					bodies = append(bodies, body{id, decl.Body, filePath})
 				}
 			case *ast.GenDecl:
 				for _, spec := range decl.Specs {
@@ -376,7 +403,7 @@ func (b *builder) extract(n *pkgNode, pkg *types.Package, info *types.Info) {
 						if decl.Tok == token.VAR && len(s.Values) > 0 {
 							id := initDecl(s.Pos())
 							for _, v := range s.Values {
-								bodies = append(bodies, body{id, v, f})
+								bodies = append(bodies, body{id, v, filePath})
 							}
 						}
 					}
@@ -388,7 +415,7 @@ func (b *builder) extract(n *pkgNode, pkg *types.Package, info *types.Info) {
 		if b.edgeCap && b.nameCap {
 			break
 		}
-		b.edgesOf(bd.caller, bd.node, info)
+		b.edgesOf(bd.caller, bd.node, bd.path, info)
 	}
 }
 
@@ -430,8 +457,8 @@ func (b *builder) declareInterface(s *ast.TypeSpec, pkg *types.Package, info *ty
 		if key == "" {
 			continue
 		}
-		pos := b.fset.Position(m.Pos())
-		id := b.declare(Decl{Key: key, Package: pkg.Path(), PkgName: pkg.Name(), Name: s.Name.Name + "." + m.Name(), Path: filePath, Line: pos.Line, EndLine: pos.Line, Kind: KindInterfaceMethod, Signature: types.ObjectString(m, func(p *types.Package) string { return p.Name() })})
+		line := b.line(m.Pos())
+		id := b.declare(Decl{Key: key, Package: pkg.Path(), PkgName: pkg.Name(), Name: s.Name.Name + "." + m.Name(), Path: filePath, Line: line, EndLine: line, Kind: KindInterfaceMethod, Signature: types.ObjectString(m, func(p *types.Package) string { return p.Name() })})
 		b.ifaces[id] = iface
 	}
 }
@@ -490,8 +517,10 @@ func isGoTestName(name string) bool {
 // identifier in call position (the function of a call expression, after
 // parentheses and explicit instantiation) is a call; any other reference, such
 // as a function value, is recorded with call=false. A method call on a value
-// whose type could not be resolved is recorded as a name site.
-func (b *builder) edgesOf(caller int32, node ast.Node, info *types.Info) {
+// whose type could not be resolved is recorded as a name site. Every site is
+// recorded in filePath, the file node belongs to, at its unadjusted line.
+func (b *builder) edgesOf(caller int32, node ast.Node, filePath string, info *types.Info) {
+	fileID := b.file(filePath)
 	calls := map[*ast.Ident]bool{}
 	ast.Inspect(node, func(n ast.Node) bool {
 		call, ok := n.(*ast.CallExpr)
@@ -536,8 +565,8 @@ func (b *builder) edgesOf(caller int32, node ast.Node, info *types.Info) {
 				b.nameCap = true
 				return true
 			}
-			pos := b.fset.Position(x.Sel.Pos())
-			b.names = append(b.names, nameSite{caller: caller, name: x.Sel.Name, file: b.file(pos.Filename), line: int32(pos.Line)})
+			line := b.line(x.Sel.Pos())
+			b.names = append(b.names, nameSite{caller: caller, name: x.Sel.Name, file: fileID, line: int32(line)})
 		case *ast.Ident:
 			fn, ok := info.Uses[x].(*types.Func)
 			if !ok || b.edgeCap {
@@ -551,8 +580,8 @@ func (b *builder) edgesOf(caller int32, node ast.Node, info *types.Info) {
 				b.edgeCap = true
 				return true
 			}
-			pos := b.fset.Position(x.Pos())
-			b.edges = append(b.edges, edge{caller: caller, callee: callee, file: b.file(pos.Filename), line: int32(pos.Line), col: int32(pos.Column), call: calls[x]})
+			line, col := b.position(x.Pos())
+			b.edges = append(b.edges, edge{caller: caller, callee: callee, file: fileID, line: int32(line), col: int32(col), call: calls[x]})
 		}
 		return true
 	})
@@ -568,7 +597,7 @@ func (b *builder) finish(content map[string][]byte, indexedFiles int) *Index {
 	}
 	sort.Slice(perm, func(i, j int) bool { return b.decls[perm[i]].Key < b.decls[perm[j]].Key })
 	remap := make([]int32, len(b.decls))
-	x := &Index{byKey: map[string]int32{}, byName: map[string][]int32{}, content: content, recv: map[int32]*types.Named{}, ifaces: map[int32]*types.Interface{}, ifaceByName: map[string][]int32{}, changed: map[int32]string{}, impl: map[int32][]int32{}, indexedFiles: indexedFiles}
+	x := &Index{byKey: map[string]int32{}, byName: map[string][]int32{}, content: content, recv: map[int32]*types.Named{}, ifaces: map[int32]*types.Interface{}, ifaceByName: map[string][]int32{}, changed: map[int32]string{}, impl: map[int32]implEntry{}, redacted: map[int32][]string{}, indexedFiles: indexedFiles}
 	for newID, old := range perm {
 		remap[old] = int32(newID)
 		x.decls = append(x.decls, b.decls[old])
@@ -701,7 +730,13 @@ func (x *Index) callees(id int32) []int32 {
 // implementers returns the interface methods, sorted, whose named interface
 // the receiver type of the concrete method id (T or *T) implements. A call to
 // one of them may dispatch to id; the dispatch itself is not resolved.
-func (x *Index) implementers(id int32) []int32 {
+//
+// Only the first maxImplementCandidates interface methods of the same name are
+// checked; when more exist, bud.implCapped is set. Each check is charged to
+// bud (one unit plus the interface's method count). When bud stops during the
+// checks, the partial result is returned and not cached; the caller sees
+// bud.stopped.
+func (x *Index) implementers(id int32, bud *budget) []int32 {
 	if x == nil {
 		return nil
 	}
@@ -709,17 +744,23 @@ func (x *Index) implementers(id int32) []int32 {
 	if !ok || named.TypeParams().Len() > 0 {
 		return nil
 	}
+	// The lock also serializes the go/types calls below.
 	x.mu.Lock()
 	defer x.mu.Unlock()
-	if out, ok := x.impl[id]; ok {
-		return out
+	if entry, ok := x.impl[id]; ok {
+		if entry.capped {
+			bud.implCapped = true
+		}
+		return entry.ids
 	}
 	name := x.decls[id].Name[strings.LastIndex(x.decls[id].Name, ".")+1:]
 	candidates := x.ifaceByName[name]
-	if len(candidates) > maxImplementCandidates {
+	capped := len(candidates) > maxImplementCandidates
+	if capped {
 		candidates = candidates[:maxImplementCandidates]
 	}
 	var out []int32
+	interrupted := false
 	func() {
 		// go/types on faked imports is exercised far from its usual inputs; a
 		// panic here only loses interface edges.
@@ -730,12 +771,22 @@ func (x *Index) implementers(id int32) []int32 {
 			if iface == nil || iface.Empty() {
 				continue
 			}
+			if !bud.spend(1 + iface.NumMethods()) {
+				interrupted = true
+				return
+			}
 			if types.Implements(named, iface) || types.Implements(ptr, iface) {
 				out = append(out, im)
 			}
 		}
 	}()
-	x.impl[id] = out
+	if interrupted {
+		return out
+	}
+	if capped {
+		bud.implCapped = true
+	}
+	x.impl[id] = implEntry{ids: out, capped: capped}
 	return out
 }
 
@@ -759,31 +810,55 @@ func (x *Index) Lookup(key string) (Decl, bool) {
 	return x.decls[id], true
 }
 
-// snippet returns the redacted text of one line of an indexed file, cut to
-// 240 bytes, or "" when the file is not held.
-func (x *Index) snippet(file int32, line int32) string {
-	if int(file) >= len(x.files) {
+// maxRedactedBytes bounds the cache of redacted files kept for snippets; the
+// cache is dropped when it would grow past it.
+const maxRedactedBytes = 32 << 20
+
+// snippet returns one line of an indexed file, cut to 240 bytes, or "" when
+// the file is not held. The line is taken from the redaction of the whole
+// file, as read_file and search show it: a credential whose key and value sit
+// on different lines is masked there, and would not be if the line were
+// redacted alone. Redaction keeps every newline, so line numbers still match.
+// Computing a file's redaction is charged to bud (one unit per KiB); a
+// stopped budget gives "".
+func (x *Index) snippet(file int32, line int32, bud *budget) string {
+	if int(file) >= len(x.files) || line < 1 {
 		return ""
+	}
+	lines := x.redactedLines(file, bud)
+	if int(line) > len(lines) {
+		return ""
+	}
+	text := strings.TrimRight(lines[line-1], "\r")
+	text = strings.ToValidUTF8(strings.TrimSpace(text), "�")
+	return redact.TruncateUTF8(text, 240)
+}
+
+// redactedLines returns the lines of the whole-file redaction of an indexed
+// file, computing and caching it on first use.
+func (x *Index) redactedLines(file int32, bud *budget) []string {
+	x.snipMu.Lock()
+	defer x.snipMu.Unlock()
+	if lines, ok := x.redacted[file]; ok {
+		return lines
 	}
 	data := x.content[x.files[file]]
-	if data == nil || line < 1 {
-		return ""
+	if data == nil || !bud.spend(1+len(data)/1024) {
+		return nil
 	}
-	start := 0
-	for n := int32(1); n < line; n++ {
-		i := bytes.IndexByte(data[start:], '\n')
-		if i < 0 {
-			return ""
-		}
-		start += i + 1
+	text := redact.Redact(string(data))
+	if strings.Count(text, "\n") != bytes.Count(data, []byte("\n")) {
+		// Redact keeps newlines; if that ever failed, lines could not be
+		// matched, so no snippet is given for the file.
+		text = ""
 	}
-	end := len(data)
-	if i := bytes.IndexByte(data[start:], '\n'); i >= 0 {
-		end = start + i
+	lines := strings.Split(text, "\n")
+	if x.redactedBytes+len(text) > maxRedactedBytes {
+		x.redacted, x.redactedBytes = map[int32][]string{}, 0
 	}
-	text := strings.TrimRight(string(data[start:end]), "\r")
-	text = strings.ToValidUTF8(strings.TrimSpace(redact.Redact(text)), "�")
-	return redact.TruncateUTF8(text, 240)
+	x.redacted[file] = lines
+	x.redactedBytes += len(text)
+	return lines
 }
 
 // display is the short form of a key used in texts: the package name instead

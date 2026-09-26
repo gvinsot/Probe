@@ -22,7 +22,7 @@ func TestSchemaImpactAdditions(t *testing.T) {
 	valid := map[string]*Impact{
 		"indexed":        {Status: ImpactIndexed, IndexedFiles: 6, ChangedFunctions: []ImpactFunction{fn, unindexed}, Note: ImpactNote},
 		"limited":        {Status: ImpactLimited, Reason: "1 Go files could not be parsed and were not indexed", IndexedFiles: 5, ChangedFunctions: []ImpactFunction{fn}, Note: ImpactNote},
-		"not applicable": {Status: ImpactNotApplicable, Reason: "no changed Go file", ChangedFunctions: []ImpactFunction{}, Note: ImpactNote},
+		"not applicable": {Status: ImpactNotApplicable, Reason: "no indexable Go file changed (files under testdata or vendor, in directories whose name starts with _ or ., and sensitive paths are not indexed)", ChangedFunctions: []ImpactFunction{}, Note: ImpactNote},
 	}
 	for name, impact := range valid {
 		r := populatedReport()

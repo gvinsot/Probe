@@ -31,7 +31,7 @@ type changedFunction struct {
 
 // fingerprints lists the functions and methods of one Go source. init
 // functions, blank functions and main in package main cannot be called and are
-// skipped.
+// skipped. Lines ignore //line directives, as the index does.
 func fingerprints(p string, src []byte) ([]fingerprint, string, error) {
 	fset := token.NewFileSet()
 	f, err := parser.ParseFile(fset, p, src, parser.SkipObjectResolution)
@@ -61,7 +61,7 @@ func fingerprints(p string, src []byte) ([]fingerprint, string, error) {
 		}
 		out = append(out, fingerprint{
 			name: name, pkgName: f.Name.Name, path: p,
-			line: fset.Position(fd.Pos()).Line, end: fset.Position(fd.End()).Line,
+			line: fset.PositionFor(fd.Pos(), false).Line, end: fset.PositionFor(fd.End(), false).Line,
 			sig: linter.TokenDigest(src[start:sigEnd]), body: body,
 		})
 	}

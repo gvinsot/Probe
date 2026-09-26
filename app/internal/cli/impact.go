@@ -77,8 +77,9 @@ func recordImpactedTestsSkipped(sc stageContext, requested bool, r *model.Report
 }
 
 // impactLine is the stdout line of the impact section: counts for an indexed
-// or limited index, the reason for an unavailable one, and nothing when no Go
-// file changed. With --impacted-tests it adds the finalized test statuses.
+// or limited index, the reason for an unavailable one, and nothing when no
+// indexable Go file changed. With --impacted-tests it adds the finalized test
+// statuses.
 func impactLine(i *model.Impact) string {
 	if i == nil {
 		return ""

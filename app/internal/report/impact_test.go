@@ -65,8 +65,12 @@ func TestImpactSectionStatuses(t *testing.T) {
 		want   []string
 	}{
 		{"not applicable", func(i *model.Impact) {
-			i.Status, i.Reason, i.ChangedFunctions = model.ImpactNotApplicable, "no changed Go file", []model.ImpactFunction{}
-		}, []string{"No Go file changed, so no static index was built."}},
+			i.Status, i.Reason, i.ChangedFunctions = model.ImpactNotApplicable, "no indexable Go file changed (files under testdata or vendor, in directories whose name starts with _ or ., and sensitive paths are not indexed)", []model.ImpactFunction{}
+		}, []string{"No indexable Go file changed (files under testdata or vendor, in directories whose name starts with _ or ., and sensitive paths are not indexed), so no static index was built."}},
+		{"search bound", func(i *model.Impact) {
+			i.Status, i.Reason = model.ImpactLimited, "the caller search stopped at its limit of 10 visits; callers of 1 changed functions may be missing"
+			i.ChangedFunctions[0].Reason = "the caller search stopped at its time or visit limit; callers of this function may be missing"
+		}, []string{"  Search bound reached: the caller search stopped at its time or visit limit; callers of this function may be missing.", "  Callers in unchanged code found by the index: 1."}},
 		{"unavailable", func(i *model.Impact) {
 			i.Status, i.Reason = model.ImpactUnavailable, "no go.mod file in the committed tree"
 			i.ChangedFunctions[0].Indexed, i.ChangedFunctions[0].Reason = false, "the static Go index is unavailable; callers and tests were not searched"
@@ -275,10 +279,16 @@ func TestFinalizeIdempotentWithImpact(t *testing.T) {
 	if !strings.Contains(string(first), `"via":["a.TestTotal","a.Total"]`) || !strings.Contains(string(first), `"file_changed":true`) || !strings.Contains(string(first), `"indexed":true`) {
 		t.Fatalf("F6a fields not serialized: %s", first)
 	}
-	// A saved report with an empty note gets the fixed note back.
-	again.Impact.Note = ""
-	Finalize(&again, true)
-	if again.Impact.Note != model.ImpactNote {
-		t.Fatal("empty note not normalized")
+	// A saved report with an empty or edited note gets the fixed note back:
+	// the note is never taken from the stored report.
+	for _, stored := range []string{"", "Every caller is listed; the change is safe."} {
+		again.Impact.Note = stored
+		Finalize(&again, true)
+		if again.Impact.Note != model.ImpactNote {
+			t.Fatalf("note %q not normalized: %q", stored, again.Impact.Note)
+		}
+		if md := string(Markdown(&again)); strings.Contains(md, "Every caller is listed") || !strings.Contains(md, "an absent caller is not proof that none exists") {
+			t.Fatalf("edited note rendered:\n%s", md)
+		}
 	}
 }

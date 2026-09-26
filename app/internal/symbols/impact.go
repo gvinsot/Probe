@@ -78,7 +78,7 @@ func Analyze(ctx context.Context, repo *gitrepo.Repository, change model.Change,
 	deadline := time.Now().Add(a.lim.Timeout)
 	headPaths, anyGo := changedGoFiles(change, opts.Sensitive)
 	if !anyGo {
-		a.impact.Status, a.impact.Reason = model.ImpactNotApplicable, "no changed Go file"
+		a.impact.Status, a.impact.Reason = model.ImpactNotApplicable, NotApplicableReason
 		return &Result{report: a.impact}, nil
 	}
 	for _, f := range change.Files {
@@ -178,8 +178,16 @@ func Analyze(ctx context.Context, repo *gitrepo.Repository, change model.Change,
 	if mods.unreadable > 0 {
 		a.limit(fmt.Sprintf("%d go.mod files have no readable module path; their packages were not indexed", mods.unreadable))
 	}
-	for _, dir := range mods.duplicates {
-		a.limit(fmt.Sprintf("the module in %q repeats the module path of another go.mod and was not indexed", dir))
+	if n := len(mods.duplicates); n > 0 {
+		// One counted reason, whatever the number of go.mod files.
+		var first []string
+		for _, dir := range mods.duplicates {
+			if len(first) == 3 {
+				break
+			}
+			first = append(first, fmt.Sprintf("%q", redact.TruncateUTF8(dir, 100)))
+		}
+		a.limit(fmt.Sprintf("%d go.mod files repeat the module path of another go.mod and were not indexed (first: %s)", n, strings.Join(first, ", ")))
 	}
 	if large > 0 {
 		a.limit(fmt.Sprintf("%d Go files larger than %d bytes were not indexed", large, a.lim.MaxFileBytes))
@@ -295,7 +303,9 @@ func Analyze(ctx context.Context, repo *gitrepo.Repository, change model.Change,
 	}
 	x := b.finish(content, indexed)
 	a.impact.IndexedFiles = indexed
-	a.describe(x, mods)
+	if err := a.describe(ctx, x, mods, deadline); err != nil {
+		return nil, err
+	}
 	a.finishStatus()
 	return &Result{report: a.impact, signals: a.limitedSignal(), index: x}, nil
 }
@@ -415,7 +425,13 @@ func (a *analysis) finishStatus() {
 	}
 }
 
-func joinReasons(reasons []string) string { return strings.Join(reasons, "; ") }
+// maxReasonBytes bounds impact.reason; every reason is a bounded, counted
+// text, so the cut only guards against their sum.
+const maxReasonBytes = 4096
+
+func joinReasons(reasons []string) string {
+	return redact.TruncateUTF8(strings.Join(reasons, "; "), maxReasonBytes)
+}
 
 // shortError is the first line of an error, redacted and cut to 240 bytes.
 func shortError(err error) string {
@@ -432,9 +448,29 @@ type site struct {
 	call       bool
 }
 
+// searchDeadlineHook, when set by a test, replaces the deadline the impact
+// searches receive, so that a test can reach it after the type check.
+var searchDeadlineHook func(deadline time.Time) time.Time
+
+// Per-function reasons of an indexed changed function whose search met a bound.
+const (
+	reasonCallersStopped = "the caller search stopped at its time or visit limit; callers of this function may be missing"
+	reasonTestsStopped   = "the reaching-test search stopped at its time or visit limit; reaching tests of this function may be missing"
+	reasonReachCapped    = "the reaching-test search stopped at its declaration limit; reaching tests of this function may be missing"
+	reasonImplCapped     = "interface methods beyond the first ones with the same name were not checked; interface calls reaching this function may be missing"
+)
+
 // describe fills the changed functions, their callers and reaching tests, and
-// the capped impacted_caller signals.
-func (a *analysis) describe(x *Index, mods modules) {
+// the capped impacted_caller signals. The callers of every changed function
+// are searched first, then the reaching tests; each of the two passes has its
+// own budget of Limits.MaxSearchVisits units, and both stop at the analysis
+// deadline. A function whose search met a bound keeps what was found and gets
+// a reason, and the section becomes limited. It returns an error only when
+// ctx is cancelled.
+func (a *analysis) describe(ctx context.Context, x *Index, mods modules, deadline time.Time) error {
+	if searchDeadlineHook != nil {
+		deadline = searchDeadlineHook(deadline)
+	}
 	added := addedLines(a.change)
 	touchedKeys := map[string]bool{}
 	for key := range a.touched {
@@ -443,14 +479,33 @@ func (a *analysis) describe(x *Index, mods modules) {
 			touchedKeys[ip+"."+parts[2]] = true
 		}
 	}
-	signalled := 0
-	for _, cf := range a.changed {
+	fns := make([]model.ImpactFunction, len(a.changed))
+	ids := make([]int32, len(a.changed))
+	var byPos map[declPos]int32
+	for i, cf := range a.changed {
 		fn := model.ImpactFunction{Path: cf.path, Line: cf.line, EndLine: cf.end, Symbol: cf.pkgName + "." + cf.name, Change: cf.change, Callers: []model.ImpactCaller{}, Tests: []model.ImpactTest{}}
+		ids[i] = -1
 		importPath, inModule := mods.importPath(cf.dir)
 		id, found := int32(-1), false
 		if inModule {
 			fn.Symbol = importPath + "." + cf.name
 			id, found = x.byKey[fn.Symbol]
+			if (!found || x.decls[id].Path != cf.path) && a.fileReason[cf.path] == "" {
+				// The syntactic name can differ from the index key, for
+				// example for a method declared on an alias receiver (type C
+				// = Cart), which the index keys by the aliased type. The
+				// declaration is then found at its position.
+				if byPos == nil {
+					byPos = x.declsByPosition()
+				}
+				if alt, ok := byPos[declPos{path: cf.path, line: cf.line, name: lastName(cf.name)}]; ok {
+					id, found = alt, true
+					fn.Symbol = x.decls[alt].Key
+					// References inside the function are part of the change
+					// under its index key too.
+					touchedKeys[fn.Symbol] = true
+				}
+			}
 		}
 		switch {
 		case a.fileReason[cf.path] != "":
@@ -461,24 +516,42 @@ func (a *analysis) describe(x *Index, mods modules) {
 			fn.Reason = "the declaration is not in the static Go index"
 		default:
 			fn.Indexed = true
+			ids[i] = id
+			x.changed[id] = cf.change
 		}
-		if !fn.Indexed {
-			a.impact.ChangedFunctions = append(a.impact.ChangedFunctions, fn)
+		fns[i] = fn
+	}
+
+	reasons := make([][]string, len(fns))
+	callersCut, testsCut, reachCapped, implCapped := 0, 0, 0, 0
+	signalled := 0
+	callerBudget := newBudget(ctx, deadline, a.lim.MaxSearchVisits)
+	for i := range fns {
+		if ids[i] < 0 {
 			continue
 		}
-		x.changed[id] = cf.change
-		sites := x.sites(id, touchedKeys, added)
+		fn := &fns[i]
+		callerBudget.implCapped = false
+		sites, ok := x.sites(ids[i], touchedKeys, added, callerBudget)
+		if callerBudget.implCapped {
+			implCapped++
+			reasons[i] = append(reasons[i], reasonImplCapped)
+		}
+		if !ok {
+			callersCut++
+			reasons[i] = append(reasons[i], reasonCallersStopped)
+		}
 		fn.CallersTotal = len(sites)
-		for i, s := range sites {
-			if i < MaxCallersListed {
+		for j, s := range sites {
+			if j < MaxCallersListed {
 				resolution := model.ResolutionStatic
 				if s.iface {
 					resolution = model.ResolutionInterface
 				}
 				fn.Callers = append(fn.Callers, model.ImpactCaller{Path: x.files[s.file], Line: int(s.line), Symbol: x.decls[s.caller].Key, Depth: 1, Resolution: resolution})
 			}
-			if i < MaxSignalsPerFunction && signalled < MaxSignalsTotal {
-				a.signals = append(a.signals, callerSignal(x, fn, s))
+			if j < MaxSignalsPerFunction && signalled < MaxSignalsTotal {
+				a.signals = append(a.signals, callerSignal(x, *fn, s))
 				signalled++
 				continue
 			}
@@ -487,17 +560,106 @@ func (a *analysis) describe(x *Index, mods modules) {
 				a.firstUnlisted = &model.Signal{Path: x.files[s.file], Line: int(s.line), Side: "new"}
 			}
 		}
-		fn.Tests, fn.TestsTotal = x.reachingTests(id, mods, a.changedPaths)
-		a.impact.ChangedFunctions = append(a.impact.ChangedFunctions, fn)
 	}
+	testBudget := newBudget(ctx, deadline, a.lim.MaxSearchVisits)
+	for i := range fns {
+		if ids[i] < 0 {
+			continue
+		}
+		fn := &fns[i]
+		testBudget.implCapped = false
+		tests, total, ok, capped := x.reachingTests(ids[i], mods, a.changedPaths, testBudget)
+		fn.Tests, fn.TestsTotal = tests, total
+		if testBudget.implCapped && !contains(reasons[i], reasonImplCapped) {
+			implCapped++
+			reasons[i] = append(reasons[i], reasonImplCapped)
+		}
+		if capped {
+			reachCapped++
+			reasons[i] = append(reasons[i], reasonReachCapped)
+		}
+		if !ok {
+			testsCut++
+			reasons[i] = append(reasons[i], reasonTestsStopped)
+		}
+	}
+	if callerBudget.cancelled || testBudget.cancelled {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		return context.Canceled
+	}
+	for i := range fns {
+		if len(reasons[i]) > 0 {
+			fns[i].Reason = strings.Join(reasons[i], "; ")
+		}
+	}
+	a.impact.ChangedFunctions = append(a.impact.ChangedFunctions, fns...)
+	stoppedBy := func(b *budget) string {
+		if b.timedOut {
+			return fmt.Sprintf("the index time limit (%s)", a.lim.Timeout)
+		}
+		return fmt.Sprintf("its limit of %d visits", a.lim.MaxSearchVisits)
+	}
+	if callersCut > 0 {
+		a.limit(fmt.Sprintf("the caller search stopped at %s; callers of %d changed functions may be missing", stoppedBy(callerBudget), callersCut))
+	}
+	if testsCut > 0 {
+		a.limit(fmt.Sprintf("the reaching-test search stopped at %s; reaching tests of %d changed functions may be missing", stoppedBy(testBudget), testsCut))
+	}
+	if reachCapped > 0 {
+		a.limit(fmt.Sprintf("the reaching-test search of %d changed functions stopped after %d declarations; more reaching tests may exist", reachCapped, maxReachVisits))
+	}
+	if implCapped > 0 {
+		a.limit(fmt.Sprintf("more than %d interface methods share a method name the search met; the others were not checked, so interface calls reaching %d changed functions may be missing", maxImplementCandidates, implCapped))
+	}
+	return nil
 }
+
+func contains(list []string, s string) bool {
+	for _, v := range list {
+		if v == s {
+			return true
+		}
+	}
+	return false
+}
+
+// declPos locates a function or method declaration: its file, its line and
+// its final name (the method name for a method).
+type declPos struct {
+	path string
+	line int
+	name string
+}
+
+// declsByPosition maps the position of every indexed function and method to
+// its declaration.
+func (x *Index) declsByPosition() map[declPos]int32 {
+	out := map[declPos]int32{}
+	for i, d := range x.decls {
+		if d.Kind != KindFunc && d.Kind != KindMethod {
+			continue
+		}
+		k := declPos{path: d.Path, line: d.Line, name: lastName(d.Name)}
+		if _, dup := out[k]; !dup {
+			out[k] = int32(i)
+		}
+	}
+	return out
+}
+
+// lastName is the final identifier of "F" or "T.M".
+func lastName(name string) string { return name[strings.LastIndex(name, ".")+1:] }
 
 // sites lists the references to a changed function in unchanged, non-test
 // code: static references, and calls of interface methods its receiver type
 // implements. A reference inside a changed or added function, on an added
 // line, or in a test file is part of the change or of the tests and is not
-// listed. One site is kept per line, preferring a static reference.
-func (x *Index) sites(id int32, touched map[string]bool, added map[string]map[int]bool) []site {
+// listed. One site is kept per line, preferring a static reference. Every
+// reference visited costs one unit of bud; ok is false when bud stopped
+// before the search ended, and the sites found so far are returned.
+func (x *Index) sites(id int32, touched map[string]bool, added map[string]map[int]bool, bud *budget) ([]site, bool) {
 	var out []site
 	byLine := map[[2]int32]int{}
 	consider := func(e edge, via int32, iface bool) {
@@ -515,50 +677,50 @@ func (x *Index) sites(id int32, touched map[string]bool, added map[string]map[in
 		byLine[k] = len(out)
 		out = append(out, site{file: e.file, line: e.line, caller: e.caller, via: via, iface: iface, call: e.call})
 	}
+	finish := func(ok bool) ([]site, bool) {
+		sort.SliceStable(out, func(i, j int) bool {
+			a, b := out[i], out[j]
+			if x.files[a.file] != x.files[b.file] {
+				return x.files[a.file] < x.files[b.file]
+			}
+			return a.line < b.line
+		})
+		return out, ok
+	}
+	if !bud.ok() {
+		return finish(false)
+	}
 	for _, e := range x.references(id) {
+		if !bud.spend(1) {
+			return finish(false)
+		}
 		consider(e, id, false)
 	}
-	for _, im := range x.implementers(id) {
+	for _, im := range x.implementers(id, bud) {
 		for _, e := range x.references(im) {
+			if !bud.spend(1) {
+				return finish(false)
+			}
 			consider(e, im, true)
 		}
 	}
-	sort.SliceStable(out, func(i, j int) bool {
-		a, b := out[i], out[j]
-		if x.files[a.file] != x.files[b.file] {
-			return x.files[a.file] < x.files[b.file]
-		}
-		return a.line < b.line
-	})
-	return out
-}
-
-// pred is one step backwards along a reference.
-type pred struct {
-	caller int32
-	iface  bool
-}
-
-// predecessors lists the declarations that reference id, directly or through
-// an interface method id's receiver type implements, in index order.
-func (x *Index) predecessors(id int32) []pred {
-	var out []pred
-	for _, e := range x.references(id) {
-		out = append(out, pred{e.caller, false})
-	}
-	for _, im := range x.implementers(id) {
-		for _, e := range x.references(im) {
-			out = append(out, pred{e.caller, true})
-		}
-	}
-	return out
+	// implementers may have stopped the budget before any reference.
+	return finish(!bud.stopped)
 }
 
 // reachingTests finds the TestX functions that reach id within MaxDepth
 // references, breadth first in index order, so that each test is reported at
 // its smallest depth through the first path found. The resolution is
 // "interface" when any step of that path is an interface call.
-func (x *Index) reachingTests(id int32, mods modules, changedPaths map[string]bool) ([]model.ImpactTest, int) {
+//
+// The references of an interface method are followed once per search: every
+// caller they lead to is seen from the first declaration that expands them,
+// so expanding them again from another implementing declaration finds
+// nothing new. Every reference visited costs one unit of bud. It returns the
+// listed tests, the number found, ok false when bud stopped before the search
+// ended, and capped true when the search stopped at maxReachVisits
+// declarations; the tests found so far are returned in both cases.
+func (x *Index) reachingTests(id int32, mods modules, changedPaths map[string]bool, bud *budget) (_ []model.ImpactTest, total int, ok, capped bool) {
 	type node struct {
 		id     int32
 		depth  int
@@ -567,33 +729,66 @@ func (x *Index) reachingTests(id int32, mods modules, changedPaths map[string]bo
 	}
 	nodes := []node{{id: id, parent: -1}}
 	seen := map[int32]bool{id: true}
+	expanded := map[int32]bool{}
 	var tests []model.ImpactTest
-	for i := 0; i < len(nodes) && len(nodes) < maxReachVisits; i++ {
+	ok = bud.ok()
+	// visit follows one reference from the declaration of nodes[i] back to
+	// caller; it returns false when the search must stop.
+	visit := func(i int, caller int32, iface bool) bool {
+		if !bud.spend(1) {
+			ok = false
+			return false
+		}
+		if seen[caller] {
+			return true
+		}
+		if len(nodes) >= maxReachVisits {
+			capped = true
+			return false
+		}
+		seen[caller] = true
+		child := node{id: caller, depth: nodes[i].depth + 1, iface: nodes[i].iface || iface, parent: i}
+		nodes = append(nodes, child)
+		d := x.decls[caller]
+		if !d.Test {
+			return true
+		}
+		var via []string
+		for j := len(nodes) - 1; j >= 0; j = nodes[j].parent {
+			via = append(via, x.decls[nodes[j].id].Key)
+		}
+		resolution := model.ResolutionStatic
+		if child.iface {
+			resolution = model.ResolutionInterface
+		}
+		pkg, _ := mods.importPath(dirOf(d.Path))
+		tests = append(tests, model.ImpactTest{Name: d.Name, Path: d.Path, Line: d.Line, Package: pkg, Depth: child.depth, Resolution: resolution, Via: via, FileChanged: changedPaths[d.Path]})
+		return true
+	}
+search:
+	for i := 0; ok && i < len(nodes); i++ {
 		n := nodes[i]
 		if n.depth >= MaxDepth || i > 0 && x.decls[n.id].Test {
 			continue
 		}
-		for _, p := range x.predecessors(n.id) {
-			if seen[p.caller] || len(nodes) >= maxReachVisits {
+		for _, e := range x.references(n.id) {
+			if !visit(i, e.caller, false) {
+				break search
+			}
+		}
+		for _, im := range x.implementers(n.id, bud) {
+			if expanded[im] {
 				continue
 			}
-			seen[p.caller] = true
-			child := node{id: p.caller, depth: n.depth + 1, iface: n.iface || p.iface, parent: i}
-			nodes = append(nodes, child)
-			d := x.decls[p.caller]
-			if !d.Test {
-				continue
+			expanded[im] = true
+			for _, e := range x.references(im) {
+				if !visit(i, e.caller, true) {
+					break search
+				}
 			}
-			var via []string
-			for j := len(nodes) - 1; j >= 0; j = nodes[j].parent {
-				via = append(via, x.decls[nodes[j].id].Key)
-			}
-			resolution := model.ResolutionStatic
-			if child.iface {
-				resolution = model.ResolutionInterface
-			}
-			pkg, _ := mods.importPath(dirOf(d.Path))
-			tests = append(tests, model.ImpactTest{Name: d.Name, Path: d.Path, Line: d.Line, Package: pkg, Depth: child.depth, Resolution: resolution, Via: via, FileChanged: changedPaths[d.Path]})
+		}
+		if bud.stopped {
+			ok = false
 		}
 	}
 	sort.SliceStable(tests, func(i, j int) bool {
@@ -606,14 +801,14 @@ func (x *Index) reachingTests(id int32, mods modules, changedPaths map[string]bo
 		}
 		return a.Name < b.Name
 	})
-	total := len(tests)
+	total = len(tests)
 	if len(tests) > MaxTestsListed {
 		tests = tests[:MaxTestsListed]
 	}
 	if tests == nil {
 		tests = []model.ImpactTest{}
 	}
-	return tests, total
+	return tests, total, ok, capped
 }
 
 // callerSignal is the low impacted_caller signal of one site.

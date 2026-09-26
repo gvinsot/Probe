@@ -40,25 +40,24 @@ Measured on 2026-09-26 in `golang:1.26-bookworm` (Go 1.26.8, linux/amd64) on the
 | The SwiftProof repository (`app` and `hub` modules at `8d114b6`), `HEAD~1..HEAD` (15 changed files) | 136 | 274–541 ms | 44 MB | 12.4–13.6 MiB |
 | `GOROOT/src` of Go 1.26.8 as a Git repository (5,609 Go files outside `testdata` and `vendor`), one changed function | 4,072 (the others excluded by the linux/amd64 build constraints, and one file over 2 MiB skipped, so `limited`) | 6.6–8.4 s | 1.9 GB | 429–431 MiB |
 
-The standard library is a stress case, not a typical repository: its module path `std` is not a prefix of its import paths, so every import is treated as outside the repository, and one skipped 2 MiB generated file leaves its large package with many unresolved names. Before imported packages were marked so that `go/types` skips building error messages for missing names, the same run took 20–39 s (three runs), spent mostly sorting that package's names once per unresolved reference; the 120 s limit, also checked on every type error, bounds such cases. Reproduce with:
+The standard library is a stress case, not a typical repository: its module path `std` is not a prefix of its import paths, so every import is treated as outside the repository, and one skipped 2 MiB generated file leaves its large package with many unresolved names. Before imported packages were marked so that `go/types` skips building error messages for missing names, the same run took 20–39 s (three runs), spent mostly sorting that package's names once per unresolved reference; the 120 s limit, also checked on every type error, bounds such cases.
+
+The impact searches were measured on an adversarial shape, `BenchmarkImpactSearchAdversarial` (same day and setup, three runs of three iterations): 1,000 types whose `Do` method calls every changed function, one interface `I{ Do() }` called 200,000 times, and one test reaching a caller (33 indexed files). Every changed function then reaches the 200,000 interface calls through 1,000 implementing methods.
+
+| Changed functions | Time per analysis | Allocated per analysis | `impact.status` |
+| --- | --- | --- | --- |
+| 1 | 388–528 ms | 205 MB | `indexed` |
+| 10 | 624–647 ms | 218 MB | `indexed` |
+| 200 | 0.80–1.44 s | 435 MB | `limited`: the reaching-test search reached its 10,000,000-visit budget |
+
+Each search follows an interface method's references once, and every visit is charged to the search budget. Before that, a review run of a similar shape (1,000 calls per caller function) with a 2 s time limit, which the searches did not check then, took 6.9 s with one changed function and 76 s with ten, and stayed `indexed`.
+
+Reproduce with:
 
 ```sh
-go test ./internal/symbols -run '^
-
-<!-- F7:begin -->
-<!-- F7:end -->
-
-<!-- F8:begin -->
-<!-- F8:end -->
- -bench IndexSynthetic -benchmem
-SWIFTPROOF_BENCH_REPO=/path/to/git/repo go test ./internal/symbols -run '^
-
-<!-- F7:begin -->
-<!-- F7:end -->
-
-<!-- F8:begin -->
-<!-- F8:end -->
- -bench AnalyzeRepository -benchtime 3x -benchmem
+go test ./internal/symbols -run '^$' -bench IndexSynthetic -benchmem
+SWIFTPROOF_BENCH_REPO=/path/to/git/repo go test ./internal/symbols -run '^$' -bench AnalyzeRepository -benchtime 3x -benchmem
+go test ./internal/symbols -run '^$' -bench ImpactSearchAdversarial -benchtime 3x -benchmem
 ```
 <!-- F6:end -->
 

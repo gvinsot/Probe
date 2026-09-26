@@ -41,9 +41,8 @@ func finalizeImpact(r *model.Report, l *ledger) bool {
 	if im == nil {
 		return false
 	}
-	if im.Note == "" {
-		im.Note = model.ImpactNote
-	}
+	// The note is fixed text: a stored note, edited or not, is never rendered.
+	im.Note = model.ImpactNote
 	needsHuman := im.TestsStatus == model.ImpactTestsNotRun
 	for i := range im.ChangedFunctions {
 		f := &im.ChangedFunctions[i]
@@ -122,7 +121,7 @@ func writeImpact(b *bytes.Buffer, r *model.Report) {
 	case model.ImpactUnavailable:
 		fmt.Fprintf(b, "The static Go index is unavailable: %s. Callers and tests of changed functions were not searched.\n\n", inline(orNone(im.Reason)))
 	case model.ImpactNotApplicable:
-		line(b, "No Go file changed, so no static index was built.\n")
+		line(b, "No indexable Go file changed (files under testdata or vendor, in directories whose name starts with _ or ., and sensitive paths are not indexed), so no static index was built.\n")
 	default:
 		fmt.Fprintf(b, "Impact analysis status: %s.\n\n", inline(im.Status))
 	}
@@ -142,6 +141,9 @@ func writeImpact(b *bytes.Buffer, r *model.Report) {
 		if !f.Indexed {
 			fmt.Fprintf(b, "  Not indexed, so its callers and tests were not searched: %s.\n", inline(orNone(f.Reason)))
 			continue
+		}
+		if f.Reason != "" {
+			fmt.Fprintf(b, "  Search bound reached: %s.\n", inline(f.Reason))
 		}
 		if f.CallersTotal == 0 {
 			line(b, "  Callers in unchanged code found by the index: 0 (not proof that none exist).")

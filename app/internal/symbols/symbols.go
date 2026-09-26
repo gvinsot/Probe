@@ -32,13 +32,24 @@ const Limitations = "Approximate static analysis of committed Go source: imports
 // Symbol of the analysis_limited signal the impact analysis adds.
 const LimitedSymbol = "impact_index"
 
+// NotApplicableReason is the reason of a not_applicable section: the change
+// touches no Go file the index may read. Go files can still have changed in
+// the paths the index never reads.
+const NotApplicableReason = "no indexable Go file changed (files under testdata or vendor, in directories whose name starts with _ or ., and sensitive paths are not indexed)"
+
 // Analysis caps (contract §2 F6a and Appendix B).
 const (
-	MaxDepth               = 3     // calls followed from a test or caller to a changed function
-	MaxCallersListed       = 10    // callers listed per changed function in the report
-	MaxSignalsPerFunction  = 10    // impacted_caller signals per changed function
-	MaxSignalsTotal        = 100   // impacted_caller signals per run
-	MaxTestsListed         = 20    // reaching tests listed per changed function
+	MaxDepth              = 3   // calls followed from a test or caller to a changed function
+	MaxCallersListed      = 10  // callers listed per changed function in the report
+	MaxSignalsPerFunction = 10  // impacted_caller signals per changed function
+	MaxSignalsTotal       = 100 // impacted_caller signals per run
+	MaxTestsListed        = 20  // reaching tests listed per changed function
+)
+
+// Search caps. They are variables only so that tests can lower them; a search
+// that meets one reports it (the section is then limited, or a tool answer is
+// marked truncated).
+var (
 	maxReachVisits         = 50000 // declarations visited per reaching-test search
 	maxImplementCandidates = 200   // interface methods of one name checked for implementation
 )
@@ -46,14 +57,23 @@ const (
 // Limits bounds what the index reads and builds. The zero value of a field
 // means its default (DefaultLimits); tests lower them to exercise the limits.
 type Limits struct {
-	MaxFiles            int           // .go and go.mod files read from the candidate tree
-	MaxBytes            int64         // total source bytes read
-	MaxFileBytes        int64         // per file; a larger file is not indexed
-	MaxPackages         int           // packages type-checked
-	MaxEdges            int           // resolved reference sites recorded
-	MaxNameSites        int           // unresolved method calls recorded (tool output only)
-	MaxChangedFunctions int           // changed functions listed in the report
-	Timeout             time.Duration // checked between packages; remaining packages are not indexed
+	MaxFiles            int   // .go and go.mod files read from the candidate tree
+	MaxBytes            int64 // total source bytes read
+	MaxFileBytes        int64 // per file; a larger file is not indexed
+	MaxPackages         int   // packages type-checked
+	MaxEdges            int   // resolved reference sites recorded
+	MaxNameSites        int   // unresolved method calls recorded (tool output only)
+	MaxChangedFunctions int   // changed functions listed in the report
+	// MaxSearchVisits bounds each of the two impact searches (callers, then
+	// reaching tests) over all changed functions: every reference visited
+	// and every interface-implementation check costs units. Changed
+	// functions not fully searched within it are reported, and the section
+	// is limited.
+	MaxSearchVisits int64
+	// Timeout bounds the whole analysis. It is checked between packages and
+	// on each type error (remaining packages are not indexed), and during the
+	// impact searches (remaining callers and tests are not searched).
+	Timeout time.Duration
 }
 
 // DefaultLimits returns the limits used when Options.Limits leaves a field zero.
@@ -66,6 +86,7 @@ func DefaultLimits() Limits {
 		MaxEdges:            2000000,
 		MaxNameSites:        200000,
 		MaxChangedFunctions: 200,
+		MaxSearchVisits:     10000000,
 		Timeout:             120 * time.Second,
 	}
 }
@@ -92,6 +113,9 @@ func (l Limits) withDefaults() Limits {
 	}
 	if l.MaxChangedFunctions <= 0 {
 		l.MaxChangedFunctions = d.MaxChangedFunctions
+	}
+	if l.MaxSearchVisits <= 0 {
+		l.MaxSearchVisits = d.MaxSearchVisits
 	}
 	if l.Timeout <= 0 {
 		l.Timeout = d.Timeout

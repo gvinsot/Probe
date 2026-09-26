@@ -62,7 +62,8 @@ type ImpactFunction struct {
 	CallersTotal int            `json:"callers_total"` // found by the bounded index search
 	Tests        []ImpactTest   `json:"tests"`
 	// F6a additions: whether the index holds the function (false: its callers
-	// and tests were not searched, and Reason says why), and the number of
+	// and tests were not searched, and Reason says why; true with a Reason: a
+	// search bound was reached, and Reason names it), and the number of
 	// reaching tests found, of which at most 20 are listed.
 	Indexed    bool   `json:"indexed"`
 	Reason     string `json:"reason,omitempty"`
