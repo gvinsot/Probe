@@ -45,5 +45,7 @@ Measured on 2026-09-26 on the Windows 11 host with Docker Desktop (Docker Engine
 | Cold: no image for the key, `go mod download` with network, commit, read-back | 5 | 3,535 to 5,241 ms | 897,024 bytes |
 | Warm: image reused, no container started | 6 | 450 to 1,473 ms | — |
 
+After the review fixes, which read the whole `docker diff` listing, a binary built from `dd96a1f` on the same host gave one cold build of 3,982 ms (the same 897,024-byte layer) and warm reuses of 549 and 973 ms, inside the ranges above.
+
 A cold build pays the download and the commit once per key and base commit; a new base commit builds again. Preparation is not charged to `sandbox.max_runtime_seconds`. These numbers depend on the registry, the network and the size of the dependencies; they are not a general estimate.
 <!-- F8:end -->
