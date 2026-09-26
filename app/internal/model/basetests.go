@@ -11,10 +11,20 @@ const (
 	BaseTestFileDeleted       = "file_deleted"
 )
 
-// BaseTestsNote is the fixed note of the base_tests section. F3 owns its final
-// text; this neutral sentence makes no claim.
-const BaseTestsNote = "See the documentation for what this section does and does not establish."
+// BaseTestsNote is the fixed note of the base_tests section. It says what the
+// two recorded runs of each test establish and what they do not.
+const BaseTestsNote = "Each entry is the baseline version of a Go test function declared in a changed Go test file: a test that the change modified or removed, or a test whose file changed outside it (other declarations, imports, build constraints, compiler directives or the package clause, or a rename to another directory or platform suffix). " +
+	"It ran on the baseline tree and on a hybrid tree: the candidate tree with the *_test.go files and testdata directory of the package of the test reverted to the baseline. " +
+	"FAILS_ON_CANDIDATE means that the test passed on the baseline and failed on the hybrid tree, in one recorded run each: possibly a behavior change accompanied by a test edit, possibly flakiness, for a human to judge. " +
+	"It is not a reproduced issue, and it does not show which behavior is intended. " +
+	"PASSES_ON_CANDIDATE means only that this one test passed in both recorded runs; it does not show that behavior is preserved or that the edited test is equivalent, and code executing in the sandbox can influence it. " +
+	"Any other entry records why neither result was drawn, for example a compile failure after an API change. " +
+	"Only tests declared in changed Go test files were considered; other tests were not selected."
 
+// BaseTest is one selected test: the baseline version of a Go test function
+// (Path, Line, EndLine on the baseline side) and, when the candidate still
+// declares it, its edited version (Candidate*). Status is set by
+// report.Finalize from verified evidence only.
 type BaseTest struct {
 	Name             string `json:"name"`
 	Path             string `json:"path"`

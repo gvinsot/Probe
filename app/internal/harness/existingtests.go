@@ -73,19 +73,20 @@ func GoTestOutcome(output, name string) (action, pkg string) {
 }
 
 // Fixed reason texts of ClassifyExistingTest. They describe the recorded
-// runs only.
+// runs only, and hold none of the characters (&, <, >, ', ") that the
+// Markdown renderer turns into HTML entities.
 const (
 	reasonFailsOnCandidate    = "the test passed on the baseline and failed on the candidate-side tree"
 	reasonPassesOnCandidate   = "the test passed on the baseline and on the candidate-side tree"
 	reasonCommandMismatch     = "the baseline and candidate-side runs did not use one identical recorded command"
 	reasonBaselineNotPassed   = "the baseline run did not pass cleanly (status PASS, exit code 0, complete log)"
-	reasonBaselineOutcome     = "the baseline log does not record exactly one run and one pass of this test in one package"
+	reasonBaselineOutcome     = "the baseline log does not record exactly one run and one pass of this test in one package (for example the test was skipped, or a build constraint excluded its file)"
 	reasonCandidateTimeout    = "the candidate-side run timed out"
 	reasonCandidateIncomplete = "the candidate-side run did not complete"
 	reasonCandidateTrunc      = "the candidate-side log was truncated"
 	reasonCandidateExit       = "the candidate-side run ended with an exit code outside the test-failure range"
 	reasonCandidateBuild      = "the candidate-side package did not build or set up, so the test did not run"
-	reasonCandidateOutcome    = "the candidate-side log does not record exactly one run and one terminal result of this test in the baseline's package"
+	reasonCandidateOutcome    = "the candidate-side log does not record exactly one run and one terminal result of this test in the package of the baseline run"
 )
 
 // ClassifyExistingTest compares one named Go test run on a baseline tree and a
