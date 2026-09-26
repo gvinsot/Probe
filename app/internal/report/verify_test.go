@@ -385,10 +385,10 @@ func TestDerivedListsCopyNormalizedHypotheses(t *testing.T) {
 func TestNormalizeIntentLink(t *testing.T) {
 	criteria := criterionIndex([]model.IntentCriterion{{ID: "AC-1", Text: "x"}})
 	for _, tt := range []struct {
-		name                       string
-		h                          model.Hypothesis
-		criterion, judgment        string
-		note                       bool
+		name                string
+		h                   model.Hypothesis
+		criterion, judgment string
+		note                bool
 	}{
 		{"no link", model.Hypothesis{Status: model.StatusReproduced}, "", "", false},
 		{"known criterion kept", model.Hypothesis{Status: model.StatusUnverified, CriterionID: "AC-1"}, "AC-1", "", false},

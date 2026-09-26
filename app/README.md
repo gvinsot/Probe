@@ -206,7 +206,7 @@ swiftproof review --base main --reviewer=false
 swiftproof review --base main --config .swiftproof.json
 ```
 
-Configuring a model enables transmission of bounded, redacted source context during `review`. Common secret patterns and sensitive filenames are masked, but masking is best effort. Use static analysis or a local provider if source must stay local. API credentials come from the named environment variable or its Docker secret and never enter test containers. `--reviewer` remains supported as an explicit request and fails if no model is configured. `--checks=false` skips initial checks but still lets the configured reviewer request sandbox experiments; combine it with `--reviewer=false` for static analysis only, or use `lint`.
+Configuring a model enables transmission of bounded, redacted source context during `review`. Common secret patterns and sensitive filenames are masked, but masking is best effort. Use static analysis or a local provider if source must stay local. API credentials come from the named environment variable or its Docker secret and never enter test containers. `--reviewer` remains supported as an explicit request and fails if no model is configured. `--checks=false` skips initial checks but still lets the configured reviewer request sandbox experiments; combine it with `--reviewer=false` for static analysis only, or use `lint`. It also turns off the v0.4 deterministic stages: configured differential fuzzing is recorded as `disabled`, configured mutation as `not_run`, and `--base-tests` or `--impacted-tests` exit 3.
 
 Model claims are checked against harness evidence before entering reproduced issues. Tools cover file reads, diffs, source search, reference, symbol and caller lookup (a static Go index when available, labelled approximate, with a lexical fallback), existing checks, generated-test creation/execution/deletion and, when the intent contains acceptance criteria, candidate-only intent tests. Iteration, input, response, test-count, output and runtime budgets bound investigations. Provider failures and exhausted budgets leave deterministic results in the report and mark investigation incomplete; `--ci` requests human review. Invalid active provider settings fail before investigation. Empty changes do not call the provider.
 
@@ -251,30 +251,92 @@ v0.4 adds stages that record more deterministic evidence and depend less on a mo
 A stage's JSON object is present exactly when the stage was requested or configured, and its `status` then says what happened, including `not_run` with a reason. The [v0.4 specification](../specs/swiftproof-v0.4-spec.md) holds the binding rules.
 
 <!-- F8:begin -->
+### Trusted dependency preparation
+
+With a `prepare` object in the trusted base-branch policy, `review` first runs that policy's command once, in one bounded container, on the declared input files exported from the base commit (never from the candidate), and commits the container as a local image that every sandbox run of the review then uses by ID:
+
+```json
+"prepare": { "command": ["go", "mod", "download"], "inputs": ["go.mod", "go.sum"], "network": true }
+```
+
+The container gets the network only when the policy asks for it and `--allow-prepare-network` is passed (`--no-network` always wins); that permission never reaches checks, which keep their unchanged network setting (offline unless `sandbox.network` and `--allow-network` allow it). A later review of the same base commit with identical inputs reuses the image without starting a container. Preparation never pulls images and never installs candidate dependencies: a candidate edit to a declared input adds a `prepare_input_changed` signal and an Unverified entry. It fails closed: `failed` or `not_permitted` runs no check and exits 4. The prepared image is environment, not evidence: an equal key means equal inputs, not equal image content, and nothing is claimed about the dependencies. See [dependency preparation](docs/PREPARE.md).
 <!-- F8:end -->
 
 <!-- F7:begin -->
+### Execution cache
+
+Opt-in with `--cache-dir DIR`, review only. A baseline-side run (a check kind ending in `_base`, on the baseline snapshot, without network) is replayed instead of executed when two earlier live runs of byte-identical inputs agreed on its result; candidate-side runs always execute. The key covers the baseline tree and any staged test, the command and the complete sandbox arguments, the image ID the run executes, the Docker server, the trusted policy's execution settings and the SwiftProof build. A replay never supports a reproduced issue, a divergence or a `FAILS_ON_CANDIDATE` result: before recording `REPRODUCED` on a replayed baseline, the harness runs that baseline again, live. A negative conclusion that rests on a replay is listed in `execution.replay_backed`. A replayed baseline FAIL is not run again, so a stale or forged entry can leave such a result unrecorded and lower the exit code (see the damage bound). The directory must be outside the repository and the report directory and, on Unix, owner-only; otherwise the review exits 3 before any container starts. Entries are integrity-checked, not authenticated. Reviews of an updated pull request that share the directory replay the unchanged baseline experiments. See [Execution cache](docs/EXECUTION_CACHE.md).
+
+### Parallel initial checks
+
+`--parallel N` (review only, 1 to 4) runs up to N of the initial checks (test, typecheck, build) at the same time; everything else still runs one at a time. The limit is also capped by the Docker server's room for sandboxes of `sandbox.cpus` CPUs and `sandbox.memory_mb` MiB (one `docker info` call), and a group of checks starts together only while the remaining runtime budget covers each one's full per-run timeout. The rules for each check's timeout, classification and budget charge are those of `--parallel 1`, and the report records the checks in configured order; `execution.parallelism` gives the requested and effective values and why they differ. The outcomes can still differ: concurrent sandboxes share the Docker host, so a check can take longer than it would alone, reach its timeout and be charged more, which leaves less of `sandbox.max_runtime_seconds` for later stages; and with `--deadline`, checks that run together can all end `TIMEOUT` at the deadline, where one at a time the later ones would be `SKIPPED` as not started. See the [specification](../specs/swiftproof-v0.4-spec.md#f7b-parallel-initial-checks), the [CI guidance](docs/CI.md#parallel-initial-checks-in-ci) and the [measured costs](docs/PERFORMANCE.md#parallel-initial-checks).
 <!-- F7:end -->
 
 <!-- F3:begin -->
+### Changed baseline tests on candidate code
+
+`swiftproof review --base-tests` runs the baseline version of the Go test functions of each changed Go test file that the change modified, removed or affected through the rest of the file (other declarations, imports, build constraints, a move to another directory) on two trees: the baseline, and a hybrid tree, which is the candidate with that test's package test files and `testdata` reverted to the baseline. Each test gets one `base_test_differential` evidence record, re-derived by `Finalize`:
+
+- `FAILS_ON_CANDIDATE`: it passed on the baseline and failed on the hybrid tree, in one recorded run each. This is possibly a behavior change accompanied by a test edit, possibly flakiness, for a human to judge; it is not a reproduced issue.
+- `PASSES_ON_CANDIDATE`: it passed in both runs. This does not show that behavior is preserved or that the edited test is equivalent.
+- `UNVERIFIED`: no result was drawn, for example because the baseline test does not compile against the candidate code after an API change.
+
+Selection is static (Go syntax; comment and layout edits select nothing unless they change a build constraint or a compiler directive). The `generated_test` template must be a verifiable Go template such as `["go", "test", "{package}"]`, and the stage has a 180 s sub-cap inside the shared runtime budget. It never produces exit 1: `FAILS_ON_CANDIDATE`, `UNVERIFIED` and a stage that did not run request review (exit 2 with `--ci`). In `lint` and `review`, lexical signals flag risky test edits in Go, JavaScript/TypeScript and Python (`test_assertion_removed`, `test_case_removed`, `test_skip_added`, `test_expectation_relaxed`, and the high `test_focus_added`); they are heuristics, never evidence. See [changed baseline tests](docs/BASE_TESTS.md).
 <!-- F3:end -->
 
 <!-- F6:begin -->
+### Impact analysis
+
+`lint` and `review` build a static index of the repository's own Go packages from committed Git objects, on the host, without running repository code or loading imports from outside the repository; `--impact=false` disables it. For each changed Go function or method, the report lists its callers in unchanged, non-test code (resolution `static`, or `interface` for possible dispatch) and the existing Go tests that reach it within 3 references. Callers become low `impacted_caller` review targets, at most 10 per function and 100 per run, and one medium `analysis_limited` signal states what was left out or why the index is limited. The reviewer's `find_references`, `inspect_symbol` and `find_callers` answer from the index and fall back to lexical search. Everything here is approximate: an absent caller is not proof that none exists, and a reaching test is not evidence that it asserts the changed behavior. See [impact analysis](docs/IMPACT.md).
+
+With `review --impacted-tests`, the listed reaching tests whose file the change did not modify (at most 16, from at most 4 packages) run on the baseline and on the candidate with the verifiable `generated_test` template, inside a 180 s sub-cap. Each test gets one `impacted_test_differential` evidence record: `FAILS_ON_CANDIDATE` (it passed on the baseline and failed on the candidate, one recorded run each), `PASSES_ON_CANDIDATE` or `UNVERIFIED`. A failure is an outcome difference for a human to judge, not a reproduced issue: the static link is approximate, and the failure may come from any part of the change or from flakiness. `FAILS_ON_CANDIDATE`, `UNVERIFIED`, a selected test without a result (including tests over the limits) and a stage that did not run request review (exit 2 with `--ci`), never exit 1, and add no signal kind. See [impacted tests](docs/IMPACT.md#impacted-tests---impacted-tests).
 <!-- F6:end -->
 
 <!-- F2:begin -->
+### Differential fuzzing
+
+With a `fuzz` object in the trusted base-branch policy (`"fuzz": {}` takes the defaults), `review` runs the same seeded inputs through each changed function whose signature is unchanged and whose parameters can be generated, on the baseline and on the candidate, in the unchanged sandbox and through the reviewed `generated_test` command. With a Go template (`["go", "test", "{package}"]`) these are package-level Go functions taking basic types, package-local named basic types, and slices, arrays or variadics of them. With a verifiable Vitest or Jest template (`["vitest", "run", "{file}", "--reporter=json", "--outputFile={results_out}"]`) they are exported TypeScript and JavaScript functions taking `number`, `string`, `boolean` or arrays of them, read lexically from TypeScript annotations or JSDoc `@param` types, without a type checker. No model is involved and nothing asserts an expected value. A one-file harness per Go package or TS/JS module records bounded encodings of results, panics or thrown and rejected values, and slice or array arguments after the call; a first-pair difference gets one confirmation run per revision. Each function is:
+
+- `diverged`: the revisions recorded different values for at least one input, each repeating its own value in a second run. The smallest divergent input tried is shown with both values; it does not say which revision is correct, and the change may be intended.
+- `not_diverged`: equal recorded encodings for every compared input. This does not establish equivalent behavior, even for those inputs.
+- `inconclusive`: a timeout, a crash, nondeterminism, a candidate that does not build, a budget cut, and so on.
+
+Other changed functions are listed as not fuzzed, with a reason (a TS/JS function without a Vitest or Jest template, or a Go function with one, among them). `Finalize` derives every outcome again from the recorded checks and observation streams. Fuzzing never produces exit 1: a divergence, an inconclusive function or a stage that did not run requests review (exit 2 with `--ci`); only a baseline-side harness failure or an infrastructure failure of a fuzz run is exit 4 (a cut log never is). `--fuzz=false` disables it for one run; `fuzz.max_runtime_seconds` is a sub-cap inside the shared sandbox budget. See [differential fuzzing](docs/FUZZ.md).
 <!-- F2:end -->
 
 <!-- F4:begin -->
+### Mutation of added lines
+
+With a `mutation` object in the trusted base-branch policy, `review` makes deterministic single-change mutants of the added lines of changed non-test Go files (for example `<` to `<=`, `if c` to `if !(c)`, a returned error to `nil`) and runs the policy's `go test -json` command for the file's package once per mutant, after one passing unmutated control run, in a private copy of the candidate inside the unchanged sandbox:
+
+```json
+"mutation": { "command": ["go", "test", "-json", "-count=1", "-failfast", "{package}"], "max_mutants": 20, "timeout_seconds": 60, "max_runtime_seconds": 300 }
+```
+
+A mutant with which no test that the command ran for its package failed (`SURVIVED`) becomes a medium `surviving_mutant` signal with its patch retained; it may be semantically equivalent and is not a defect. Killed mutants are counted, never listed. Mutation creates no evidence, never produces exit 1 and computes no score; an `incomplete` or `not_run` section requests review under `--ci`. See [mutation of added lines](docs/MUTATION.md).
 <!-- F4:end -->
 
 <!-- F1:begin -->
+### Observation experiments
+
+A generated test may record values instead of asserting a guessed one: Go tests call `t.Attr("swiftproof.<key>", value)` (Go 1.25 or later in the sandbox image) and Vitest tests set `task.meta.swiftproof`; Jest reports carry no per-test metadata. When the named test passes on both revisions, `run_generated_test` compares the recorded values key by key and records a `differential_observation` evidence record. A key whose candidate value differs triggers exactly one live baseline repeat. The record is `DIVERGED` when two baseline runs agreed and the candidate recorded a different value, `NOT_DIVERGED` when every compared value was equal, and `UNVERIFIED` otherwise (unstable, redacted, duplicated or one-sided values, a failing run). Every validated divergence is listed in `divergences` and in the Behavior Divergences section with both values, cited or not; a human decides which value is intended. A divergence requests review (exit 2 with `--ci`) and never produces exit 1; `NOT_DIVERGED` supports no hypothesis status, and a both-pass generated test whose recorded values differ, or cannot be shown equal (redacted, unconverted or unreadable), no longer supports `NOT_REPRODUCED`. There is no policy key and no flag. See [observation experiments](docs/OBSERVATIONS.md).
 <!-- F1:end -->
 
 <!-- F5:begin -->
+### Intent criteria and candidate-only intent tests
+
+The Markdown list items of `--intent` / `--intent-file` (only those under an "Acceptance criteria" heading when there is one) become criteria `AC-1`, `AC-2`, … with the SHA-256 of the recorded (redacted) intent; the intent must be UTF-8 without NUL (else exit 3), and a pasted SwiftProof PR comment is removed from it. With criteria, the reviewer may write a test for one criterion with `create_intent_test` and run it with `run_intent_test`, on the candidate only: there is no baseline control, and intent tests use at most half of the generated-test budget. The `intent_test` record is `INTENT_TEST_FAILED` only when the named test failed on an assertion of its own file and names a changed declaration (matched by name) whose name is on an added line; `INTENT_TEST_PASSED` says nothing about whether the criterion holds. An accepted `INTENT_TEST_FAILED` hypothesis is listed in `intent_test_failures` and the Intent Test Failures section, apart from reproduced issues, and requests review (exit 2 with `--ci`, never 1). `intent_judgment` is model judgment, kept only on `DIVERGED` hypotheses and never read by any status or exit code. See [intent criteria](docs/INTENT.md).
 <!-- F5:end -->
 
 <!-- F9:begin -->
+### Evidence-only exports (SARIF and PR comment)
+
+`--format sarif,pr-comment` (lint, review and report) also writes `confidence-report.sarif` (SARIF 2.1.0) and `PR_COMMENT.md`. Both list only findings backed by recorded sandbox evidence, re-derived from the recorded checks when they are rendered: reproduced hypotheses, changed baseline tests and impacted tests that fail on candidate code, fuzz and observed divergences, intent-test failures and surviving mutants, each with a fixed rule ID and level (`error` only for a reproduced high/critical hypothesis, the only finding that can set exit 1).
+
+- Never findings: signals, review ranges, coverage, unverified, not-reproduced or dismissed hypotheses, passing or negative results, killed mutants and model judgments. Unverified areas, checks that did not pass and stages that did not run appear as status (SARIF notifications, the comment's status block), and "No finding is not approval."
+- Locations are emitted only in changed, non-deleted files; a model-chosen line outside the recorded diff becomes file-level, and a finding without such a location is listed only in the comment.
+- The comment sits between `<!-- swiftproof:pr-comment:begin v1 -->` and `<!-- swiftproof:pr-comment:end -->`, escapes every untrusted string, is at most 60 000 bytes, and links only the validated `--report-url`. Post it as a comment, never into the PR description.
+- Rendering never changes the exit code. SwiftProof publishes nothing; upload SARIF only when the exit code is 0, 1 or 2, `executionSuccessful` is true and no `no_execution`, `stage_not_run` or `omitted_findings` notification is present, and treat files from fork runs as forgeable. See [exports](docs/EXPORTS.md) and [CI integration](docs/CI.md#publishing-evidence-backed-findings-sarif-and-pr-comment).
 <!-- F9:end -->
 
 ## Boundaries and development

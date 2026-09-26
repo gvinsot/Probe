@@ -208,7 +208,7 @@
         {"if": {"properties": {"status": {"enum": ["REPRODUCED", "NOT_REPRODUCED", "DIVERGED", "NOT_DIVERGED", "FAILS_ON_CANDIDATE", "PASSES_ON_CANDIDATE", "INTENT_TEST_FAILED", "INTENT_TEST_PASSED"]}}}, "then": {"required": ["runner"], "properties": {"test_names": {"minItems": 1}}}},
         {"if": {"properties": {"kind": {"const": "differential_observation"}}}, "then": {"required": ["check_id", "base_check_id", "runner", "path"], "properties": {"test_names": {"minItems": 1}, "status": {"enum": ["DIVERGED", "NOT_DIVERGED", "UNVERIFIED"]}}}},
         {"if": {"properties": {"kind": {"const": "differential_observation"}, "status": {"const": "DIVERGED"}}}, "then": {"required": ["repeat_check_id"]}},
-        {"if": {"properties": {"kind": {"const": "differential_fuzz"}}}, "then": {"required": ["check_id", "base_check_id", "runner", "path"], "properties": {"runner": {"const": "go_test_json"}, "test_names": {"minItems": 1, "maxItems": 1}, "status": {"enum": ["DIVERGED", "NOT_DIVERGED", "UNVERIFIED"]}}}},
+        {"if": {"properties": {"kind": {"const": "differential_fuzz"}}}, "then": {"required": ["check_id", "base_check_id", "runner", "path"], "properties": {"runner": {"enum": ["go_test_json", "jest_json"], "description": "go_test_json for a Go harness; jest_json for a TS/JS harness run by Vitest or Jest, whose single payload is the observation stream."}, "test_names": {"minItems": 1, "maxItems": 1}, "status": {"enum": ["DIVERGED", "NOT_DIVERGED", "UNVERIFIED"]}}}},
         {"if": {"properties": {"kind": {"const": "base_test_differential"}}}, "then": {"required": ["path", "check_id", "base_check_id", "runner"], "properties": {"runner": {"const": "go_test_json"}, "test_names": {"minItems": 1, "maxItems": 1}, "status": {"enum": ["FAILS_ON_CANDIDATE", "PASSES_ON_CANDIDATE", "UNVERIFIED"]}}}},
         {"if": {"properties": {"kind": {"const": "impacted_test_differential"}}}, "then": {"required": ["path", "check_id", "base_check_id", "runner"], "properties": {"runner": {"const": "go_test_json"}, "test_names": {"minItems": 1, "maxItems": 1}, "status": {"enum": ["FAILS_ON_CANDIDATE", "PASSES_ON_CANDIDATE", "UNVERIFIED"]}}}},
         {"if": {"properties": {"kind": {"const": "intent_test"}}}, "then": {"required": ["check_id", "criterion_id", "runner", "path"], "not": {"required": ["base_check_id"]}, "properties": {"test_names": {"minItems": 1}, "status": {"enum": ["INTENT_TEST_FAILED", "INTENT_TEST_PASSED", "UNVERIFIED"]}}}},
@@ -497,7 +497,7 @@
       "type": "object",
       "additionalProperties": false,
       "required": ["status", "command", "limits", "files", "mutants", "generated", "dropped", "killed", "survived", "invalid", "timed_out", "inconclusive", "not_run", "checks", "note"],
-      "description": "Mutation of added lines. A surviving mutant may be semantically equivalent and is not a defect, a missing test or dead code; killed mutants are only counted. There is no mutation score.",
+      "description": "Mutation of added lines of changed non-test Go files. A surviving mutant may be semantically equivalent and is not a defect, a missing test or dead code; tests of other packages were not run. Killed mutants are only counted. Status ran means every selected mutant reached KILLED, SURVIVED, INVALID or TIMEOUT and max_mutants dropped none; it is not exhaustive. There is no mutation score.",
       "properties": {
         "status": {"type": "string", "enum": ["not_run", "no_candidates", "ran", "incomplete"]},
         "reason": {"type": "string"},
@@ -513,8 +513,9 @@
         "timed_out": {"$ref": "#/$defs/count"},
         "inconclusive": {"$ref": "#/$defs/count"},
         "not_run": {"$ref": "#/$defs/count"},
-        "checks": {"type": "array", "items": {"$ref": "#/$defs/check"}, "description": "The mutation ledger (mutation-check-N), kept apart from the top-level checks."},
-        "note": {"type": "string"}
+        "checks": {"type": "array", "items": {"$ref": "#/$defs/check"}, "description": "The mutation ledger (mutation-check-N), kept apart from the top-level checks. Mutants are expected to fail, so these checks never request human review by themselves."},
+        "note": {"type": "string"},
+        "coverage_skipped": {"$ref": "#/$defs/count", "description": "Candidate mutants on added lines that a passing, measured coverage run reported as not executed; they were not generated."}
       }
     },
     "mutationLimits": {
@@ -556,8 +557,11 @@
         "control_check_id": {"$ref": "#/$defs/mutationCheckId"},
         "patch_sha256": {"$ref": "#/$defs/sha256"},
         "tests_run": {"$ref": "#/$defs/count"},
-        "failed_tests": {"type": "array", "items": {"type": "string", "minLength": 1}},
-        "reason": {"type": "string"}
+        "failed_tests": {"type": "array", "maxItems": 5, "items": {"type": "string", "minLength": 1}},
+        "reason": {"type": "string"},
+        "column": {"$ref": "#/$defs/line", "description": "One-based byte column where the replaced span starts on line."},
+        "end_line": {"$ref": "#/$defs/line", "description": "Last line of a replaced span that covers several lines."},
+        "symbol": {"type": "string", "description": "Enclosing function; Recv.Name for a method."}
       },
       "allOf": [
         {"if": {"properties": {"status": {"const": "SURVIVED"}}}, "then": {"required": ["check_id", "control_check_id", "patch_sha256", "tests_run"], "properties": {"tests_run": {"minimum": 1}}}},
@@ -568,7 +572,7 @@
       "type": "object",
       "additionalProperties": false,
       "required": ["status", "indexed_files", "changed_functions", "note"],
-      "description": "Static, approximate impact analysis of changed functions. Interface edges are possible dispatch only, and an absent caller is not proof of absence.",
+      "description": "Static, approximate impact analysis of changed Go functions, built from committed source without executing repository code or loading imports from outside the repository. It is never execution evidence. Interface edges are possible dispatch only, and an absent caller or test is not proof that none exists.",
       "properties": {
         "status": {"type": "string", "enum": ["not_applicable", "indexed", "limited", "unavailable"]},
         "reason": {"type": "string"},
@@ -582,7 +586,8 @@
     "impactFunction": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["path", "line", "end_line", "symbol", "change", "callers", "callers_total", "tests"],
+      "required": ["path", "line", "end_line", "symbol", "change", "callers", "callers_total", "tests", "indexed", "tests_total"],
+      "description": "A changed function or method of a changed non-test Go file. When indexed is false, its callers and tests were not searched and reason says why. When indexed is true and reason is present, a search bound was reached and callers or tests may be missing.",
       "properties": {
         "path": {"$ref": "#/$defs/path"},
         "line": {"$ref": "#/$defs/line"},
@@ -591,13 +596,17 @@
         "change": {"type": "string", "enum": ["body_changed", "signature_changed"]},
         "callers": {"type": "array", "maxItems": 10, "items": {"$ref": "#/$defs/impactCaller"}},
         "callers_total": {"$ref": "#/$defs/count", "description": "Callers the bounded index search found; not a count of all callers."},
-        "tests": {"type": "array", "items": {"$ref": "#/$defs/impactTest"}}
+        "tests": {"type": "array", "maxItems": 20, "items": {"$ref": "#/$defs/impactTest"}},
+        "indexed": {"type": "boolean"},
+        "reason": {"type": "string"},
+        "tests_total": {"$ref": "#/$defs/count", "description": "Reaching tests the bounded index search found; at most 20 are listed. Not a count of every test that exercises the function."}
       }
     },
     "impactCaller": {
       "type": "object",
       "additionalProperties": false,
       "required": ["path", "line", "symbol", "depth", "resolution"],
+      "description": "A reference to a changed function from unchanged, non-test code. A place to review, not a defect; interface resolution is possible dispatch only.",
       "properties": {
         "path": {"$ref": "#/$defs/path"},
         "line": {"$ref": "#/$defs/line"},
@@ -619,7 +628,9 @@
         "resolution": {"type": "string", "enum": ["static", "interface"]},
         "evidence_id": {"$ref": "#/$defs/id"},
         "status": {"type": "string", "enum": ["FAILS_ON_CANDIDATE", "PASSES_ON_CANDIDATE", "UNVERIFIED"]},
-        "reason": {"type": "string"}
+        "reason": {"type": "string"},
+        "via": {"type": "array", "minItems": 2, "maxItems": 4, "items": {"type": "string", "minLength": 1}, "description": "Declarations from the test to the changed function, as found by the static index."},
+        "file_changed": {"type": "boolean"}
       },
       "allOf": [
         {"if": {"required": ["status"], "properties": {"status": {"enum": ["FAILS_ON_CANDIDATE", "PASSES_ON_CANDIDATE"]}}}, "then": {"required": ["evidence_id"]}}
@@ -641,13 +652,14 @@
       "type": "object",
       "additionalProperties": false,
       "required": ["status", "scope", "hits", "stored", "misses", "uncacheable", "rejected", "write_failures", "evicted", "contradicted", "note"],
-      "description": "Counters of the opt-in execution cache. A hit is not a fresh execution.",
+      "description": "Status and counters of the opt-in baseline execution cache. A hit replays a recorded baseline execution and is not a fresh execution; the integrity checks of an entry detect corruption, not forgery.",
       "properties": {
         "status": {"type": "string", "enum": ["enabled", "disabled"]},
-        "reason": {"type": "string"},
+        "reason": {"type": "string", "description": "Why no cache was used: not requested (no --cache-dir), sandbox networking, an image that could not be pinned, or an unusable directory."},
         "scope": {"const": "baseline_only"},
-        "image_id": {"$ref": "#/$defs/imageId"},
-        "policy_sha256": {"$ref": "#/$defs/sha256"},
+        "image_id": {"$ref": "#/$defs/imageId", "description": "The probed image ID that every keyed run executed."},
+        "policy_sha256": {"$ref": "#/$defs/sha256", "description": "SHA-256 of the execution settings the trusted policy gave the sandbox (commands, image reference, network, limits); part of every key."},
+        "runtime": {"type": "string", "maxLength": 256, "description": "Docker server version, OS type and architecture recorded in every key. Kernel and runtime internals beyond it are not recorded."},
         "hits": {"$ref": "#/$defs/count"},
         "stored": {"$ref": "#/$defs/count"},
         "misses": {"$ref": "#/$defs/count"},
@@ -663,10 +675,11 @@
       "type": "object",
       "additionalProperties": false,
       "required": ["requested", "effective", "note"],
+      "description": "Concurrency of the initial checks (test, typecheck, build); every other sandbox run is sequential. Parallelism changes none of the rules for a check's timeout, classification or budget charge; concurrent checks share the Docker host, so they can take longer and be charged more.",
       "properties": {
-        "requested": {"type": "integer", "minimum": 1, "maximum": 4},
-        "effective": {"type": "integer", "minimum": 1, "maximum": 4},
-        "note": {"type": "string"}
+        "requested": {"type": "integer", "minimum": 1, "maximum": 4, "description": "The --parallel value."},
+        "effective": {"type": "integer", "minimum": 1, "maximum": 4, "description": "The largest number of initial checks that ran at the same time, after the number of checks, the Docker server's capacity and the budget rule."},
+        "note": {"type": "string", "description": "Fixed text: whether no initial check started a sandbox, why effective is below requested, and the rules concurrent checks ran under."}
       }
     },
     "executionBudget": {
@@ -691,12 +704,12 @@
         "source_commit": {"$ref": "#/$defs/commitId"},
         "command": {"type": "array", "items": {"type": "string"}},
         "user": {"type": "string", "enum": ["sandbox", "root"]},
-        "network": {"type": "boolean", "description": "Effective network setting of the prepare container."},
-        "key": {"$ref": "#/$defs/sha256"},
+        "network": {"type": "boolean", "description": "Network setting of the container that built image_id (for a reused image, a build of an earlier review, which the key records), or the setting this run would have used when no image was produced. It is not a setting of this review's checks, and it never applies to them."},
+        "key": {"$ref": "#/$defs/sha256", "description": "SHA-256 of a canonical JSON of: the schema swiftproof-prepare/v1, the tool version, the base image ID, the argv, the user, the build's network setting, the sorted env, the sorted path and SHA-256 of each exported input (not its file mode), the SHA-256 of the container-argument template, and max_added_mb. Reuse also requires the same source commit. Equal keys mean equal inputs, not equal image content."},
         "base_image": {"type": "string"},
         "base_image_id": {"$ref": "#/$defs/imageId"},
-        "image_id": {"$ref": "#/$defs/imageId"},
-        "added_bytes": {"$ref": "#/$defs/count"},
+        "image_id": {"$ref": "#/$defs/imageId", "description": "The derived image every sandbox run of the review used."},
+        "added_bytes": {"$ref": "#/$defs/count", "description": "Size Docker reports for the layer the prepare container added to the base image."},
         "inputs": {"type": "array", "items": {"$ref": "#/$defs/preparedInput"}},
         "log_sha256": {"$ref": "#/$defs/sha256"},
         "duration_ms": {"$ref": "#/$defs/count"},

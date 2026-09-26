@@ -1,0 +1,38 @@
+{"Time":"2026-09-25T23:03:52.624540438Z","Action":"start","Package":"example.test/probe/timeout"}
+{"Time":"2026-09-25T23:03:52.62609657Z","Action":"run","Package":"example.test/probe/timeout","Test":"TestLoop"}
+{"Time":"2026-09-25T23:03:52.626196154Z","Action":"output","Package":"example.test/probe/timeout","Test":"TestLoop","Output":"=== RUN   TestLoop\n"}
+{"Time":"2026-09-25T23:03:55.634912843Z","Action":"output","Package":"example.test/probe/timeout","Test":"TestLoop","Output":"panic: test timed out after 3s\n"}
+{"Time":"2026-09-25T23:03:55.635297005Z","Action":"output","Package":"example.test/probe/timeout","Test":"TestLoop","Output":"\trunning tests:\n"}
+{"Time":"2026-09-25T23:03:55.635367708Z","Action":"output","Package":"example.test/probe/timeout","Test":"TestLoop","Output":"\t\tTestLoop (3s)\n"}
+{"Time":"2026-09-25T23:03:55.635432524Z","Action":"output","Package":"example.test/probe/timeout","Test":"TestLoop","Output":"\n"}
+{"Time":"2026-09-25T23:03:55.635489511Z","Action":"output","Package":"example.test/probe/timeout","Test":"TestLoop","Output":"goroutine 5 [running]:\n"}
+{"Time":"2026-09-25T23:03:55.635584783Z","Action":"output","Package":"example.test/probe/timeout","Test":"TestLoop","Output":"testing.(*M).startAlarm.func1()\n"}
+{"Time":"2026-09-25T23:03:55.635653474Z","Action":"output","Package":"example.test/probe/timeout","Test":"TestLoop","Output":"\t/usr/local/go/src/testing/testing.go:2802 +0x354\n"}
+{"Time":"2026-09-25T23:03:55.635706957Z","Action":"output","Package":"example.test/probe/timeout","Test":"TestLoop","Output":"created by time.goFunc\n"}
+{"Time":"2026-09-25T23:03:55.635759669Z","Action":"output","Package":"example.test/probe/timeout","Test":"TestLoop","Output":"\t/usr/local/go/src/time/sleep.go:215 +0x2d\n"}
+{"Time":"2026-09-25T23:03:55.635809717Z","Action":"output","Package":"example.test/probe/timeout","Test":"TestLoop","Output":"\n"}
+{"Time":"2026-09-25T23:03:55.635864051Z","Action":"output","Package":"example.test/probe/timeout","Test":"TestLoop","Output":"goroutine 1 [chan receive]:\n"}
+{"Time":"2026-09-25T23:03:55.635923291Z","Action":"output","Package":"example.test/probe/timeout","Test":"TestLoop","Output":"testing.(*T).Run(0x4123ef54008, {0x5857e7?, 0x0?}, 0x592e40)\n"}
+{"Time":"2026-09-25T23:03:55.63598188Z","Action":"output","Package":"example.test/probe/timeout","Test":"TestLoop","Output":"\t/usr/local/go/src/testing/testing.go:2109 +0x4e5\n"}
+{"Time":"2026-09-25T23:03:55.636037655Z","Action":"output","Package":"example.test/probe/timeout","Test":"TestLoop","Output":"testing.runTests.func1(0x4123ef54008)\n"}
+{"Time":"2026-09-25T23:03:55.636112754Z","Action":"output","Package":"example.test/probe/timeout","Test":"TestLoop","Output":"\t/usr/local/go/src/testing/testing.go:2585 +0x3e\n"}
+{"Time":"2026-09-25T23:03:55.636199756Z","Action":"output","Package":"example.test/probe/timeout","Test":"TestLoop","Output":"testing.tRunner(0x4123ef54008, 0x4123ef0ac58)\n"}
+{"Time":"2026-09-25T23:03:55.636255391Z","Action":"output","Package":"example.test/probe/timeout","Test":"TestLoop","Output":"\t/usr/local/go/src/testing/testing.go:2036 +0xea\n"}
+{"Time":"2026-09-25T23:03:55.636310366Z","Action":"output","Package":"example.test/probe/timeout","Test":"TestLoop","Output":"testing.runTests({0x588635, 0x12}, {0x58ab84, 0x1a}, 0x4123ef101e0, {0x6cc920, 0x2, 0x2}, {0xc2a5dd56e550a29a, 0xb2d18e7e, ...})\n"}
+{"Time":"2026-09-25T23:03:55.636365611Z","Action":"output","Package":"example.test/probe/timeout","Test":"TestLoop","Output":"\t/usr/local/go/src/testing/testing.go:2583 +0x505\n"}
+{"Time":"2026-09-25T23:03:55.636414558Z","Action":"output","Package":"example.test/probe/timeout","Test":"TestLoop","Output":"testing.(*M).Run(0x4123ef0e500)\n"}
+{"Time":"2026-09-25T23:03:55.636468452Z","Action":"output","Package":"example.test/probe/timeout","Test":"TestLoop","Output":"\t/usr/local/go/src/testing/testing.go:2443 +0x6ac\n"}
+{"Time":"2026-09-25T23:03:55.636517139Z","Action":"output","Package":"example.test/probe/timeout","Test":"TestLoop","Output":"main.main()\n"}
+{"Time":"2026-09-25T23:03:55.636571893Z","Action":"output","Package":"example.test/probe/timeout","Test":"TestLoop","Output":"\t_testmain.go:48 +0x9b\n"}
+{"Time":"2026-09-25T23:03:55.63668854Z","Action":"output","Package":"example.test/probe/timeout","Test":"TestLoop","Output":"\n"}
+{"Time":"2026-09-25T23:03:55.636765281Z","Action":"output","Package":"example.test/probe/timeout","Test":"TestLoop","Output":"goroutine 18 [runnable]:\n"}
+{"Time":"2026-09-25T23:03:55.636817852Z","Action":"output","Package":"example.test/probe/timeout","Test":"TestLoop","Output":"example.test/probe/timeout.Loop(...)\n"}
+{"Time":"2026-09-25T23:03:55.636870104Z","Action":"output","Package":"example.test/probe/timeout","Test":"TestLoop","Output":"\t/probe/timeout/t.go:1\n"}
+{"Time":"2026-09-25T23:03:55.636928783Z","Action":"output","Package":"example.test/probe/timeout","Test":"TestLoop","Output":"example.test/probe/timeout.TestLoop(0x4123ef54248?)\n"}
+{"Time":"2026-09-25T23:03:55.636977951Z","Action":"output","Package":"example.test/probe/timeout","Test":"TestLoop","Output":"\t/probe/timeout/t_test.go:5 +0x2\n"}
+{"Time":"2026-09-25T23:03:55.637031433Z","Action":"output","Package":"example.test/probe/timeout","Test":"TestLoop","Output":"testing.tRunner(0x4123ef54248, 0x592e40)\n"}
+{"Time":"2026-09-25T23:03:55.63707982Z","Action":"output","Package":"example.test/probe/timeout","Test":"TestLoop","Output":"\t/usr/local/go/src/testing/testing.go:2036 +0xea\n"}
+{"Time":"2026-09-25T23:03:55.637128848Z","Action":"output","Package":"example.test/probe/timeout","Test":"TestLoop","Output":"created by testing.(*T).Run in goroutine 1\n"}
+{"Time":"2026-09-25T23:03:55.63718191Z","Action":"output","Package":"example.test/probe/timeout","Test":"TestLoop","Output":"\t/usr/local/go/src/testing/testing.go:2101 +0x4c5\n"}
+{"Time":"2026-09-25T23:03:55.637288245Z","Action":"output","Package":"example.test/probe/timeout","Output":"FAIL\texample.test/probe/timeout\t3.012s\n"}
+{"Time":"2026-09-25T23:03:55.637347235Z","Action":"fail","Package":"example.test/probe/timeout","Elapsed":3.013}

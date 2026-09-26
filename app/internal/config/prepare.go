@@ -41,6 +41,16 @@ var prepareReservedEnv = map[string]bool{
 	"HOME": true, "TMPDIR": true, "GOCACHE": true, "GOTOOLCHAIN": true, "GOPROXY": true, "GOSUMDB": true,
 }
 
+// prepareCommandEnv are variables that would change what every check executes
+// beyond its reviewed argv: extra go flags (such as -exec or -overlay), a go
+// environment or workspace file, Node preload options and a preloaded shared
+// library. A derived image bakes prepare.env into every check, so the argv
+// rules of the command templates and of mutation.command would no longer
+// describe what runs.
+var prepareCommandEnv = map[string]bool{
+	"GOFLAGS": true, "GOENV": true, "GOWORK": true, "NODE_OPTIONS": true, "LD_PRELOAD": true,
+}
+
 // validate is nil-safe: a nil receiver means preparation is not configured.
 // Credential-bearing input matches are refused later, at export time, by the
 // prepare package.
@@ -86,6 +96,9 @@ func (p *Prepare) validate(s Sandbox) error {
 		}
 		if prepareReservedEnv[name] || strings.HasPrefix(name, "SWIFTPROOF_") {
 			return fmt.Errorf("prepare.env must not set %s: checks set or override it", name)
+		}
+		if prepareCommandEnv[name] {
+			return fmt.Errorf("prepare.env must not set %s: it would change what every check executes beyond its reviewed command", name)
 		}
 		if len(value) > 4096 || strings.ContainsAny(value, "\x00\r\n") {
 			return fmt.Errorf("prepare.env value of %s must be at most 4096 bytes on one line without NUL", name)

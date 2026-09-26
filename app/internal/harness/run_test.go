@@ -262,16 +262,37 @@ func TestConcurrentReservationsNeverExceedBudget(t *testing.T) {
 func TestRunDeadlineSkipsUnstartedRuns(t *testing.T) {
 	h := fixture(t)
 	calls := countingExec(h, "ok\n")
-	expired, cancel := context.WithDeadline(context.Background(), time.Now().Add(-time.Second))
+	expired, cancel := context.WithDeadlineCause(context.Background(), time.Now().Add(-time.Second), ErrOverallDeadline)
 	defer cancel()
 	c, _, _ := runLocked(h, expired, "test", h.candidate, baseCommand, runOptions{})
 	if c.Status != "SKIPPED" || c.Output != deadlineText || *calls != 0 {
 		t.Fatalf("a run started after the overall deadline: %+v (calls %d)", c, *calls)
 	}
-	// The text names both limits a run context can carry, so a reviewer call
-	// made after reviewer.timeout_seconds is not blamed on --deadline alone.
-	if !strings.Contains(c.Output, "--deadline") || !strings.Contains(c.Output, "reviewer time limit") {
+	if !strings.Contains(strings.ToLower(c.Output), "overall deadline reached") {
 		t.Fatalf("deadline text %q", c.Output)
+	}
+	// A child context of the overall deadline (the reviewer's) inherits its
+	// cause when the overall deadline expires first.
+	child, cancelChild := context.WithTimeout(expired, time.Hour)
+	defer cancelChild()
+	if c, _, _ := runLocked(h, child, "test", h.candidate, baseCommand, runOptions{}); c.Status != "SKIPPED" || c.Output != deadlineText {
+		t.Fatalf("a run under an expired overall deadline: %+v", c)
+	}
+	// Any other expired deadline, such as the reviewer time limit wrapped
+	// around a live overall deadline, is not blamed on --deadline.
+	overall, cancelOverall := context.WithDeadlineCause(context.Background(), time.Now().Add(time.Hour), ErrOverallDeadline)
+	defer cancelOverall()
+	reviewerLimit, cancelReviewer := context.WithDeadline(overall, time.Now().Add(-time.Second))
+	defer cancelReviewer()
+	for _, ctx := range []context.Context{reviewerLimit, func() context.Context {
+		plain, stop := context.WithDeadline(context.Background(), time.Now().Add(-time.Second))
+		t.Cleanup(stop)
+		return plain
+	}()} {
+		c, _, _ := runLocked(h, ctx, "test", h.candidate, baseCommand, runOptions{})
+		if c.Status != "SKIPPED" || c.Output != callerDeadlineText || strings.Contains(c.Output, "--deadline") || *calls != 0 {
+			t.Fatalf("a run after another time limit: %+v (calls %d)", c, *calls)
+		}
 	}
 	// A cancellation that is not a deadline keeps the v0.2 path: the executor
 	// sees the cancelled context and the run is recorded as it ended.

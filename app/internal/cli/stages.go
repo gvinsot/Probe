@@ -4,10 +4,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
+	"unicode"
 
 	"github.com/gvinsot/SwiftProof/app/internal/config"
+	"github.com/gvinsot/SwiftProof/app/internal/harness"
 	"github.com/gvinsot/SwiftProof/app/internal/model"
+	"github.com/gvinsot/SwiftProof/app/internal/redact"
 )
 
 // Reasons a review executed nothing. They are recorded verbatim as the reason
@@ -73,8 +77,12 @@ func withStart(ctx context.Context, started time.Time) context.Context {
 // workContext derives the context of every stage that executes or calls a
 // provider (prepare, harness runs, reviewer). With d == 0 it is ctx itself.
 // Otherwise its deadline is start + d - 30 s, where start is the time recorded
-// by withStart (or now); the 30 s are left for cleanup and report writing,
-// which use the parent context.
+// by withStart (the start of the command, or now): the Git comparison, policy
+// loading, static analysis and snapshots count against d without being
+// interrupted. The 30 s are left for cleanup and report writing, which use the
+// parent context. The cancellation cause is harness.ErrOverallDeadline, so that
+// a run skipped because another time limit expired first (the reviewer's) is
+// not blamed on --deadline.
 func workContext(ctx context.Context, d time.Duration) (context.Context, context.CancelFunc) {
 	if d == 0 {
 		return ctx, func() {}
@@ -83,7 +91,7 @@ func workContext(ctx context.Context, d time.Duration) (context.Context, context
 	if !ok {
 		start = time.Now()
 	}
-	return context.WithDeadline(ctx, start.Add(d-deadlineReserve))
+	return context.WithDeadlineCause(ctx, start.Add(d-deadlineReserve), harness.ErrOverallDeadline)
 }
 
 // deadlineReached reports whether work hit its own deadline while ctx was
@@ -116,7 +124,8 @@ func divergenceLine(r *model.Report) string {
 }
 
 // stdoutLines returns the per-stage stdout lines in their fixed order (§1.7),
-// skipping the empty ones. The Reports line follows them.
+// skipping the empty ones. The Reports line follows them. Every line goes
+// through consoleText, whatever its feature put in it.
 func stdoutLines(r *model.Report) []string {
 	var out []string
 	for _, s := range []string{
@@ -128,9 +137,27 @@ func stdoutLines(r *model.Report) []string {
 		impactLine(r.Impact),       // F6a
 		executionLine(r.Execution), // F7a
 	} {
-		if s != "" {
+		if s = consoleText(s); s != "" {
 			out = append(out, s)
 		}
 	}
 	return out
+}
+
+// consoleText makes one stdout line safe to print: it applies the report's
+// secret redaction and replaces control characters (including line breaks) and
+// bidirectional overrides with spaces, as the Markdown renderer does, so that
+// repository or model text a feature quotes can neither hide, reorder nor
+// split terminal output. It returns "" for a line that is blank afterwards.
+func consoleText(s string) string {
+	s = strings.Map(func(r rune) rune {
+		if unicode.IsControl(r) || r == '\u202a' || r == '\u202b' || r == '\u202c' || r == '\u202d' || r == '\u202e' || r == '\u2066' || r == '\u2067' || r == '\u2068' || r == '\u2069' {
+			return ' '
+		}
+		return r
+	}, redact.Redact(strings.ToValidUTF8(s, "\uFFFD")))
+	if strings.TrimSpace(s) == "" {
+		return ""
+	}
+	return s
 }

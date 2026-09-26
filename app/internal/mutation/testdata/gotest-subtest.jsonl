@@ -1,0 +1,17 @@
+{"Time":"2026-09-25T23:03:51.869870506Z","Action":"start","Package":"example.test/probe/subtest"}
+{"Time":"2026-09-25T23:03:51.87344135Z","Action":"run","Package":"example.test/probe/subtest","Test":"TestParent"}
+{"Time":"2026-09-25T23:03:51.873571036Z","Action":"output","Package":"example.test/probe/subtest","Test":"TestParent","Output":"=== RUN   TestParent\n"}
+{"Time":"2026-09-25T23:03:51.873694745Z","Action":"run","Package":"example.test/probe/subtest","Test":"TestParent/a"}
+{"Time":"2026-09-25T23:03:51.874133418Z","Action":"output","Package":"example.test/probe/subtest","Test":"TestParent/a","Output":"=== RUN   TestParent/a\n"}
+{"Time":"2026-09-25T23:03:51.874185256Z","Action":"output","Package":"example.test/probe/subtest","Test":"TestParent/a","Output":"--- PASS: TestParent/a (0.00s)\n"}
+{"Time":"2026-09-25T23:03:51.874223189Z","Action":"pass","Package":"example.test/probe/subtest","Test":"TestParent/a","Elapsed":0}
+{"Time":"2026-09-25T23:03:51.874258339Z","Action":"run","Package":"example.test/probe/subtest","Test":"TestParent/b"}
+{"Time":"2026-09-25T23:03:51.874292187Z","Action":"output","Package":"example.test/probe/subtest","Test":"TestParent/b","Output":"=== RUN   TestParent/b\n"}
+{"Time":"2026-09-25T23:03:51.874326575Z","Action":"output","Package":"example.test/probe/subtest","Test":"TestParent/b","Output":"    s_test.go:7: sub fail\n"}
+{"Time":"2026-09-25T23:03:51.874361264Z","Action":"output","Package":"example.test/probe/subtest","Test":"TestParent/b","Output":"--- FAIL: TestParent/b (0.00s)\n"}
+{"Time":"2026-09-25T23:03:51.874405304Z","Action":"fail","Package":"example.test/probe/subtest","Test":"TestParent/b","Elapsed":0}
+{"Time":"2026-09-25T23:03:51.874439562Z","Action":"output","Package":"example.test/probe/subtest","Test":"TestParent","Output":"--- FAIL: TestParent (0.00s)\n"}
+{"Time":"2026-09-25T23:03:51.874506127Z","Action":"fail","Package":"example.test/probe/subtest","Test":"TestParent","Elapsed":0}
+{"Time":"2026-09-25T23:03:51.874555623Z","Action":"output","Package":"example.test/probe/subtest","Output":"FAIL\n"}
+{"Time":"2026-09-25T23:03:51.874616782Z","Action":"output","Package":"example.test/probe/subtest","Output":"FAIL\texample.test/probe/subtest\t0.003s\n"}
+{"Time":"2026-09-25T23:03:51.874655715Z","Action":"fail","Package":"example.test/probe/subtest","Elapsed":0.005}

@@ -496,7 +496,7 @@ const (
 	// record has no accepted NOT_DIVERGED status (unverified, unstable or
 	// incomparable values, or a stored status the recorded checks do not
 	// support): nothing may then be said about equal values.
-	unvalidatedText = "No validated divergence was recorded. %d of %d observation or fuzz records did not yield a validated result (see Recorded Evidence and Unverified Areas); this does not establish equivalent behavior."
+	unvalidatedText = "No validated divergence was recorded. %d of %d observation or fuzz records are inconclusive or were not accepted as evidence (see Recorded Evidence), so nothing is said about their values; this does not establish equivalent behavior."
 	// notAcceptedText follows a stored evidence status that Finalize did not
 	// accept: not re-derived from the recorded checks, or withdrawn.
 	notAcceptedText = "as stored; not accepted as evidence"

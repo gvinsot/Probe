@@ -1,0 +1,7 @@
+{"ImportPath":"example.test/probe/vet [example.test/probe/vet.test]","Action":"build-output","Output":"# example.test/probe/vet\n"}
+{"ImportPath":"example.test/probe/vet [example.test/probe/vet.test]","Action":"build-output","Output":"# [example.test/probe/vet]\n"}
+{"ImportPath":"example.test/probe/vet [example.test/probe/vet.test]","Action":"build-output","Output":"vet/v.go:5:47: fmt.Sprintf format %s has arg n of wrong type int\n"}
+{"ImportPath":"example.test/probe/vet [example.test/probe/vet.test]","Action":"build-fail"}
+{"Time":"2026-09-25T23:03:50.685602613Z","Action":"start","Package":"example.test/probe/vet"}
+{"Time":"2026-09-25T23:03:50.68607242Z","Action":"output","Package":"example.test/probe/vet","Output":"FAIL\texample.test/probe/vet [build failed]\n"}
+{"Time":"2026-09-25T23:03:50.686154505Z","Action":"fail","Package":"example.test/probe/vet","Elapsed":0.001,"FailedBuild":"example.test/probe/vet [example.test/probe/vet.test]"}

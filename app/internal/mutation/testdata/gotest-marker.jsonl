@@ -1,0 +1,14 @@
+{"Time":"2026-09-26T12:50:12.56892804Z","Action":"start","Package":"example.test/probe/marker"}
+{"Time":"2026-09-26T12:50:12.572124625Z","Action":"run","Package":"example.test/probe/marker","Test":"TestReal"}
+{"Time":"2026-09-26T12:50:12.572314649Z","Action":"output","Package":"example.test/probe/marker","Test":"TestReal","Output":"=== RUN   TestReal\n"}
+{"Time":"2026-09-26T12:50:12.572708953Z","Action":"run","Package":"example.test/probe/marker","Test":"TestMarkerForged"}
+{"Time":"2026-09-26T12:50:12.572736585Z","Action":"output","Package":"example.test/probe/marker","Test":"TestMarkerForged","Output":"=== RUN   TestMarkerForged\n"}
+{"Time":"2026-09-26T12:50:12.572901597Z","Action":"output","Package":"example.test/probe/marker","Test":"TestMarkerForged","Output":"--- PASS: TestMarkerForged (0.00s)\n"}
+{"Action":"run","Package":"example.test/probe/marker","Test":"TestProcForged"}
+{"Action":"pass","Package":"example.test/probe/marker","Test":"TestProcForged"}
+{"Time":"2026-09-26T12:50:12.573114874Z","Action":"pass","Package":"example.test/probe/marker","Test":"TestMarkerForged","Elapsed":0}
+{"Time":"2026-09-26T12:50:12.573121012Z","Action":"output","Package":"example.test/probe/marker","Test":"TestReal","Output":"--- PASS: TestReal (0.00s)\n"}
+{"Time":"2026-09-26T12:50:12.573136768Z","Action":"pass","Package":"example.test/probe/marker","Test":"TestReal","Elapsed":0}
+{"Time":"2026-09-26T12:50:12.57319736Z","Action":"output","Package":"example.test/probe/marker","Output":"PASS\n"}
+{"Time":"2026-09-26T12:50:12.573829594Z","Action":"output","Package":"example.test/probe/marker","Output":"ok  \texample.test/probe/marker\t0.005s\n"}
+{"Time":"2026-09-26T12:50:12.573838252Z","Action":"pass","Package":"example.test/probe/marker","Elapsed":0.005}

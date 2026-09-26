@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/gvinsot/SwiftProof/app/internal/config"
+	"github.com/gvinsot/SwiftProof/app/internal/harness"
 	"github.com/gvinsot/SwiftProof/app/internal/model"
 )
 
@@ -79,6 +80,28 @@ func TestDeadlineReached(t *testing.T) {
 	}
 	if !errors.Is(expired.Err(), context.DeadlineExceeded) {
 		t.Fatal("expired context has the wrong error")
+	}
+	// The harness names --deadline in a SKIPPED run only through this cause.
+	if !errors.Is(context.Cause(expired), harness.ErrOverallDeadline) {
+		t.Fatalf("expired work context cause %v", context.Cause(expired))
+	}
+}
+
+// Stage lines are printed without control characters, bidirectional
+// overrides or secret-shaped text, whatever a feature put in them.
+func TestConsoleText(t *testing.T) {
+	for in, want := range map[string]string{
+		"":                                    "",
+		" \n\t":                               "",
+		"2 recorded behavior divergences.":    "2 recorded behavior divergences.",
+		"a\nb\rc\x1b[31md":                    "a b c [31md",
+		"x\u202ey\u2066z\u202ay":              "x y z y",
+		"password=hunter2 in Discount(5, 33)": "[REDACTED] in Discount(5, 33)",
+		"bad \xff utf8":                       "bad \uFFFD utf8",
+	} {
+		if got := consoleText(in); got != want {
+			t.Errorf("consoleText(%q) = %q, want %q", in, got, want)
+		}
 	}
 }
 

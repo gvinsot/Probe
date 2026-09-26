@@ -1,16 +1,21 @@
 package cli
 
-// F0 stub of the trusted dependency-preparation stage (F8 owns this file). A
-// configured prepare policy fails closed: no image is produced, no repository
-// code runs, and the run exits 4.
+// The trusted dependency-preparation stage (F8). A configured prepare policy
+// runs before any candidate code, on inputs exported from the base commit, and
+// produces the image every sandbox run of the review uses. It fails closed: no
+// image means no execution and exit 4, never the unprepared image.
 
 import (
 	"context"
+	"fmt"
 	"io"
+	"strings"
 
 	"github.com/gvinsot/SwiftProof/app/internal/config"
+	"github.com/gvinsot/SwiftProof/app/internal/dockerutil"
 	"github.com/gvinsot/SwiftProof/app/internal/gitrepo"
 	"github.com/gvinsot/SwiftProof/app/internal/model"
+	"github.com/gvinsot/SwiftProof/app/internal/prepare"
 )
 
 // preparation is the outcome of the prepare stage.
@@ -23,19 +28,81 @@ type preparation struct {
 	ok         bool
 }
 
+// The Docker client of the prepare stage; tests substitute fakes.
+var (
+	prepareDocker prepare.Docker    = prepare.DockerCLI{}
+	prepareRunner dockerutil.Runner = dockerutil.DefaultRunner
+)
+
+// prepareShadowedNote is the Unverified entry of a preparation whose every
+// change is hidden from checks.
+const prepareShadowedNote = "Dependency preparation: prepared outputs are shadowed by check mounts. Every change the prepare command made is under /workspace, /tmp or its HOME, which sandbox checks replace or do not use, so checks may have run without the prepared dependencies."
+
+// prepareChangedInputsNote is the Unverified entry of a review whose checks ran
+// on a prepared image while the candidate changes declared inputs. It states
+// what was not installed and attributes no check result to it.
+func prepareChangedInputsNote(changed []string) string {
+	return "Candidate changes dependency-preparation inputs (" + prepare.ListPaths(changed, 20) + "); sandbox checks used dependencies prepared from the base commit's versions of the declared inputs only. Candidate dependency changes were not installed, so checks may fail or behave differently for that reason alone; SwiftProof attributes no check result to it."
+}
+
 // prepareSignals returns the prepare_input_changed signals of a change that
-// edits a declared prepare input (lint and review). The stub returns none.
-func prepareSignals(spec *config.Prepare, change model.Change) []model.Signal { return nil }
+// edits a declared prepare input (lint and review).
+func prepareSignals(spec *config.Prepare, change model.Change) []model.Signal {
+	return prepare.Signals(spec, change)
+}
 
 // runPrepare derives the sandbox image from inputs exported from the base
-// commit. It never falls back to the unprepared image. The stub fails closed.
+// commit. allowNetwork is the effective permission (policy prepare.network,
+// --allow-prepare-network and not --no-network). It never falls back to the
+// unprepared image.
 func runPrepare(ctx context.Context, repo *gitrepo.Repository, cfg config.Config, change model.Change, artifactDir string, allowNetwork bool, version string, errOut io.Writer) preparation {
-	record := prepareRecord(cfg, change, model.PrepareFailed, "dependency preparation is not implemented in this build")
-	record.Network = allowNetwork
-	return preparation{
-		record:     record,
-		unverified: []string{"Dependency preparation failed: not implemented in this build. No repository code was executed."},
+	if cfg.Prepare == nil {
+		return preparation{}
 	}
+	var exporter prepare.Exporter
+	if repo != nil {
+		exporter = repo
+	}
+	res := prepare.Run(ctx, prepare.Options{
+		Spec: *cfg.Prepare, BaseImage: cfg.Sandbox.Image, SourceCommit: change.BaseCommit, Repo: exporter,
+		AllowNetwork: allowNetwork, MemoryMB: cfg.Sandbox.MemoryMB, CPUs: cfg.Sandbox.CPUs, MaxOutputBytes: cfg.Sandbox.MaxOutputBytes,
+		ArtifactDir: artifactDir, ToolVersion: version, Docker: prepareDocker, Runner: prepareRunner, Progress: errOut,
+	})
+	record := res.Record
+	p := preparation{record: &record, artifacts: res.Artifacts, audit: []model.AuditEvent{res.Audit}}
+	switch {
+	case res.Ready():
+		p.image, p.ok = res.Image, true
+		if changed := prepare.ChangedInputs(cfg.Prepare, change); len(changed) > 0 {
+			p.unverified = append(p.unverified, prepareChangedInputsNote(changed))
+		}
+		if res.Shadowed {
+			p.unverified = append(p.unverified, prepareShadowedNote)
+		}
+	case record.Status == model.PrepareNotPermitted:
+		fmt.Fprintf(errOut, "Dependency preparation was not permitted: %s\n", record.Reason)
+		p.unverified = append(p.unverified, "Dependency preparation was not permitted: "+prepareSentence(record.Reason)+" The prepare command did not run; no repository code was executed and no check ran.")
+	default:
+		fmt.Fprintf(errOut, "Dependency preparation failed: %s\n", record.Reason)
+		ran := "The prepare command did not run; no repository code was executed and no check ran."
+		if res.Started {
+			ran = "The base-branch prepare command was started in its container; no candidate code ran and no check ran."
+		}
+		p.unverified = append(p.unverified, "Dependency preparation failed: "+prepareSentence(record.Reason)+" "+ran)
+	}
+	return p
+}
+
+// prepareSentence ends s with a period.
+func prepareSentence(s string) string {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return "no reason was recorded."
+	}
+	if strings.HasSuffix(s, ".") {
+		return s
+	}
+	return s + "."
 }
 
 // prepareNotRun is the prepare object of a review that needed no execution.
@@ -44,7 +111,7 @@ func prepareNotRun(cfg config.Config, change model.Change, reason string) *model
 }
 
 // prepareRecord builds a prepare object for a stage that produced no image.
-// Network stays false unless the caller records the effective setting.
+// Network stays false: no container ran.
 func prepareRecord(cfg config.Config, change model.Change, status, reason string) *model.Prepare {
 	p := &model.Prepare{
 		Status: status, Reason: reason, SourceCommit: change.BaseCommit, Command: []string{},
