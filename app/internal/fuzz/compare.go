@@ -151,6 +151,9 @@ func view(c *model.Check, stream *Stream, name, kind, test string, planned int, 
 	case c.Truncated:
 		s.problem = "log was truncated"
 		return s
+	case c.Results == "" && c.Status == "FAIL":
+		s.problem = "failed without recording an observation stream (for example, the package did not build; see the check log)"
+		return s
 	case c.Results == "":
 		s.problem = "recorded no observation stream"
 		return s

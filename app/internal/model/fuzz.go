@@ -12,9 +12,10 @@ const (
 	FuzzSeedScheme   = "swiftproof-fuzz/v1"
 )
 
-// FuzzNote is the fixed note of the fuzz section. F2 owns its final text; this
-// neutral sentence makes no claim.
-const FuzzNote = "See the documentation for what this section does and does not establish."
+// FuzzNote is the fixed note of the fuzz section. It describes the method and
+// what the outcomes do not establish; it is shown whatever the section status,
+// so it never says that fuzzing ran.
+const FuzzNote = "When differential fuzzing runs, it passes the same seeded inputs through changed Go functions on the baseline and on the candidate, and compares bounded, redacted encodings of their results, recovered panics and slice arguments after each call. diverged records that the two revisions recorded different values for at least one input, each repeating its own value in a second run; it does not establish which revision is correct, and the change may be intended. not_diverged says only that the recorded encodings were equal for the inputs tried; it does not establish equivalent behavior, even for those inputs. inconclusive is neither a divergence nor a defect. Other side effects (files, globals, standard output) are not observed, and code under review can write the observations of its own revision."
 
 type FuzzLimits struct {
 	MaxFunctions      int `json:"max_functions"`
