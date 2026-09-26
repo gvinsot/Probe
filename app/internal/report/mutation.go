@@ -218,13 +218,13 @@ func writeMutation(b *bytes.Buffer, r *model.Report) {
 	line(b, "\n## Mutation of Added Lines\n")
 	switch m.Status {
 	case model.MutationNotRun:
-		fmt.Fprintf(b, "Mutation analysis did not run: %s\n\n", inline(orNone(m.Reason)))
+		fmt.Fprintf(b, "Mutation analysis did not run: %s\n\n", inline(mutationOrNone(m.Reason)))
 	case model.MutationNoCandidates:
-		fmt.Fprintf(b, "No mutant was run: %s\n\n", inline(orNone(m.Reason)))
+		fmt.Fprintf(b, "No mutant was run: %s\n\n", inline(mutationOrNone(m.Reason)))
 	case model.MutationRan:
 		line(b, "Status: ran. Every selected mutant reached an outcome and max\\_mutants dropped none; this does not make the analysis exhaustive.\n")
 	default:
-		fmt.Fprintf(b, "Status: %s. %s\n\n", inline(m.Status), inline(orNone(m.Reason)))
+		fmt.Fprintf(b, "Status: %s. %s\n\n", inline(m.Status), inline(mutationOrNone(m.Reason)))
 	}
 	if len(m.Command) > 0 {
 		fmt.Fprintf(b, "Command: %s, run once per package with {package} expanded (max\\_mutants %d, timeout\\_seconds %d, max\\_runtime\\_seconds %d).\n\n", inline(strings.Join(m.Command, " ")), m.Limits.MaxMutants, m.Limits.TimeoutSeconds, m.Limits.MaxRuntimeSeconds)
@@ -263,7 +263,7 @@ func writeMutation(b *bytes.Buffer, r *model.Report) {
 			line(b, "Mutants without an outcome:\n")
 		}
 		listed++
-		fmt.Fprintf(b, "- **%s** %s, %s at %s: %s\n", inline(mu.ID), inline(mu.Status), inline(mu.Operator), mutantLocation(mu), inline(orNone(mu.Reason)))
+		fmt.Fprintf(b, "- **%s** %s, %s at %s: %s\n", inline(mu.ID), inline(mu.Status), inline(mu.Operator), mutantLocation(mu), inline(mutationOrNone(mu.Reason)))
 	}
 	if open > listed {
 		fmt.Fprintf(b, "- … %d more in confidence-report.json\n", open-listed)
@@ -284,7 +284,7 @@ func writeMutation(b *bytes.Buffer, r *model.Report) {
 			line(b, "Changed Go files that were not mutated:\n")
 		}
 		listed++
-		fmt.Fprintf(b, "- %s: %s\n", inline(f.Path), inline(orNone(f.Reason)))
+		fmt.Fprintf(b, "- %s: %s\n", inline(f.Path), inline(mutationOrNone(f.Reason)))
 	}
 	if skipped > listed {
 		fmt.Fprintf(b, "- … %d more in confidence-report.json\n", skipped-listed)
@@ -307,7 +307,7 @@ func mutantLocation(mu model.Mutant) string {
 	return s
 }
 
-func orNone(s string) string {
+func mutationOrNone(s string) string {
 	if strings.TrimSpace(s) == "" {
 		return "no reason was recorded"
 	}
