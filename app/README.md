@@ -287,6 +287,15 @@ Selection is static (Go syntax; comment and layout edits select nothing unless t
 <!-- F6:end -->
 
 <!-- F2:begin -->
+### Differential fuzzing
+
+With a `fuzz` object in the trusted base-branch policy (`"fuzz": {}` takes the defaults), `review` runs the same seeded inputs through each changed package-level Go function whose signature is unchanged and whose parameters can be generated (basic types, package-local named basic types, and slices, arrays or variadics of them), on the baseline and on the candidate, in the unchanged sandbox and through the reviewed `generated_test` command (`["go", "test", "{package}"]`). No model is involved and nothing asserts an expected value. A one-file harness per package records bounded encodings of results, recovered panics and slice arguments after the call; a first-pair difference gets one confirmation run per revision. Each function is:
+
+- `diverged`: the revisions recorded different values for at least one input, each repeating its own value in a second run. The smallest divergent input tried is shown with both values; it does not say which revision is correct, and the change may be intended.
+- `not_diverged`: equal recorded encodings for every compared input. This does not establish equivalent behavior, even for those inputs.
+- `inconclusive`: a timeout, a crash, nondeterminism, a candidate that does not build, a budget cut, and so on.
+
+Other changed functions are listed as not fuzzed, with a reason; changed exported TS/JS functions are listed with "TS/JS differential fuzzing is not implemented in this build". `Finalize` derives every outcome again from the recorded checks and observation streams. Fuzzing never produces exit 1: a divergence, an inconclusive function or a stage that did not run requests review (exit 2 with `--ci`); only a baseline-side harness failure is exit 4. `--fuzz=false` disables it for one run; `fuzz.max_runtime_seconds` is a sub-cap inside the shared sandbox budget. See [differential fuzzing](docs/FUZZ.md).
 <!-- F2:end -->
 
 <!-- F4:begin -->

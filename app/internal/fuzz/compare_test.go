@@ -269,6 +269,8 @@ func TestEvaluateRequiresValidatedExecutions(t *testing.T) {
 		{"infrastructure exit code", edit(func(c *Checks) { c.Candidate.Status, c.Candidate.ExitCode = "FAIL", 137 }), "the candidate run ended with exit code 137"},
 		{"pass with exit code", edit(func(c *Checks) { c.Base.ExitCode = 1 }), "the baseline run ended with exit code 1"},
 		{"no stream", edit(func(c *Checks) { c.Candidate.Results = "" }), "the candidate run recorded no observation stream"},
+		{"failed without a stream", edit(func(c *Checks) { c.Candidate.Results, c.Candidate.Status, c.Candidate.ExitCode = "", "FAIL", 1 }),
+			"the candidate run failed without recording an observation stream (for example, the package did not build; see the check log)"},
 		{"rejected stream", edit(func(c *Checks) { c.Candidate.Results = sameResults + " " }), "the candidate run observation stream was rejected"},
 		{"swapped kinds", edit(func(c *Checks) { c.Base.Kind, c.Candidate.Kind = c.Candidate.Kind, c.Base.Kind }), "the baseline run is not a fuzz_base check"},
 		{"replayed candidate", edit(func(c *Checks) { c.Candidate.Cache = &model.CheckCache{Status: model.CacheHit, LiveRuns: 5} }), "the candidate run was replayed from the execution cache; only live runs are accepted for this check"},
