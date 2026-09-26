@@ -104,7 +104,15 @@ type Harness struct {
 	mutation  mutationState // mutation.go (F4)
 }
 
-func New(opts Options) (*Harness, error) {
+// New is NewContext without a caller context.
+func New(opts Options) (*Harness, error) { return NewContext(context.Background(), opts) }
+
+// NewContext creates a harness. ctx bounds only the execution-cache image
+// probe (--deadline and cancellation); no Docker call is made without a cache.
+// With a probed image ID, every run of the review executes that ID, so the
+// initial checks and coverage run the image that execution.cache.image_id
+// names.
+func NewContext(ctx context.Context, opts Options) (*Harness, error) {
 	if opts.CandidateDir == "" {
 		return nil, errors.New("candidate snapshot is required")
 	}
@@ -143,9 +151,12 @@ func New(opts Options) (*Harness, error) {
 	}
 	opts.Commands = commands
 	opts.IntentCriteria = append([]model.IntentCriterion(nil), opts.IntentCriteria...)
-	state, err := newExecState(opts)
+	state, err := newExecStateContext(ctx, opts)
 	if err != nil {
 		return nil, err
+	}
+	if state.imageID != "" {
+		opts.Image = state.imageID
 	}
 	root, err := os.MkdirTemp("", "swiftproof-harness-")
 	if err != nil {

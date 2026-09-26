@@ -327,7 +327,7 @@ func analyze(ctx context.Context, mode string, args []string, out, errOut io.Wri
 		}
 		diffJSON, _ := json.Marshal(change)
 		executionStarted()
-		h, err := harness.New(harness.Options{
+		h, err := harness.NewContext(work, harness.Options{
 			CandidateDir: candidateDir, BaseDir: baseDir, ArtifactDir: filepath.Join(output, "artifacts"),
 			Commands: cfg.Commands, Image: image, Network: cfg.Sandbox.Network && *allowNetwork && !*noNetwork,
 			Timeout: time.Duration(cfg.Sandbox.TimeoutSeconds) * time.Second, MaxRuntime: time.Duration(cfg.Sandbox.MaxRuntimeSeconds) * time.Second,

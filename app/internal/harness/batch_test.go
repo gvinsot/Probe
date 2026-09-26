@@ -602,6 +602,25 @@ func TestParallelismSummaryFollowsRunChecks(t *testing.T) {
 	}
 }
 
+// A review that never runs its initial checks (--checks=false, or no initial
+// command) keeps the note the harness started with: with --parallel above 1
+// it says that --parallel had no effect and does not say that checks ran; with
+// --parallel 1 it is the one-at-a-time note.
+func TestParallelismNoteWithoutInitialChecks(t *testing.T) {
+	forbidDocker(t)
+	if got := sequentialNote(3); !strings.Contains(got, "--parallel had no effect") || strings.Contains(got, "Initial checks ran") {
+		t.Fatalf("note without initial checks %q", got)
+	}
+	if got := sequentialNote(1); got != parallelOneNote {
+		t.Fatalf("note with --parallel 1 %q", got)
+	}
+	h := batchFixture(t, 2, nil)
+	want := model.ExecutionParallelism{Requested: 2, Effective: 1, Note: "The initial checks did not run in this review, so --parallel had no effect: every sandbox run ran one at a time."}
+	if p := h.Execution().Parallelism; p != want {
+		t.Fatalf("parallelism of a review without initial checks %+v", p)
+	}
+}
+
 // RunChecks holds h.mu while a group runs: a reader never sees part of a
 // group, and no other run can start in between.
 func TestRunChecksHoldsTheHarnessDuringAGroup(t *testing.T) {

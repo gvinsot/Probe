@@ -795,8 +795,11 @@ func TestServableAndStorableRules(t *testing.T) {
 			t.Errorf("%s: served", name)
 		}
 	}
-	if !servable(CacheEntry{Status: "FAIL", ExitCode: 1, LiveRuns: 2, Payload: []byte("plain")}, time.Second) {
-		t.Error("a FAIL entry with a clean payload was refused")
+	if !servable(CacheEntry{Status: "PASS", LiveRuns: 2, Payload: []byte("plain")}, time.Second) {
+		t.Error("a PASS entry with a clean payload was refused")
+	}
+	if servable(CacheEntry{Status: "FAIL", ExitCode: 1, LiveRuns: 2}, time.Second) {
+		t.Error("a FAIL entry was served: a replayed baseline FAIL can only hide a conclusion")
 	}
 	if !storable(model.Check{Status: "FAIL", ExitCode: 124}, nil, false) || !storable(model.Check{Status: "PASS"}, []byte("ok"), false) {
 		t.Error("a completed result was refused")
