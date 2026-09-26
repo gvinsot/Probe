@@ -107,8 +107,10 @@ func (f *fakePrepareDocker) Run(ctx context.Context, name string, args []string,
 	return true, f.runExit, nil
 }
 
-func (f *fakePrepareDocker) Changed(ctx context.Context, name string) ([]byte, bool, error) {
-	return []byte("C /go\nA /go/pkg\n"), false, nil
+func (f *fakePrepareDocker) Changed(ctx context.Context, name string, line func(string, bool)) error {
+	line("C /go", false)
+	line("A /go/pkg", false)
+	return nil
 }
 
 func (f *fakePrepareDocker) Commit(ctx context.Context, name, tag string, changes []string) (string, error) {
@@ -298,7 +300,8 @@ func TestPrepareBuildThenReuseAcrossReviews(t *testing.T) {
 	if len(r.Checks) == 0 {
 		t.Fatal("no check ran on the prepared image")
 	}
-	if !unverifiedWith(r, "Candidate changes dependency-preparation inputs (go.sum)") || !hasPrepareSignal(r, "go.sum") {
+	// The entry is neutral: it attributes no failure to the dependency change.
+	if !unverifiedWith(r, "Candidate changes dependency-preparation inputs (go.sum)") || !unverifiedWith(r, "checks may fail or behave differently for that reason alone; SwiftProof attributes no check result to it.") || unverifiedWith(r, "failures they cause are expected") || !hasPrepareSignal(r, "go.sum") {
 		t.Fatalf("unverified %q", r.Unverified)
 	}
 	_, again, _, output := runReport(t, context.Background(), dir, "review", "--config", policy, "--reviewer=false", "--ci")

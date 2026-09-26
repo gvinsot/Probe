@@ -7,8 +7,10 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"reflect"
 	"strings"
 	"testing"
+	"testing/iotest"
 
 	"github.com/gvinsot/SwiftProof/app/internal/config"
 	"github.com/gvinsot/SwiftProof/app/internal/gitrepo"
@@ -121,28 +123,110 @@ func TestScaffoldArchive(t *testing.T) {
 func TestClassifyChanges(t *testing.T) {
 	inputs := []gitrepo.ExportedFile{{Path: "go.mod"}, {Path: "app/go.sum"}}
 	own := "A /swiftproof\nA /swiftproof/inputs\nA /swiftproof/work\nA /swiftproof/work/go.mod\nA /swiftproof/work/app\nA /swiftproof/work/app/go.sum\nA /swiftproof/home\n"
+	// Far more than 64 KiB of listing under the prepare HOME and /tmp.
+	var home strings.Builder
+	for i := 0; i < 4000; i++ {
+		fmt.Fprintf(&home, "A /swiftproof/home/c/f%04d\nA /tmp/c/f%04d\n", i, i)
+	}
+	long := strings.Repeat("x", diffLineLimit)
 	for _, tc := range []struct {
 		name                 string
 		diff                 string
-		cut                  bool
-		persistent, shadowed string
+		persistent, shadowed int
 	}{
 		{name: "nothing beyond SwiftProof's own paths", diff: own},
 		{name: "empty"},
-		{name: "go module cache", diff: own + "C /go\nA /go/pkg\nA /go/pkg/mod\n", persistent: "/go,/go/pkg,/go/pkg/mod"},
-		{name: "work outputs are persistent", diff: own + "A /swiftproof/work/node_modules\n", persistent: "/swiftproof/work/node_modules"},
-		{name: "shadowed", diff: own + "A /swiftproof/home/.cache\nC /tmp\nA /tmp/x\nA /workspace/y\n", shadowed: "/swiftproof/home/.cache,/tmp,/tmp/x,/workspace/y"},
-		{name: "prefix is not a parent", diff: "A /tmpfoo\nA /workspacex\n", persistent: "/tmpfoo,/workspacex"},
-		{name: "deletions count", diff: "D /usr/share/doc\n", persistent: "/usr/share/doc"},
-		{name: "cut listing drops the partial line", diff: own + "A /opt/lib\nA /opt/li", cut: true, persistent: "/opt/lib"},
-		{name: "CRLF", diff: "A /opt/x\r\n", persistent: "/opt/x"},
-		{name: "space in path", diff: "A /opt/a b\n", persistent: "/opt/a b"},
+		{name: "go module cache", diff: own + "C /go\nA /go/pkg\nA /go/pkg/mod\n", persistent: 3},
+		{name: "work outputs are persistent", diff: own + "A /swiftproof/work/node_modules\n", persistent: 1},
+		{name: "shadowed", diff: own + "A /swiftproof/home/.cache\nC /tmp\nA /tmp/x\nA /workspace/y\n", shadowed: 4},
+		{name: "prefix is not a parent", diff: "A /tmpfoo\nA /workspacex\n", persistent: 2},
+		{name: "deletions count", diff: "D /usr/share/doc\n", persistent: 1},
+		{name: "a final line without terminator counts", diff: own + "A /opt/lib", persistent: 1},
+		{name: "CRLF", diff: "A /opt/x\r\n", persistent: 1},
+		{name: "space in path", diff: "A /opt/a b\n", persistent: 1},
 		{name: "input mount content", diff: "A /swiftproof/inputs/go.mod\n"},
-		{name: "a work file that is not an input", diff: "A /swiftproof/work/go.sum\n", persistent: "/swiftproof/work/go.sum"},
+		{name: "a work file that is not an input", diff: "A /swiftproof/work/go.sum\n", persistent: 1},
+		// Regression: the persistent change comes after 64 KiB of shadowed
+		// lines; the whole listing is classified, so nothing is called shadowed.
+		{name: "a persistent change after a long shadowed listing", diff: own + home.String() + "C /var\nC /var/tmp\nA /var/tmp/deps\n", persistent: 3, shadowed: 8000},
+		{name: "a long shadowed listing only", diff: own + home.String(), shadowed: 8000},
+		// A path longer than the line bound is never assumed shadowed or own.
+		{name: "an over-long path under /tmp", diff: own + "A /tmp/" + long + "\nA /tmp/x\n", persistent: 1, shadowed: 1},
+		{name: "an over-long path under the work directory", diff: "A /swiftproof/work/" + long + "\n", persistent: 1},
 	} {
-		c := classifyChanges([]byte(tc.diff), tc.cut, inputs)
-		if strings.Join(c.persistent, ",") != tc.persistent || strings.Join(c.shadowed, ",") != tc.shadowed {
-			t.Errorf("%s: persistent %q shadowed %q", tc.name, c.persistent, c.shadowed)
+		c := newClassifier(inputs)
+		if err := scanLines(strings.NewReader(tc.diff), diffLineLimit, c.add); err != nil {
+			t.Fatal(err)
+		}
+		if c.persistent != tc.persistent || c.shadowed != tc.shadowed {
+			t.Errorf("%s: persistent %d shadowed %d, want %d and %d", tc.name, c.persistent, c.shadowed, tc.persistent, tc.shadowed)
+		}
+	}
+}
+
+type scannedLine struct {
+	text string
+	long bool
+}
+
+func scanAll(t *testing.T, r io.Reader, limit int) []scannedLine {
+	t.Helper()
+	var got []scannedLine
+	if err := scanLines(r, limit, func(text string, long bool) { got = append(got, scannedLine{text, long}) }); err != nil {
+		t.Fatal(err)
+	}
+	return got
+}
+
+// scanLines passes every line, whatever the chunking of the reader, bounds
+// each line and marks a cut one.
+func TestScanLines(t *testing.T) {
+	mid := strings.Repeat("m", 40<<10) // longer than the 32 KiB read buffer
+	input := "a\n\nbb\r\n" + strings.Repeat("y", 10) + "\n" + strings.Repeat("z", 11) + "\n" + mid + "\nlast"
+	want := []scannedLine{{"a", false}, {"", false}, {"bb\r", false}, {strings.Repeat("y", 10), false}, {strings.Repeat("z", 10), true}, {mid[:10], true}, {"last", false}}
+	for name, r := range map[string]func() io.Reader{
+		"whole":    func() io.Reader { return strings.NewReader(input) },
+		"one byte": func() io.Reader { return iotest.OneByteReader(strings.NewReader(input)) },
+		"half":     func() io.Reader { return iotest.HalfReader(strings.NewReader(input)) },
+	} {
+		if got := scanAll(t, r(), 10); !reflect.DeepEqual(got, want) {
+			t.Errorf("%s: got %+v", name, got)
+		}
+	}
+	if got := scanAll(t, strings.NewReader("a\n"+mid+"\nb\n"), 64<<10); len(got) != 3 || got[1] != (scannedLine{mid, false}) || got[2].text != "b" {
+		t.Fatalf("a line longer than the read buffer was split: %d lines", len(got))
+	}
+	if got := scanAll(t, strings.NewReader(""), 10); len(got) != 0 {
+		t.Fatalf("empty input gave %+v", got)
+	}
+	if got := scanAll(t, strings.NewReader(strings.Repeat("q", 25)), 10); !reflect.DeepEqual(got, []scannedLine{{strings.Repeat("q", 10), true}}) {
+		t.Fatalf("unterminated long line: %+v", got)
+	}
+	failing := io.MultiReader(strings.NewReader("a\nb"), iotest.ErrReader(errors.New("pipe broken")))
+	var lines []string
+	if err := scanLines(failing, 10, func(text string, _ bool) { lines = append(lines, text) }); err == nil || err.Error() != "pipe broken" || strings.Join(lines, ",") != "a" {
+		t.Fatalf("read error: %v, lines %q", err, lines)
+	}
+}
+
+// The created prepare container must have exactly one mount, the read-only
+// inputs; a VOLUME of the sandbox image would add one that docker commit does
+// not keep.
+func TestOnlyInputsMount(t *testing.T) {
+	inputs := `{"Type":"bind","Source":"/tmp/in","Destination":"/swiftproof/inputs","Mode":"","RW":false,"Propagation":"rprivate"}`
+	if err := onlyInputsMount([]byte("[" + inputs + "]\n")); err != nil {
+		t.Fatal(err)
+	}
+	for name, tc := range map[string]struct{ mounts, want string }{
+		"image volume":         {"[" + inputs + `,{"Type":"volume","Name":"abc","Destination":"/data","RW":true}]`, "mounts other than the read-only inputs (volume at /data)"},
+		"writable inputs":      {`[{"Type":"bind","Destination":"/swiftproof/inputs","RW":true}]`, "(bind at /swiftproof/inputs)"},
+		"no mount":             {"[]", "does not have exactly one read-only inputs mount"},
+		"null":                 {"null", "does not have exactly one read-only inputs mount"},
+		"inputs mounted twice": {"[" + inputs + "," + inputs + "]", "does not have exactly one read-only inputs mount"},
+		"not JSON":             {"<no value>", "no readable mount list"},
+	} {
+		if err := onlyInputsMount([]byte(tc.mounts)); err == nil || !strings.Contains(err.Error(), tc.want) {
+			t.Errorf("%s: %v, want %q", name, err, tc.want)
 		}
 	}
 }

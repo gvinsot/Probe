@@ -33,6 +33,19 @@ func (c *countingDocker) Run(ctx context.Context, name string, args []string, sc
 	return c.DockerCLI.Run(ctx, name, args, scaffold, log)
 }
 
+// volumeRecordingDocker records the volumes of each prepare container just
+// before the stage removes it.
+type volumeRecordingDocker struct {
+	countingDocker
+	volumes []string
+}
+
+func (d *volumeRecordingDocker) Remove(ctx context.Context, name string) error {
+	out, _ := exec.Command("docker", "container", "inspect", "--format", `{{range .Mounts}}{{if eq .Type "volume"}}{{.Name}} {{end}}{{end}}`, name).Output()
+	d.volumes = append(d.volumes, strings.Fields(string(out))...)
+	return d.countingDocker.Remove(ctx, name)
+}
+
 func dockerRepo(t *testing.T) (*gitrepo.Repository, string) {
 	t.Helper()
 	dir := t.TempDir()
@@ -222,6 +235,71 @@ func TestDockerPrepareFailureAndShadowedOutputs(t *testing.T) {
 	nothing := Run(context.Background(), o)
 	if nothing.Record.Status != model.PrepareFailed || !strings.Contains(nothing.Record.Reason, "changed no file") {
 		t.Fatalf("no-change run %+v", nothing.Record)
+	}
+	assertNoContainers(t, docker.names)
+}
+
+// Regression: a command that leaves many files under its HOME and installs
+// elsewhere is not reported as shadowed. `docker diff` lists the changes in no
+// fixed order; before, only its first 64 KiB were classified. A sandbox image
+// that declares a VOLUME is refused before the command starts, and the
+// anonymous volume goes with the container.
+func TestDockerPrepareLongListingAndImageVolume(t *testing.T) {
+	image := os.Getenv("SWIFTPROOF_TEST_DOCKER_IMAGE")
+	if image == "" {
+		t.Skip("set SWIFTPROOF_TEST_DOCKER_IMAGE to a preloaded golang Linux image")
+	}
+	repo, commit := dockerRepo(t)
+	docker := &volumeRecordingDocker{}
+	dir := "/var/tmp/swiftproof-prepare-test-" + randomHex(4)
+	// About 600 KiB of `docker diff` under the prepare HOME, and one
+	// directory that checks see.
+	script := `set -e; mkdir -p "$HOME/c"; cd "$HOME/c"; i=0; while [ $i -lt 20000 ]; do : > "f$i"; i=$((i+1)); done; mkdir -p "$PREPARED_DIR"; cp /swiftproof/work/deps.txt "$PREPARED_DIR/"`
+	o := Options{
+		Spec:      config.Prepare{Command: []string{"sh", "-c", script}, Inputs: []string{"deps.txt"}, Env: map[string]string{"PREPARED_DIR": dir}},
+		BaseImage: image, SourceCommit: commit, Repo: repo, MemoryMB: 512, CPUs: 1, MaxOutputBytes: 4096,
+		ArtifactDir: t.TempDir(), ToolVersion: "docker-test", Docker: docker, Progress: &bytes.Buffer{},
+	}
+	res := Run(context.Background(), o)
+	defer removeImages(t, res.Image)
+	if res.Record.Status != model.PrepareBuilt || res.Shadowed {
+		t.Fatalf("long listing: %+v shadowed %v", res.Record, res.Shadowed)
+	}
+	derived, found, err := dockerutil.InspectImage(context.Background(), nil, res.Image)
+	if err != nil || !found || derived.Labels[LabelOutputs] != OutputsPersistent {
+		t.Fatalf("outputs label %q (%v %v)", derived.Labels[LabelOutputs], found, err)
+	}
+	if c := runCheck(t, res.Image, `test "$(cat "$PREPARED_DIR/deps.txt")" = "dep v1"`); c.Status != "PASS" {
+		t.Fatalf("check on the prepared image: %s %q", c.Status, c.Output)
+	}
+
+	volumeImage := "swiftproof-prepare-volume-test:" + randomHex(4)
+	source := "swiftproof-prepare-volume-src-" + randomHex(4)
+	for _, args := range [][]string{
+		{"create", "--pull=never", "--name", source, image, "true"},
+		{"commit", "--change", "VOLUME /data", source, volumeImage},
+		{"rm", "-f", source},
+	} {
+		if out, err := exec.Command("docker", args...).CombinedOutput(); err != nil {
+			t.Fatalf("docker %v: %v\n%s", args, err, out)
+		}
+	}
+	defer removeImages(t, volumeImage)
+	o.BaseImage = volumeImage
+	o.Spec = config.Prepare{Command: []string{"sh", "-c", "echo x > /data/x"}, Inputs: []string{"deps.txt"}}
+	o.ArtifactDir = t.TempDir()
+	refused := Run(context.Background(), o)
+	if refused.Record.Status != model.PrepareFailed || refused.Started || !strings.Contains(refused.Record.Reason, "mounts other than the read-only inputs (volume at /data)") {
+		t.Fatalf("volume image: %+v started %v", refused.Record, refused.Started)
+	}
+	if len(docker.volumes) != 1 {
+		t.Fatalf("volumes recorded before removal: %q", docker.volumes)
+	}
+	for _, v := range docker.volumes {
+		if err := exec.Command("docker", "volume", "inspect", v).Run(); err == nil {
+			_ = exec.Command("docker", "volume", "rm", v).Run()
+			t.Fatalf("the anonymous volume %s outlived the prepare container", v)
+		}
 	}
 	assertNoContainers(t, docker.names)
 }

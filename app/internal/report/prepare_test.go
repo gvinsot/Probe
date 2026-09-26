@@ -39,7 +39,7 @@ func TestPrepareSectionRendersEachStatus(t *testing.T) {
 	for status, want := range map[string]string{
 		model.PrepareBuilt:        "Status: built. The base-branch prepare command ran in this review",
 		model.PrepareReused:       "Status: reused. The prepare command did not run in this review",
-		model.PrepareFailed:       "Status: failed. The prepare command exited 3; see the prepare\\_output log. No image was produced, so no check ran.",
+		model.PrepareFailed:       "Status: failed. The prepare command exited 3; see the prepare\\_output log. No image was used for checks, so no check ran.",
 		model.PrepareNotPermitted: "Status: not permitted. No local image was prepared",
 		model.PrepareNotRun:       "Status: not run. Automated execution was explicitly disabled.",
 	} {
@@ -58,9 +58,16 @@ func TestPrepareSectionRendersEachStatus(t *testing.T) {
 		if strings.Index(md, "## Dependency Preparation") > strings.Index(md, "## Automated Checks") || strings.Count(md, "## Dependency Preparation") != 1 {
 			t.Errorf("%s: section misplaced", status)
 		}
+		network := map[string]string{
+			model.PrepareBuilt:        "; network during the build: disabled",
+			model.PrepareReused:       "; the image was built with network disabled",
+			model.PrepareFailed:       "; network for the build: disabled",
+			model.PrepareNotPermitted: "; the build needed network, which was not permitted",
+			model.PrepareNotRun:       "",
+		}[status]
 		for _, fragment := range []string{
-			"Command, one argument per line (user sandbox; network disabled):\n- sh\n- -c\n- " + inline("npm ci *not* `x` <b>#1</b>") + "\n\n",
-			"Source commit: " + prepareCommit + ".",
+			"Command, one argument per line (user sandbox" + network + "):\n- sh\n- -c\n- " + inline("npm ci *not* `x` <b>#1</b>") + "\n\n",
+			"Source commit: " + prepareCommit + ". The inputs listed below were exported from this commit only; candidate files are never used.",
 			"- a\\_b\\[1\\].lock (sha256 " + strings.Repeat("b", 64) + "; 3 bytes)",
 			model.PrepareNote,
 		} {
@@ -87,9 +94,9 @@ func TestPrepareSectionRendersEachStatus(t *testing.T) {
 		t.Fatal("section rendered without a prepare object")
 	}
 	for args, want := range map[string]string{
-		"go\x00mod\x00download": "Command: go mod download (user root; network enabled)\n",
-		"sh\x00\x00x":           "Command, one argument per line (user root; network enabled):\n- sh\n- (empty argument)\n- x\n",
-		"":                      "Command, one argument per line (user root; network enabled):\n\n",
+		"go\x00mod\x00download": "Command: go mod download (user root; network during the build: enabled)\n",
+		"sh\x00\x00x":           "Command, one argument per line (user root; network during the build: enabled):\n- sh\n- (empty argument)\n- x\n",
+		"":                      "Command, one argument per line (user root; network during the build: enabled):\n\n",
 	} {
 		p := prepareRecord(model.PrepareBuilt, "")
 		p.Command, p.User, p.Network = nil, "root", true
@@ -99,6 +106,26 @@ func TestPrepareSectionRendersEachStatus(t *testing.T) {
 		body := section(t, string(Markdown(&model.Report{Version: 1, Prepare: p})), "## Dependency Preparation")
 		if !strings.Contains(body, want) {
 			t.Errorf("command %q: missing %q in:\n%s", args, want, body)
+		}
+	}
+}
+
+// The network bit is the build's, never shown as a setting of this review: a
+// reused image says it was built with network, and a stage that exported
+// nothing does not claim that inputs were exported.
+func TestPrepareSectionNetworkAndSourceWording(t *testing.T) {
+	p := prepareRecord(model.PrepareReused, "")
+	p.Network = true
+	body := section(t, string(Markdown(&model.Report{Version: 1, Prepare: p})), "## Dependency Preparation")
+	if !strings.Contains(body, "(user sandbox; the image was built with network enabled)") || strings.Contains(body, "; network enabled") {
+		t.Fatalf("reused network:\n%s", body)
+	}
+	for _, status := range []string{model.PrepareFailed, model.PrepareNotRun} {
+		p := prepareRecord(status, "the sandbox image golang:absent is not available locally")
+		p.Inputs = []model.PreparedInput{}
+		body := section(t, string(Markdown(&model.Report{Version: 1, Prepare: p})), "## Dependency Preparation")
+		if !strings.Contains(body, "Source commit: "+prepareCommit+". No input was exported; inputs are only ever exported from this commit, never from candidate files.") || strings.Contains(body, "listed below") || strings.Contains(body, "Inputs (") {
+			t.Fatalf("%s without inputs:\n%s", status, body)
 		}
 	}
 }

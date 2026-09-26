@@ -35,7 +35,7 @@ func writePrepare(b *bytes.Buffer, r *model.Report) {
 	case model.PrepareReused:
 		line(b, "Status: reused. The prepare command did not run in this review: a local image whose labels record this key, source commit and base image ID was used by every sandbox run. Image labels are unsigned local metadata.\n")
 	case model.PrepareFailed:
-		fmt.Fprintf(b, "Status: failed. %s. No image was produced, so no check ran.\n\n", inline(reason))
+		fmt.Fprintf(b, "Status: failed. %s. No image was used for checks, so no check ran.\n\n", inline(reason))
 	case model.PrepareNotPermitted:
 		fmt.Fprintf(b, "Status: not permitted. %s. The prepare command did not run and no check ran.\n\n", inline(reason))
 	case model.PrepareNotRun:
@@ -56,17 +56,21 @@ func writePrepare(b *bytes.Buffer, r *model.Report) {
 		}
 		line(b, "\n")
 	}
-	fmt.Fprintf(b, "Source commit: %s. Inputs are exported from this commit only; candidate files are never used.\n\n", inline(prepareOrNone(p.SourceCommit)))
-	network := "disabled"
-	if p.Network {
-		network = "enabled"
+	if len(p.Inputs) > 0 {
+		fmt.Fprintf(b, "Source commit: %s. The inputs listed below were exported from this commit only; candidate files are never used.\n\n", inline(prepareOrNone(p.SourceCommit)))
+	} else {
+		fmt.Fprintf(b, "Source commit: %s. No input was exported; inputs are only ever exported from this commit, never from candidate files.\n\n", inline(prepareOrNone(p.SourceCommit)))
+	}
+	detail := inline(prepareOrNone(p.User))
+	if network := prepareNetwork(p); network != "" {
+		detail += "; " + network
 	}
 	if prepareArgsPlain(p.Command) {
-		fmt.Fprintf(b, "Command: %s (user %s; network %s)\n\n", inline(strings.Join(p.Command, " ")), inline(prepareOrNone(p.User)), network)
+		fmt.Fprintf(b, "Command: %s (user %s)\n\n", inline(strings.Join(p.Command, " ")), detail)
 	} else {
 		// An argument with spaces, or an empty one, is ambiguous when joined:
 		// list one argument per line instead.
-		fmt.Fprintf(b, "Command, one argument per line (user %s; network %s):\n", inline(prepareOrNone(p.User)), network)
+		fmt.Fprintf(b, "Command, one argument per line (user %s):\n", detail)
 		for _, arg := range p.Command {
 			if arg == "" {
 				line(b, "- (empty argument)")
@@ -121,6 +125,29 @@ func writePrepare(b *bytes.Buffer, r *model.Report) {
 func finalizePrepare(r *model.Report) {
 	if r.Prepare != nil && strings.TrimSpace(r.Prepare.Note) == "" {
 		r.Prepare.Note = model.PrepareNote
+	}
+}
+
+// prepareNetwork describes the network bit of the record for its status. The
+// bit is the network of the container that built the image, not a setting of
+// this review: a reused image was built in an earlier review, and checks
+// never get the prepare network. A review that prepared nothing has none.
+func prepareNetwork(p *model.Prepare) string {
+	state := "disabled"
+	if p.Network {
+		state = "enabled"
+	}
+	switch p.Status {
+	case model.PrepareBuilt:
+		return "network during the build: " + state
+	case model.PrepareReused:
+		return "the image was built with network " + state
+	case model.PrepareNotPermitted:
+		return "the build needed network, which was not permitted"
+	case model.PrepareNotRun:
+		return ""
+	default:
+		return "network for the build: " + state
 	}
 }
 

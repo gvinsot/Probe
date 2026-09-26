@@ -6,12 +6,15 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/gvinsot/SwiftProof/app/internal/config"
 	"github.com/gvinsot/SwiftProof/app/internal/gitrepo"
+	"github.com/gvinsot/SwiftProof/app/internal/harness"
 	"github.com/gvinsot/SwiftProof/app/internal/model"
 )
 
@@ -269,16 +272,91 @@ func TestTimeoutAndDeadlineRemoveTheContainer(t *testing.T) {
 	if res.Audit.Status != "TIMEOUT" || f.count("remove ") != 1 || len(f.live) != 0 || f.count("commit ") != 0 || len(res.Artifacts) != 1 {
 		t.Fatalf("audit %+v calls %q", res.Audit, f.calls)
 	}
-	// The overall deadline (the parent context) expires while the command runs.
+	// The overall deadline (the parent context, cause ErrOverallDeadline)
+	// expires while the command runs.
 	f = newFakeDocker()
 	f.block = true
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	f.onRun = cancel
+	ctx, cancel := context.WithCancelCause(context.Background())
+	defer cancel(nil)
+	f.onRun = func() { cancel(harness.ErrOverallDeadline) }
 	res = Run(ctx, testOptions(t, f, repo, base))
-	assertFailed(t, res, "overall --deadline")
-	if f.count("remove ") != 1 {
-		t.Fatalf("calls %q", f.calls)
+	assertFailed(t, res, "the overall --deadline was reached during dependency preparation")
+	if res.Audit.Status != "TIMEOUT" || f.count("remove ") != 1 || len(f.live) != 0 {
+		t.Fatalf("audit %+v calls %q", res.Audit, f.calls)
+	}
+	// Any other end of the parent context, such as Ctrl-C, is an
+	// interruption, not the deadline.
+	f = newFakeDocker()
+	f.block = true
+	ctx, stop := context.WithCancel(context.Background())
+	defer stop()
+	f.onRun = stop
+	res = Run(ctx, testOptions(t, f, repo, base))
+	assertFailed(t, res, "the review was interrupted during dependency preparation")
+	if res.Audit.Status != "ERROR" || strings.Contains(res.Record.Reason, "deadline") || f.count("remove ") != 1 {
+		t.Fatalf("record %+v audit %+v calls %q", res.Record, res.Audit, f.calls)
+	}
+}
+
+// A deadline that has already passed when the stage starts is reported as the
+// deadline, before any Docker call; an interrupted review is not.
+func TestContextEndedBeforeTheStage(t *testing.T) {
+	repo, base, _ := repoFixture(t)
+	past, cancel := context.WithDeadlineCause(context.Background(), time.Now().Add(-time.Second), harness.ErrOverallDeadline)
+	defer cancel()
+	f := newFakeDocker()
+	res := Run(past, testOptions(t, f, repo, base))
+	assertFailed(t, res, "the overall --deadline was reached during dependency preparation")
+	if res.Audit.Status != "TIMEOUT" || len(f.calls) != 0 || res.Started || res.Record.BaseImageID != "" {
+		t.Fatalf("audit %+v calls %q", res.Audit, f.calls)
+	}
+	interrupted, stop := context.WithCancel(context.Background())
+	stop()
+	f = newFakeDocker()
+	res = Run(interrupted, testOptions(t, f, repo, base))
+	assertFailed(t, res, "the review was interrupted during dependency preparation")
+	if res.Audit.Status != "ERROR" || len(f.calls) != 0 {
+		t.Fatalf("audit %+v calls %q", res.Audit, f.calls)
+	}
+}
+
+// The read-back of a committed image is bounded by the overall deadline; the
+// image is still removed after it, on its own cleanup context.
+func TestDeadlineDuringReadBackDiscardsTheImage(t *testing.T) {
+	repo, base, _ := repoFixture(t)
+	f := newFakeDocker()
+	ctx, cancel := context.WithCancelCause(context.Background())
+	defer cancel(nil)
+	f.onCommit = func() { cancel(harness.ErrOverallDeadline) }
+	res := Run(ctx, testOptions(t, f, repo, base))
+	assertFailed(t, res, "the overall --deadline was reached during dependency preparation; the image was removed")
+	if res.Audit.Status != "TIMEOUT" || len(f.images) != 1 || f.count("image rm ") != 1 || len(f.live) != 0 {
+		t.Fatalf("audit %+v images %d calls %q", res.Audit, len(f.images), f.calls)
+	}
+}
+
+// Regression: a change that checks can see is found wherever it is in a
+// listing of any length. Before, only the first 64 KiB of `docker diff` were
+// classified, so a persistent change listed after many HOME or /tmp files was
+// reported as "shadowed".
+func TestLongChangeListingIsClassifiedCompletely(t *testing.T) {
+	repo, base, _ := repoFixture(t)
+	var home strings.Builder
+	home.WriteString("A /swiftproof\nA /swiftproof/home\nA /swiftproof/home/c\n")
+	for i := 0; i < 5000; i++ {
+		fmt.Fprintf(&home, "A /swiftproof/home/c/f%04d\n", i)
+	}
+	f := newFakeDocker()
+	f.diff = home.String() + "C /usr\nC /usr/local\nA /usr/local/deps\n"
+	res := Run(context.Background(), testOptions(t, f, repo, base))
+	if res.Record.Status != model.PrepareBuilt || res.Shadowed || f.images[res.Image].Labels[LabelOutputs] != OutputsPersistent {
+		t.Fatalf("%+v shadowed %v", res.Record, res.Shadowed)
+	}
+	f = newFakeDocker()
+	f.diff = home.String()
+	res = Run(context.Background(), testOptions(t, f, repo, base))
+	if res.Record.Status != model.PrepareBuilt || !res.Shadowed || f.images[res.Image].Labels[LabelOutputs] != OutputsShadowed {
+		t.Fatalf("%+v shadowed %v", res.Record, res.Shadowed)
 	}
 }
 
@@ -428,6 +506,11 @@ func TestUnconfirmedRemovalFailsTheBuild(t *testing.T) {
 	f.removeErr = errors.New("daemon timeout")
 	res := Run(context.Background(), testOptions(t, f, repo, base))
 	assertFailed(t, res, "could not confirm the removal of the prepare container swiftproof-prepare-")
+	// The committed image is not used, so it is removed, not left tagged for
+	// a later review to reuse.
+	if !strings.HasSuffix(res.Record.Reason, ": daemon timeout; the image was removed") || len(f.images) != 1 || f.count("image rm ") != 1 {
+		t.Fatalf("reason %q images %d calls %q", res.Record.Reason, len(f.images), f.calls)
+	}
 	f = newFakeDocker()
 	f.runExit, f.removeErr = 1, errors.New("daemon timeout")
 	res = Run(context.Background(), testOptions(t, f, repo, base))

@@ -2,8 +2,10 @@ package prepare
 
 import (
 	"archive/tar"
+	"bufio"
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -31,10 +33,13 @@ const (
 const (
 	pidsLimit       = 256
 	containerPrefix = "swiftproof-prepare-"
-	diffLimit       = 64 << 10
-	listLimit       = 64 << 10
-	commitLimit     = 4 << 10
-	createLimit     = 4 << 10
+	// diffLineLimit bounds one line of `docker diff`; the listing itself is
+	// read completely, whatever its length.
+	diffLineLimit = 64 << 10
+	listLimit     = 64 << 10
+	commitLimit   = 4 << 10
+	createLimit   = 4 << 10
+	mountsLimit   = 64 << 10
 )
 
 // rootCapabilities is the fixed capability set a user:root prepare container
@@ -51,14 +56,17 @@ const wrapperScript = `cp -R ` + InputsDir + `/. ` + WorkDir + `/ || { echo "swi
 // implementation; tests substitute fakes. Image inspection, listing and
 // removal go through a dockerutil.Runner instead (see Options.Runner).
 type Docker interface {
-	// Run creates the container from args (which start with "create"), copies
-	// the scaffold archive into its root with the container user's ownership,
-	// then starts it attached, writing its output to log. started reports
-	// whether the start was issued; exitCode is the container's exit status.
-	// A cancelled ctx returns ctx's error; the caller removes the container.
+	// Run creates the container from args (which start with "create"), checks
+	// that its only mount is the read-only inputs mount, copies the scaffold
+	// archive into its root with the container user's ownership, then starts
+	// it attached, writing its output to log. started reports whether the
+	// start was issued; exitCode is the container's exit status. A cancelled
+	// ctx returns ctx's error; the caller removes the container.
 	Run(ctx context.Context, name string, args []string, scaffold []byte, log io.Writer) (started bool, exitCode int, err error)
-	// Changed returns `docker diff NAME`, at most 64 KiB; truncated reports a cut.
-	Changed(ctx context.Context, name string) (diff []byte, truncated bool, err error)
+	// Changed streams every line of `docker diff NAME` to line, without its
+	// terminator, and returns nil only after the whole listing was read. A
+	// line longer than 64 KiB is passed as its first 64 KiB with long set.
+	Changed(ctx context.Context, name string, line func(text string, long bool)) error
 	// Commit commits the container as tag with the given --change
 	// instructions and returns the new image ID (^sha256:[0-9a-f]{64}$).
 	Commit(ctx context.Context, name, tag string, changes []string) (string, error)
@@ -144,12 +152,19 @@ func (DockerCLI) Run(ctx context.Context, name string, args []string, archive []
 	if _, stderr, err := docker(ctx, nil, createLimit, args...); err != nil {
 		return false, -1, cliError("docker create", err, stderr)
 	}
+	stdout, stderr, err := docker(ctx, nil, mountsLimit, "container", "inspect", "--format", "{{json .Mounts}}", name)
+	if err != nil {
+		return false, -1, cliError("docker container inspect", err, stderr)
+	}
+	if err := onlyInputsMount(stdout); err != nil {
+		return false, -1, err
+	}
 	if _, stderr, err := docker(ctx, bytes.NewReader(archive), createLimit, "cp", "-a", "-", name+":/"); err != nil {
 		return false, -1, cliError("docker cp", err, stderr)
 	}
 	cmd := exec.CommandContext(ctx, "docker", "start", "--attach", name)
 	cmd.Stdout, cmd.Stderr = log, log
-	err := cmd.Run()
+	err = cmd.Run()
 	if ctx.Err() != nil {
 		return true, -1, ctx.Err()
 	}
@@ -163,18 +178,103 @@ func (DockerCLI) Run(ctx context.Context, name string, args []string, archive []
 	return true, -1, err
 }
 
+// onlyInputsMount checks the `docker container inspect --format {{json
+// .Mounts}}` of a created prepare container: its only mount must be the
+// read-only bind mount of the inputs. A VOLUME that the sandbox image declares
+// adds an anonymous volume, whose content `docker commit` would not keep.
+func onlyInputsMount(data []byte) error {
+	var mounts []struct {
+		Type, Destination string
+		RW                bool
+	}
+	if err := json.Unmarshal(data, &mounts); err != nil {
+		return errors.New("docker container inspect returned no readable mount list")
+	}
+	var other []string
+	inputs := 0
+	for _, m := range mounts {
+		if m.Type == "bind" && m.Destination == InputsDir && !m.RW {
+			inputs++
+			continue
+		}
+		other = append(other, strings.ToValidUTF8(m.Type, "?")+" at "+strings.ToValidUTF8(m.Destination, "?"))
+	}
+	if len(other) > 0 {
+		sort.Strings(other)
+		return fmt.Errorf("the prepare container has mounts other than the read-only inputs (%s), for example a VOLUME that the sandbox image declares; `docker commit` would not keep their content, so SwiftProof does not prepare in this image", listPaths(other, 5))
+	}
+	if inputs != 1 {
+		return errors.New("the prepare container does not have exactly one read-only inputs mount")
+	}
+	return nil
+}
+
 // Changed implements Docker.
-func (DockerCLI) Changed(ctx context.Context, name string) ([]byte, bool, error) {
+func (DockerCLI) Changed(ctx context.Context, name string, line func(string, bool)) error {
 	ctx, cancel := context.WithTimeout(ctx, time.Minute)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, "docker", "diff", name)
-	out := &capWriter{limit: diffLimit}
 	stderr := &capWriter{limit: 8 << 10}
-	cmd.Stdout, cmd.Stderr = out, stderr
-	if err := cmd.Run(); err != nil {
-		return nil, false, cliError("docker diff", err, stderr.bytes())
+	cmd.Stderr = stderr
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		return fmt.Errorf("docker diff: %w", err)
 	}
-	return out.bytes(), out.cut, nil
+	if err := cmd.Start(); err != nil {
+		return cliError("docker diff", err, stderr.bytes())
+	}
+	readErr := scanLines(stdout, diffLineLimit, line)
+	if readErr != nil {
+		_ = cmd.Process.Kill()
+	}
+	waitErr := cmd.Wait()
+	switch {
+	case ctx.Err() != nil:
+		return cliError("docker diff", ctx.Err(), stderr.bytes())
+	case waitErr != nil:
+		return cliError("docker diff", waitErr, stderr.bytes())
+	case readErr != nil:
+		return fmt.Errorf("docker diff: reading the listing: %w", readErr)
+	}
+	return nil
+}
+
+// scanLines calls line for every line of r, in order and without its "\n"
+// terminator; a final line without a terminator counts. A line longer than
+// limit bytes is passed as its first limit bytes with long set, and the rest
+// of it is skipped. Memory stays bounded by limit whatever the length of r.
+func scanLines(r io.Reader, limit int, line func(text string, long bool)) error {
+	br := bufio.NewReaderSize(r, 32<<10)
+	var buf []byte
+	long := false
+	for {
+		chunk, err := br.ReadSlice('\n')
+		terminated := len(chunk) > 0 && chunk[len(chunk)-1] == '\n'
+		if terminated {
+			chunk = chunk[:len(chunk)-1]
+		}
+		if !long {
+			if room := limit - len(buf); len(chunk) > room {
+				buf, long = append(buf, chunk[:room]...), true
+			} else {
+				buf = append(buf, chunk...)
+			}
+		}
+		if terminated {
+			line(string(buf), long)
+			buf, long = buf[:0], false
+		}
+		switch {
+		case err == nil || errors.Is(err, bufio.ErrBufferFull):
+		case errors.Is(err, io.EOF):
+			if len(buf) > 0 || long {
+				line(string(buf), long)
+			}
+			return nil
+		default:
+			return err
+		}
+	}
 }
 
 // Commit implements Docker.
@@ -198,7 +298,8 @@ func (DockerCLI) Commit(ctx context.Context, name, tag string, changes []string)
 
 // Remove implements Docker.
 func (DockerCLI) Remove(ctx context.Context, name string) error {
-	_, stderr, err := docker(ctx, nil, commitLimit, "rm", "-f", name)
+	// -v also removes the anonymous volumes of the container, if any.
+	_, stderr, err := docker(ctx, nil, commitLimit, "rm", "-f", "-v", name)
 	if err != nil && !strings.Contains(strings.ToLower(string(stderr)), "no such container") {
 		return cliError("docker rm", err, stderr)
 	}

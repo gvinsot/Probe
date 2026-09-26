@@ -44,9 +44,9 @@ type fakeDocker struct {
 	runOutput  string
 	block      bool
 	onRun      func() // called when the container starts
+	onCommit   func() // called after a commit
 	// Behavior of Changed, Commit and Remove.
 	diff       string
-	diffCut    bool
 	diffErr    error
 	commitErr  error
 	commitID   string // returned instead of the committed ID when set
@@ -110,6 +110,9 @@ func (f *fakeDocker) lookup(ref string) *fakeImage {
 
 func (f *fakeDocker) run(ctx context.Context, args []string, limit int) ([]byte, []byte, error) {
 	f.record(strings.Join(args, " "))
+	if err := ctx.Err(); err != nil { // as the real CLI runner
+		return nil, nil, err
+	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	exit1 := errors.New("exit status 1")
@@ -205,9 +208,12 @@ func (f *fakeDocker) Run(ctx context.Context, name string, args []string, scaffo
 	return true, exit, runErr
 }
 
-func (f *fakeDocker) Changed(ctx context.Context, name string) ([]byte, bool, error) {
+func (f *fakeDocker) Changed(ctx context.Context, name string, line func(string, bool)) error {
 	f.record("changed " + name)
-	return []byte(f.diff), f.diffCut, f.diffErr
+	if f.diffErr != nil {
+		return f.diffErr
+	}
+	return scanLines(strings.NewReader(f.diff), diffLineLimit, line)
 }
 
 func (f *fakeDocker) Commit(ctx context.Context, name, tag string, changes []string) (string, error) {
@@ -251,6 +257,9 @@ func (f *fakeDocker) Commit(ctx context.Context, name, tag string, changes []str
 		other.Tags = kept
 	}
 	f.images[img.ID] = img
+	if f.onCommit != nil {
+		f.onCommit()
+	}
 	if f.commitID != "" {
 		return f.commitID, nil
 	}

@@ -17,6 +17,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -92,6 +93,17 @@ func (r Result) Ready() bool { return r.Image != "" }
 // checks mount tmpfs over /workspace and /tmp and set HOME=/tmp.
 var shadowPrefixes = []string{"/workspace", "/tmp", HomeDir}
 
+// cleanupTimeout bounds each cleanup call (removing the prepare container, or
+// an image this run committed but will not use). Cleanup runs on its own
+// context, so it still happens after the overall --deadline.
+const cleanupTimeout = 10 * time.Second
+
+// Reasons of a stage whose context ended.
+const (
+	deadlineReason    = "the overall --deadline was reached during dependency preparation"
+	interruptedReason = "the review was interrupted during dependency preparation"
+)
+
 // Run prepares the image. It never pulls, never uses candidate content and
 // never falls back to the unprepared image: any failure returns a Result whose
 // Ready is false.
@@ -145,6 +157,23 @@ func (s *stage) fail(reason string) {
 	s.auditStatus = "ERROR"
 }
 
+// stopped fails the stage when ctx has ended and reports whether it has. Only
+// the overall --deadline (cause harness.ErrOverallDeadline) is reported as the
+// deadline, with a TIMEOUT audit; any other end of ctx, such as an interrupt,
+// is reported as an interruption. suffix is appended to the reason.
+func (s *stage) stopped(ctx context.Context, suffix string) bool {
+	if ctx.Err() == nil {
+		return false
+	}
+	if errors.Is(context.Cause(ctx), harness.ErrOverallDeadline) {
+		s.fail(deadlineReason + suffix)
+		s.auditStatus = "TIMEOUT"
+	} else {
+		s.fail(interruptedReason + suffix)
+	}
+	return true
+}
+
 func (s *stage) run(ctx context.Context) {
 	o := s.o
 	if !validCommit(o.SourceCommit) {
@@ -155,11 +184,16 @@ func (s *stage) run(ctx context.Context) {
 		s.fail("dependency preparation has no Git repository or Docker client")
 		return
 	}
+	if s.stopped(ctx, "") {
+		return
+	}
 	inspectCtx, cancel := context.WithTimeout(ctx, time.Minute)
 	base, found, err := dockerutil.InspectImage(inspectCtx, o.Runner, o.BaseImage)
 	cancel()
 	if err != nil {
-		s.fail(fmt.Sprintf("Docker could not inspect the sandbox image %s: %v", o.BaseImage, err))
+		if !s.stopped(ctx, "") {
+			s.fail(fmt.Sprintf("Docker could not inspect the sandbox image %s: %v", o.BaseImage, err))
+		}
 		return
 	}
 	if !found {
@@ -185,7 +219,7 @@ func (s *stage) run(ctx context.Context) {
 	s.key = Key(o.ToolVersion, base.ID, o.Spec, s.files, o.MemoryMB, o.CPUs)
 	s.tag = Tag(s.key, o.SourceCommit)
 	s.res.Record.Key = s.key
-	if s.reuse(ctx) {
+	if s.reuse(ctx) || s.stopped(ctx, "") {
 		return
 	}
 	if o.Spec.Network && !o.AllowNetwork {
@@ -218,7 +252,9 @@ func (s *stage) export(ctx context.Context) bool {
 		return false
 	}
 	if err != nil {
-		s.fail("the prepare inputs could not be exported from the base commit: " + err.Error())
+		if !s.stopped(ctx, "") {
+			s.fail("the prepare inputs could not be exported from the base commit: " + err.Error())
+		}
 		return false
 	}
 	if len(files) == 0 {
@@ -274,12 +310,12 @@ func (s *stage) build(ctx context.Context) {
 	name := containerPrefix + randomHex(12)
 	s.buildIn(ctx, name)
 	// The container is always removed, whatever happened; an unconfirmed
-	// removal fails the stage.
-	rmCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	// removal fails the stage, and the image it committed is not used.
+	rmCtx, cancel := context.WithTimeout(context.Background(), cleanupTimeout)
 	defer cancel()
 	if err := o.Docker.Remove(rmCtx, name); err != nil {
-		if s.res.Record.Status == model.PrepareBuilt {
-			s.fail("Docker could not confirm the removal of the prepare container " + name + ": " + err.Error())
+		if id := s.res.Record.ImageID; s.res.Record.Status == model.PrepareBuilt {
+			s.fail("Docker could not confirm the removal of the prepare container " + name + ": " + err.Error() + s.discard(id))
 		} else {
 			s.res.Record.Reason += "; Docker could not confirm the removal of the prepare container " + name
 		}
@@ -310,12 +346,10 @@ func (s *stage) buildIn(ctx context.Context, name string) {
 	s.res.Record.LogSHA256 = logSHA
 	switch {
 	case timedOut:
-		if ctx.Err() != nil {
-			s.fail("the overall --deadline was reached during dependency preparation")
-		} else {
+		if !s.stopped(ctx, "") {
 			s.fail(fmt.Sprintf("the prepare command did not finish within prepare.timeout_seconds (%d s)", int(o.Spec.EffectiveTimeout()/time.Second)))
+			s.auditStatus = "TIMEOUT"
 		}
-		s.auditStatus = "TIMEOUT"
 		return
 	case runErr != nil:
 		s.fail("Docker could not run the prepare container: " + runErr.Error())
@@ -328,19 +362,21 @@ func (s *stage) buildIn(ctx context.Context, name string) {
 		return
 	}
 	diffCtx, cancelDiff := context.WithTimeout(ctx, time.Minute)
-	diff, cut, err := o.Docker.Changed(diffCtx, name)
+	changes := newClassifier(s.files)
+	err = o.Docker.Changed(diffCtx, name, changes.add)
 	cancelDiff()
 	if err != nil {
-		s.fail("Docker could not list the prepare container's changes: " + err.Error())
+		if !s.stopped(ctx, "") {
+			s.fail("Docker could not list the prepare container's changes: " + err.Error())
+		}
 		return
 	}
-	changes := classifyChanges(diff, cut, s.files)
-	if len(changes.persistent) == 0 && len(changes.shadowed) == 0 {
+	if changes.persistent == 0 && changes.shadowed == 0 {
 		s.fail("the prepare command exited 0 but changed no file outside the directories SwiftProof creates; install dependencies into a persistent image location such as GOMODCACHE, /opt or " + WorkDir)
 		return
 	}
 	outputs := OutputsPersistent
-	if len(changes.persistent) == 0 {
+	if changes.persistent == 0 {
 		outputs = OutputsShadowed
 	}
 	labels := map[string]string{
@@ -349,10 +385,14 @@ func (s *stage) buildIn(ctx context.Context, name string) {
 	}
 	id, err := o.Docker.Commit(ctx, name, s.tag, labelChanges(labels))
 	if err != nil {
-		s.fail("Docker could not commit the prepare container: " + err.Error())
+		if !s.stopped(ctx, "") {
+			s.fail("Docker could not commit the prepare container: " + err.Error())
+		}
 		return
 	}
-	inspectCtx, cancelInspect := context.WithTimeout(context.Background(), time.Minute)
+	// The read-back is bounded by ctx (the overall --deadline); only the
+	// removal of an image that will not be used runs past it.
+	inspectCtx, cancelInspect := context.WithTimeout(ctx, time.Minute)
 	defer cancelInspect()
 	img, found, err := dockerutil.InspectImage(inspectCtx, o.Runner, id)
 	if err != nil || !found || img.ID != id {
@@ -360,7 +400,9 @@ func (s *stage) buildIn(ctx context.Context, name string) {
 		if err != nil {
 			detail = err.Error()
 		}
-		s.fail("Docker could not inspect the committed image " + id + ": " + detail + s.discard(id))
+		if removed := s.discard(id); !s.stopped(ctx, removed) {
+			s.fail("Docker could not inspect the committed image " + id + ": " + detail + removed)
+		}
 		return
 	}
 	if problem := s.verify(img); problem != "" {
@@ -369,7 +411,9 @@ func (s *stage) buildIn(ctx context.Context, name string) {
 	}
 	added, err := layerSize(inspectCtx, o.Runner, id)
 	if err != nil {
-		s.fail("Docker could not read the size of the committed layer: " + err.Error() + s.discard(id))
+		if removed := s.discard(id); !s.stopped(ctx, removed) {
+			s.fail("Docker could not read the size of the committed layer: " + err.Error() + removed)
+		}
 		return
 	}
 	s.res.Record.AddedBytes = added
@@ -385,9 +429,10 @@ func (s *stage) buildIn(ctx context.Context, name string) {
 }
 
 // discard removes an image this run committed but will not use, and returns
-// the sentence the failure reason ends with.
+// the sentence the failure reason ends with. It runs on its own bounded
+// context, so it still happens after the overall --deadline.
 func (s *stage) discard(id string) string {
-	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), cleanupTimeout)
 	defer cancel()
 	if err := removeImage(ctx, s.o.Runner, id); err != nil {
 		return "; the image could not be removed: " + err.Error()
@@ -482,46 +527,50 @@ func (s *stage) auditArguments() string {
 	return redact.TruncateUTF8(redact.Redact(string(b)), 1024)
 }
 
-// changes is what `docker diff` shows beyond what SwiftProof itself created:
-// the scaffold directories, the inputs mount point and the copied inputs.
-type changes struct {
-	persistent, shadowed []string
+// classifier counts what `docker diff` shows beyond what SwiftProof itself
+// created (the scaffold directories, the inputs mount point and the copied
+// inputs). It sees the listing one line at a time, so a listing of any length
+// is classified completely, in bounded memory.
+type classifier struct {
+	own map[string]bool
+	// persistent counts the changes checks can see; shadowed counts those
+	// under the locations checks replace or do not use.
+	persistent, shadowed int
 }
 
-// classifyChanges sorts each `docker diff` line ("A /path", "C /path",
-// "D /path") into persistent changes, which checks can see, and shadowed ones,
-// under the locations checks replace or do not use. A cut listing is
-// classified from the lines it kept; its partial last line is ignored.
-func classifyChanges(diff []byte, cut bool, inputs []gitrepo.ExportedFile) changes {
+func newClassifier(inputs []gitrepo.ExportedFile) *classifier {
 	own := map[string]bool{"/swiftproof": true, WorkDir: true, HomeDir: true}
 	for _, f := range inputs {
 		for p := WorkDir + "/" + f.Path; p != WorkDir && p != "/"; p = parentPath(p) {
 			own[p] = true
 		}
 	}
-	lines := strings.Split(string(diff), "\n")
-	if cut && len(lines) > 0 {
-		lines = lines[:len(lines)-1]
+	return &classifier{own: own}
+}
+
+// add classifies one `docker diff` line ("A /path", "C /path", "D /path"). A
+// line cut for length counts as persistent: a change that was not read
+// completely is never assumed to be shadowed or SwiftProof's own.
+func (c *classifier) add(line string, long bool) {
+	if long {
+		c.persistent++
+		return
 	}
-	var c changes
-	for _, l := range lines {
-		l = strings.TrimRight(l, "\r")
-		if l == "" {
-			continue
-		}
-		p := l
-		if len(l) > 2 && strings.ContainsRune("ACD", rune(l[0])) && l[1] == ' ' {
-			p = l[2:]
-		}
-		switch {
-		case own[p] || p == InputsDir || strings.HasPrefix(p, InputsDir+"/"):
-		case under(p, shadowPrefixes):
-			c.shadowed = append(c.shadowed, p)
-		default:
-			c.persistent = append(c.persistent, p)
-		}
+	l := strings.TrimRight(line, "\r")
+	if l == "" {
+		return
 	}
-	return c
+	p := l
+	if len(l) > 2 && strings.ContainsRune("ACD", rune(l[0])) && l[1] == ' ' {
+		p = l[2:]
+	}
+	switch {
+	case c.own[p] || p == InputsDir || strings.HasPrefix(p, InputsDir+"/"):
+	case under(p, shadowPrefixes):
+		c.shadowed++
+	default:
+		c.persistent++
+	}
 }
 
 func parentPath(p string) string {

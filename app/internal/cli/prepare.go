@@ -38,6 +38,13 @@ var (
 // change is hidden from checks.
 const prepareShadowedNote = "Dependency preparation: prepared outputs are shadowed by check mounts. Every change the prepare command made is under /workspace, /tmp or its HOME, which sandbox checks replace or do not use, so checks may have run without the prepared dependencies."
 
+// prepareChangedInputsNote is the Unverified entry of a review whose checks ran
+// on a prepared image while the candidate changes declared inputs. It states
+// what was not installed and attributes no check result to it.
+func prepareChangedInputsNote(changed []string) string {
+	return "Candidate changes dependency-preparation inputs (" + prepare.ListPaths(changed, 20) + "); sandbox checks used dependencies prepared from the base commit's versions of the declared inputs only. Candidate dependency changes were not installed, so checks may fail or behave differently for that reason alone; SwiftProof attributes no check result to it."
+}
+
 // prepareSignals returns the prepare_input_changed signals of a change that
 // edits a declared prepare input (lint and review).
 func prepareSignals(spec *config.Prepare, change model.Change) []model.Signal {
@@ -67,7 +74,7 @@ func runPrepare(ctx context.Context, repo *gitrepo.Repository, cfg config.Config
 	case res.Ready():
 		p.image, p.ok = res.Image, true
 		if changed := prepare.ChangedInputs(cfg.Prepare, change); len(changed) > 0 {
-			p.unverified = append(p.unverified, "Candidate changes dependency-preparation inputs ("+prepare.ListPaths(changed, 20)+"); sandbox checks used dependencies prepared from the base commit's versions of the declared inputs only. Candidate dependency changes were not installed, so failures they cause are expected and are not evidence about the change.")
+			p.unverified = append(p.unverified, prepareChangedInputsNote(changed))
 		}
 		if res.Shadowed {
 			p.unverified = append(p.unverified, prepareShadowedNote)
