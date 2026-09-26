@@ -59,9 +59,11 @@ func runImpactedTests(ctx context.Context, h *harness.Harness, r *model.Report, 
 }
 
 // recordImpactedTestsSkipped records why a requested --impacted-tests stage did
-// not run (§1.7, F6b). It is a no-op in lint, when not requested, without an
-// impact section, or when tests_status is already set. --checks=false and
-// --impact=false cannot occur: the flags reject them with exit 3.
+// not run (§1.7, F6b): not_run with the reason and the stage's Unverified
+// entry, or no_candidates without changed files. It is a no-op in lint, when
+// not requested, without an impact section, or when tests_status is already
+// set. --checks=false and --impact=false cannot occur: the flags reject them
+// with exit 3.
 func recordImpactedTestsSkipped(sc stageContext, requested bool, r *model.Report) {
 	if sc.mode != "review" || !requested || r.Impact == nil || r.Impact.TestsStatus != "" {
 		return
@@ -71,6 +73,7 @@ func recordImpactedTestsSkipped(sc stageContext, requested bool, r *model.Report
 		return
 	}
 	r.Impact.TestsStatus, r.Impact.TestsReason = model.ImpactTestsNotRun, skippedReason(sc)
+	r.Unverified = append(r.Unverified, impactedUnverifiedPrefix+r.Impact.TestsReason)
 }
 
 // impactLine is the stdout line of the impact section: counts for an indexed

@@ -70,6 +70,26 @@ func impactedTestsByName(t *testing.T, im *model.Impact) map[string]model.Impact
 	return out
 }
 
+// impactedRetryCutUnderLoad reports whether reason is one a retry pair that
+// ran out of time can give (harness texts): the retry candidate run timed out,
+// or the retry pair gave no result because a run timed out, the stage's
+// sub-cap was used up or the shared budget left no room for a run.
+func impactedRetryCutUnderLoad(reason string) bool {
+	if reason == "the candidate-side run timed out" {
+		return true
+	}
+	inner, ok := strings.CutPrefix(reason, "the test passed inside a candidate run that failed as a whole, which supports no result on its own; its own run pair gave no result (")
+	if !ok {
+		return false
+	}
+	for _, cut := range []string{"timed out", "time limit of this stage was used up", "did not start (Sandbox runtime budget exhausted", "did not start (Sandbox runtime reserved for reviewer experiments"} {
+		if strings.Contains(inner, cut) {
+			return true
+		}
+	}
+	return false
+}
+
 // TestDockerImpactedTestsEndToEnd runs the unchanged tests that reach changed
 // functions in real sandboxes (design scenarios (e) and (f) of F6).
 func TestDockerImpactedTestsEndToEnd(t *testing.T) {
@@ -105,12 +125,13 @@ func TestDockerImpactedTestsEndToEnd(t *testing.T) {
 		}
 		// TestTotalZero passed inside the failed candidate run of its package,
 		// so it gets a run pair of its own. On a loaded host the stage's 180 s
-		// sub-cap can run out first; the product limit stays, and the test then
-		// records why.
+		// sub-cap or a run timeout can end that pair first; the product limit
+		// stays, and the test then records why. Any other reason, such as a
+		// retry pair that was never attempted, fails.
 		passes := 1
 		switch zero := tests["TestTotalZero"]; {
 		case zero.Status == model.StatusPassesOnCandidate:
-		case zero.Status == model.StatusUnverified && (strings.HasPrefix(zero.Reason, "the test passed inside a candidate run that failed as a whole") || strings.Contains(zero.Reason, "timed out")):
+		case zero.Status == model.StatusUnverified && impactedRetryCutUnderLoad(zero.Reason):
 			t.Logf("the retry pair gave no result within the sub-cap: %s", zero.Reason)
 			passes = 0
 		default:

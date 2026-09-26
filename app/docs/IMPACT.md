@@ -150,22 +150,22 @@ swiftproof review --base main --impacted-tests --ci
 ```
 
 - `--impacted-tests` exits 3 on `lint`, together with `--checks=false`, and together with `--impact=false`, before any container starts.
-- The trusted policy's `generated_test` command must let SwiftProof establish which Go tests ran: `go test` with exactly one standalone `{package}` or `{file}` target and only flags otherwise, without `-C`, `-exec`, `-overlay`, `-args` or `--`. `["go", "test", "{package}"]` is the recommended template. With `{file}`, only that one file is compiled with the package, so tests that use package-internal code usually do not build and stay `UNVERIFIED`. With any other template nothing runs and `tests_status` is `not_run` with the reason.
+- The trusted policy's `generated_test` command must let SwiftProof establish which Go tests ran: `go test` with exactly one standalone `{package}` or `{file}` target and only flags otherwise, without `-C`, `-exec`, `-overlay`, `-args` or `--`. `["go", "test", "{package}"]` is the recommended template. With `{file}`, `go test` compiles only that test file, without the package's other files: a test file of the package itself (for example `package price`) that uses package code does not build on the baseline, so its tests get no result and a reason, and the stage requests review. An external test file (`package price_test`) that imports the package can build. With any other template nothing runs and `tests_status` is `not_run` with the reason.
 - The flag makes a binary older than v0.4.0 exit 3 while parsing arguments. Do not pass it through a workflow pinned to an older release; re-pin first (see [CI integration](CI.md)).
 
 ### What is selected
 
 Selection is static and reads only the impact section:
 
-- the reaching tests listed under each indexed changed function (at most 20 per function; the ones the index found beyond that are not considered, and `tests_reason` counts them);
+- the reaching tests listed under each indexed changed function (at most 20 per function; the ones the index found beyond that are not considered, and `tests_reason` counts them). A changed function that is not in the index (`indexed` false, for example in a file that `linux/amd64` constraints exclude) lists no reaching test because none was searched; `tests_reason` counts such functions;
 - whose `file_changed` is false. A reaching test declared in a test file the change modified is not run and gets the reason "not run: its test file was modified by the change (--base-tests runs the baseline versions of changed tests)";
 - one per file and name, at its smallest depth, ordered by depth, then path and name.
 
 Before anything runs, each selected test must have a Go test name (`Test`, or `Test` followed by a non-lowercase character, letters, digits and `_` only), and its file must be a regular `*_test.go` file of at most 4 MiB that is byte-identical in the baseline and candidate snapshots and declares a top-level function of that name. A test file on a path the snapshots exclude (secret-bearing names) never runs. Any other test gets a reason starting with "not run: " and no status.
 
-At most 16 tests from at most 4 packages (4 test files with a `{file}` template) run per review, in the order above. The others get the reason "not run: the stage runs at most 16 tests from at most 4 packages per review", and `tests_reason` counts them.
+At most 16 tests from at most 4 packages (4 test files with a `{file}` template) run per review, in the order above. The others get the reason "not run: the stage runs at most 16 tests from at most 4 packages per review" ("4 test files" with a `{file}` template), `tests_reason` counts them, and they request review like any selected test without a result: the candidate shapes the index, and so which tests fill the limits.
 
-When nothing can be selected, `tests_status` is `no_candidates` with the reason: no indexable Go file changed; the index lists no reaching test (which is not proof that none exists; a `limited` index adds that reaching tests may be missing); or every listed reaching test is in a modified test file. An `unavailable` index gives `not_run`: no reaching test was searched.
+When nothing can be selected, `tests_status` is `no_candidates` with the reason: no indexable Go file changed; the index lists no reaching test (which is not proof that none exists; a `limited` index adds that reaching tests may be missing, and the reason counts the changed functions that are not in the index); or every listed reaching test is in a modified test file. An `unavailable` index, and a section in which no changed function is in the index, give `not_run`: no reaching test was searched.
 
 ### The two runs
 
@@ -191,17 +191,19 @@ Each run pair is classified per test name from the `go test -json` events of bot
 | `PASSES_ON_CANDIDATE` | The same baseline conditions; candidate check PASS with exit 0 and the test passing. | This one test passed in both recorded runs. | Preserved behavior, correct code, or evidence that the test asserts the changed behavior. Tamper-proof: code executing in the sandbox writes the log the result is read from. It says nothing about tests that did not run. |
 | `UNVERIFIED` | Anything else with a recorded run pair. | A test for which no result was drawn, with the reason. | A failure or a pass. |
 
-A test without a run pair has no status and a reason. Typical reasons: the test failed or was skipped on the baseline, the candidate package did not build (for example after an API change), a build constraint excluded its file, a run timed out, was skipped for the runtime budget or the overall deadline, or was cut by `sandbox.max_output_bytes`, the test passed inside a candidate run that failed as a whole, the file checks above, and the stage limits. When no selected test of a unit passed on the baseline, the candidate run is not started, because none of them could get a result.
+A run pair is a baseline run and a candidate run that both started. A test without a run pair has no status, no evidence record and a reason. Typical reasons: the test failed or was skipped on the baseline, the baseline package did not build, a build constraint excluded its file, the baseline run timed out, ended as ERROR or was cut by `sandbox.max_output_bytes`, a baseline or candidate run did not start (runtime budget, reviewer reserve or overall deadline), the stage's 180 s were used up, the file checks above, and the stage limits. When no selected test of a unit passed on the baseline, the candidate run is not started, because none of them could get a result.
+
+A test with a run pair and neither result is `UNVERIFIED`, with a reason. Typical reasons: the candidate package did not build (for example after an API change), the candidate run timed out, ended as ERROR or was cut by `sandbox.max_output_bytes`, the test was skipped or had no single result on the candidate, a replayed baseline could not be repeated live, and a test that passed inside a candidate run that failed as a whole got no result from a pair of its own.
 
 `report.Finalize` re-derives every status from the recorded checks, including when `swiftproof report` re-renders a saved report: a test is `FAILS_ON_CANDIDATE` or `PASSES_ON_CANDIDATE` only when its `impacted_test_differential` evidence record resolves, names the same test and file, cites an `impacted_test_base` and an `impacted_test_candidate` check with the same command targeting that package (the candidate one never replayed), and those checks give that status under the rule above. Every listed entry of one test shows the same result. An `impacted_test_differential` record never supports a hypothesis status: a model cannot turn it into a reproduced, not reproduced or dismissed hypothesis.
 
-`tests_status` is `ran` when at least one run started, `no_candidates` when nothing could be selected, and `not_run` with a reason otherwise. With `ran`, `tests_reason` states what was left out (tests over the limits, tests of modified test files, tests beyond the 20 listed per function), or is absent.
+`tests_status` is `ran` when at least one run started, `no_candidates` when nothing could be selected, and `not_run` with a reason otherwise. With `ran`, `tests_reason` states what was left out (tests over the limits, tests of modified test files, tests beyond the 20 listed per function, changed functions that are not in the index), or is absent.
 
 ### Exit codes
 
 | Result | Without `--ci` | With `--ci` |
 |---|---|---|
-| Any `FAILS_ON_CANDIDATE` or `UNVERIFIED` test, a selected test without a result, or `tests_status` `not_run` | 0 | 2 |
+| Any `FAILS_ON_CANDIDATE` or `UNVERIFIED` test, a selected test without a result (including tests left out by the stage limits), or `tests_status` `not_run` | 0 | 2 |
 | Only `PASSES_ON_CANDIDATE`, or `no_candidates` | 0 | 0 |
 | The candidate package does not compile (a FAIL check, never ERROR) | 0 | 2 |
 | Infrastructure failure of a run (Docker error, exit code 125 or above, lost log): ERROR check | 4 | 4 |
@@ -216,16 +218,16 @@ Every run is charged to the shared `sandbox.max_runtime_seconds` budget. The sta
 ### Report output
 
 - JSON: `impact.tests_status` and `impact.tests_reason`, present exactly when `--impacted-tests` was passed to `review`, and on each listed test `evidence_id`, `status` and `reason`.
-- Evidence: one `impacted_test_differential` record per test (file and name) and recorded run pair, runner `go_test_json`, exactly one test name, `check_id` (candidate run) and `base_check_id` (baseline run). Several records may cite the same package-level pair of checks.
+- Evidence: one `impacted_test_differential` record per test (file and name) and run pair, runner `go_test_json`, exactly one test name, `check_id` (candidate run) and `base_check_id` (baseline run). Several records may cite the same package-level pair of checks. A candidate run that did not start gives no record.
 - Markdown: the Impact Analysis section shows the status and evidence ID next to each listed test and ends with "Impacted tests: <tests_status>" and the reason. The reason of a test without a result is in the JSON.
 - Suggested Human Review: a high target at the declaration of each `FAILS_ON_CANDIDATE` test. The test file is unchanged, so the target lies outside the changed lines.
-- Unverified Areas: "Impacted tests did not run: <reason>" when `tests_status` is `not_run`, and "Some impacted tests got no FAILS\_ON\_CANDIDATE or PASSES\_ON\_CANDIDATE result; …" when a selected test has no result.
-- Audit: one `stage:run_impacted_tests` event per unit, with its checks.
+- Unverified Areas: "Impacted tests did not run: <reason>" when `tests_status` is `not_run`, including a stage that was never reached (for example after failed dependency preparation); "Some impacted tests got no FAILS\_ON\_CANDIDATE or PASSES\_ON\_CANDIDATE result; …" when a test within the limits has no result; and "N selected impacted tests were not run because of the stage limits …" when the limits left tests out.
+- Audit: one `stage:run_impacted_tests` event per unit, with its checks and the most severe of their statuses (ERROR, then TIMEOUT, FAIL, SKIPPED, PASS).
 - Console: the impact line ends with the finalized counts, for example `Impacted tests: ran; 2 FAILS_ON_CANDIDATE, 1 PASSES_ON_CANDIDATE, 0 UNVERIFIED.`
 
 ### Security notes
 
-The test names come from candidate source through the index. They run only when they are Go test names declared in a test file that is byte-identical in both snapshots, and they reach `-run` quoted with `regexp.QuoteMeta`; the command is otherwise the base-branch `generated_test` template. The runs add no mount, volume, network or payload channel and use the unchanged sandbox profile; unchanged baseline test code runs against candidate code, as in the existing experiments. The candidate shapes the index, so it can add or hide reaching tests: selection can only add runs and review requests, within fixed limits. Candidate code can make a test pass on purpose (for example by detecting the sandbox), so `PASSES_ON_CANDIDATE` is an observation only; a forged pass after a real failure makes the result `UNVERIFIED`, and forging a failure only adds a review request. The flag is set by whoever invokes SwiftProof, never by the candidate branch.
+The test names come from candidate source through the index. They run only when they are Go test names declared in a test file that is byte-identical in both snapshots, and they reach `-run` quoted with `regexp.QuoteMeta`; the command is otherwise the base-branch `generated_test` template. The runs add no mount, volume, network or payload channel and use the unchanged sandbox profile; unchanged baseline test code runs against candidate code, as in the existing experiments. The candidate shapes the index, so it can add or hide reaching tests and influence which tests fill the limits: selection can only add runs and review requests, within fixed limits, and a selected test that the limits leave out requests review. Candidate code can make a test pass on purpose (for example by detecting the sandbox), so `PASSES_ON_CANDIDATE` is an observation only; a forged pass after a real failure makes the result `UNVERIFIED`, and forging a failure only adds a review request. The flag is set by whoever invokes SwiftProof, never by the candidate branch.
 
 ### Limitations
 

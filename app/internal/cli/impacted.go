@@ -20,10 +20,13 @@ import (
 
 // impactedUnverifiedPrefix starts the Unverified entry of a stage that did not
 // run; impactedUnverifiedLine is the entry of a stage that ran and left a
-// selected test without a result.
+// selected test within the limits without a result; impactedCappedFormat is
+// the entry of a stage that ran and left selected tests out because of its
+// limits.
 const (
 	impactedUnverifiedPrefix = "Impacted tests did not run: "
 	impactedUnverifiedLine   = "Some impacted tests got no FAILS_ON_CANDIDATE or PASSES_ON_CANDIDATE result; each one's reason is in impact.changed_functions[].tests[].reason."
+	impactedCappedFormat     = "%d selected impacted tests were not run because of the stage limits (at most %d tests from at most %d packages, or test files with a {file} template, per review), so they got no FAILS_ON_CANDIDATE or PASSES_ON_CANDIDATE result."
 	// impactedChangedFileReason is the reason of a reaching test declared in a
 	// test file the change modified: the stage runs unchanged files only.
 	impactedChangedFileReason = "not run: its test file was modified by the change (--base-tests runs the baseline versions of changed tests)"
@@ -40,6 +43,10 @@ type impactedPlan struct {
 	// unlisted counts the reaching tests the index found beyond the ones it
 	// lists per changed function; they cannot be selected.
 	unlisted int
+	// unindexed counts the changed functions that are not in the index (for
+	// example in a file that linux/amd64 constraints exclude): their reaching
+	// tests were not searched.
+	unindexed int
 	// status and reason are the section's when tests is empty.
 	status, reason string
 }
@@ -61,6 +68,7 @@ func planImpactedTests(im *model.Impact) impactedPlan {
 	changed := map[key]bool{}
 	for _, f := range im.ChangedFunctions {
 		if !f.Indexed {
+			plan.unindexed++
 			continue
 		}
 		if f.TestsTotal > len(f.Tests) {
@@ -96,6 +104,12 @@ func planImpactedTests(im *model.Impact) impactedPlan {
 	if len(plan.tests) > 0 {
 		return plan
 	}
+	if plan.unindexed > 0 && plan.unindexed == len(im.ChangedFunctions) {
+		// As with an unavailable index, no reaching test was searched.
+		plan.status = model.ImpactTestsNotRun
+		plan.reason = "no changed Go function is in the static index, so no reaching test was searched"
+		return plan
+	}
 	plan.status = model.ImpactTestsNoCandidates
 	switch {
 	case plan.changedFile > 0:
@@ -103,10 +117,22 @@ func planImpactedTests(im *model.Impact) impactedPlan {
 	default:
 		plan.reason = fmt.Sprintf("the static index lists no existing Go test that reaches a changed function within %d references, which is not proof that none exists", symbols.MaxDepth)
 	}
+	if plan.unindexed > 0 {
+		plan.reason += "; " + impactedUnindexedText(plan.unindexed)
+	}
 	if im.Status == model.ImpactLimited {
 		plan.reason += "; the index is limited, so reaching tests may be missing"
 	}
 	return plan
+}
+
+// impactedUnindexedText states the changed functions whose reaching tests
+// were not searched.
+func impactedUnindexedText(n int) string {
+	if n == 1 {
+		return "1 changed Go function is not in the static index, so its reaching tests were not searched"
+	}
+	return fmt.Sprintf("%d changed Go functions are not in the static index, so their reaching tests were not searched", n)
 }
 
 // impactedSelection is the copy of a listed reaching test that the harness
@@ -134,7 +160,9 @@ func runImpactedStage(ctx context.Context, h *harness.Harness, r *model.Report, 
 		}
 		return false
 	}
-	fmt.Fprintf(errOut, "Running %d unchanged Go tests that statically reach changed code on baseline and candidate in isolated Docker sandboxes...\n", len(plan.tests))
+	// The harness prechecks and limits decide what runs: at most
+	// ImpactedMaxTests tests from ImpactedMaxUnits units.
+	fmt.Fprintf(errOut, "Running up to %d of %d selected unchanged Go tests that statically reach changed code on baseline and candidate in isolated Docker sandboxes...\n", min(len(plan.tests), harness.ImpactedMaxTests), len(plan.tests))
 	out := h.RunImpactedTests(ctx, plan.tests)
 	recordImpactedOutcome(r, plan, out)
 	return out.Errors > 0
@@ -142,7 +170,10 @@ func runImpactedStage(ctx context.Context, h *harness.Harness, r *model.Report, 
 
 // recordImpactedOutcome records what the harness returned: each listed
 // test's result, tests_status and tests_reason, and an Unverified entry when
-// the stage did not run or left a selected test without a result.
+// the stage did not run, left a selected test within the limits without a
+// result, or left selected tests out because of its limits. Missing evidence
+// requests review: the candidate shapes the index, and so which tests fill the
+// limits.
 func recordImpactedOutcome(r *model.Report, plan impactedPlan, out harness.ImpactedTests) {
 	im := r.Impact
 	applyImpactedResults(im, out.Tests)
@@ -156,9 +187,9 @@ func recordImpactedOutcome(r *model.Report, plan impactedPlan, out harness.Impac
 		return
 	}
 	im.TestsReason = impactedRanReason(plan, out)
-	// The Unverified entry carries no count: report.Finalize may still
-	// downgrade a result, and the section holds the finalized statuses. Tests
-	// the limits left out are stated in tests_reason instead.
+	// This entry carries no count: report.Finalize may still downgrade a
+	// result, and the section holds the finalized statuses. The tests the
+	// limits left out have their own entry, whose count Finalize never changes.
 	withoutResult := -out.Capped
 	for _, t := range out.Tests {
 		if t.Status != model.StatusFailsOnCandidate && t.Status != model.StatusPassesOnCandidate {
@@ -167,6 +198,9 @@ func recordImpactedOutcome(r *model.Report, plan impactedPlan, out harness.Impac
 	}
 	if withoutResult > 0 {
 		r.Unverified = append(r.Unverified, impactedUnverifiedLine)
+	}
+	if out.Capped > 0 {
+		r.Unverified = append(r.Unverified, fmt.Sprintf(impactedCappedFormat, out.Capped, harness.ImpactedMaxTests, harness.ImpactedMaxUnits))
 	}
 }
 
@@ -181,6 +215,9 @@ func impactedRanReason(plan impactedPlan, out harness.ImpactedTests) string {
 	}
 	if plan.unlisted > 0 {
 		parts = append(parts, fmt.Sprintf("%d reaching tests beyond the %d listed per changed function were not considered", plan.unlisted, symbols.MaxTestsListed))
+	}
+	if plan.unindexed > 0 {
+		parts = append(parts, impactedUnindexedText(plan.unindexed))
 	}
 	return strings.Join(parts, "; ")
 }

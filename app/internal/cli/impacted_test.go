@@ -3,6 +3,7 @@ package cli
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -49,7 +50,9 @@ func TestPlanImpactedTests(t *testing.T) {
 	if strings.Join(got, ",") != "api/handler_test.go:TestCheckout:interface,notify/notify_test.go:TestMessage:interface,price/price_test.go:TestTotal:static" {
 		t.Fatalf("selection %v", got)
 	}
-	if plan.changedFile != 1 || plan.unlisted != 20 || plan.status != "" {
+	// The unindexed changed function is counted: its reaching tests were not
+	// searched.
+	if plan.changedFile != 1 || plan.unlisted != 20 || plan.unindexed != 1 || plan.status != "" {
 		t.Fatalf("plan %+v", plan)
 	}
 
@@ -64,6 +67,11 @@ func TestPlanImpactedTests(t *testing.T) {
 		{"no reaching test", &model.Impact{Status: model.ImpactIndexed, ChangedFunctions: []model.ImpactFunction{{Indexed: true, Tests: []model.ImpactTest{}}}}, model.ImpactTestsNoCandidates, "lists no existing Go test that reaches a changed function within 3 references, which is not proof that none exists"},
 		{"only changed test files", &model.Impact{Status: model.ImpactIndexed, ChangedFunctions: []model.ImpactFunction{{Indexed: true, Tests: []model.ImpactTest{{Name: "TestA", Path: "a_test.go", Depth: 1, FileChanged: true}}}}}, model.ImpactTestsNoCandidates, "declared in a test file the change modified"},
 		{"limited without tests", &model.Impact{Status: model.ImpactLimited, ChangedFunctions: []model.ImpactFunction{}}, model.ImpactTestsNoCandidates, "; the index is limited, so reaching tests may be missing"},
+		// An indexed section can hold changed functions the index does not
+		// contain (for example in a file linux/amd64 constraints exclude): no
+		// reaching test of theirs was searched.
+		{"only unindexed functions", &model.Impact{Status: model.ImpactIndexed, ChangedFunctions: []model.ImpactFunction{{Indexed: false, Reason: "the declaration is not in the static Go index", Tests: []model.ImpactTest{}}, {Indexed: false, Tests: []model.ImpactTest{}}}}, model.ImpactTestsNotRun, "no changed Go function is in the static index, so no reaching test was searched"},
+		{"unindexed and indexed without tests", &model.Impact{Status: model.ImpactIndexed, ChangedFunctions: []model.ImpactFunction{{Indexed: false, Tests: []model.ImpactTest{}}, {Indexed: true, Tests: []model.ImpactTest{}}}}, model.ImpactTestsNoCandidates, "which is not proof that none exists; 1 changed Go function is not in the static index, so its reaching tests were not searched"},
 	} {
 		plan := planImpactedTests(tc.impact)
 		if len(plan.tests) != 0 || plan.status != tc.status || !strings.Contains(plan.reason, tc.reason) {
@@ -83,6 +91,7 @@ func TestRunImpactedStageWithoutSelection(t *testing.T) {
 		{&model.Impact{Status: model.ImpactNotApplicable, ChangedFunctions: []model.ImpactFunction{}}, model.ImpactTestsNoCandidates, false},
 		{&model.Impact{Status: model.ImpactUnavailable, ChangedFunctions: []model.ImpactFunction{}}, model.ImpactTestsNotRun, true},
 		{&model.Impact{Status: model.ImpactIndexed, ChangedFunctions: []model.ImpactFunction{{Indexed: true, Tests: []model.ImpactTest{{Name: "TestA", Path: "a_test.go", Depth: 1, FileChanged: true}}}}}, model.ImpactTestsNoCandidates, false},
+		{&model.Impact{Status: model.ImpactIndexed, ChangedFunctions: []model.ImpactFunction{{Indexed: false, Tests: []model.ImpactTest{}}}}, model.ImpactTestsNotRun, true},
 	} {
 		r := &model.Report{Impact: tc.impact}
 		var errOut bytes.Buffer
@@ -137,19 +146,35 @@ func TestRecordImpactedOutcome(t *testing.T) {
 	if tt := fns[1].Tests[1]; tt.EvidenceID != "" || tt.Status != "" || !strings.HasPrefix(tt.Reason, "not run: the stage runs at most 16 tests") {
 		t.Fatalf("capped test %+v", tt)
 	}
-	want := "1 of 3 selected tests were not run: the stage runs at most 16 tests from at most 4 packages (test files, with a {file} template) per review; 1 reaching tests declared in test files the change modified were not run (--base-tests runs the baseline versions of changed tests); 20 reaching tests beyond the 20 listed per changed function were not considered"
+	want := "1 of 3 selected tests were not run: the stage runs at most 16 tests from at most 4 packages (test files, with a {file} template) per review; 1 reaching tests declared in test files the change modified were not run (--base-tests runs the baseline versions of changed tests); 20 reaching tests beyond the 20 listed per changed function were not considered; 1 changed Go function is not in the static index, so its reaching tests were not searched"
 	if r.Impact.TestsStatus != model.ImpactTestsRan || r.Impact.TestsReason != want {
 		t.Fatalf("tests_status %q, tests_reason %q", r.Impact.TestsStatus, r.Impact.TestsReason)
 	}
-	// Every selected test got a result: the capped one does not add an entry.
-	if len(r.Unverified) != 0 {
+	// Every test within the limits got a result; the test the limits left out
+	// has no evidence, so it requests review with its own entry.
+	capped := "1 selected impacted tests were not run because of the stage limits (at most 16 tests from at most 4 packages, or test files with a {file} template, per review), so they got no FAILS_ON_CANDIDATE or PASSES_ON_CANDIDATE result."
+	if len(r.Unverified) != 1 || r.Unverified[0] != capped {
 		t.Fatalf("unverified %q", r.Unverified)
 	}
-	// A selected test without a result does.
+	// A test within the limits without a result adds the other entry.
 	out.Tests[0].Status, out.Tests[0].Reason = model.StatusUnverified, "the candidate-side run timed out"
 	r = &model.Report{Impact: impactedSection()}
 	recordImpactedOutcome(r, plan, out)
+	if len(r.Unverified) != 2 || r.Unverified[0] != impactedUnverifiedLine || r.Unverified[1] != capped {
+		t.Fatalf("unverified %q", r.Unverified)
+	}
+	// Without capped tests, a test without a result adds only that entry, and
+	// a run in which every test got a result adds none.
+	out.Capped, out.Tests = 0, []model.ImpactTest{out.Tests[0], out.Tests[2]}
+	r = &model.Report{Impact: impactedSection()}
+	recordImpactedOutcome(r, plan, out)
 	if len(r.Unverified) != 1 || r.Unverified[0] != impactedUnverifiedLine {
+		t.Fatalf("unverified %q", r.Unverified)
+	}
+	out.Tests[0].Status, out.Tests[0].Reason = model.StatusPassesOnCandidate, ""
+	r = &model.Report{Impact: impactedSection()}
+	recordImpactedOutcome(r, plan, out)
+	if len(r.Unverified) != 0 {
 		t.Fatalf("unverified %q", r.Unverified)
 	}
 	// A stage that did not run says why, in the section and as an Unverified entry.
@@ -176,7 +201,7 @@ func TestRunImpactedTestsWithoutDocker(t *testing.T) {
 	if runImpactedTests(context.Background(), h, r, res, &errOut) {
 		t.Fatal("reported an operational failure")
 	}
-	if !strings.Contains(errOut.String(), "Running 2 unchanged Go tests that statically reach changed code on baseline and candidate") {
+	if !strings.Contains(errOut.String(), "Running up to 2 of 2 selected unchanged Go tests that statically reach changed code on baseline and candidate") {
 		t.Fatalf("progress line %q", errOut.String())
 	}
 	const skipped = "no run started: No Docker image configured; repository code was not executed."
@@ -205,12 +230,59 @@ func TestRunImpactedTestsWithoutDocker(t *testing.T) {
 	}
 }
 
+// The progress line states what may run, not the whole selection: at most
+// ImpactedMaxTests tests run.
+func TestImpactedProgressLineStatesTheLimit(t *testing.T) {
+	im := &model.Impact{Status: model.ImpactIndexed, ChangedFunctions: []model.ImpactFunction{{Indexed: true}}}
+	for i := 0; i < 30; i++ {
+		im.ChangedFunctions[0].Tests = append(im.ChangedFunctions[0].Tests, model.ImpactTest{Name: "TestN", Path: fmt.Sprintf("p%02d/x_test.go", i), Depth: 1})
+	}
+	dir := shopFixture(t)
+	repo, change := openChange(t, dir, "main", "candidate")
+	h := stageHarness(t, repo, change, []string{"go", "test", "{package}"})
+	var errOut bytes.Buffer
+	runImpactedStage(context.Background(), h, &model.Report{Impact: im}, &errOut)
+	if !strings.Contains(errOut.String(), "Running up to 16 of 30 selected unchanged Go tests") {
+		t.Fatalf("progress line %q", errOut.String())
+	}
+}
+
+// A requested stage that never ran (for example after a failed dependency
+// preparation) is not_run with the reason and requests review with the same
+// Unverified entry as a stage that could not run; without changed files it is
+// no_candidates and adds nothing.
+func TestRecordImpactedTestsSkippedAddsUnverifiedEntry(t *testing.T) {
+	r := &model.Report{Impact: &model.Impact{Status: model.ImpactIndexed}}
+	recordImpactedTestsSkipped(stageContext{mode: "review", checks: true, reason: reasonPrepareFailed}, true, r)
+	if r.Impact.TestsStatus != model.ImpactTestsNotRun || r.Impact.TestsReason != reasonPrepareFailed || len(r.Unverified) != 1 || r.Unverified[0] != impactedUnverifiedPrefix+reasonPrepareFailed {
+		t.Fatalf("section %+v, unverified %q", r.Impact, r.Unverified)
+	}
+	r = &model.Report{Impact: &model.Impact{Status: model.ImpactIndexed}}
+	recordImpactedTestsSkipped(stageContext{mode: "review", checks: true, executed: true}, true, r)
+	if r.Impact.TestsStatus != model.ImpactTestsNotRun || len(r.Unverified) != 1 || r.Unverified[0] != impactedUnverifiedPrefix+r.Impact.TestsReason {
+		t.Fatalf("section %+v, unverified %q", r.Impact, r.Unverified)
+	}
+	r = &model.Report{Impact: &model.Impact{Status: model.ImpactNotApplicable}}
+	recordImpactedTestsSkipped(stageContext{mode: "review", checks: true, reason: reasonNoChangedFiles}, true, r)
+	if r.Impact.TestsStatus != model.ImpactTestsNoCandidates || len(r.Unverified) != 0 {
+		t.Fatalf("section %+v, unverified %q", r.Impact, r.Unverified)
+	}
+	// A section the stage already recorded keeps its entries as they are.
+	r = &model.Report{Impact: &model.Impact{Status: model.ImpactIndexed, TestsStatus: model.ImpactTestsRan}}
+	recordImpactedTestsSkipped(stageContext{mode: "review", checks: true, reason: reasonPrepareFailed}, true, r)
+	if r.Impact.TestsStatus != model.ImpactTestsRan || len(r.Unverified) != 0 {
+		t.Fatalf("section %+v, unverified %q", r.Impact, r.Unverified)
+	}
+}
+
 // The stage's own texts make no claim that the §5 non-claims forbid.
 func TestImpactedTextsMakeNoClaim(t *testing.T) {
 	plan := planImpactedTests(impactedSection())
-	texts := []string{impactedUnverifiedPrefix, impactedUnverifiedLine, impactedChangedFileReason,
+	texts := []string{impactedUnverifiedPrefix, impactedUnverifiedLine, impactedChangedFileReason, fmt.Sprintf(impactedCappedFormat, 2, harness.ImpactedMaxTests, harness.ImpactedMaxUnits), impactedUnindexedText(1), impactedUnindexedText(2),
 		impactedRanReason(plan, harness.ImpactedTests{Capped: 2, Tests: make([]model.ImpactTest, 5)})}
 	for _, im := range []*model.Impact{{Status: model.ImpactNotApplicable}, {Status: model.ImpactUnavailable}, {Status: model.ImpactLimited}, {Status: "x"},
+		{Status: model.ImpactIndexed, ChangedFunctions: []model.ImpactFunction{{Indexed: false}}},
+		{Status: model.ImpactIndexed, ChangedFunctions: []model.ImpactFunction{{Indexed: false}, {Indexed: true}}},
 		{Status: model.ImpactIndexed, ChangedFunctions: []model.ImpactFunction{{Indexed: true, Tests: []model.ImpactTest{{Name: "TestA", Path: "a_test.go", FileChanged: true}}}}}} {
 		texts = append(texts, planImpactedTests(im).reason)
 	}

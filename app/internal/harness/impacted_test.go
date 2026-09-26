@@ -265,14 +265,17 @@ func TestImpactedTestsRunPairsAndEvidence(t *testing.T) {
 			t.Fatalf("description %q", e.Description)
 		}
 	}
-	// One audit event per unit, under the reserved stage prefix.
+	// One audit event per unit, under the reserved stage prefix, with the
+	// worst status of the unit's checks: the pkg unit's candidate run failed
+	// before its retry pair passed.
 	var audited []model.AuditEvent
 	for _, e := range h.Audit() {
 		if e.Tool == auditRunImpactedTests {
 			audited = append(audited, e)
 		}
 	}
-	if len(audited) != 2 || !strings.Contains(audited[0].Arguments, `"unit":"pkg"`) || !strings.Contains(audited[0].Arguments, `"check-4"`) || audited[0].Status != "PASS" || !strings.Contains(audited[1].Arguments, `"unit":"other"`) {
+	if len(audited) != 2 || !strings.Contains(audited[0].Arguments, `"unit":"pkg"`) || !strings.Contains(audited[0].Arguments, `"check-4"`) || audited[0].Status != "FAIL" ||
+		!strings.Contains(audited[1].Arguments, `"unit":"other"`) || audited[1].Status != "PASS" {
 		t.Fatalf("audit %+v", audited)
 	}
 	// The input was copied, not modified.
@@ -435,6 +438,58 @@ func TestImpactedTestsRetryReasons(t *testing.T) {
 	}
 }
 
+// A candidate run that does not start (the shared runtime budget ran out
+// during the baseline run) gives its tests no run pair and no evidence record:
+// nothing may describe a candidate run that never happened.
+func TestImpactedTestsCandidateRunNotStarted(t *testing.T) {
+	base, candidate := itTrees()
+	h := itHarness(t, base, candidate, []string{"go", "test", "{package}"})
+	runs := itExec(t, h, func(r itRun, n int) (string, execution) {
+		h.spent = h.opts.MaxRuntime
+		return itAll("pass", "pass")(r, n)
+	})
+	res := h.RunImpactedTests(context.Background(), itSelected()[:2])
+	if len(*runs) != 1 || res.Status != model.ImpactTestsRan || len(h.Evidence()) != 0 {
+		t.Fatalf("%d runs, result %+v, evidence %+v", len(*runs), res, h.Evidence())
+	}
+	var kinds []string
+	for _, c := range h.Checks() {
+		kinds = append(kinds, c.Kind+":"+c.Status)
+	}
+	if got := strings.Join(kinds, ","); got != "impacted_test_base:PASS,impacted_test_candidate:SKIPPED" {
+		t.Fatalf("checks %s", got)
+	}
+	for _, tt := range res.Tests {
+		if tt.Status != "" || tt.EvidenceID != "" || tt.Reason != "the candidate run check-2 did not start (Sandbox runtime budget exhausted), so no result was drawn" {
+			t.Fatalf("test %+v", tt)
+		}
+	}
+	if tools := auditTools(h); len(tools) != 1 || h.Audit()[0].Status != "SKIPPED" {
+		t.Fatalf("audit %+v", h.Audit())
+	}
+	// The same in a retry pair: the test keeps the first pair's evidence and
+	// says why its own pair gave no result.
+	h = itHarness(t, base, candidate, []string{"go", "test", "{package}"})
+	runs = itExec(t, h, func(r itRun, n int) (string, execution) {
+		if r.side == "candidate" && len(r.names) == 2 {
+			return itEvents("pkg", "TestA", "fail", "TestB", "pass"), execution{ExitCode: 1}
+		}
+		if n == 2 {
+			h.spent = h.opts.MaxRuntime
+		}
+		return itAll("pass", "pass")(r, n)
+	})
+	res = h.RunImpactedTests(context.Background(), itSelected()[:2])
+	b := res.Tests[1]
+	if len(*runs) != 3 || res.Tests[0].Status != model.StatusFailsOnCandidate || b.Status != model.StatusUnverified ||
+		b.Reason != impactedPassedInsideFailure+"; its own run pair gave no result (the candidate run check-4 did not start (Sandbox runtime budget exhausted), so no result was drawn)" {
+		t.Fatalf("%d runs; TestB %+v", len(*runs), b)
+	}
+	if e := itEvidence(t, h, b.EvidenceID); e.CheckID != "check-2" || e.BaseCheckID != "check-1" || len(h.Evidence()) != 2 {
+		t.Fatalf("TestB evidence %+v; %d records", e, len(h.Evidence()))
+	}
+}
+
 // §1.11: FAILS_ON_CANDIDATE never rests on a replayed baseline; the baseline
 // runs again live with the same kind and command.
 func TestImpactedTestsReplayedBaselineIsConfirmedLive(t *testing.T) {
@@ -511,6 +566,19 @@ func TestImpactedTestsReplayedBaselineIsConfirmedLive(t *testing.T) {
 	if len(*runs)-before != 1 || res.Tests[0].Status != model.StatusUnverified || !itCheck(t, h, e.BaseCheckID).Replayed() ||
 		res.Tests[0].Reason != "the baseline run was replayed from the execution cache and could not be repeated live (the review was cancelled)" {
 		t.Fatalf("no live re-run: %+v, evidence %+v, %d executions", res.Tests[0], e, len(*runs)-before)
+	}
+	// A live re-run that does not start (the shared budget ran out during the
+	// candidate run) leaves the test UNVERIFIED on the replayed baseline; the
+	// skipped check is not cited.
+	cache.promote(2)
+	onCandidate = func() { h.spent = h.opts.MaxRuntime }
+	before, checksBefore := len(*runs), len(h.Checks())
+	res = h.RunImpactedTests(context.Background(), selected)
+	e = itEvidence(t, h, res.Tests[0].EvidenceID)
+	checks := h.Checks()[checksBefore:]
+	if len(*runs)-before != 1 || len(checks) != 3 || checks[2].Status != "SKIPPED" || res.Tests[0].Status != model.StatusUnverified || e.BaseCheckID != checks[0].ID || !checks[0].Replayed() ||
+		res.Tests[0].Reason != "the baseline run was replayed from the execution cache and could not be repeated live ("+checks[2].ID+" did not start: Sandbox runtime budget exhausted)" {
+		t.Fatalf("skipped live re-run: %+v, evidence %+v, checks %+v", res.Tests[0], e, checks)
 	}
 }
 

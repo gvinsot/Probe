@@ -82,9 +82,10 @@ type ImpactedTests struct {
 	// Reason says why nothing ran; it is empty when a run started.
 	Reason string
 	// Tests are the input tests, in input order. A test that got a run pair
-	// has an evidence ID and the status its evidence records (a reason only
-	// when that status is UNVERIFIED); any other test has no status and a
-	// reason that says why it got no run pair.
+	// (a baseline run and a candidate run that both started) has an evidence
+	// ID and the status its evidence records (a reason only when that status
+	// is UNVERIFIED); any other test has no status and a reason that says why
+	// it got no run pair.
 	Tests []model.ImpactTest
 	// Capped counts the tests left out by the limits of ImpactedMaxTests
 	// tests and ImpactedMaxUnits units per review.
@@ -109,6 +110,8 @@ type ImpactedTests struct {
 //     per review; the rest is not run.
 //   - A baseline run that does not pass as a whole gets no candidate run,
 //     except that the tests it records as passed run once more on their own.
+//   - A candidate run that does not start (SKIPPED) leaves its tests without
+//     a run pair and without evidence.
 //   - When the candidate run fails as a whole, the tests it records as passed
 //     get one more run pair on their own (a pass event inside a failed check
 //     never supports PASSES_ON_CANDIDATE).
@@ -445,13 +448,20 @@ func (r *impactedRun) unit(u *impactedUnit, tests []model.ImpactTest) {
 	h := r.h
 	started := time.Now()
 	checks := []string{}
-	status := "SKIPPED"
+	status := ""
 	defer func() {
+		if status == "" {
+			status = "SKIPPED"
+		}
 		h.auditImpacted(started, map[string]any{"unit": u.key, "tests": len(u.keys), "checks": checks}, status)
 	}()
+	// The unit's audit status is the worst status of its checks, so that a
+	// failed run followed by a passing retry pair is not audited as PASS.
 	record := func(c model.Check) model.Check {
 		checks = append(checks, c.ID)
-		status = c.Status
+		if impactedStatusRank(c.Status) > impactedStatusRank(status) {
+			status = c.Status
+		}
 		return c
 	}
 	verdicts, marks := r.pair(u, u.names, true, record)
@@ -537,6 +547,27 @@ func (r *impactedRun) unit(u *impactedUnit, tests []model.ImpactTest) {
 	}
 }
 
+// impactedStatusRank orders check statuses from best to worst for the unit's
+// audit event: PASS < SKIPPED < FAIL < TIMEOUT < ERROR ("" ranks lowest).
+func impactedStatusRank(status string) int {
+	switch status {
+	case "PASS":
+		return 1
+	case "SKIPPED":
+		return 2
+	case "FAIL":
+		return 3
+	case "TIMEOUT":
+		return 4
+	case "ERROR":
+		return 5
+	case "":
+		return 0
+	}
+	// An unknown status is never better than a known failure.
+	return 5
+}
+
 // impactedCompletedFail reports whether c is a completed FAIL: exit code
 // 1..124 and a complete log, the only failed run whose events can be read.
 func impactedCompletedFail(c model.Check) bool {
@@ -607,6 +638,14 @@ func (r *impactedRun) pair(u *impactedUnit, names []string, narrowBase bool, rec
 		return verdicts, marks
 	}
 	candidate := record(r.exec(model.CheckImpactedTestCandidate, h.candidate, command, false))
+	if candidate.Status == "SKIPPED" {
+		// The candidate run did not start (for example the shared runtime
+		// budget ran out): these names have no run pair and no evidence.
+		markAll(names, func(string) string {
+			return fmt.Sprintf("the candidate run %s did not start (%s), so no result was drawn", candidate.ID, impactedSkipText(candidate))
+		})
+		return verdicts, marks
+	}
 	confirm := false
 	for _, n := range names {
 		s, reason := ClassifyExistingTest(base, candidate, n)
@@ -623,6 +662,9 @@ func (r *impactedRun) pair(u *impactedUnit, names []string, narrowBase bool, rec
 	var live model.Check
 	if reason == "" {
 		live = record(r.exec(model.CheckImpactedTestBase, h.base, command, true))
+		if live.Status == "SKIPPED" {
+			reason = fmt.Sprintf("%s did not start: %s", live.ID, impactedSkipText(live))
+		}
 	}
 	for _, n := range names {
 		if verdicts[n].status != model.StatusFailsOnCandidate {
@@ -644,7 +686,7 @@ func impactedBaselineReason(base model.Check, name string) string {
 	const tail = ", so it was not run on candidate code"
 	switch {
 	case base.Status == "SKIPPED":
-		return fmt.Sprintf("the baseline run %s did not start (%s)%s", base.ID, strings.TrimSuffix(strings.TrimSpace(base.Output), "."), tail)
+		return fmt.Sprintf("the baseline run %s did not start (%s)%s", base.ID, impactedSkipText(base), tail)
 	case base.Status == "TIMEOUT":
 		return fmt.Sprintf("the baseline run %s timed out%s", base.ID, tail)
 	case base.Status == "ERROR":
@@ -666,8 +708,15 @@ func impactedBaselineReason(base model.Check, name string) string {
 	return fmt.Sprintf("the baseline log of %s does not record exactly one run and one result of this test (for example a build constraint excluded its file)%s", base.ID, tail)
 }
 
+// impactedSkipText is the recorded text of a SKIPPED check, without its
+// final period.
+func impactedSkipText(c model.Check) string {
+	return strings.TrimSuffix(strings.TrimSpace(c.Output), ".")
+}
+
 // impactedDescription is the evidence description of one test. It states
-// the static link the index found and nothing about causes.
+// the static link the index found and nothing about causes; the status and
+// the cited checks say what the two runs recorded.
 func impactedDescription(t model.ImpactTest, unit string) string {
 	where := "package directory " + unit
 	switch {
@@ -680,5 +729,5 @@ func impactedDescription(t model.ImpactTest, unit string) string {
 	if t.Depth > 0 {
 		reach = fmt.Sprintf(" The static index found it reaching a changed function at depth %d (%s resolution, approximate).", t.Depth, t.Resolution)
 	}
-	return truncateUTF8(Redact(fmt.Sprintf("Existing test %s from %s, a file the change did not modify, run on the baseline and on the candidate with the selected tests of %s.%s", t.Name, t.Path, where, reach)), 1024)
+	return truncateUTF8(Redact(fmt.Sprintf("Existing test %s from %s, a file the change did not modify, compared between one baseline check and one candidate check of the same command over the selected tests of %s.%s", t.Name, t.Path, where, reach)), 1024)
 }
