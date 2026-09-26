@@ -1,7 +1,6 @@
 package fuzz
 
 import (
-	"encoding/json"
 	"fmt"
 	"strconv"
 	"strings"
@@ -40,7 +39,7 @@ func completeFn(planned int, records []Record) FunctionStream {
 
 func results(t *testing.T, fns ...FunctionStream) string {
 	t.Helper()
-	out, err := json.Marshal(Stream{Version: StreamVersion, Scheme: model.FuzzSeedScheme, Display: 64, Functions: fns})
+	out, err := encodeStream(Stream{Version: StreamVersion, Scheme: model.FuzzSeedScheme, Display: 64, Functions: fns})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -126,9 +125,13 @@ func TestEvaluateOutcomes(t *testing.T) {
 		{"no confirmation pair", pair(t, &same, &differs, nil, nil), model.FuzzInconclusive,
 			"a difference seen in one run per revision could not be confirmed: the confirmation runs did not take place", 1, 0, 0, 2, 0, 0},
 		{"baseline unstable across runs", pair(t, &same, &differs, &baseMoves, &differs), model.FuzzDiverged, "", 2, 1, 1, 0, 0, 2},
-		{"candidate unstable across runs", pair(t, &same, &differs, &same, &same), model.FuzzNotDiverged, "", 1, 0, 2, 0, 0, 0},
+		{"candidate unstable across runs", pair(t, &same, &differs, &same, &same), model.FuzzInconclusive,
+			"2 of 3 inputs were unstable on the candidate only, or differed between the revisions without repeating in the confirmation runs", 1, 0, 2, 0, 0, 0},
 		{"instability flag in confirmation", pair(t, &same, &differs, &same, &confirmUnstable), model.FuzzDiverged, "", 2, 1, 1, 0, 0, 2},
-		{"instability flag in first pair", pair(t, &firstUnstable, &same, nil, nil), model.FuzzNotDiverged, "", 2, 0, 1, 0, 0, 0},
+		{"baseline instability flag in first pair", pair(t, &firstUnstable, &same, nil, nil), model.FuzzNotDiverged, "", 2, 0, 1, 0, 0, 0},
+		{"instability flag on both sides", pair(t, &firstUnstable, &firstUnstable, nil, nil), model.FuzzNotDiverged, "", 2, 0, 1, 0, 0, 0},
+		{"candidate-only instability flag", pair(t, &same, &firstUnstable, nil, nil), model.FuzzInconclusive,
+			"1 of 3 inputs were unstable on the candidate only, or differed between the revisions without repeating in the confirmation runs", 2, 0, 1, 0, 0, 0},
 		{"all unstable", pair(t, &unstableAll, &unstableAll, nil, nil), model.FuzzInconclusive, "all 3 inputs gave different observations on repeated evaluation", 0, 0, 3, 0, 0, 0},
 		{"candidate stopped without difference", pair(t, &same, &stopped, nil, nil), model.FuzzInconclusive,
 			"the candidate stopped (timeout) while evaluating input 2: F(2)", 2, 0, 0, 0, 1, 0},
@@ -198,6 +201,44 @@ func TestEvaluateCounterexampleAndRows(t *testing.T) {
 	}
 }
 
+// TestEvaluatePrefersAVisibleCounterexample: a difference that lies in a cut
+// or redacted part of the displays shows two identical values; such an input
+// is not chosen as the counterexample while another divergent input shows its
+// difference, and its row is marked as not showing the whole values.
+func TestEvaluatePrefersAVisibleCounterexample(t *testing.T) {
+	cutPair := func(i int, shown, baseTail, candTail string) (Record, Record) {
+		b, c := rec(i, shown+baseTail), rec(i, shown+candTail)
+		b.Display, c.Display = shown, shown
+		return b, c
+	}
+	b0, c0 := cutPair(0, `string("x`, `a")`, `b")`)
+	b1, c1 := rec(1, "int(1)"), rec(1, "int(2)")
+	b2, c2 := rec(2, `string("x[REDACTED]h")`), rec(2, `string("x[REDACTED]h")`)
+	b2.SHA256, b2.Length = sha(`string("x://a:b@h")`), len(`string("x://a:b@h")`)
+	c2.SHA256, c2.Length = sha(`string("x://a:c@h")`), len(`string("x://a:c@h")`)
+	base := completeFn(3, []Record{b0, b1, b2})
+	cand := completeFn(3, []Record{c0, c1, c2})
+	ev := Evaluate(testName, 3, pair(t, &base, &cand, &base, &cand))
+	checkInvariant(t, ev)
+	if ev.Outcome != model.FuzzDiverged || ev.Diverged != 3 || ev.Counterexample.Index != 1 || ev.CounterexampleCut {
+		t.Fatalf("got %+v %+v", ev, ev.Counterexample)
+	}
+	rows := ev.Observations(testName)
+	if len(rows) != 3 || rows[0].Key != "F(1)" || rows[0].Truncated || rows[1].Key != "F(0)" || !rows[1].Truncated || rows[2].Key != "F(2)" || !rows[2].Truncated {
+		t.Fatalf("rows %+v", rows)
+	}
+	// Only invisible differences: the shortest call, marked as cut.
+	base = completeFn(3, []Record{b0, rec(1, "int(1)"), b2})
+	cand = completeFn(3, []Record{c0, rec(1, "int(1)"), c2})
+	ev = Evaluate(testName, 3, pair(t, &base, &cand, &base, &cand))
+	if ev.Outcome != model.FuzzDiverged || ev.Counterexample.Index != 0 || !ev.CounterexampleCut {
+		t.Fatalf("got %+v %+v", ev, ev.Counterexample)
+	}
+	if out := evidenceOutput(ev, ""); !strings.Contains(out, "\n"+CounterexampleCutNote+"\n") {
+		t.Fatalf("output lacks the cut note: %q", out)
+	}
+}
+
 // TestEvaluateRequiresValidatedExecutions covers every way a recorded check
 // can fail to support a comparison.
 func TestEvaluateRequiresValidatedExecutions(t *testing.T) {
@@ -230,7 +271,7 @@ func TestEvaluateRequiresValidatedExecutions(t *testing.T) {
 		{"no stream", edit(func(c *Checks) { c.Candidate.Results = "" }), "the candidate run recorded no observation stream"},
 		{"rejected stream", edit(func(c *Checks) { c.Candidate.Results = sameResults + " " }), "the candidate run observation stream was rejected"},
 		{"swapped kinds", edit(func(c *Checks) { c.Base.Kind, c.Candidate.Kind = c.Candidate.Kind, c.Base.Kind }), "the baseline run is not a fuzz_base check"},
-		{"replayed candidate", edit(func(c *Checks) { c.Candidate.Cache = &model.CheckCache{Status: model.CacheHit, LiveRuns: 5} }), "the candidate run was replayed from the execution cache without two agreeing live runs"},
+		{"replayed candidate", edit(func(c *Checks) { c.Candidate.Cache = &model.CheckCache{Status: model.CacheHit, LiveRuns: 5} }), "the candidate run was replayed from the execution cache; only live runs are accepted for this check"},
 		{"replayed baseline with one live run", edit(func(c *Checks) { c.Base.Cache = &model.CheckCache{Status: model.CacheHit, LiveRuns: 1} }), "the baseline run was replayed from the execution cache without two agreeing live runs"},
 		{"different commands", edit(func(c *Checks) { c.Candidate.Command = append(c.Candidate.Command, "-v") }), "the runs did not use one identical recorded command"},
 		{"no command", edit(func(c *Checks) { c.Base.Command, c.Candidate.Command = nil, nil }), "a run recorded no command"},
@@ -257,7 +298,7 @@ func TestEvaluateRequiresValidatedExecutions(t *testing.T) {
 			c.Candidate.Results = results(t, FunctionStream{Test: testName, Planned: 3, State: StateInterrupted, At: 1, AtCall: "F(1)", Records: encodings("int(0)")})
 		}), "the candidate run observation stream ended although the fuzz test passed"},
 		{"replayed confirmation", withConfirm(func(c *Checks) { c.BaseConfirm.Cache = &model.CheckCache{Status: model.CacheHit, LiveRuns: 9} }),
-			"a difference seen in one run per revision could not be confirmed: the baseline confirmation run was replayed from the execution cache without two agreeing live runs"},
+			"a difference seen in one run per revision could not be confirmed: the baseline confirmation run was replayed from the execution cache; only live runs are accepted for this check"},
 		{"confirmation of the wrong kind", withConfirm(func(c *Checks) { c.CandidateConfirm.Kind = model.CheckFuzzCandidate }),
 			"a difference seen in one run per revision could not be confirmed: the candidate confirmation run is not a fuzz_candidate_confirm check"},
 	}

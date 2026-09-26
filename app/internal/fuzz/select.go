@@ -54,6 +54,7 @@ const (
 	ReasonNotInSnapshot   = "file is not in the candidate snapshot"
 	ReasonNoBody          = "function has no Go body on one revision"
 	ReasonDuplicate       = "function is declared more than once in the package"
+	ReasonNoInput         = "no seeded input has a call text that redaction leaves unchanged"
 	ReasonBudgetPackages  = "fuzz budget reached (max_packages)"
 	ReasonBudgetFunctions = "fuzz budget reached (max_functions)"
 )
@@ -66,8 +67,15 @@ func reasonNamedDiffers(t string) string {
 	return "named type " + t + " differs between revisions"
 }
 
+// reasonUnreadable and reasonUnparsable name the file or directory relative to
+// the snapshot, with a fixed cause: no host path and no operating system
+// error text reaches the report.
 func reasonUnreadable(detail string) string {
-	return "package could not be read within the selection bounds: " + detail
+	return "package could not be read within the selection bounds: " + shortText(detail, 160)
+}
+
+func reasonUnparsable(name string) string {
+	return "package could not be parsed: " + shortText(name, 160) + " has a syntax error"
 }
 
 // basicTypes are the predeclared types the corpus generates. uintptr and the
@@ -97,10 +105,10 @@ var predeclared = map[string]bool{
 // planned when it is a package-level function (no receiver, no type
 // parameters) whose body token digest differs between the revisions, whose
 // signature is textually identical on both, whose parameters are generated,
-// and whose file and package pass the conservative build checks. Every other
-// changed function is listed in Plan.Skipped with a fixed reason; functions
-// that exist on one revision only, or whose body is unchanged, are not
-// rewrites and are not listed.
+// whose file and package pass the conservative build checks, and whose corpus
+// has at least one input. Every other changed function is listed in
+// Plan.Skipped with a fixed reason; functions that exist on one revision only,
+// or whose body is unchanged, are not rewrites and are not listed.
 //
 // Priority is the highest severity of the signals overlapping the function,
 // then exported before unexported, then path and line. Packages are taken in
@@ -136,15 +144,15 @@ func Select(baseDir, candidateDir string, change model.Change, signals []model.S
 			continue
 		}
 		pair := s.pair(dir)
-		if pair.candidate.err != nil {
-			skipFile(f.Path, reasonUnreadable(pair.candidate.err.Error()))
+		if pair.candidate.problem != "" {
+			skipFile(f.Path, pair.candidate.problem)
 			continue
 		}
 		if !pair.base.exists {
 			continue // a new package: nothing was rewritten
 		}
-		if pair.base.err != nil {
-			skipFile(f.Path, reasonUnreadable(pair.base.err.Error()))
+		if pair.base.problem != "" {
+			skipFile(f.Path, pair.base.problem)
 			continue
 		}
 		file := pair.candidate.file(f.Path)
@@ -160,6 +168,9 @@ func Select(baseDir, candidateDir string, change model.Change, signals []model.S
 			target, reason, changed := s.examine(pair, file, fd)
 			if !changed {
 				continue
+			}
+			if reason == "" && len(Corpus(target, 1)) == 0 {
+				reason = ReasonNoInput
 			}
 			if reason != "" {
 				skipped = append(skipped, model.FuzzSkip{Path: f.Path, Line: target.Line, Symbol: target.Symbol, Reason: reason})
@@ -261,6 +272,11 @@ func (s *selection) examine(pair *packagePair, file *goFile, fd *ast.FuncDecl) (
 	}
 	cands := cand.funcs[key]
 	if len(bases) > 1 || len(cands) > 1 {
+		// Declarations of one name in several files (build-constrained
+		// variants) form a rewrite only when their bodies changed.
+		if sameDigests(bases, cands) {
+			return t, "", false
+		}
 		return t, ReasonDuplicate, true
 	}
 	base := bases[0]
@@ -303,6 +319,27 @@ func (s *selection) examine(pair *packagePair, file *goFile, fd *ast.FuncDecl) (
 	return t, "", true
 }
 
+// sameDigests reports whether two sets of declarations have the same body
+// digests, counted with multiplicity.
+func sameDigests(a, b []*funcDecl) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	count := map[string]int{}
+	for _, d := range a {
+		count[d.digest]++
+	}
+	for _, d := range b {
+		count[d.digest]--
+	}
+	for _, n := range count {
+		if n != 0 {
+			return false
+		}
+	}
+	return true
+}
+
 // symbolOf qualifies key with the slash package directory, or with the
 // package name for the repository root (unqualified when the root package has
 // no name, because all its files are constrained).
@@ -340,13 +377,12 @@ func receiverName(e ast.Expr) string {
 }
 
 // bodyDigest is the token digest of the function body source: comments and
-// layout are ignored, literals, operators and explicit semicolons are kept. A
-// declaration without a body digests to "".
+// layout are ignored; literals, operators and statement separators are kept.
+// A declaration without a body digests to "".
 //
-// linter.TokenDigest keeps the semicolons the scanner inserts at line ends, so
-// a one-line body and the same body over several lines would differ; the body
-// is therefore first reduced to its tokens without the inserted semicolons,
-// one space apart on a single line.
+// The body is first reduced to its tokens, one space apart on a single line
+// (canonicalTokens), so that a body on one line and the same body over several
+// lines give the same digest.
 func bodyDigest(fset *token.FileSet, src []byte, fd *ast.FuncDecl) string {
 	if fd.Body == nil {
 		return ""
@@ -362,28 +398,39 @@ func bodyDigest(fset *token.FileSet, src []byte, fd *ast.FuncDecl) string {
 	return linter.TokenDigest([]byte(canonicalTokens(src[start:end])))
 }
 
-// canonicalTokens returns the tokens of src, comments and inserted semicolons
-// dropped, separated by single spaces.
+// canonicalTokens returns the tokens of src separated by single spaces, with
+// comments dropped. Every semicolon, explicit or inserted by the scanner at a
+// line end, is written as ";" because it separates statements: `return` and
+// `g()` on two lines differ from `return g()`. A semicolon directly before a
+// closing brace or parenthesis separates nothing and is dropped, so
+// `{ return x }` and the same body over three lines agree.
 func canonicalTokens(src []byte) string {
 	var s scanner.Scanner
 	fset := token.NewFileSet()
 	s.Init(fset.AddFile("", -1, len(src)), src, nil, 0)
-	var b strings.Builder
+	var tokens []string
+	semicolons := 0 // semicolons seen since the last other token
 	for {
 		_, tok, lit := s.Scan()
 		if tok == token.EOF {
 			break
 		}
-		if tok == token.SEMICOLON && lit != ";" {
+		if tok == token.SEMICOLON {
+			semicolons++
 			continue
 		}
+		if tok != token.RBRACE && tok != token.RPAREN {
+			for ; semicolons > 0; semicolons-- {
+				tokens = append(tokens, ";")
+			}
+		}
+		semicolons = 0
 		if lit == "" {
 			lit = tok.String()
 		}
-		b.WriteString(lit)
-		b.WriteByte(' ')
+		tokens = append(tokens, lit)
 	}
-	return b.String()
+	return strings.Join(tokens, " ")
 }
 
 // paramText is one expanded parameter: `a, b int` gives two.
@@ -593,12 +640,11 @@ func budget(eligible []Target, limits Limits, s *selection) Plan {
 		if len(targets) == 0 {
 			continue
 		}
+		// Inputs is what the corpus actually yields within the share: one for
+		// a function without parameters, two for func(bool), and so on.
 		share := max(1, MaxPackageInputs/len(targets))
 		for i := range targets {
-			targets[i].Inputs = min(limits.MaxInputs, share)
-			if len(targets[i].Params) == 0 {
-				targets[i].Inputs = 1
-			}
+			targets[i].Inputs = len(Corpus(targets[i], min(limits.MaxInputs, share)))
 		}
 		pair := s.packages[dir]
 		idents := map[string]bool{}
@@ -634,7 +680,7 @@ type funcDecl struct {
 // revision.
 type goPackage struct {
 	exists        bool
-	err           error
+	problem       string // skip reason when the directory could not be read or parsed
 	fset          *token.FileSet
 	files         []*goFile
 	name          string // package clause of the unconstrained non-test files
@@ -657,10 +703,16 @@ func (p *goPackage) file(slashPath string) *goFile {
 
 // loadPackage reads and parses the .go files of one directory of a snapshot
 // with bounded reads. A missing directory is reported through exists; any read
-// or parse problem through err.
+// or parse problem through problem, a skip reason that names files relative to
+// the snapshot and never quotes an operating system error (which would carry
+// the host path of the snapshot).
 func loadPackage(root, dir string) *goPackage {
 	p := &goPackage{fset: token.NewFileSet(), idents: map[string]bool{}, named: map[string]namedBasic{}, funcs: map[string][]*funcDecl{}}
 	abs := filepath.Join(root, filepath.FromSlash(dir))
+	fail := func(reason string) *goPackage {
+		p.exists, p.problem = true, reason
+		return p
+	}
 	if dir != "." {
 		cursor := root
 		for _, part := range strings.Split(dir, "/") {
@@ -670,12 +722,10 @@ func loadPackage(root, dir string) *goPackage {
 				return p
 			}
 			if err != nil {
-				p.exists, p.err = true, err
-				return p
+				return fail(reasonUnreadable("directory " + dir + " could not be read"))
 			}
 			if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
-				p.exists, p.err = true, fmt.Errorf("%s is not a plain directory", dir)
-				return p
+				return fail(reasonUnreadable(dir + " is not a plain directory"))
 			}
 		}
 	}
@@ -683,11 +733,10 @@ func loadPackage(root, dir string) *goPackage {
 	if os.IsNotExist(err) {
 		return p
 	}
-	p.exists = true
 	if err != nil {
-		p.err = err
-		return p
+		return fail(reasonUnreadable("directory " + dir + " could not be read"))
 	}
+	p.exists = true
 	total := 0
 	count := 0
 	for _, entry := range entries {
@@ -697,32 +746,29 @@ func loadPackage(root, dir string) *goPackage {
 		}
 		count++
 		if count > maxPackageFiles {
-			p.err = fmt.Errorf("more than %d Go files", maxPackageFiles)
-			return p
+			return fail(reasonUnreadable(fmt.Sprintf("more than %d Go files", maxPackageFiles)))
 		}
 		full := filepath.Join(abs, name)
 		info, err := os.Lstat(full)
 		if err != nil {
-			p.err = err
-			return p
+			return fail(reasonUnreadable(name + " could not be read"))
 		}
 		if !info.Mode().IsRegular() {
-			p.err = fmt.Errorf("%s is not a regular file", name)
-			return p
+			return fail(reasonUnreadable(name + " is not a regular file"))
 		}
 		if info.Size() > maxSourceBytes {
-			p.err = fmt.Errorf("%s exceeds %d bytes", name, maxSourceBytes)
-			return p
+			return fail(reasonUnreadable(fmt.Sprintf("%s exceeds %d bytes", name, maxSourceBytes)))
 		}
 		src, err := readLimited(full, maxSourceBytes)
+		if errors.Is(err, errSourceTooLarge) {
+			return fail(reasonUnreadable(fmt.Sprintf("%s exceeds %d bytes", name, maxSourceBytes)))
+		}
 		if err != nil {
-			p.err = fmt.Errorf("%s: %v", name, err)
-			return p
+			return fail(reasonUnreadable(name + " could not be read"))
 		}
 		total += len(src)
 		if total > maxPackageBytes {
-			p.err = fmt.Errorf("the directory exceeds %d bytes of Go source", maxPackageBytes)
-			return p
+			return fail(reasonUnreadable(fmt.Sprintf("the directory exceeds %d bytes of Go source", maxPackageBytes)))
 		}
 		slashPath := name
 		if dir != "." {
@@ -730,8 +776,7 @@ func loadPackage(root, dir string) *goPackage {
 		}
 		syntax, err := parser.ParseFile(p.fset, slashPath, src, parser.ParseComments|parser.SkipObjectResolution)
 		if err != nil {
-			p.err = fmt.Errorf("%s could not be parsed", name)
-			return p
+			return fail(reasonUnparsable(name))
 		}
 		f := &goFile{name: name, path: slashPath, src: src, syntax: syntax, test: strings.HasSuffix(name, "_test.go")}
 		f.constrained = constraintLine(p.fset, syntax, src) || !buildsOnLinux(dir, name, src)
@@ -740,6 +785,8 @@ func loadPackage(root, dir string) *goPackage {
 	p.index()
 	return p
 }
+
+var errSourceTooLarge = errors.New("source file exceeds the size bound")
 
 func readLimited(name string, limit int64) ([]byte, error) {
 	f, err := os.Open(name)
@@ -752,7 +799,7 @@ func readLimited(name string, limit int64) ([]byte, error) {
 		return nil, err
 	}
 	if int64(len(data)) > limit {
-		return nil, fmt.Errorf("exceeds %d bytes", limit)
+		return nil, errSourceTooLarge
 	}
 	return data, nil
 }

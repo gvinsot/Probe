@@ -389,6 +389,10 @@ func Exit(n int) int {
 }
 
 func Join(xs ...string) int { return len(xs) }
+
+func Endpoint(host string) string { return "tcp://" + host }
+
+func Labels(n int) []string { return []string{"Username:", "Password:"} }
 `
 
 // runHarness writes the obs module with the harness and runs its tests with
@@ -465,6 +469,8 @@ func TestGeneratedHarnessCompilesAndObserves(t *testing.T) {
 		target("Link", 1, 2, scalar("string")),
 		target("Nothing", 0, 1),
 		target("Join", 1, 8, variadic("string")),
+		target("Endpoint", 1, 64, scalar("string")),
+		target("Labels", 1, 2, scalar("int")),
 		target("Loop", 1, 8, scalar("uint8")),
 		target("After", 1, 4, scalar("string")),
 	)
@@ -545,15 +551,32 @@ func TestGeneratedHarnessCompilesAndObserves(t *testing.T) {
 	if r := recordFor(t, fn(8), `Join([]string{}...)`); r.Display != "int(0); arg 1 after call: []string{}" {
 		t.Fatalf("Join([]string{}...) = %q", r.Display)
 	}
-	loop := fn(9)
+	// Endpoint's displays are harmless URLs next to inputs holding "@": the
+	// stream is accepted (it used to be rejected as a whole), and a display is
+	// either whole or redacted in place.
+	whole := 0
+	for _, r := range fn(9).Records {
+		if r.Whole() {
+			whole++
+		} else if !strings.Contains(r.Display, "[REDACTED]") {
+			t.Fatalf("Endpoint record neither whole nor redacted: %+v", r)
+		}
+	}
+	if whole < len(fn(9).Records)/2 {
+		t.Fatalf("Endpoint: only %d of %d displays whole", whole, len(fn(9).Records))
+	}
+	if r := recordFor(t, fn(10), "Labels(0)"); r.Display != "[REDACTED]" || r.Length != len(`[]string{"Username:", "Password:"}`) {
+		t.Fatalf("Labels(0) = %+v", r)
+	}
+	loop := fn(11)
 	if loop.State != StateStopped || loop.Stop != StopTimeout || loop.AtCall != "Loop(7)" || loop.At != len(loop.Records) {
 		t.Fatalf("Loop = %+v", loop)
 	}
-	after := fn(10)
+	after := fn(12)
 	if after.State != StateStopped || after.Stop != StopPoisoned || after.At != 0 || len(after.Records) != 0 {
 		t.Fatalf("After = %+v", after)
 	}
-	for i := 0; i < 9; i++ {
+	for i := 0; i < 11; i++ {
 		if fn(i).State != StateComplete || len(fn(i).Records) != len(h.Tests[i].Inputs) {
 			t.Fatalf("%s: %+v", h.Tests[i].Target.Name, fn(i))
 		}

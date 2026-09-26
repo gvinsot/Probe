@@ -171,6 +171,9 @@ func Render(p PackagePlan, o RenderOptions) (Harness, error) {
 			return h, nil
 		}
 		lastErr = err
+		if !errors.Is(err, errTooLarge) {
+			break // fewer inputs cannot help
+		}
 		for i := range budgets {
 			budgets[i] = max(1, budgets[i]/2)
 		}
@@ -179,6 +182,11 @@ func Render(p PackagePlan, o RenderOptions) (Harness, error) {
 }
 
 var errTooLarge = errors.New("the harness does not fit its bounds")
+
+// ErrNoInput reports a function whose corpus is empty: no call text of it is
+// left unchanged by redaction. Select skips such functions, so a plan from
+// Select never gives this error.
+var ErrNoInput = errors.New("no seeded input has a call text that redaction leaves unchanged")
 
 // ErrCollision reports that a harness identifier is already a package
 // identifier on one of the revisions; rendering again with a fresh suffix
@@ -190,6 +198,9 @@ func renderOnce(p PackagePlan, o RenderOptions, prefix, file string, budgets []i
 	records := 0
 	for i, t := range p.Targets {
 		inputs := Corpus(t, budgets[i])
+		if len(inputs) == 0 {
+			return Harness{}, fmt.Errorf("%w: %s", ErrNoInput, t.Name)
+		}
 		t.Inputs = len(inputs)
 		h.Tests = append(h.Tests, HarnessTest{Name: testPrefix + o.Suffix + "_" + strconv.Itoa(i+1), Target: t, Inputs: inputs})
 		records += len(inputs)

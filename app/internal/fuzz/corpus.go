@@ -9,7 +9,6 @@ import (
 	"unicode/utf8"
 
 	"github.com/gvinsot/SwiftProof/app/internal/model"
-	"github.com/gvinsot/SwiftProof/app/internal/redact"
 )
 
 // splitmix64 is the SplitMix64 generator (Steele, Lea and Flood, 2014). It is
@@ -318,16 +317,23 @@ func randomValue(r *splitmix64, p Param, e []Scalar) Value {
 // 0 has every parameter at its first edge value; then each parameter runs
 // through its other edge values while the others stay at their first; then
 // seeded random inputs follow. Inputs are deduplicated by their call text and
-// an input whose call text redaction would alter is dropped, so every call is
-// a stable observation key that redaction leaves unchanged. A function
-// without parameters gets exactly one input. Corpus(t, m) is a prefix of
+// an input whose call text redaction would alter, as it is or JSON-escaped in
+// the normalized stream (streamSafe), is dropped, so every call is a stable
+// observation key that redaction leaves unchanged. A function without
+// parameters gets exactly one input. The corpus is empty when no call
+// survives, for example when the function name itself looks like a
+// credential; selection skips such a function. Corpus(t, m) is a prefix of
 // Corpus(t, n) for m <= n.
 func Corpus(t Target, n int) []Input {
 	if n < 1 {
 		return nil
 	}
 	if len(t.Params) == 0 {
-		return []Input{{Args: []Value{}, Call: t.Name + "()"}}
+		call := t.Name + "()"
+		if !streamSafe(call) {
+			return nil
+		}
+		return []Input{{Args: []Value{}, Call: call}}
 	}
 	sets := make([][]Value, len(t.Params))
 	scalars := make([][]Scalar, len(t.Params))
@@ -339,7 +345,7 @@ func Corpus(t Target, n int) []Input {
 	seen := map[string]bool{}
 	add := func(args []Value) bool {
 		call := callText(t, args)
-		if !seen[call] && redact.IsFixedPoint(call) {
+		if !seen[call] && streamSafe(call) {
 			seen[call] = true
 			out = append(out, Input{Args: append([]Value(nil), args...), Call: call})
 		}

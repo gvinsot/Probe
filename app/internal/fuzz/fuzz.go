@@ -50,6 +50,10 @@ const (
 	ReasonNoCandidates  = "no changed Go function is eligible for differential fuzzing"
 )
 
+// CounterexampleCutNote accompanies a counterexample whose displays are not
+// the whole recorded encodings (Evaluation.CounterexampleCut).
+const CounterexampleCutNote = "(The values shown are cut or redacted displays; the recorded encodings differ.)"
+
 // Limits are the effective limits of one fuzz stage.
 type Limits struct {
 	MaxFunctions int
@@ -149,9 +153,9 @@ type Options struct {
 // difference appears and the sub-cap allows, it runs one confirmation pair.
 // Every function then gets its Evaluate outcome and, when checks exist, one
 // differential_fuzz evidence record. A package that the stage sub-cap or the
-// context stops before it starts gives inconclusive functions without
-// checks. Run never sets an exit code and never fails: problems become
-// inconclusive outcomes or skips with a reason.
+// context stops before it starts, or whose harness cannot be rendered or run,
+// gives inconclusive functions without checks. Run never sets an exit code
+// and never fails: problems become inconclusive outcomes with a reason.
 func Run(ctx context.Context, runner Runner, plan Plan, o Options) model.FuzzReport {
 	now := o.Now
 	if now == nil {
@@ -179,8 +183,10 @@ func Run(ctx context.Context, runner Runner, plan Plan, o Options) model.FuzzRep
 		}
 		h, err := renderPackage(pkg, o, suffix)
 		if err != nil {
+			// A planned function without a recorded run is inconclusive, never
+			// a silent skip: it gets an Unverified line like any other.
 			for _, t := range pkg.Targets {
-				skipped = append(skipped, model.FuzzSkip{Path: t.Path, Line: t.Line, Symbol: t.Symbol, Reason: "the fuzz harness could not be rendered: " + errorText(err)})
+				rep.Functions = append(rep.Functions, notRun(t, "the fuzz harness could not be rendered: "+errorText(err)))
 			}
 			continue
 		}
@@ -335,8 +341,12 @@ func evidenceOutput(ev Evaluation, reason string) string {
 	switch ev.Outcome {
 	case model.FuzzDiverged:
 		c := ev.Counterexample
-		text = fmt.Sprintf("Input: %s\nBaseline: %s\nCandidate: %s\n%d of %d compared inputs recorded different values on baseline and candidate; each revision repeated its own value in a second run.",
-			c.Input, c.Base, c.Candidate, ev.Diverged, ev.Compared)
+		note := ""
+		if ev.CounterexampleCut {
+			note = "\n" + CounterexampleCutNote
+		}
+		text = fmt.Sprintf("Input: %s\nBaseline: %s\nCandidate: %s%s\n%d of %d compared inputs recorded different values on baseline and candidate; each revision repeated its own value in a second run.",
+			c.Input, c.Base, c.Candidate, note, ev.Diverged, ev.Compared)
 	case model.FuzzNotDiverged:
 		text = fmt.Sprintf("%d of %d inputs compared; baseline and candidate recorded equal encodings for each compared input.", ev.Compared, ev.Inputs)
 	default:

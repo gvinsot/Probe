@@ -8,11 +8,10 @@ import (
 // BenchmarkSelectAndRenderCalc measures host-side selection and rendering of
 // the calc fixture (five functions, 320 inputs).
 func BenchmarkSelectAndRenderCalc(b *testing.B) {
-	t := &testing.T{}
 	base, candidate := b.TempDir()+"/base", b.TempDir()+"/candidate"
 	gomod := "module example.test/fuzzdemo\n\ngo 1.21\n"
-	writeTree(t, base, map[string]string{"go.mod": gomod, "calc/calc.go": calcBase})
-	writeTree(t, candidate, map[string]string{"go.mod": gomod, "calc/calc.go": calcCandidate})
+	writeTree(b, base, map[string]string{"go.mod": gomod, "calc/calc.go": calcBase})
+	writeTree(b, candidate, map[string]string{"go.mod": gomod, "calc/calc.go": calcCandidate})
 	for i := 0; i < b.N; i++ {
 		plan, err := Select(base, candidate, modified("calc/calc.go"), nil, defaultLimits())
 		if err != nil || plan.Targets() != 5 {

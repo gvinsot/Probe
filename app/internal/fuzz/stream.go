@@ -66,7 +66,8 @@ type FunctionStream struct {
 }
 
 // Stream is the normalized observation stream of one run: the Check.Results
-// of a fuzz check. It is canonical JSON and a fixed point of redaction.
+// of a fuzz check. It is canonical JSON in the layout of encodeStream and a
+// fixed point of redaction.
 type Stream struct {
 	Version   int              `json:"v"`
 	Scheme    string           `json:"scheme"`
@@ -114,10 +115,10 @@ type rawRecord struct {
 // timeout every later function may only be poisoned. Any violation rejects the
 // whole stream; nothing is partially trusted.
 //
-// Display values are redacted and cut to the harness's display bound; hashes
-// were computed in the sandbox over the full encodings, so redaction never
-// changes a comparison. The result must be a fixed point of redaction, or it
-// is rejected too.
+// Display values are redacted and cut to the harness's display bound (see
+// displayValue); hashes were computed in the sandbox over the full encodings,
+// so redacting a display never changes a comparison. The result must be a
+// fixed point of redaction, or it is rejected too.
 func (h Harness) Normalize(payload []byte) (string, error) {
 	if len(h.Tests) == 0 || len(h.Tests) > maxHarnessTests {
 		return "", errors.New("the harness has no fuzz test")
@@ -228,7 +229,7 @@ func (h Harness) Normalize(payload []byte) (string, error) {
 			fn.AtCall = h.Tests[current-1].Inputs[fn.At].Call
 		}
 	}
-	out, err := json.Marshal(Stream{Version: StreamVersion, Scheme: model.FuzzSeedScheme, Display: h.Display, Functions: functions})
+	out, err := encodeStream(Stream{Version: StreamVersion, Scheme: model.FuzzSeedScheme, Display: h.Display, Functions: functions})
 	if err != nil {
 		return "", err
 	}
@@ -240,18 +241,62 @@ func (h Harness) Normalize(payload []byte) (string, error) {
 	return results, nil
 }
 
+// encodeStream is the canonical layout of a normalized stream: JSON with every
+// object member and array element on its own line and no indentation
+// (json.MarshalIndent with empty prefix and indent).
+//
+// The layout keeps the redaction rules from matching across fields. Every
+// variable-length class of the rules that could run over JSON punctuation
+// stops at whitespace (the URL-credential rule) or at a quote (the others),
+// and every string member but the last of its object is followed by a comma
+// and a line break. A match can therefore only lie inside one JSON string, and
+// every string the host stores (calls, displays) is checked to be a fixed
+// point of redaction in its JSON-escaped form (streamSafe). With compact JSON,
+// a display ending in "http://host" followed by a later record holding an "@"
+// would form one match and reject a stream whose every value is harmless.
+func encodeStream(s Stream) ([]byte, error) {
+	return json.MarshalIndent(s, "", "")
+}
+
+// streamSafe reports whether redaction leaves s unchanged both as it is and in
+// the JSON-escaped form it takes inside a normalized stream. Escaping can make
+// a match: `[]string{"Password:"}` is a fixed point, while its escaped form
+// `[]string{\"Password:\"}` is not, because the escaping backslash completes
+// the secret-assignment rule.
+func streamSafe(s string) bool {
+	if !redact.IsFixedPoint(s) {
+		return false
+	}
+	quoted, err := json.Marshal(s)
+	return err == nil && redact.IsFixedPoint(string(quoted))
+}
+
 // displayValue redacts a display value and cuts it to limit bytes of valid
-// UTF-8.
+// UTF-8. A cut of a redaction fixed point is still one. A display whose
+// JSON-escaped form redaction would still alter is replaced by redact.Marker
+// as a whole: displays are for people only, and comparisons use the hashes.
 func displayValue(o string, limit int) string {
 	o = redact.Redact(o)
-	if len(o) <= limit {
-		return o
+	if len(o) > limit {
+		o = o[:limit]
+		for len(o) > 0 && !utf8.ValidString(o) {
+			o = o[:len(o)-1]
+		}
 	}
-	o = o[:limit]
-	for len(o) > 0 && !utf8.ValidString(o) {
-		o = o[:len(o)-1]
+	// o is a fixed point already (Redact returns one, and cutting keeps it
+	// one); only its escaped form remains to be checked.
+	if quoted, err := json.Marshal(o); err != nil || !redact.IsFixedPoint(string(quoted)) {
+		return redact.Marker
 	}
 	return o
+}
+
+// Whole reports whether Display is the whole recorded encoding: the encoding
+// reached no bound in the sandbox, the display was not cut, and it holds no
+// redaction marker (a display that redaction changed always holds one). When
+// it is false, two records with different hashes may show identical displays.
+func (r Record) Whole() bool {
+	return !r.Truncated && r.Length == len(r.Display) && !strings.Contains(r.Display, redact.Marker)
 }
 
 // parseRawLine decodes one in-container record and requires the line to be
@@ -333,10 +378,12 @@ func jsonQuote(s string) string {
 }
 
 // ParseResults parses the normalized stream of a fuzz check (Check.Results)
-// and checks every invariant Normalize establishes: canonical JSON, a fixed
-// point of redaction, consecutive indices, well-formed hashes and consistent
-// function states. A report whose results were edited by hand therefore
-// fails here instead of being partially trusted.
+// and checks every invariant Normalize establishes: canonical JSON in the
+// layout of encodeStream, a fixed point of redaction, consecutive indices,
+// well-formed hashes and consistent function states. A stream whose structure
+// was edited by hand therefore fails here instead of being partially trusted;
+// an edit that keeps every invariant (a changed display, for example) is not
+// detected.
 func ParseResults(results string) (Stream, error) {
 	if results == "" {
 		return Stream{}, errors.New("no observation stream")
@@ -353,7 +400,7 @@ func ParseResults(results string) (Stream, error) {
 	if _, err := dec.Token(); err != io.EOF {
 		return Stream{}, errors.New("trailing data after the observation stream")
 	}
-	canonical, err := json.Marshal(s)
+	canonical, err := encodeStream(s)
 	if err != nil || !bytes.Equal(canonical, []byte(results)) {
 		return Stream{}, errors.New("the observation stream is not in canonical form")
 	}

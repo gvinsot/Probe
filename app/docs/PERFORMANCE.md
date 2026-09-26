@@ -30,12 +30,12 @@ Measured on 2026-09-26 on the Windows 11 host (AMD Ryzen 7 9800X3D, 8 CPUs share
 
 | Workload | Measured |
 | --- | --- |
-| Host-side selection and rendering of the five-function calc fixture (320 inputs), GOMAXPROCS 2 | 9.3 ms/op, 1.7 MB allocated/op |
-| Validating and normalizing the largest stream one package run plans (16 functions, 1,024 records), GOMAXPROCS 2 | 49 ms/op, 6.7 MB allocated/op; most of it is the redaction check of the whole normalized stream |
-| One fuzz container of the calc fixture, with the sandbox isolation flags and an empty build cache | 20.7 s to 26.6 s, mostly compiling the package tests and the standard library into the fresh `GOCACHE` |
-| The calc fixture end to end: a first pair and one confirmation pair, four containers run one after another | 94 s |
+| Host-side selection and rendering of the five-function calc fixture (320 inputs), GOMAXPROCS 2 | 9.3 ms/op on a quiet host; 22 to 24 ms/op on the loaded host; 2.9 MB allocated/op |
+| Validating and normalizing the largest stream one package run plans (16 functions, 1,024 records), GOMAXPROCS 2 | 49 ms/op on a quiet host; 81 to 96 ms/op on the loaded host; 8.5 MB allocated/op. Most of it is redaction: of each display, of its JSON-escaped form, and of the whole normalized stream |
+| One fuzz container of the calc fixture, with the sandbox isolation flags and an empty build cache | 20.7 s to 29.8 s over two runs, mostly compiling the package tests and the standard library into the fresh `GOCACHE` |
+| The calc fixture end to end: a first pair and one confirmation pair, four containers run one after another | 94 s and 106 s |
 
-A package costs two containers, plus two more when its first pair shows a difference. Every container starts with an empty build cache, so each one compiles the package's tests again. The host-side numbers come from `go test ./internal/fuzz -run '^$' -bench . -benchtime 20x -benchmem` in a container limited to 2 CPUs; the container numbers come from `TestDockerFuzzCalcFixture`.
+A package costs two containers, plus two more when its first pair shows a difference. Every container starts with an empty build cache, so each one compiles the package's tests again. The host-side numbers come from `go test ./internal/fuzz -run '^$' -bench . -benchtime 20x -benchmem` in a container limited to 2 CPUs; the container numbers come from `TestDockerFuzzCalcFixture`. The quiet-host numbers were measured before the fixes of the F2a review; the loaded-host numbers after them, with other jobs sharing the CPUs. In that loaded session the code before the fixes measured 19 to 32 ms/op and 81 to 98 ms/op, so the fixes changed the time within the noise. They raised allocation from 1.7 MB and 6.7 MB per operation: selection now builds each target's corpus to size it, and every call and display is also checked in its JSON-escaped form.
 <!-- F2:end -->
 
 <!-- F4:begin -->

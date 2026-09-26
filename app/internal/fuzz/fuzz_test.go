@@ -403,16 +403,30 @@ func TestRunRenderFailuresAndSuffixRetry(t *testing.T) {
 	}
 	f := &fakeRunner{t: t, behave: behaviorByName(nil)}
 	rep := Run(context.Background(), f, Plan{Packages: []PackagePlan{bad, good}}, o)
-	if rep.SkippedTotal != 1 || !strings.HasPrefix(rep.Skipped[0].Reason, "the fuzz harness could not be rendered: ") || rep.Skipped[0].Symbol != "obs.A" {
-		t.Fatalf("skipped %+v", rep.Skipped)
+	// A function whose harness cannot be rendered has no recorded run: it is
+	// inconclusive, never a silent skip.
+	a := rep.Functions[0]
+	if rep.SkippedTotal != 0 || len(rep.Functions) != 2 || a.Symbol != "obs.A" || a.Outcome != model.FuzzInconclusive ||
+		!strings.HasPrefix(a.Reason, "the fuzz harness could not be rendered: ") || a.Checks != nil || a.EvidenceID != "" || a.NotRecorded != a.Inputs {
+		t.Fatalf("functions %+v, skipped %+v", rep.Functions, rep.Skipped)
 	}
-	if len(rep.Functions) != 1 || rep.Functions[0].Outcome != model.FuzzNotDiverged || len(f.requests) != 1 || f.requests[0].Harness.Suffix != "89abcdef" {
+	if rep.Functions[1].Outcome != model.FuzzNotDiverged || len(f.requests) != 1 || f.requests[0].Harness.Suffix != "89abcdef" {
 		t.Fatalf("functions %+v", rep.Functions)
+	}
+	if lines := Unverified(rep, 0); len(lines) != 1 || !strings.HasPrefix(lines[0], "Differential fuzzing of obs.A is inconclusive: the fuzz harness could not be rendered: ") {
+		t.Fatalf("unverified %v", lines)
 	}
 	o.NewSuffix = func() (string, error) { return "", errors.New("no entropy") }
 	rep = Run(context.Background(), &fakeRunner{t: t}, Plan{Packages: []PackagePlan{good}}, o)
-	if rep.SkippedTotal != 1 || rep.Skipped[0].Reason != "the fuzz harness could not be rendered: no entropy" {
-		t.Fatalf("skipped %+v", rep.Skipped)
+	if rep.Status != model.FuzzRan || len(rep.Functions) != 1 || rep.Functions[0].Reason != "the fuzz harness could not be rendered: no entropy" {
+		t.Fatalf("functions %+v", rep.Functions)
+	}
+	// A target without any recordable input (a hand-built plan; Select skips
+	// it) makes its package inconclusive instead of crashing.
+	empty := obsPlan(target("ghp_abcdefgh1", 1, 8, scalar("int")))
+	rep = Run(context.Background(), &fakeRunner{t: t}, Plan{Packages: []PackagePlan{empty}}, options())
+	if len(rep.Functions) != 1 || rep.Functions[0].Outcome != model.FuzzInconclusive || !strings.Contains(rep.Functions[0].Reason, ErrNoInput.Error()) {
+		t.Fatalf("functions %+v", rep.Functions)
 	}
 }
 
@@ -477,9 +491,25 @@ func TestTextsMakeNoClaims(t *testing.T) {
 		ReasonMethod, ReasonGeneric, ReasonSignature, ReasonConstrained, ReasonCgo, ReasonPackageName, ReasonPackageClause,
 		ReasonShadowed, ReasonSensitive, ReasonMovedDir, ReasonNotInSnapshot, ReasonNoBody, ReasonDuplicate, ReasonBudgetPackages,
 		ReasonBudgetFunctions, ReasonRuntimeBudget, ReasonNoCandidates, reasonParamType("map[string]int"), reasonNamedDiffers("T"),
-		reasonUnreadable("x"),
+		reasonUnreadable("x"), reasonUnparsable("x.go"), ReasonNoInput, ErrNoInput.Error(), CounterexampleCutNote,
 		evidenceOutput(Evaluation{Outcome: model.FuzzDiverged, Diverged: 1, Compared: 2, Counterexample: &model.FuzzCounterexample{}}, ""),
+		evidenceOutput(Evaluation{Outcome: model.FuzzDiverged, Diverged: 1, Compared: 2, Counterexample: &model.FuzzCounterexample{}, CounterexampleCut: true}, ""),
 		evidenceOutput(Evaluation{Outcome: model.FuzzNotDiverged, Compared: 2, Inputs: 2}, ""),
+	}
+	// Every reason Evaluate can give, from the outcome table and the
+	// validation cases.
+	for _, ev := range []Evaluation{
+		Evaluate(testName, 3, pair(t, fnp(completeFn(3, encodings("int(0)", "int(1)", "int(2)"))), fnp(completeFn(3, []Record{unstableRec(0, "int(0)"), rec(1, "int(1)"), rec(2, "int(2)")})), nil, nil)),
+		Evaluate(testName, 3, pair(t, fnp(completeFn(3, encodings("int(0)", "int(1)", "int(2)"))), fnp(completeFn(3, encodings("int(0)", "int(9)", "int(2)"))), nil, nil)),
+		Evaluate(testName, 3, pair(t, fnp(completeFn(3, encodings("int(0)", "int(1)", "int(2)"))), nil, nil, nil)),
+	} {
+		texts = append(texts, ev.Reason)
+	}
+	for _, c := range []*model.Check{
+		{Kind: model.CheckFuzzCandidate, Cache: &model.CheckCache{Status: model.CacheHit, LiveRuns: 5}},
+		{Kind: model.CheckFuzzBase, Cache: &model.CheckCache{Status: model.CacheHit, LiveRuns: 1}},
+	} {
+		texts = append(texts, view(c, nil, "candidate", c.Kind, testName, 3, c.Kind == model.CheckFuzzBase).reason())
 	}
 	texts = append(texts, Unverified(model.FuzzReport{Functions: []model.FuzzFunction{{Symbol: "p.F", Outcome: model.FuzzInconclusive, Reason: "x"}}}, 2)...)
 	s := side{name: "candidate", stream: &FunctionStream{At: 1, AtCall: "F(1)"}}

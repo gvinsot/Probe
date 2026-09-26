@@ -7,6 +7,9 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/gvinsot/SwiftProof/app/internal/model"
+	"github.com/gvinsot/SwiftProof/app/internal/redact"
 )
 
 // Raw stream lines exactly as the harness writes them.
@@ -206,15 +209,17 @@ func TestParseResultsRejectsEditedStreams(t *testing.T) {
 		var c Stream
 		_ = json.Unmarshal([]byte(results), &c)
 		change(&c)
-		out, _ := json.Marshal(c)
+		out, _ := encodeStream(c)
 		return string(out)
 	}
+	compact, _ := json.Marshal(s)
 	indented, _ := json.MarshalIndent(s, "", " ")
 	cases := map[string]string{
 		"empty":            "",
+		"compact":          string(compact),
 		"indented":         string(indented),
 		"trailing data":    results + " ",
-		"unknown field":    strings.Replace(results, `"v":1`, `"v":1,"x":2`, 1),
+		"unknown field":    strings.Replace(results, "\"v\": 1,\n", "\"v\": 1,\n\"x\": 2,\n", 1),
 		"secret display":   edit(func(c *Stream) { c.Functions[0].Records[0].Display = "password=abc" }),
 		"version":          edit(func(c *Stream) { c.Version = 2 }),
 		"scheme":           edit(func(c *Stream) { c.Scheme = "other" }),
@@ -244,5 +249,90 @@ func TestParseResultsRejectsEditedStreams(t *testing.T) {
 	}
 	if _, err := ParseResults(edit(func(*Stream) {})); err != nil {
 		t.Fatalf("an unedited round trip must parse: %v", err)
+	}
+}
+
+// TestNormalizeKeepsRedactionInsideFields is the regression test of the
+// cross-field rejection: each value below is harmless on its own, but in
+// compact JSON the URL-credential rule ran from a display ending in
+// "http://api.example.com" over the next record's keys to the "@" of a later
+// display, and the whole stream was rejected on both revisions.
+func TestNormalizeKeepsRedactionInsideFields(t *testing.T) {
+	h := streamHarness(t)
+	url, mail := `string("http://api.example.com")`, `string("a@example.com")`
+	// A fixed point of redaction whose JSON-escaped form is not one: the
+	// escaping backslash completes the secret-assignment rule.
+	labels := `[]string{"Username:", "Password:"}`
+	if !redact.IsFixedPoint(labels) || streamSafe(labels) {
+		t.Fatal("the labels fixture no longer exercises the escaped form")
+	}
+	lines := []string{
+		beginLine(1, 3), obsLine(1, 0, url, false), obsLine(1, 1, mail, false), obsLine(1, 2, `string("tcp://s1:x")`, false), endLine(1, 3),
+		beginLine(2, 2), obsLine(2, 0, labels, false), obsLine(2, 1, `string("x://a:b@h")`, false), endLine(2, 2),
+	}
+	results, err := h.Normalize(rawStream(lines...))
+	if err != nil {
+		t.Fatalf("a stream of harmless values was rejected: %v", err)
+	}
+	s, err := ParseResults(results)
+	if err != nil {
+		t.Fatal(err)
+	}
+	a, b := s.Functions[0], s.Functions[1]
+	if a.Records[0].Display != url || a.Records[1].Display != mail || !a.Records[0].Whole() || !a.Records[1].Whole() {
+		t.Fatalf("harmless displays must be kept whole: %+v", a.Records)
+	}
+	if b.Records[0].Display != redact.Marker || b.Records[0].SHA256 != sha(labels) || b.Records[0].Whole() {
+		t.Fatalf("an escaped-unsafe display is replaced, its hash kept: %+v", b.Records[0])
+	}
+	if b.Records[1].Display != `string("x[REDACTED]h")` || b.Records[1].Whole() {
+		t.Fatalf("a redacted display is never whole: %+v", b.Records[1])
+	}
+	// The same records in the old compact layout are not a fixed point.
+	compact, _ := json.Marshal(s)
+	if redact.IsFixedPoint(string(compact)) {
+		t.Fatal("the fixture no longer reproduces the cross-field match")
+	}
+	// The stream survives a report round trip and report redaction unchanged.
+	data, err := json.Marshal(model.Check{ID: "check-1", Results: results})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var back model.Check
+	if err := json.Unmarshal(data, &back); err != nil || back.Results != results || redact.Redact(back.Results) != results {
+		t.Fatalf("round trip changed the stream (%v)", err)
+	}
+	if _, err := ParseResults(back.Results); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// TestNormalizedStreamsOfRandomDisplaysAreAccepted normalizes many streams of
+// displays built from the fragments the redaction rules react to. Honest
+// values must never reject a stream: either a display stays whole or it is
+// redacted in place.
+func TestNormalizedStreamsOfRandomDisplaysAreAccepted(t *testing.T) {
+	h := streamHarness(t)
+	fragments := []string{"http", "://", "a", "b", ":", "@", "/", " ", "\"", "\\", "password", "Secret", "=", ",", "}", "'",
+		"Bearer ", "sk-", "ghp_", "abcdefgh", "eyJ", ".", "<", "&", "\n", "\t", "-----BEGIN PRIVATE KEY-----", "é"}
+	rng := &splitmix64{state: 20260926}
+	display := func() string {
+		var b strings.Builder
+		b.WriteString(`string("`)
+		for n := 1 + rng.intn(12); n > 0 && b.Len() < 200; n-- {
+			b.WriteString(fragments[rng.intn(len(fragments))])
+		}
+		b.WriteString(`")`)
+		return b.String() // at most 238 bytes: recorded whole within the display bound
+	}
+	for round := 0; round < 3000; round++ {
+		lines := []string{beginLine(1, 3)}
+		for i := 0; i < 3; i++ {
+			lines = append(lines, obsLine(1, i, display(), false))
+		}
+		lines = append(lines, endLine(1, 3), beginLine(2, 2), obsLine(2, 0, display(), false), obsLine(2, 1, display(), false), endLine(2, 2))
+		if _, err := h.Normalize(rawStream(lines...)); err != nil {
+			t.Fatalf("round %d rejected: %v\n%s", round, err, strings.Join(lines, "\n"))
+		}
 	}
 }

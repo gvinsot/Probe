@@ -31,6 +31,10 @@ type Evaluation struct {
 	Unconfirmed    int
 	NotRecorded    int
 	Counterexample *model.FuzzCounterexample
+	// CounterexampleCut reports that a counterexample display is not the whole
+	// recorded encoding (cut, redacted, or bounded in the sandbox), so the two
+	// values shown may look identical although their encodings differ.
+	CounterexampleCut bool
 	// Differs reports that the first pair recorded different values for at
 	// least one input that neither revision flagged as unstable, so a
 	// confirmation pair is needed.
@@ -58,7 +62,8 @@ func (e Evaluation) EvidenceStatus() string {
 // Observations returns the divergent inputs as observation rows of test,
 // counterexample first, then by call length and index, at most
 // MaxDivergenceRows. Base and Candidate are the redacted display cuts;
-// Truncated is set when a display is not the whole recorded encoding.
+// Truncated is set when either display is not the whole recorded encoding
+// (Record.Whole), so identical-looking values are never shown as complete.
 func (e Evaluation) Observations(test string) []model.Observation {
 	rows := []model.Observation{}
 	for _, d := range e.divergent {
@@ -69,7 +74,7 @@ func (e Evaluation) Observations(test string) []model.Observation {
 			Test: test, Key: d.base.Call, Status: model.ObservationDiverged,
 			Base: d.base.Display, Candidate: d.candidate.Display,
 			BaseRecorded: true, CandidateRecorded: true,
-			Truncated: d.base.Truncated || d.candidate.Truncated || d.base.Length > len(d.base.Display) || d.candidate.Length > len(d.candidate.Display),
+			Truncated: !d.base.Whole() || !d.candidate.Whole(),
 		})
 	}
 	return rows
@@ -131,7 +136,10 @@ func view(c *model.Check, stream *Stream, name, kind, test string, planned int, 
 	case c.Kind != kind:
 		s.problem = "is not a " + kind + " check"
 		return s
-	case c.Replayed() && !(allowAgreedReplay && c.Cache.LiveRuns >= 2):
+	case c.Replayed() && !allowAgreedReplay:
+		s.problem = "was replayed from the execution cache; only live runs are accepted for this check"
+		return s
+	case c.Replayed() && c.Cache.LiveRuns < 2:
 		s.problem = "was replayed from the execution cache without two agreeing live runs"
 		return s
 	case c.Status != "PASS" && c.Status != "FAIL":
@@ -216,11 +224,21 @@ func (s side) stopReason() string {
 // instability flag (else unstable), and then the input is compared and
 // diverged; without confirmation records it is unconfirmed.
 //
+// Two kinds of unstable input separate the revisions: an input flagged
+// unstable on the candidate only (the baseline evaluated it the same way
+// twice), and a first-pair difference that the confirmation pair did not
+// reproduce. They are counted as unstable, never as diverged, but they keep
+// the function from being not_diverged.
+//
 // Outcome: diverged when any input diverged; else inconclusive when a
 // difference was unconfirmed; else not_diverged when both first-pair streams
-// are complete and at least one input was compared; else inconclusive with a
-// precise reason. The counterexample is the divergent input with the shortest
-// call, then the lowest index.
+// are complete, at least one input was compared and no unstable input
+// separates the revisions; else inconclusive with a precise reason. The
+// counterexample is the divergent input with the shortest call, then the
+// lowest index, among the divergent inputs whose two displays differ; when
+// every divergent input shows identical displays (the difference lies in a
+// cut or redacted part), it is the shortest call overall and
+// CounterexampleCut is set.
 func Evaluate(test string, planned int, c Checks) Evaluation {
 	return ParseChecks(c).Evaluate(test, planned)
 }
@@ -247,6 +265,7 @@ func (r Recorded) Evaluate(test string, planned int) Evaluation {
 		return ev
 	}
 	ev.NotRecorded = 0
+	separating := 0 // unstable inputs that separate the revisions
 	for i := 0; i < planned; i++ {
 		rb, rc := b1.record(i), c1.record(i)
 		switch {
@@ -254,6 +273,9 @@ func (r Recorded) Evaluate(test string, planned int) Evaluation {
 			ev.NotRecorded++
 		case rb.Unstable || rc.Unstable:
 			ev.Unstable++
+			if !rb.Unstable {
+				separating++
+			}
 		case rb.SHA256 == rc.SHA256 && rb.Length == rc.Length:
 			ev.Compared++
 		default:
@@ -264,6 +286,7 @@ func (r Recorded) Evaluate(test string, planned int) Evaluation {
 				ev.Unconfirmed++
 			case rb2.Unstable || rc2.Unstable || rb2.SHA256 != rb.SHA256 || rb2.Length != rb.Length || rc2.SHA256 != rc.SHA256 || rc2.Length != rc.Length:
 				ev.Unstable++
+				separating++
 			default:
 				ev.Compared++
 				ev.Diverged++
@@ -280,9 +303,18 @@ func (r Recorded) Evaluate(test string, planned int) Evaluation {
 			}
 			return a.index < b.index
 		})
+		// Prefer a counterexample whose displays show the difference.
+		for k, d := range ev.divergent {
+			if d.base.Display != d.candidate.Display {
+				copy(ev.divergent[1:k+1], ev.divergent[:k])
+				ev.divergent[0] = d
+				break
+			}
+		}
 		d := ev.divergent[0]
 		ev.Outcome = model.FuzzDiverged
 		ev.Counterexample = &model.FuzzCounterexample{Index: d.index, Input: d.base.Call, Base: d.base.Display, Candidate: d.candidate.Display}
+		ev.CounterexampleCut = !d.base.Whole() || !d.candidate.Whole()
 	case ev.Unconfirmed > 0:
 		ev.Reason = "a difference seen in one run per revision could not be confirmed"
 		if !confirm {
@@ -292,7 +324,7 @@ func (r Recorded) Evaluate(test string, planned int) Evaluation {
 		} else if !c2.usable {
 			ev.Reason += ": " + c2.reason()
 		}
-	case b1.usable && c1.usable && b1.stream.State == StateComplete && c1.stream.State == StateComplete && ev.Compared > 0:
+	case b1.usable && c1.usable && b1.stream.State == StateComplete && c1.stream.State == StateComplete && ev.Compared > 0 && separating == 0:
 		ev.Outcome = model.FuzzNotDiverged
 	case !b1.usable:
 		ev.Reason = b1.reason()
@@ -304,6 +336,8 @@ func (r Recorded) Evaluate(test string, planned int) Evaluation {
 		ev.Reason = c1.stopReason()
 	case ev.Unstable == planned:
 		ev.Reason = fmt.Sprintf("all %d inputs gave different observations on repeated evaluation", planned)
+	case separating > 0:
+		ev.Reason = fmt.Sprintf("%d of %d inputs were unstable on the candidate only, or differed between the revisions without repeating in the confirmation runs", separating, planned)
 	default:
 		ev.Reason = "no input was compared"
 	}

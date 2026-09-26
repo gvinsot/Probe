@@ -2,6 +2,7 @@ package fuzz
 
 import (
 	"errors"
+	"os"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -235,7 +236,7 @@ func TestSelectPackageLevelRules(t *testing.T) {
 		{"sensitive directory", map[string]string{"credentials/q.go": fn("q", "x")}, map[string]string{"credentials/q.go": fn("q", "x+1")}, modified("credentials/q.go"), ReasonSensitive},
 		{"moved across directories", map[string]string{"q/q.go": fn("q", "x")}, map[string]string{"r/q.go": fn("q", "x+1")}, model.Change{Files: []model.ChangedFile{{Path: "r/q.go", OldPath: "q/q.go", Status: "R"}}}, ReasonMovedDir},
 		{"renamed within the directory", map[string]string{"q/a.go": fn("q", "x")}, map[string]string{"q/b.go": fn("q", "x+1")}, model.Change{Files: []model.ChangedFile{{Path: "q/b.go", OldPath: "q/a.go", Status: "R"}}}, ""},
-		{"unparsable candidate package", map[string]string{"q/q.go": fn("q", "x")}, map[string]string{"q/q.go": fn("q", "x+1"), "q/broken.go": "package q\n\nfunc {"}, modified("q/q.go"), reasonUnreadable("broken.go could not be parsed")},
+		{"unparsable candidate package", map[string]string{"q/q.go": fn("q", "x")}, map[string]string{"q/q.go": fn("q", "x+1"), "q/broken.go": "package q\n\nfunc {"}, modified("q/q.go"), reasonUnparsable("broken.go")},
 		{"oversized file", map[string]string{"q/q.go": fn("q", "x")}, map[string]string{"q/q.go": fn("q", "x+1"), "q/big.go": "package q\n\n//" + strings.Repeat("x", maxSourceBytes) + "\n"}, modified("q/q.go"), reasonUnreadable("big.go exceeds 2097152 bytes")},
 	}
 	for _, tc := range cases {
@@ -413,6 +414,148 @@ func TestSelectRootPackageSymbols(t *testing.T) {
 	}
 	if got := symbolOf(".", "", "F"); got != "F" {
 		t.Fatalf("unnamed root symbol %q", got)
+	}
+}
+
+// TestSelectDigestKeepsStatementSeparators: a semicolon the scanner inserts
+// at a line end separates statements, so `return g()` split over two lines is
+// a rewrite (F now returns 0), while layout, comments and a semicolon before a
+// closing brace are not.
+func TestSelectDigestKeepsStatementSeparators(t *testing.T) {
+	gomod := "module example.test/sel\n\ngo 1.21\n"
+	head := "package q\n\nfunc g() int { return 1 }\n\n"
+	cases := []struct {
+		name, base, candidate string
+		changed               bool
+	}{
+		{"return split from its value", "func F(x int) (r int) { return g() }\n", "func F(x int) (r int) {\n\treturn\n\tg()\n}\n", true},
+		{"layout only", "func F(x int) int { a := x; return a }\n", "func F(x int) int {\n\ta := x\n\n\treturn a // same\n}\n", false},
+		{"semicolon before the closing brace", "func F(x int) int { return x }\n", "func F(x int) int { return x; }\n", false},
+		{"grouped declaration layout", "func F(x int) int { var (a = x); return a }\n", "func F(x int) int {\n\tvar (\n\t\ta = x\n\t)\n\treturn a\n}\n", false},
+		{"statement order", "func F(x int) int { x++; x *= 2; return x }\n", "func F(x int) int { x *= 2; x++; return x }\n", true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			plan := selectTrees(t, map[string]string{"go.mod": gomod, "q/q.go": head + tc.base}, map[string]string{"go.mod": gomod, "q/q.go": head + tc.candidate}, modified("q/q.go"), nil, defaultLimits())
+			if got := plan.Targets() == 1; got != tc.changed || len(plan.Skipped) != 0 {
+				t.Fatalf("changed %v, want %v: %+v", got, tc.changed, plan)
+			}
+		})
+	}
+}
+
+// TestSelectListsDuplicatesOnlyWhenRewritten: a function declared in several
+// build-constrained files is listed only when one of its bodies changed.
+func TestSelectListsDuplicatesOnlyWhenRewritten(t *testing.T) {
+	gomod := "module example.test/sel\n\ngo 1.21\n"
+	linux := "package q\n\nfunc F(x int) int { return x }\n"
+	windows := "package q\n\nfunc F(x int) int { return -x }\n"
+	base := map[string]string{"go.mod": gomod, "q/q.go": "package q\n", "q/f_linux.go": linux, "q/f_windows.go": windows}
+	commentOnly := map[string]string{"go.mod": gomod, "q/q.go": "package q\n", "q/f_linux.go": "package q\n\n// F is the identity.\nfunc F(x int) int {\n\treturn x\n}\n", "q/f_windows.go": windows}
+	if plan := selectTrees(t, base, commentOnly, modified("q/f_linux.go"), nil, defaultLimits()); plan.Targets() != 0 || len(plan.Skipped) != 0 {
+		t.Fatalf("an unchanged duplicate must not be listed: %+v", plan)
+	}
+	// One variant rewritten: listed at that declaration.
+	rewritten := map[string]string{"go.mod": gomod, "q/q.go": "package q\n", "q/f_linux.go": "package q\n\nfunc F(x int) int { return x + 1 }\n", "q/f_windows.go": windows}
+	plan := selectTrees(t, base, rewritten, modified("q/f_linux.go"), nil, defaultLimits())
+	if len(plan.Skipped) != 1 || plan.Skipped[0].Reason != ReasonDuplicate || plan.Skipped[0].Path != "q/f_linux.go" {
+		t.Fatalf("a rewritten duplicate must be listed: %+v", plan)
+	}
+}
+
+// TestSelectSkipsFunctionsWithoutRecordableInputs is the regression test of a
+// function whose every call text looks like a credential: it used to reach
+// rendering with zero inputs (a division by zero with one target, a rejected
+// stream for the whole package otherwise).
+func TestSelectSkipsFunctionsWithoutRecordableInputs(t *testing.T) {
+	gomod := "module example.test/sel\n\ngo 1.21\n"
+	src := func(delta string) string {
+		return "package q\n\ntype ghs_Handler12 int\n\n" +
+			"func ghp_abcdefgh1(x int) int { return x" + delta + " }\n\n" +
+			"func ghp_abcdefgh2() int { return 1" + delta + " }\n\n" +
+			"func Serve(h ghs_Handler12) int { return int(h)" + delta + " }\n\n" +
+			"func Plain(x int) int { return x" + delta + " }\n"
+	}
+	plan := selectTrees(t, map[string]string{"go.mod": gomod, "q/q.go": src("")}, map[string]string{"go.mod": gomod, "q/q.go": src("+1")}, modified("q/q.go"), nil, defaultLimits())
+	if got := strings.Join(plannedNames(plan), ","); got != "q.Plain" {
+		t.Fatalf("planned %s", got)
+	}
+	if len(plan.Skipped) != 3 {
+		t.Fatalf("skipped %+v", plan.Skipped)
+	}
+	for _, s := range plan.Skipped {
+		if s.Reason != ReasonNoInput {
+			t.Fatalf("skip %+v", s)
+		}
+	}
+	h, err := Render(plan.Packages[0], renderOptions("abcdef12"))
+	if err != nil || len(h.Tests) != 1 || len(h.Tests[0].Inputs) != 64 {
+		t.Fatalf("render: %v", err)
+	}
+	// A hand-built plan with such a target is refused, never rendered empty.
+	for name, p := range map[string]PackagePlan{
+		"alone":          obsPlan(target("ghp_abcdefgh1", 1, 8, scalar("int"))),
+		"with others":    obsPlan(target("ghp_abcdefgh1", 1, 8, scalar("int")), target("Plain", 1, 8, scalar("int"))),
+		"zero parameter": obsPlan(target("ghp_abcdefgh2", 1, 1)),
+	} {
+		if _, err := Render(p, renderOptions("abcdef12")); !errors.Is(err, ErrNoInput) {
+			t.Fatalf("%s: render of a target without inputs: %v", name, err)
+		}
+	}
+}
+
+// TestSelectInputsFollowTheCorpus: Target.Inputs is what the corpus yields.
+func TestSelectInputsFollowTheCorpus(t *testing.T) {
+	gomod := "module example.test/sel\n\ngo 1.21\n"
+	src := func(delta string) string {
+		return "package q\n\nfunc B(b bool) int { if b { return 1" + delta + " }; return 0 }\n\nfunc N() int { return 2" + delta + " }\n\nfunc S(s string) int { return len(s)" + delta + " }\n"
+	}
+	plan := selectTrees(t, map[string]string{"go.mod": gomod, "q/q.go": src("")}, map[string]string{"go.mod": gomod, "q/q.go": src("+1")}, modified("q/q.go"), nil, defaultLimits())
+	for name, want := range map[string]int{"B": 2, "N": 1, "S": 64} {
+		if got := targetNamed(t, plan, name).Inputs; got != want {
+			t.Errorf("%s inputs %d, want %d", name, got, want)
+		}
+	}
+}
+
+// TestSelectReasonsCarryNoHostPath: a snapshot that cannot be read gives a
+// fixed reason naming paths relative to the snapshot, never the host path or
+// an operating system error.
+func TestSelectReasonsCarryNoHostPath(t *testing.T) {
+	root := t.TempDir()
+	base := filepath.Join(root, "base")
+	writeTree(t, base, map[string]string{"x.go": "package x\n\nfunc F(x int) int { return x }\n"})
+	candidate := filepath.Join(root, "candidate-is-a-file")
+	writeTree(t, root, map[string]string{"candidate-is-a-file": "not a directory"})
+	plan, err := Select(base, candidate, modified("x.go"), nil, defaultLimits())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(plan.Skipped) != 1 || plan.Skipped[0].Reason != reasonUnreadable("directory . could not be read") {
+		t.Fatalf("skipped %+v", plan.Skipped)
+	}
+	// A symlinked package directory and a symlinked source file.
+	writeTree(t, filepath.Join(root, "real"), map[string]string{"q.go": "package q\n\nfunc F(x int) int { return x }\n"})
+	linked := filepath.Join(root, "linked")
+	writeTree(t, linked, map[string]string{"s/s.go": "package s\n\nfunc F(x int) int { return x }\n"})
+	if err := os.Symlink(filepath.Join(root, "real"), filepath.Join(linked, "q")); err != nil {
+		t.Skipf("symlinks are not available: %v", err)
+	}
+	if err := os.Symlink(filepath.Join(root, "real", "q.go"), filepath.Join(linked, "s", "t.go")); err != nil {
+		t.Skipf("symlinks are not available: %v", err)
+	}
+	plan, err = Select(base, linked, modified("q/q.go", "s/s.go"), nil, defaultLimits())
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{reasonUnreadable("q is not a plain directory"), reasonUnreadable("t.go is not a regular file")}
+	if len(plan.Skipped) != 2 || plan.Skipped[0].Reason != want[0] || plan.Skipped[1].Reason != want[1] {
+		t.Fatalf("skipped %+v", plan.Skipped)
+	}
+	for _, s := range plan.Skipped {
+		if strings.Contains(s.Reason, root) || strings.Contains(s.Reason, filepath.ToSlash(root)) {
+			t.Fatalf("host path in %q", s.Reason)
+		}
 	}
 }
 
