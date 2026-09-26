@@ -40,6 +40,13 @@ A v0.4 binary changes its output even without a new key or flag: JSON reports al
 None of the v0.4 stages produces exit 1: only a reproduced high/critical hypothesis does. Behavior divergences, `FAILS_ON_CANDIDATE` results, intent-test failures, inconclusive fuzz results, incomplete mutation runs and configured stages that did not run request human review, which is exit 2 with `--ci`. To enforce a stricter policy of your own, read the corresponding fields of `.swiftproof/confidence-report.json` in a following step, as for coverage above.
 
 <!-- F8:begin -->
+### Dependency preparation in CI
+
+- Commit a `prepare` object to the base branch, and pass `--allow-prepare-network`, only after the workflow is re-pinned to a v0.4 binary (release ordering above). Pass the flag only in jobs whose base-branch policy needs network for preparation; checks never get that network.
+- A preparation that failed or was not permitted exits 4 and runs no check: treat it like a missing sandbox image. Upload the report directory as usual; it contains the redacted `prepare_output` log of a build.
+- Ephemeral runners start without derived images and build on every job, and every new base commit builds again. Nothing is shared through a registry in v0.4. On persistent self-hosted runners, derived images accumulate: prune them with `docker image prune -a --filter label=org.swiftproof.prepare.schema`.
+- A network-enabled prepare container can reach the runner's network and cloud metadata endpoints. Restrict egress at the Docker network or firewall level; SwiftProof does not.
+- `prepare.timeout_seconds` (600 s by default) comes on top of the sandbox budget in the worst-case formula below; `--deadline` bounds it too. When `--deadline` ends a preparation, its cleanup runs on its own time limits (at most 10 s to remove the container and 10 s to remove an image it committed but will not use): count up to 20 s for an in-flight preparation where the formula counts 5 s per in-flight run.
 <!-- F8:end -->
 
 <!-- F7:begin -->

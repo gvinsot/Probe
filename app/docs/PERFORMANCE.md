@@ -36,4 +36,16 @@ Each block below records measured costs of one v0.4 stage, and nothing that was 
 <!-- F7:end -->
 
 <!-- F8:begin -->
+### Dependency preparation
+
+Measured on 2026-09-26 on the Windows 11 host with Docker Desktop (Docker Engine 28.4.0, containerd image store) while other builds shared the machine, with Windows binaries built from the F8 branch (commit `8f05f99`, and the working tree shortly before it, whose later edits did not change the behavior these runs depend on), `golang:1.26-bookworm` and a Go module requiring `github.com/google/go-cmp v0.7.0`; policy `prepare` = `go mod download` on `go.mod` and `go.sum` with network permitted. The figure is the `prepare.duration_ms` of the report.
+
+| Case | Runs | `prepare.duration_ms` | Committed layer |
+| --- | --- | --- | --- |
+| Cold: no image for the key, `go mod download` with network, commit, read-back | 5 | 3,535 to 5,241 ms | 897,024 bytes |
+| Warm: image reused, no container started | 6 | 450 to 1,473 ms | — |
+
+After the review fixes, which read the whole `docker diff` listing, a binary built from `dd96a1f` on the same host gave one cold build of 3,982 ms (the same 897,024-byte layer) and warm reuses of 549 and 973 ms, inside the ranges above.
+
+A cold build pays the download and the commit once per key and base commit; a new base commit builds again. Preparation is not charged to `sandbox.max_runtime_seconds`. These numbers depend on the registry, the network and the size of the dependencies; they are not a general estimate.
 <!-- F8:end -->

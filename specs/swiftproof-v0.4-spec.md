@@ -491,6 +491,44 @@ The baseline execution cache is opt-in with an explicit `--cache-dir` and replay
 Opt-in through the base-branch policy's `prepare` object, review only. Before any candidate code runs, the policy's command runs in one bounded container on inputs exported from the base commit, and the container is committed as a local derived image keyed by its inputs and reused by key. Every check of the run then uses that image. Network requires both the policy's `prepare.network` and `--allow-prepare-network`. Preparation fails closed (exit 4).
 
 <!-- F8:begin -->
+### F8.1 Rules
+
+Trust and inputs:
+
+- Only the trusted policy (§1: the tip of the base ref, or `--config`) MAY define `prepare`. A candidate policy MUST NOT add, change or enable it.
+- Inputs MUST be exported only from `change.BaseCommit` (the base ref commit or its merge base with head), as exact Git blobs of regular files whose paths match `prepare.inputs`, and recorded as `prepare.source_commit`. They MUST NOT come from the head commit. A matched symlink or submodule, a matched credential-bearing path, no matching file, or an export over 256 files, 32 MiB per file or 128 MiB in total MUST fail the stage.
+- The prepare container MUST NOT receive candidate content, the full tree, credentials, the Docker socket, the host environment or a writable host path.
+
+Container and network:
+
+- Preparation MUST run before any candidate code, in one container created from the local `sandbox.image` resolved to its image ID, with `--pull=never`. SwiftProof MUST NOT pull images, and MUST NOT build them from a Dockerfile or from candidate content; the only image it derives is the committed prepare container.
+- The container MUST use the §2 R2 profile: `--cap-drop=ALL` plus, only for `user: root`, `CHOWN`, `DAC_OVERRIDE`, `FOWNER`, `FSETID`, `SETGID` and `SETUID`; no-new-privileges; the sandbox memory and CPU limits; `--pids-limit=256`; `--ulimit=nofile=1024:1024`; UID/GID 65534 unless the policy says `user: root`; exactly one read-only bind mount (the exported inputs at `/swiftproof/inputs`) and no other mount, so a created container with another mount, such as a `VOLUME` the sandbox image declares, MUST fail the stage before the command starts; `--workdir=/swiftproof/work`; `HOME=/swiftproof/home` and exactly the policy `env`. Its output MUST be bounded by `sandbox.max_output_bytes`, redacted and retained as a hashed `prepare_output` artifact.
+- The container MUST have network only when `prepare.network` is true, `--allow-prepare-network` is passed and `--no-network` is not. That permission MUST NOT change the network of any check. On a miss that needs network without permission, the status MUST be `not_permitted`, and SwiftProof MUST NOT start a container.
+
+Key and reuse:
+
+- The key MUST be the SHA-256 of a canonical JSON of the schema `swiftproof-prepare/v1`, the tool version, the base image ID, the argv, the user, the build's network setting, the sorted `env`, the sorted path and SHA-256 of every exported input, the SHA-256 of the container-argument template and `max_added_mb`.
+- An image MAY be reused only when exactly one image carries this key's tag and key label, and its labels equal the full key, the source commit and the base image ID, its layers are the base image's layers plus exactly one, its environment holds the policy `env`, and its committed layer is within `max_added_mb`. Otherwise SwiftProof MUST build. Reuse MUST NOT start a container.
+- A build MUST fail when the command exits non-zero, times out, or changes nothing outside the directories SwiftProof creates. When every change is under `/workspace`, `/tmp` or `/swiftproof/home`, the report MUST add the Unverified entry "prepared outputs are shadowed by check mounts". Both decisions MUST rest on the whole `docker diff` listing; a change that was not read in full MUST NOT be taken as shadowed or as one SwiftProof made. After `docker commit`, an image whose committed layer exceeds `max_added_mb` MUST be removed and the stage MUST fail.
+- Every sandbox run of the review MUST use the derived image by its ID. The check profile MUST NOT change.
+
+Outcome:
+
+- `failed` and `not_permitted` MUST run no check and no reviewer, MUST NOT fall back to the unprepared image, MUST exit 4 with or without `--ci`, and MUST add an Unverified entry that says whether the base-branch prepare command was started. No candidate code ever runs in this stage.
+- A changed file whose new or old path matches an input MUST produce a medium `prepare_input_changed` signal, in lint and review. When checks ran on a built or reused image, the report MUST add an Unverified entry naming the changed inputs. Candidate dependencies MUST NOT be installed.
+- Preparation MUST NOT be a check, evidence or support for any hypothesis status, and MUST NOT produce exit 1. Its only exit effects are exit 4 for `failed` and `not_permitted`, and the review requests of its Unverified entries (exit 2 with `--ci`). It MUST NOT be charged to `sandbox.max_runtime_seconds` (R10); `prepare.timeout_seconds` and `--deadline` bound it, and a preparation cut short fails. The reason MUST name the overall deadline only when `--deadline` ended the stage; any other interruption MUST NOT be reported as the deadline.
+- Outputs MUST NOT present a prepared image as safe, unmodified, license-clean, free of vulnerabilities or reproducible, its labels as an attestation, candidate dependencies as installed, or preparation network as check network (§8).
+
+### F8.2 Acceptance
+
+- The container argv matches the golden profile for `sandbox` and `root`, with and without network, and never gains a second mount, a volume, `--privileged`, `--rm`, `--read-only` or the Docker socket.
+- A real offline build commits an image with the base layers plus one and the policy env; a check in it finds the prepared file and fails on the base image; the build container had only a loopback interface, ran as 65534 in `/swiftproof/work` and saw no host environment; a root build has exactly the six capabilities; a second run reuses the image without starting a container.
+- Inputs come from the base commit only: a head-only file and the head version of a changed input are never exported.
+- An image with a matching key label but a different source-commit label, base image label, schema, layer structure, environment or size is rebuilt, not reused.
+- Without `--allow-prepare-network`, or with `--no-network`, a build that needs network is `not_permitted`, exits 4 and starts no container; an existing image for the key is still reused.
+- A failing, timed-out, deadline-cut or no-change command, a missing base image, a base image that declares a `VOLUME`, a credential-bearing or unmatched input, a commit or verification failure and an image over `max_added_mb` each give `failed`, exit 4 and no check; the container is always removed with its anonymous volumes, an image whose `docker commit` returned before the failure is removed, and the log is retained redacted. When the overall `--deadline` ends the wait for `docker commit`, Docker may still finish that commit; that tagged image may remain and is reused only after the reuse checks.
+- A command that leaves thousands of files under its `HOME` and also writes a directory that checks see is `built` with persistent outputs, not shadowed, wherever `docker diff` lists that directory.
+- `lint` makes no Docker call and still records `prepare_input_changed`.
 <!-- F8:end -->
 
 ## F9. Evidence-only exports
