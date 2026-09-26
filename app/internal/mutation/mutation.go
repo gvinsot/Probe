@@ -32,9 +32,12 @@ type Workspace interface {
 	RunControl(ctx context.Context, pkg string, command []string, timeout time.Duration) (model.Check, error)
 	// RunMutant replaces the content of rel, which must still equal original,
 	// by mutated, runs command (check kind mutant), and restores and re-checks
-	// the original before it returns. An error means the workspace could not
-	// be verified or restored; a check recorded before that is returned too.
-	RunMutant(ctx context.Context, id, rel string, original, mutated []byte, command []string, timeout time.Duration) (model.Check, error)
+	// the original before it returns. It also returns the time limit the run
+	// actually had: timeout, or less when the shared budget or the reviewer
+	// reserve left less (0 when nothing ran). An error means the workspace
+	// could not be verified or restored; a check recorded before that is
+	// returned too.
+	RunMutant(ctx context.Context, id, rel string, original, mutated []byte, command []string, timeout time.Duration) (model.Check, time.Duration, error)
 	// SavePatch retains a redacted mutant_patch artifact and returns its sha256.
 	SavePatch(name string, data []byte) (string, error)
 }
@@ -46,8 +49,6 @@ type Config struct {
 	// NotExecuted, when set, returns the added lines of a file that a passing,
 	// measured coverage run reported as not executed; their sites are skipped.
 	NotExecuted func(path string) []int
-	// Outcome is harness.GoTestOutcome in production.
-	Outcome OutcomeFunc
 }
 
 // Result is what one mutation stage produced. Section.Checks is left empty:
@@ -64,6 +65,8 @@ const (
 	reasonNoCandidates   = "no candidate mutant on added lines of changed non-test Go files"
 	reasonCoverageOnly   = "every candidate mutant was on an added line that the coverage run did not execute"
 	reasonBudget         = "mutation.max_runtime_seconds does not leave room for another run of this package"
+	reasonBudgetCut      = "a runtime budget (mutation.max_runtime_seconds, the sandbox budget or the reviewer reserve) left this run less than its own time limit and the run used all of it; this is not a timeout of the mutant"
+	reasonBudgetSpent    = "a runtime budget ended an earlier mutant run before its own time limit; no further run was attempted"
 	reasonCancelled      = "the time limit of the review or a cancellation stopped mutation before this run"
 	reasonStoppedRun     = "the time limit of the review or a cancellation stopped this run before it finished"
 	reasonAborted        = "the mutation workspace could not be verified or restored; no further run was attempted"
@@ -71,8 +74,8 @@ const (
 	reasonPatchFailed    = "the mutant survived, but its patch artifact could not be retained, so the outcome cannot be re-verified"
 	reasonApplyFailed    = "the mutant could not be applied: "
 
-	survivorSummary = "A single-change mutant of this added line did not make any test of its package fail"
-	survivorText    = "Mutant %s (%s) replaced %q with %q. The unmutated control run %s and the mutant run %s of %q both passed; %d named tests passed in package %s and none failed. Only the tests this command runs for this package directory were run. A surviving mutant can be semantically equivalent to the original code; this is not evidence of a defect, of a missing test, or that the line was not executed. Patch artifact sha256 %s."
+	survivorSummary = "With a single-change mutant of this added line, no test that the mutation command ran for its package failed"
+	survivorText    = "Mutant %s (%s) replaced %q with %q. The unmutated control run %s and the mutant run %s of %q both passed; %d named tests passed in package %s and none failed (skipped tests are not counted). Only the tests this command ran for this package directory were run. A surviving mutant can be semantically equivalent to the original code; this is not evidence of a defect, of a missing test, or that the line was not executed. Patch artifact sha256 %s."
 )
 
 // displayLimit is the display cut of Original and Mutated (UTF-8 safe).

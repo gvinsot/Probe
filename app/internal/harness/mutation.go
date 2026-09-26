@@ -153,36 +153,70 @@ func (w *MutationWorkspace) RunControl(ctx context.Context, pkg string, command 
 // returned now and by every later call, so no run executes on a tree the
 // report does not describe. The check recorded before a failed restore is
 // returned with the error.
-func (w *MutationWorkspace) RunMutant(ctx context.Context, id, rel string, original, mutated []byte, command []string, timeout time.Duration) (model.Check, error) {
+//
+// It also returns the time limit the run had (0 when it did not start): the
+// policy timeout tightened by timeout and by what the runtime budget, or the
+// pre-reviewer ceiling, left. The stage uses it to tell a mutant that reached
+// its own time limit from a run a budget cut short.
+func (w *MutationWorkspace) RunMutant(ctx context.Context, id, rel string, original, mutated []byte, command []string, timeout time.Duration) (model.Check, time.Duration, error) {
 	h := w.h
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	if err := w.usable(); err != nil {
-		return model.Check{}, err
+		return model.Check{}, 0, err
 	}
 	started := time.Now()
 	arguments := map[string]string{"mutant_id": id, "path": rel}
 	path, err := w.regularFile(rel)
 	if err != nil {
-		return model.Check{}, w.abort(started, arguments, abortResolve)
+		return model.Check{}, 0, w.abort(started, arguments, abortResolve)
 	}
 	current, err := readBounded(path)
 	if err != nil || sha256.Sum256(current) != sha256.Sum256(original) {
-		return model.Check{}, w.abort(started, arguments, abortVerify)
+		return model.Check{}, 0, w.abort(started, arguments, abortVerify)
 	}
 	if err := overwrite(path, mutated); err != nil {
 		if restore(path, original) != nil {
-			return model.Check{}, w.abort(started, arguments, abortRestore)
+			return model.Check{}, 0, w.abort(started, arguments, abortRestore)
 		}
-		return model.Check{}, w.abort(started, arguments, abortWrite)
+		return model.Check{}, 0, w.abort(started, arguments, abortWrite)
 	}
+	// Computed under the same hold of h.mu as the reservation runWithOptions
+	// makes next, so it is the limit reserveRun gives the run.
+	limit := w.runLimit(timeout)
 	c, _, _ := h.runWithOptions(ctx, model.CheckMutant, w.dir, command, runOptions{timeout: timeout, ceiling: w.ceiling, ledger: ledgerMutation})
+	if c.Status == "SKIPPED" {
+		limit = 0
+	}
 	arguments["check_id"] = c.ID
 	if restore(path, original) != nil {
-		return c, w.abort(started, arguments, abortRestore)
+		return c, limit, w.abort(started, arguments, abortRestore)
 	}
 	w.audit(auditMutant, started, c.Status, arguments)
-	return c, nil
+	return c, limit, nil
+}
+
+// runLimit is the time limit runWithOptions gives a mutation run that
+// requests timeout: the policy timeout, tightened by timeout, then by what is
+// left under MaxRuntime or the workspace ceiling after the time spent and
+// reserved (reserveRun, §1.7.1). Caller holds h.mu.
+func (w *MutationWorkspace) runLimit(timeout time.Duration) time.Duration {
+	h := w.h
+	effective := h.opts.Timeout
+	if timeout > 0 && timeout < effective {
+		effective = timeout
+	}
+	limit := h.opts.MaxRuntime
+	if w.ceiling > 0 && w.ceiling < limit {
+		limit = w.ceiling
+	}
+	if avail := limit - h.spent - h.reserved; avail < effective {
+		effective = avail
+	}
+	if effective < 0 {
+		return 0
+	}
+	return effective
 }
 
 // SavePatch retains data, redacted, as a mutant_patch artifact and returns

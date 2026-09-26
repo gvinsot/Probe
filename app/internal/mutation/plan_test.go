@@ -132,7 +132,7 @@ func TestFileSkipReasons(t *testing.T) {
 	src := fakeSource{files: map[string]string{
 		"notests/n.go": body,
 		"tests/t.go":   body, "tests/t_test.go": "package p\n",
-		"x_windows.go": body, "x_linux_arm64.go": body, "x_test_helper.go": body,
+		"x_windows.go": body, "x_linux_arm64.go": body, "x_test_helper.go": body, "fast_windows.impl.go": body,
 		"_hidden/h.go": body, ".dot/d.go": body, "testdata/t.go": body, "vendor/v.go": body,
 		"x_test.go": "package p\n",
 	}}
@@ -140,7 +140,7 @@ func TestFileSkipReasons(t *testing.T) {
 		addedFile("notests/n.go", body), addedFile("tests/t.go", body), addedFile("x_windows.go", body),
 		addedFile("x_linux_arm64.go", body), addedFile("_hidden/h.go", body), addedFile(".dot/d.go", body),
 		addedFile("testdata/t.go", body), addedFile("vendor/v.go", body), addedFile("missing/m.go", body),
-		addedFile("x_test_helper.go", body),
+		addedFile("x_test_helper.go", body), addedFile("fast_windows.impl.go", body),
 		{Path: "deleted.go", Status: "D"}, {Path: "image.go", Status: "M", Binary: true},
 		addedFile("readme.md", "text\n"), addedFile("tests/t_test.go", "package p\n"),
 		{Path: "tests/nothing_added.go", Status: "M"},
@@ -155,6 +155,7 @@ func TestFileSkipReasons(t *testing.T) {
 		"tests/t.go":             "eligible: ",
 		"x_windows.go":           "skipped: " + skipOSArchName,
 		"x_linux_arm64.go":       "skipped: " + skipOSArchName,
+		"fast_windows.impl.go":   "skipped: " + skipOSArchName,
 		"_hidden/h.go":           "skipped: " + skipIgnoredPath,
 		".dot/d.go":              "skipped: " + skipIgnoredPath,
 		"testdata/t.go":          "skipped: " + skipIgnoredPath,
@@ -189,10 +190,14 @@ func TestPackageArgAndExpandCommand(t *testing.T) {
 	}
 }
 
+// The go/build rule cuts the base name at its first dot before looking for
+// the GOOS and GOARCH elements (goodOSArchFile).
 func TestOSArchConstrained(t *testing.T) {
 	for name, want := range map[string]bool{
 		"x_windows.go": true, "x_linux_arm64.go": true, "x_amd64.go": true, "dir/y_darwin_test.go": true,
+		"x_windows.impl.go": true, "api_js.wasm.go": true, "x_linux_arm64.v2.go": true, "dir/z_plan9.gen.go": true,
 		"linux.go": false, "x.go": false, "x_helper.go": false, "x_linux_helper.go": false, "windows_x.go": false,
+		"x.pb.go": false, "x_helper.pb.go": false, "x.y_linux.go": false,
 	} {
 		if got := osArchConstrained(name); got != want {
 			t.Errorf("osArchConstrained(%q) = %v, want %v", name, got, want)
@@ -207,7 +212,7 @@ func TestFixedTextsHaveNoQuotes(t *testing.T) {
 		skipNoAddedLines, skipIgnoredPath, skipOSArchName, skipUnreadable, skipNoTestFile, skipTotalCap,
 		skipParse, skipConstraint, skipGenerated, skipCgo,
 		reasonNoCandidates, reasonCoverageOnly, reasonBudget, reasonCancelled, reasonStoppedRun, reasonAborted,
-		reasonWorkspaceError, reasonPatchFailed, reasonApplyFailed, survivorSummary, model.MutationNote,
+		reasonWorkspaceError, reasonPatchFailed, reasonApplyFailed, reasonBudgetCut, reasonBudgetSpent, survivorSummary, model.MutationNote,
 	} {
 		if strings.ContainsAny(text, `'"`) {
 			t.Errorf("fixed text with a quote: %q", text)

@@ -158,6 +158,52 @@ func TestMutationWithoutSandboxClaimsNothing(t *testing.T) {
 	}
 }
 
+// A configured mutation stage that did not run because of --checks=false or a
+// missed execution is not_run with one Unverified sentence naming the reason,
+// as MUTATION.md promises; no changed files gives no_candidates and no
+// sentence; a section the stage recorded is left alone.
+func TestMutationSkippedAddsOneUnverifiedSentence(t *testing.T) {
+	dir := discountFixture(t)
+	forbidExecution(t)
+	policy := mutationPolicy(t, absentImage, nil)
+	code, r, _, _ := runReport(t, context.Background(), dir, "review", "--config", policy, "--checks=false", "--reviewer=false", "--ci")
+	if code != 2 || r.Mutation == nil || r.Mutation.Status != model.MutationNotRun {
+		t.Fatalf("exit %d, mutation %+v", code, r.Mutation)
+	}
+	var sentences []string
+	for _, u := range r.Unverified {
+		if strings.HasPrefix(u, "Mutation analysis") {
+			sentences = append(sentences, u)
+		}
+	}
+	if len(sentences) != 1 || sentences[0] != "Mutation analysis did not run: initial checks disabled (--checks=false)" {
+		t.Fatalf("mutation sentences %q", sentences)
+	}
+
+	cfg := config.Default("go")
+	cfg.Mutation = &config.Mutation{Command: []string{"go", "test", "-json", "{package}"}, MaxMutants: 5, TimeoutSeconds: 30, MaxRuntimeSeconds: 60}
+	for _, tc := range []struct {
+		name string
+		sc   stageContext
+		want []string
+	}{
+		{"no changed files", stageContext{mode: "review", checks: true, reason: reasonNoChangedFiles}, nil},
+		{"prepare failed", stageContext{mode: "review", checks: true, reason: reasonPrepareFailed}, []string{"Mutation analysis did not run: " + reasonPrepareFailed}},
+		{"lint", stageContext{mode: "lint", reason: reasonLint}, nil},
+	} {
+		r := &model.Report{}
+		recordMutationSkipped(cfg, tc.sc, r)
+		if strings.Join(r.Unverified, "|") != strings.Join(tc.want, "|") {
+			t.Errorf("%s: unverified %q, want %q", tc.name, r.Unverified, tc.want)
+		}
+	}
+	recorded := &model.Report{Mutation: &model.Mutation{Status: model.MutationIncomplete}}
+	recordMutationSkipped(cfg, stageContext{mode: "review", checks: true, reason: reasonPrepareFailed}, recorded)
+	if len(recorded.Unverified) != 0 {
+		t.Fatalf("a recorded section got a second sentence: %q", recorded.Unverified)
+	}
+}
+
 // Only the trusted policy can enable mutation: a mutation object the candidate
 // adds to .swiftproof.json is ignored.
 func TestMutationPolicyOnCandidateIsIgnored(t *testing.T) {

@@ -101,14 +101,17 @@ func (e *executor) runPackage(pkg string, from, to int) bool {
 	}
 	e.record(control)
 	e.lastControl = duration(control)
-	if _, why := Control(control, e.cfg.Outcome); why != "" {
+	// The control log is read once; every mutant of the package is classified
+	// against it.
+	ctl := NewControl(control)
+	if why := ctl.Reason(); why != "" {
 		for k := from; k < to; k++ {
 			e.mutants[k].ControlCheckID, e.mutants[k].Reason = control.ID, why
 		}
 		return true
 	}
 	for k := from; k < to; k++ {
-		if !e.runMutant(k, command, control) {
+		if !e.runMutant(k, command, control, ctl) {
 			return false
 		}
 	}
@@ -117,7 +120,7 @@ func (e *executor) runPackage(pkg string, from, to int) bool {
 
 // runMutant applies, runs and classifies mutant k. It returns false when the
 // whole stage must stop.
-func (e *executor) runMutant(k int, command []string, control model.Check) bool {
+func (e *executor) runMutant(k int, command []string, control model.Check, ctl Control) bool {
 	m, site := &e.mutants[k], e.plan.Selected[k]
 	m.ControlCheckID = control.ID
 	if e.ctx.Err() != nil {
@@ -134,8 +137,14 @@ func (e *executor) runMutant(k int, command []string, control model.Check) bool 
 		m.Status, m.Reason = model.MutantInconclusive, reasonApplyFailed+err.Error()
 		return true
 	}
-	timeout := minDuration(minDuration(e.timeout, 3*controlTime+mutantSlack), remaining)
-	c, err := e.w.RunMutant(e.ctx, m.ID, site.Path, src, mutated, command, timeout)
+	// own is the mutant's own time limit; the sub-cap, the shared budget or the
+	// reviewer reserve may leave the run less.
+	own := minDuration(e.timeout, 3*controlTime+mutantSlack)
+	timeout := minDuration(own, remaining)
+	c, limit, err := e.w.RunMutant(e.ctx, m.ID, site.Path, src, mutated, command, timeout)
+	if limit <= 0 || limit > timeout {
+		limit = timeout
+	}
 	e.spent += duration(c)
 	if c.ID != "" {
 		m.CheckID = c.ID
@@ -161,7 +170,13 @@ func (e *executor) runMutant(k int, command []string, control model.Check) bool 
 		m.Status, m.Reason = model.MutantInconclusive, reasonStoppedRun
 		return e.stop(k+1, reasonCancelled)
 	}
-	v := Classify(control, c, e.cfg.Outcome)
+	if c.Status == "TIMEOUT" && limit < own {
+		// A budget left this run less than its own time limit and the run used
+		// all of it: the budget, not the mutant, ended the run.
+		m.Status, m.Reason = model.MutantInconclusive, reasonBudgetCut
+		return e.stop(k+1, reasonBudgetSpent)
+	}
+	v := ctl.Classify(c)
 	m.Status, m.Reason = v.Status, v.Reason
 	switch v.Status {
 	case model.MutantKilled:

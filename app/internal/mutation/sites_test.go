@@ -2,8 +2,12 @@ package mutation
 
 import (
 	"bytes"
+	"fmt"
+	"go/build"
 	"go/parser"
 	"go/token"
+	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -218,6 +222,171 @@ func G() (a, b int, err error) { return 1, 2, errors.New("g") }
 	want := []string{`A:errors.New("a")`, `F:errors.New("h")`, `F:h()`, `G:errors.New("g")`}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("drop_error sites %q, want %q", got, want)
+	}
+}
+
+// A dropped error that spans several lines (a gofmt'd fmt.Errorf call, a
+// composite literal, a raw string) is replaced by nil plus one newline per
+// newline of the span: Apply accepts it, the return ends on its first line,
+// and every other line of the file keeps its number and content.
+func TestDropErrorSpanningLines(t *testing.T) {
+	src := "package load\n" + // 1
+		"\n" + // 2
+		"import \"fmt\"\n" + // 3
+		"\n" + // 4
+		"type E struct{ Name string; N int }\n" + // 5
+		"\n" + // 6
+		"func (e *E) Error() string { return fmt.Sprint(e.Name) }\n" + // 7
+		"\n" + // 8
+		"func Parse(name string, n int) (int, error) {\n" + // 9
+		"\tif n < 0 {\n" + // 10
+		"\t\treturn 0, fmt.Errorf(\"parse %s: negative %d\",\n" + // 11
+		"\t\t\tname, n) // why\n" + // 12
+		"\t}\n" + // 13
+		"\tif n == 0 {\n" + // 14
+		"\t\treturn 0, &E{\n" + // 15
+		"\t\t\tName: name,\n" + // 16
+		"\t\t\tN:    n,\n" + // 17
+		"\t\t}\n" + // 18
+		"\t}\n" + // 19
+		"\tf := func() error { return fmt.Errorf(`raw\n" + // 20
+		"text`) }\n" + // 21
+		"\t_ = f\n" + // 22
+		"\treturn n, nil\n" + // 23
+		"}\n" // 24
+	sites, capped, skip := FileSites("load/load.go", []byte(src), allLines(src))
+	if capped || skip != "" {
+		t.Fatalf("capped %v skip %q", capped, skip)
+	}
+	var drops []Site
+	for _, s := range sites {
+		if s.Operator == OpDropError {
+			drops = append(drops, s)
+		}
+	}
+	type span struct {
+		line, endLine int
+		replacement   string
+	}
+	var got []span
+	for _, s := range drops {
+		got = append(got, span{s.Line, s.EndLine, s.Replacement})
+	}
+	want := []span{{11, 12, "nil\n"}, {15, 18, "nil\n\n\n"}, {20, 21, "nil\n"}}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("drop_error spans %+v, want %+v", got, want)
+	}
+	srcLines := strings.Split(src, "\n")
+	for _, s := range drops {
+		mutated, err := s.Apply([]byte(src))
+		if err != nil {
+			t.Fatalf("line %d: %v", s.Line, err)
+		}
+		lines := strings.Split(string(mutated), "\n")
+		if len(lines) != len(srcLines) {
+			t.Fatalf("line %d: %d lines, want %d", s.Line, len(lines), len(srcLines))
+		}
+		for i := range lines {
+			n := i + 1
+			if n < s.Line || n > s.EndLine {
+				if lines[i] != srcLines[i] {
+					t.Fatalf("mutant of line %d changed line %d: %q", s.Line, n, lines[i])
+				}
+			}
+		}
+		if !strings.HasSuffix(lines[s.Line-1], "nil") {
+			t.Fatalf("mutant of line %d: first line %q does not end with nil", s.Line, lines[s.Line-1])
+		}
+	}
+}
+
+// Every site FileSites generates is accepted by Apply: its original text is
+// at the recorded offsets, the replacement keeps the number of lines and the
+// mutated file parses. A generated site that Apply refuses would always be
+// INCONCLUSIVE and spend a max_mutants slot. The corpus is the handwritten
+// sources of this file plus a sample of the Go standard library, when its
+// sources are present (they are in CI and in the golang image).
+func TestEverySiteApplies(t *testing.T) {
+	corpus := map[string]string{
+		"discount.go": discountSource,
+		"multi.go": "package p\n\nimport (\n\t\"errors\"\n\t\"fmt\"\n)\n\n" +
+			"var ErrX = errors.New(\"x\")\n\n" +
+			"func A(a, b int) (int, error) {\n\tif a > b &&\n\t\tb > 0 ||\n\t\ta == 3 {\n\t\treturn 0, fmt.Errorf(\n\t\t\t\"a %d b %d\",\n\t\t\ta, b,\n\t\t)\n\t}\n" +
+			"\tswitch {\n\tcase a*b >= 10:\n\t\treturn a - b, errors.Join(ErrX,\n\t\t\tfmt.Errorf(\"b\"))\n\t}\n" +
+			"\tg := func() (bool, error) { return a <= b, fmt.Errorf(\"g %d\",\n\t\ta) }\n\t_, _ = g()\n" +
+			"\treturn a / b, ErrX\n}\n",
+	}
+	check := func(name string, src []byte) int {
+		sites, _, skip := FileSites(name, src, allLines(string(src)))
+		if skip != "" {
+			return 0
+		}
+		for _, s := range sites {
+			if _, err := s.Apply(src); err != nil {
+				t.Errorf("%s:%d %s %q -> %q: %v", name, s.Line, s.Operator, s.Original, s.Replacement, err)
+			}
+		}
+		return len(sites)
+	}
+	for name, src := range corpus {
+		if check(name, []byte(src)) == 0 {
+			t.Fatalf("%s has no site", name)
+		}
+	}
+	root := filepath.Join(build.Default.GOROOT, "src")
+	if _, err := os.Stat(filepath.Join(root, "strconv")); err != nil {
+		t.Logf("standard library sources not found under %s; checked the handwritten corpus only", root)
+		return
+	}
+	total := 0
+	for _, dir := range []string{"errors", "strconv", "strings", "fmt", "encoding/json", "net/url", "path/filepath", "text/template/parse", "go/scanner", "archive/tar"} {
+		entries, err := os.ReadDir(filepath.Join(root, filepath.FromSlash(dir)))
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, e := range entries {
+			name := e.Name()
+			if !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
+				continue
+			}
+			src, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(dir), name))
+			if err != nil || len(src) > 1<<20 {
+				continue
+			}
+			total += check(dir+"/"+name, src)
+		}
+	}
+	if total < 1000 {
+		t.Fatalf("only %d standard library sites were checked", total)
+	}
+}
+
+// A swap whose replacement would merge with a neighbouring character into
+// another token is not generated (the two cases the standard library holds are
+// -1+-4 and w+-a.dp, both gofmt'd), and Apply refuses one built by hand.
+func TestNoSiteMergesWithNeighbour(t *testing.T) {
+	src := "package p\n\nfunc J(a int, p *int) int {\n\tif a == -1+-4 {\n\t\treturn a**p\n\t}\n\treturn a+-a + a- -a\n}\n"
+	sites, _, skip := FileSites("p.go", []byte(src), allLines(src))
+	if skip != "" {
+		t.Fatal(skip)
+	}
+	var swaps []string
+	for _, s := range sites {
+		if _, err := s.Apply([]byte(src)); err != nil {
+			t.Fatalf("%s at %d:%d: %v", s.Operator, s.Line, s.Column, err)
+		}
+		if s.Operator == OpSwapArithmetic {
+			swaps = append(swaps, fmt.Sprintf("%d:%d %s->%s", s.Line, s.Column, s.Original, s.Replacement))
+		}
+	}
+	// Only the + between the two sums (7:14) and the - of a- -a (7:17) swap.
+	if want := []string{"7:14 +->-", "7:17 -->+"}; !reflect.DeepEqual(swaps, want) {
+		t.Fatalf("arithmetic swaps %q, want %q", swaps, want)
+	}
+	offset := strings.Index(src, "+-4")
+	bad := Site{Path: "p.go", Line: 4, EndLine: 4, Start: offset, End: offset + 1, Operator: OpSwapArithmetic, Original: "+", Replacement: "-"}
+	if _, err := bad.Apply([]byte(src)); err == nil || !strings.Contains(err.Error(), "merge") {
+		t.Fatalf("a merging replacement was applied: %v", err)
 	}
 }
 

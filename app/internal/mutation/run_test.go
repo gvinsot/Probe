@@ -12,7 +12,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gvinsot/SwiftProof/app/internal/harness"
 	"github.com/gvinsot/SwiftProof/app/internal/model"
 	"github.com/gvinsot/SwiftProof/app/internal/mutation"
 )
@@ -67,6 +66,7 @@ type fakeWorkspace struct {
 	patchErr    error
 	restoreFail string // mutant ID whose restore fails
 	aborted     bool
+	budgetLeft  time.Duration // > 0: what the shared budget leaves a mutant run
 }
 
 func newFake() *fakeWorkspace {
@@ -124,23 +124,29 @@ func (f *fakeWorkspace) RunControl(_ context.Context, pkg string, command []stri
 	return f.record(model.CheckMutationControl, status, exit, output, command), nil
 }
 
-func (f *fakeWorkspace) RunMutant(_ context.Context, id, rel string, original, mutated []byte, command []string, timeout time.Duration) (model.Check, error) {
+func (f *fakeWorkspace) RunMutant(_ context.Context, id, rel string, original, mutated []byte, command []string, timeout time.Duration) (model.Check, time.Duration, error) {
 	if f.aborted {
-		return model.Check{}, errors.New("aborted")
+		return model.Check{}, 0, errors.New("aborted")
 	}
 	if string(original) != f.files[rel] {
 		f.aborted = true
-		return model.Check{}, errors.New("stale")
+		return model.Check{}, 0, errors.New("stale")
 	}
 	f.timeouts = append(f.timeouts, timeout)
+	// The harness may give the run less than the requested timeout when the
+	// shared budget or the reviewer reserve leaves less.
+	limit := timeout
+	if f.budgetLeft > 0 && f.budgetLeft < limit {
+		limit = f.budgetLeft
+	}
 	if f.mutantState != nil {
 		if status, exit, output, ok := f.mutantState(id); ok {
 			c := f.record(model.CheckMutant, status, exit, output, command)
 			if id == f.restoreFail {
 				f.aborted = true
-				return c, errors.New("restore failed")
+				return c, limit, errors.New("restore failed")
 			}
-			return c, nil
+			return c, limit, nil
 		}
 	}
 	var c model.Check
@@ -151,9 +157,9 @@ func (f *fakeWorkspace) RunMutant(_ context.Context, id, rel string, original, m
 	}
 	if id == f.restoreFail {
 		f.aborted = true
-		return c, errors.New("restore failed")
+		return c, limit, errors.New("restore failed")
 	}
-	return c, nil
+	return c, limit, nil
 }
 
 func (f *fakeWorkspace) SavePatch(name string, data []byte) (string, error) {
@@ -169,7 +175,7 @@ var policyCommand = []string{"go", "test", "-json", "-count=1", "-failfast", "{p
 
 func run(t *testing.T, f *fakeWorkspace, maxMutants, maxRuntime int) mutation.Result {
 	t.Helper()
-	return mutation.Run(context.Background(), f, mutation.Config{Command: policyCommand, Limits: model.MutationLimits{MaxMutants: maxMutants, TimeoutSeconds: 60, MaxRuntimeSeconds: maxRuntime}, Outcome: harness.GoTestOutcome}, discountChange())
+	return mutation.Run(context.Background(), f, mutation.Config{Command: policyCommand, Limits: model.MutationLimits{MaxMutants: maxMutants, TimeoutSeconds: 60, MaxRuntimeSeconds: maxRuntime}}, discountChange())
 }
 
 func discountChange() model.Change {
@@ -402,13 +408,69 @@ func TestDeadlineDuringMutantIsInconclusive(t *testing.T) {
 		}
 		return "", 0, "", false
 	}
-	res := mutation.Run(ctx, f, mutation.Config{Command: policyCommand, Limits: model.MutationLimits{MaxMutants: 10, TimeoutSeconds: 60, MaxRuntimeSeconds: 400}, Outcome: harness.GoTestOutcome}, discountChange())
+	res := mutation.Run(ctx, f, mutation.Config{Command: policyCommand, Limits: model.MutationLimits{MaxMutants: 10, TimeoutSeconds: 60, MaxRuntimeSeconds: 400}}, discountChange())
 	m := res.Section
 	if m.TimedOut != 0 || m.Mutants[1].Status != model.MutantInconclusive || !strings.Contains(m.Mutants[1].Reason, "stopped this run") {
 		t.Fatalf("mutant %+v", m.Mutants[1])
 	}
 	if len(f.checks) != 3 || m.NotRun != 6 || m.Status != model.MutationIncomplete || res.Operational {
 		t.Fatalf("%d runs, section %+v", len(f.checks), m)
+	}
+}
+
+// A run that reached a limit a budget set below its own time limit is no
+// TIMEOUT outcome of its mutant: it is INCONCLUSIVE, the stage stops, and the
+// section is incomplete. Here the sub-cap leaves the first mutant 15 s of its
+// own 60 s (a 10 s control), and in the second case the shared budget leaves
+// it 20 s of its own 36 s.
+func TestBudgetCutTimeoutIsInconclusive(t *testing.T) {
+	timeoutFirst := func(id string) (string, int, string, bool) {
+		if id == "mutant-1" {
+			return "TIMEOUT", -1, "", true
+		}
+		return "", 0, "", false
+	}
+	for _, tc := range []struct {
+		name       string
+		duration   time.Duration
+		maxRuntime int
+		budgetLeft time.Duration
+		timeout    time.Duration
+	}{
+		{"mutation sub-cap", 10 * time.Second, 25, 0, 15 * time.Second},
+		{"shared budget", 2 * time.Second, 400, 20 * time.Second, 36 * time.Second},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := newFake()
+			f.duration, f.budgetLeft, f.mutantState = tc.duration, tc.budgetLeft, timeoutFirst
+			res := run(t, f, 10, tc.maxRuntime)
+			m := res.Section
+			if len(f.timeouts) != 2 || f.timeouts[1] != tc.timeout {
+				t.Fatalf("timeouts %v", f.timeouts)
+			}
+			first := m.Mutants[0]
+			if first.Status != model.MutantInconclusive || !strings.Contains(first.Reason, "not a timeout of the mutant") || first.CheckID != "mutation-check-2" {
+				t.Fatalf("mutant %+v", first)
+			}
+			if m.TimedOut != 0 || m.NotRun != 7 || m.Status != model.MutationIncomplete || len(f.checks) != 2 || res.Operational {
+				t.Fatalf("section %+v, %d runs", m, len(f.checks))
+			}
+			for _, mu := range m.Mutants[1:] {
+				if mu.Status != model.MutantNotRun || !strings.Contains(mu.Reason, "ended an earlier mutant run") {
+					t.Fatalf("mutant after the cut %+v", mu)
+				}
+			}
+			if !strings.HasPrefix(res.Unverified, "Mutation analysis is incomplete: ") {
+				t.Fatalf("unverified %q", res.Unverified)
+			}
+		})
+	}
+	// With its own time limit intact, a TIMEOUT is an outcome of the mutant.
+	f := newFake()
+	f.mutantState = timeoutFirst
+	m := run(t, f, 10, 400).Section
+	if m.Mutants[0].Status != model.MutantTimeout || m.Status != model.MutationRan {
+		t.Fatalf("uncut timeout %+v, section %s", m.Mutants[0], m.Status)
 	}
 }
 
@@ -438,7 +500,7 @@ func TestNoCandidates(t *testing.T) {
 		t.Fatal("nil slices in a no_candidates result")
 	}
 	f = newFake()
-	cov := mutation.Run(context.Background(), f, mutation.Config{Command: policyCommand, Limits: model.MutationLimits{MaxMutants: 10, TimeoutSeconds: 60, MaxRuntimeSeconds: 400}, Outcome: harness.GoTestOutcome, NotExecuted: func(string) []int { return []int{6, 7, 9, 10} }}, discountChange())
+	cov := mutation.Run(context.Background(), f, mutation.Config{Command: policyCommand, Limits: model.MutationLimits{MaxMutants: 10, TimeoutSeconds: 60, MaxRuntimeSeconds: 400}, NotExecuted: func(string) []int { return []int{6, 7, 9, 10} }}, discountChange())
 	if cov.Section.Status != model.MutationNoCandidates || cov.Section.CoverageSkipped != 8 || !strings.Contains(cov.Section.Reason, "coverage run did not execute") {
 		t.Fatalf("coverage-only section %+v", cov.Section)
 	}
@@ -448,7 +510,7 @@ func TestCancelledContextRunsNothing(t *testing.T) {
 	f := newFake()
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	res := mutation.Run(ctx, f, mutation.Config{Command: policyCommand, Limits: model.MutationLimits{MaxMutants: 10, TimeoutSeconds: 60, MaxRuntimeSeconds: 400}, Outcome: harness.GoTestOutcome}, discountChange())
+	res := mutation.Run(ctx, f, mutation.Config{Command: policyCommand, Limits: model.MutationLimits{MaxMutants: 10, TimeoutSeconds: 60, MaxRuntimeSeconds: 400}}, discountChange())
 	if len(f.checks) != 0 || res.Section.Status != model.MutationNotRun || res.Section.NotRun != 8 {
 		t.Fatalf("section %+v runs %d", res.Section, len(f.checks))
 	}

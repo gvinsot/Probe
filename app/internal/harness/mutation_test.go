@@ -79,7 +79,7 @@ func TestMutationWorkspaceIsolation(t *testing.T) {
 		io.WriteString(out, "{}\n")
 		return execution{ExitCode: 1}
 	}
-	c, err := w.RunMutant(context.Background(), "mutant-1", "pkg/main.go", []byte(pkgSource), []byte(pkgMutant), mutationCommand, 0)
+	c, _, err := w.RunMutant(context.Background(), "mutant-1", "pkg/main.go", []byte(pkgSource), []byte(pkgMutant), mutationCommand, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -122,7 +122,7 @@ func TestMutantArgsKeepIsolation(t *testing.T) {
 	if _, err := w.RunControl(context.Background(), "./pkg", mutationCommand, 0); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := w.RunMutant(context.Background(), "mutant-1", "pkg/main.go", []byte(pkgSource), []byte(pkgMutant), mutationCommand, 0); err != nil {
+	if _, _, err := w.RunMutant(context.Background(), "mutant-1", "pkg/main.go", []byte(pkgSource), []byte(pkgMutant), mutationCommand, 0); err != nil {
 		t.Fatal(err)
 	}
 	for i, a := range recorded {
@@ -152,7 +152,7 @@ func TestMutationChecksSeparateLedger(t *testing.T) {
 	defer w.Close()
 	countingExec(h, "log line\n", 0, 1)
 	control, _ := w.RunControl(context.Background(), "./pkg", mutationCommand, 0)
-	mutant, _ := w.RunMutant(context.Background(), "mutant-1", "pkg/main.go", []byte(pkgSource), []byte(pkgMutant), mutationCommand, 0)
+	mutant, _, _ := w.RunMutant(context.Background(), "mutant-1", "pkg/main.go", []byte(pkgSource), []byte(pkgMutant), mutationCommand, 0)
 	if control.ID != "mutation-check-1" || control.Kind != model.CheckMutationControl || mutant.ID != "mutation-check-2" || mutant.Kind != model.CheckMutant {
 		t.Fatalf("checks %+v %+v", control, mutant)
 	}
@@ -195,8 +195,66 @@ func TestMutationTimeoutOnlyTightens(t *testing.T) {
 	if _, err := w.RunControl(context.Background(), "./pkg", mutationCommand, 5*time.Second); err != nil || remaining > 5*time.Second {
 		t.Fatalf("tightened timeout %v (%v)", remaining, err)
 	}
-	if _, err := w.RunMutant(context.Background(), "mutant-1", "pkg/main.go", []byte(pkgSource), []byte(pkgMutant), mutationCommand, time.Hour); err != nil || remaining > time.Minute || remaining < 50*time.Second {
-		t.Fatalf("loosened timeout %v (%v)", remaining, err)
+	_, limit, err := w.RunMutant(context.Background(), "mutant-1", "pkg/main.go", []byte(pkgSource), []byte(pkgMutant), mutationCommand, time.Hour)
+	if err != nil || remaining > time.Minute || remaining < 50*time.Second || limit != time.Minute {
+		t.Fatalf("loosened timeout %v, reported limit %v (%v)", remaining, limit, err)
+	}
+}
+
+// RunMutant reports the time limit the harness gave the run: the requested
+// timeout, or what the budget, or the budget minus the reviewer reserve, left.
+// The reported limit is the deadline the executor saw, so the stage can tell a
+// budget cut from a TIMEOUT of the mutant.
+func TestMutationRunLimitFollowsBudget(t *testing.T) {
+	for _, tc := range []struct {
+		name                     string
+		maxRuntime, reserve      time.Duration
+		spent, requested, wanted time.Duration
+	}{
+		{"requested timeout", 10 * time.Minute, 0, 0, 36 * time.Second, 36 * time.Second},
+		{"shared budget", 10 * time.Minute, 0, 10*time.Minute - 20*time.Second, 36 * time.Second, 20 * time.Second},
+		{"reviewer reserve", 10 * time.Minute, 5 * time.Minute, 5*time.Minute - 12*time.Second, 36 * time.Second, 12 * time.Second},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			h := fixture(t)
+			h.opts.Timeout, h.opts.MaxRuntime, h.opts.ReviewerReserve = time.Minute, tc.maxRuntime, tc.reserve
+			w, err := h.NewMutationWorkspace()
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer w.Close()
+			var remaining time.Duration
+			h.execute = func(ctx context.Context, _ string, _ []string, _ io.Writer) execution {
+				remaining = deadlineRemaining(t, ctx)
+				return execution{ExitCode: 0}
+			}
+			h.mu.Lock()
+			h.spent = tc.spent
+			h.mu.Unlock()
+			c, limit, err := w.RunMutant(context.Background(), "mutant-1", "pkg/main.go", []byte(pkgSource), []byte(pkgMutant), mutationCommand, tc.requested)
+			if err != nil || c.Status != "PASS" || limit != tc.wanted {
+				t.Fatalf("check %s, limit %v, want %v (%v)", c.Status, limit, tc.wanted, err)
+			}
+			if remaining > tc.wanted || remaining < tc.wanted-10*time.Second {
+				t.Fatalf("the executor saw a deadline %v away, reported limit %v", remaining, limit)
+			}
+		})
+	}
+	// A run the budget did not start reports no limit.
+	h := fixture(t)
+	h.opts.MaxRuntime = time.Minute
+	w, err := h.NewMutationWorkspace()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer w.Close()
+	calls := countingExec(h, "", 0)
+	h.mu.Lock()
+	h.spent = time.Minute
+	h.mu.Unlock()
+	c, limit, err := w.RunMutant(context.Background(), "mutant-1", "pkg/main.go", []byte(pkgSource), []byte(pkgMutant), mutationCommand, 30*time.Second)
+	if err != nil || c.Status != "SKIPPED" || limit != 0 || *calls != 0 {
+		t.Fatalf("check %+v, limit %v, %d calls (%v)", c, limit, *calls, err)
 	}
 }
 
@@ -235,7 +293,7 @@ func TestMutationRejectsStaleOriginalAndNonRegular(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer w.Close()
-	if _, err := w.RunMutant(context.Background(), "mutant-1", "pkg/main.go", []byte("stale"), []byte(pkgMutant), mutationCommand, 0); err == nil {
+	if _, _, err := w.RunMutant(context.Background(), "mutant-1", "pkg/main.go", []byte("stale"), []byte(pkgMutant), mutationCommand, 0); err == nil {
 		t.Fatal("a stale original was accepted")
 	}
 	if *calls != 0 {
@@ -266,7 +324,7 @@ func TestMutationRejectsStaleOriginalAndNonRegular(t *testing.T) {
 		if rel == "pkg/dir.go" {
 			_ = os.Mkdir(filepath.Join(w3.dir, "pkg", "dir.go"), 0755)
 		}
-		if _, err := w3.RunMutant(context.Background(), "mutant-1", rel, []byte(""), []byte("x"), mutationCommand, 0); err == nil {
+		if _, _, err := w3.RunMutant(context.Background(), "mutant-1", rel, []byte(""), []byte("x"), mutationCommand, 0); err == nil {
 			t.Fatalf("%s: accepted", rel)
 		}
 		if _, err := os.Stat(filepath.Join(w3.dir, "pkg", "new.go")); !os.IsNotExist(err) {
@@ -294,11 +352,11 @@ func TestMutationAbortAfterRestoreFailure(t *testing.T) {
 		_ = os.Mkdir(path, 0755)
 		return execution{ExitCode: 0}
 	}
-	c, err := w.RunMutant(context.Background(), "mutant-1", "pkg/main.go", []byte(pkgSource), []byte(pkgMutant), mutationCommand, 0)
+	c, _, err := w.RunMutant(context.Background(), "mutant-1", "pkg/main.go", []byte(pkgSource), []byte(pkgMutant), mutationCommand, 0)
 	if err == nil || c.ID != "mutation-check-1" {
 		t.Fatalf("restore failure: check %+v err %v", c, err)
 	}
-	if _, err := w.RunMutant(context.Background(), "mutant-2", "pkg/main.go", []byte(pkgSource), []byte(pkgMutant), mutationCommand, 0); err == nil || calls != 1 {
+	if _, _, err := w.RunMutant(context.Background(), "mutant-2", "pkg/main.go", []byte(pkgSource), []byte(pkgMutant), mutationCommand, 0); err == nil || calls != 1 {
 		t.Fatalf("a run started after a failed restore (%d calls, %v)", calls, err)
 	}
 }

@@ -46,7 +46,6 @@ func runMutation(ctx context.Context, h *harness.Harness, cfg config.Config, cha
 		Command:     cfg.Mutation.Command,
 		Limits:      mutationLimits(cfg),
 		NotExecuted: covered.NotExecuted,
-		Outcome:     harness.GoTestOutcome,
 	}, change)
 	section := res.Section
 	section.Checks = h.MutationChecks()
@@ -81,7 +80,8 @@ func mutationSection(cfg config.Config, status, reason string) *model.Mutation {
 // recordMutationSkipped records why a configured mutation stage did not run
 // (§1.7). It is a no-op in lint, without a mutation policy, or when the section
 // is already set. No changed files gives no_candidates; --checks=false and any
-// other missed execution give not_run with their reason.
+// other missed execution give not_run with their reason and, like a not_run
+// section the stage records itself, one Unverified sentence.
 func recordMutationSkipped(cfg config.Config, sc stageContext, r *model.Report) {
 	if sc.mode != "review" || cfg.Mutation == nil || r.Mutation != nil {
 		return
@@ -89,11 +89,13 @@ func recordMutationSkipped(cfg config.Config, sc stageContext, r *model.Report) 
 	switch {
 	case sc.reason == reasonNoChangedFiles:
 		r.Mutation = mutationSection(cfg, model.MutationNoCandidates, "no changed files")
+		return
 	case !sc.checks:
 		r.Mutation = mutationSection(cfg, model.MutationNotRun, "initial checks disabled (--checks=false)")
 	default:
 		r.Mutation = mutationSection(cfg, model.MutationNotRun, skippedReason(sc))
 	}
+	r.Unverified = append(r.Unverified, "Mutation analysis did not run: "+r.Mutation.Reason)
 }
 
 // mutationLine is the stdout line of the mutation section: counts only, never

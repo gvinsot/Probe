@@ -10,6 +10,7 @@ import (
 	"path"
 	"sort"
 	"strconv"
+	"strings"
 )
 
 // Operator identifiers, in rank order. The rank orders the sites of one line
@@ -101,7 +102,7 @@ func FileSites(path string, src []byte, added map[int]bool) (sites []Site, cappe
 			return
 		}
 		s, e := tf.Offset(start), tf.Offset(end)
-		if s < 0 || e > len(src) || s >= e {
+		if s < 0 || e > len(src) || s >= e || joinsNeighbour(src, s, e, replacement) {
 			return
 		}
 		first, last := tf.Line(start), tf.Position(tf.Pos(e-1)).Line
@@ -131,7 +132,7 @@ func FileSites(path string, src []byte, added map[int]bool) (sites []Site, cappe
 			stack = append(stack, n)
 			switch x := n.(type) {
 			case *ast.ReturnStmt:
-				returnSites(x, innermostFuncType(stack), imports, tf, symbol, add)
+				returnSites(x, innermostFuncType(stack), imports, tf, src, symbol, add)
 			case *ast.IfStmt:
 				if x.Cond != nil {
 					s, e := tf.Offset(x.Cond.Pos()), tf.Offset(x.Cond.End())
@@ -163,13 +164,20 @@ type addFunc func(start, end token.Pos, op, replacement, symbol string)
 // returnSites adds drop_error and flip_boolean sites of one return statement.
 // ftype is the innermost function type (a function literal's own result list
 // wins over the declaration's).
-func returnSites(ret *ast.ReturnStmt, ftype *ast.FuncType, imports map[string][]int, tf *token.File, symbol string, add addFunc) {
+//
+// A dropped result that spans several lines (a gofmt'd multi-line
+// fmt.Errorf call or composite literal) is replaced by nil followed by one
+// newline per newline of the span: nil ends the return statement at the end of
+// its line, the rest of the span becomes empty lines, and every later line
+// keeps its number, as Apply requires.
+func returnSites(ret *ast.ReturnStmt, ftype *ast.FuncType, imports map[string][]int, tf *token.File, src []byte, symbol string, add addFunc) {
 	if ftype != nil && ftype.Results != nil && len(ftype.Results.List) > 0 && len(ret.Results) > 0 && len(ret.Results) == resultCount(ftype) {
 		lastField := ftype.Results.List[len(ftype.Results.List)-1]
 		if id, ok := lastField.Type.(*ast.Ident); ok && id.Name == "error" {
 			last := ret.Results[len(ret.Results)-1]
-			if !isIdent(last, "nil") && !dropsLastImportUse(imports, tf.Offset(last.Pos()), tf.Offset(last.End())) {
-				add(last.Pos(), last.End(), OpDropError, "nil", symbol)
+			s, e := tf.Offset(last.Pos()), tf.Offset(last.End())
+			if !isIdent(last, "nil") && s >= 0 && e <= len(src) && s < e && !dropsLastImportUse(imports, s, e) {
+				add(last.Pos(), last.End(), OpDropError, "nil"+strings.Repeat("\n", bytes.Count(src[s:e], []byte("\n"))), symbol)
 			}
 		}
 	}
@@ -237,6 +245,9 @@ func (s Site) Apply(src []byte) ([]byte, error) {
 	if s.Start < 0 || s.End > len(src) || s.Start >= s.End || string(src[s.Start:s.End]) != s.Original {
 		return nil, errors.New("the source no longer holds the original text at the recorded position")
 	}
+	if joinsNeighbour(src, s.Start, s.End, s.Replacement) {
+		return nil, errors.New("the replacement would merge with a neighbouring character into another token")
+	}
 	out := make([]byte, 0, len(src)-len(s.Original)+len(s.Replacement))
 	out = append(out, src[:s.Start]...)
 	out = append(out, s.Replacement...)
@@ -248,6 +259,30 @@ func (s Site) Apply(src []byte) ([]byte, error) {
 		return nil, errors.New("the mutated file does not parse")
 	}
 	return out, nil
+}
+
+// joinedTokens are the two-character Go tokens and comment openers. A
+// replacement whose first or last character forms one of them with the
+// neighbouring source byte would be scanned differently from the recorded
+// mutant: -1+-4 swapped to -1--4 becomes a decrement, a**p swapped to a/*p
+// opens a comment. Such sites are not generated.
+var joinedTokens = map[string]bool{
+	"+=": true, "-=": true, "*=": true, "/=": true, "%=": true, "&=": true, "|=": true, "^=": true,
+	"<<": true, ">>": true, "&^": true, "&&": true, "||": true, "<-": true, "++": true, "--": true,
+	"==": true, "!=": true, "<=": true, ">=": true, ":=": true, "..": true, "//": true, "/*": true,
+}
+
+// joinsNeighbour reports whether replacing src[start:end] by replacement
+// joins the replacement's first character with the byte before start, or its
+// last character with the byte at end, into one of joinedTokens.
+func joinsNeighbour(src []byte, start, end int, replacement string) bool {
+	if replacement == "" {
+		return false
+	}
+	if start > 0 && joinedTokens[string([]byte{src[start-1], replacement[0]})] {
+		return true
+	}
+	return end < len(src) && joinedTokens[string([]byte{replacement[len(replacement)-1], src[end]})]
 }
 
 // importUses maps the name of each named or plainly imported package of the

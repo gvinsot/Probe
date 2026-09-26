@@ -85,7 +85,7 @@ func TestDockerMutantBoundaryUnchanged(t *testing.T) {
 	defer w.Close()
 	workspaceBefore := treeDigest(t, w.dir)
 	command := []string{"go", "test", "-json", "-count=1", "./cart"}
-	c, err := w.RunMutant(context.Background(), "mutant-1", "cart/cart.go", []byte(cartCandidate), []byte(boundaryMutant), command, 0)
+	c, _, err := w.RunMutant(context.Background(), "mutant-1", "cart/cart.go", []byte(cartCandidate), []byte(boundaryMutant), command, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -122,8 +122,8 @@ func TestDockerMutationClassifiesRealRuns(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if pkg, why := mutation.Control(control, GoTestOutcome); why != "" || pkg != "example.test/shop/cart" {
-		t.Fatalf("control %q %q:\n%s", pkg, why, control.Output)
+	if ctl := mutation.NewControl(control); ctl.Reason() != "" || ctl.Package() != "example.test/shop/cart" {
+		t.Fatalf("control %q %q:\n%s", ctl.Package(), ctl.Reason(), control.Output)
 	}
 	for _, tc := range []struct{ name, from, to, want string }{
 		{"killed", "sum += p", "sum -= p", model.MutantKilled},
@@ -131,11 +131,11 @@ func TestDockerMutationClassifiesRealRuns(t *testing.T) {
 		{"invalid", "return sum", "return \"sum\"", model.MutantInvalid},
 	} {
 		mutated := strings.Replace(cartCandidate, tc.from, tc.to, 1)
-		c, err := w.RunMutant(context.Background(), "mutant-"+tc.name, "cart/cart.go", []byte(cartCandidate), []byte(mutated), command, 0)
+		c, _, err := w.RunMutant(context.Background(), "mutant-"+tc.name, "cart/cart.go", []byte(cartCandidate), []byte(mutated), command, 0)
 		if err != nil {
 			t.Fatal(err)
 		}
-		v := mutation.Classify(control, c, GoTestOutcome)
+		v := mutation.Classify(control, c)
 		if v.Status != tc.want {
 			t.Fatalf("%s: %+v\n%s", tc.name, v, c.Output)
 		}

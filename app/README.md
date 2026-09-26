@@ -274,7 +274,7 @@ With a `mutation` object in the trusted base-branch policy, `review` makes deter
 "mutation": { "command": ["go", "test", "-json", "-count=1", "-failfast", "{package}"], "max_mutants": 20, "timeout_seconds": 60, "max_runtime_seconds": 300 }
 ```
 
-A mutant that no test of its package noticed (`SURVIVED`) becomes a medium `surviving_mutant` signal with its patch retained; it may be semantically equivalent and is not a defect. Killed mutants are counted, never listed. Mutation creates no evidence, never produces exit 1 and computes no score; an `incomplete` or `not_run` section requests review under `--ci`. See [mutation of added lines](docs/MUTATION.md).
+A mutant with which no test that the command ran for its package failed (`SURVIVED`) becomes a medium `surviving_mutant` signal with its patch retained; it may be semantically equivalent and is not a defect. Killed mutants are counted, never listed. Mutation creates no evidence, never produces exit 1 and computes no score; an `incomplete` or `not_run` section requests review under `--ci`. See [mutation of added lines](docs/MUTATION.md).
 <!-- F4:end -->
 
 <!-- F1:begin -->

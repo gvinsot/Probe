@@ -6,7 +6,6 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/gvinsot/SwiftProof/app/internal/harness"
 	"github.com/gvinsot/SwiftProof/app/internal/model"
 	"github.com/gvinsot/SwiftProof/app/internal/mutation"
 )
@@ -29,17 +28,24 @@ var (
 //   - check_id and control_check_id differ, each matches mutation-check-N,
 //     resolves exactly once in r.Mutation.Checks and collides with no ID in
 //     r.Checks; their kinds are mutant and mutation_control;
-//   - the mutant's package is the {package} expansion of its path and an
-//     argument of the recorded mutant command;
-//   - mutation.Classify re-derives the same status from the two recorded checks
-//     with harness.GoTestOutcome: the control PASS with exit code 0, untruncated,
-//     at least one passing named test and none failing; identical non-empty
-//     argv; and for SURVIVED a mutant PASS with exit code 0, untruncated, whose
-//     count of passing top-level test names equals tests_run (at least 1),
-//     no failed_tests and an r.Artifacts entry of kind mutant_patch with
-//     sha256 == patch_sha256; for KILLED a mutant FAIL with exit code 1..124,
-//     untruncated, and 1..5 distinct failed_tests names whose recorded outcome
-//     is fail.
+//   - no other mutant cites its check_id (one mutant run per mutant; a control
+//     may serve several mutants), and no other SURVIVED mutant cites its
+//     patch_sha256 (every patch names its own mutant);
+//   - the mutant's package is the {package} expansion of its path, and the
+//     recorded mutant command is the section's command with {package}
+//     expanded to it;
+//   - mutation.Classify re-derives the same status from the two recorded
+//     checks, with the go test -json rule of harness.GoTestOutcome: the control
+//     PASS with exit code 0, untruncated, at least one passing named test and
+//     none failing; identical non-empty argv; and for SURVIVED a mutant PASS
+//     with exit code 0, untruncated, whose count of passing top-level test
+//     names equals tests_run (at least 1), no failed_tests and an r.Artifacts
+//     entry of kind mutant_patch with sha256 == patch_sha256; for KILLED a
+//     mutant FAIL with exit code 1..124, untruncated, and failed_tests equal to
+//     the first (at most five) top-level names whose recorded outcome is fail.
+//
+// Each distinct control log is read once, and each mutant log at most once,
+// so the work is linear in the size of the mutation ledger.
 func verifyMutation(r *model.Report) map[string]string {
 	m := r.Mutation
 	if m == nil || len(m.Mutants) == 0 {
@@ -70,16 +76,23 @@ func verifyMutation(r *model.Report) map[string]string {
 			patches[a.SHA256] = true
 		}
 	}
-	ids := map[string]int{}
+	ids, runCitations, patchCitations := map[string]int{}, map[string]int{}, map[string]int{}
 	for _, mu := range m.Mutants {
 		ids[mu.ID]++
+		if mu.CheckID != "" {
+			runCitations[mu.CheckID]++
+		}
+		if mu.Status == model.MutantSurvived && mu.PatchSHA256 != "" {
+			patchCitations[mu.PatchSHA256]++
+		}
 	}
+	controls := map[string]mutation.Control{}
 	verified := map[string]string{}
 	for _, mu := range m.Mutants {
 		if mu.Status != model.MutantKilled && mu.Status != model.MutantSurvived {
 			continue
 		}
-		if !mutantIDPattern.MatchString(mu.ID) || ids[mu.ID] != 1 || mu.CheckID == mu.ControlCheckID {
+		if !mutantIDPattern.MatchString(mu.ID) || ids[mu.ID] != 1 || mu.CheckID == mu.ControlCheckID || runCitations[mu.CheckID] != 1 {
 			continue
 		}
 		control, ok := resolve(mu.ControlCheckID)
@@ -90,20 +103,25 @@ func verifyMutation(r *model.Report) map[string]string {
 		if !ok || control.Kind != model.CheckMutationControl || run.Kind != model.CheckMutant {
 			continue
 		}
-		if mu.Package == "" || mu.Package != mutation.PackageArg(mu.Path) || !containsArg(run.Command, mu.Package) {
+		if mu.Package == "" || mu.Package != mutation.PackageArg(mu.Path) || !sameArgv(run.Command, mutation.ExpandCommand(m.Command, mu.Package)) {
 			continue
 		}
-		v := mutation.Classify(control, run, harness.GoTestOutcome)
+		ctl, ok := controls[mu.ControlCheckID]
+		if !ok {
+			ctl = mutation.NewControl(control)
+			controls[mu.ControlCheckID] = ctl
+		}
+		v := ctl.Classify(run)
 		if v.Status != mu.Status {
 			continue
 		}
 		switch mu.Status {
 		case model.MutantSurvived:
-			if v.TestsRun < 1 || mu.TestsRun != v.TestsRun || len(mu.FailedTests) != 0 || !sha256Pattern.MatchString(mu.PatchSHA256) || !patches[mu.PatchSHA256] {
+			if v.TestsRun < 1 || mu.TestsRun != v.TestsRun || len(mu.FailedTests) != 0 || !sha256Pattern.MatchString(mu.PatchSHA256) || !patches[mu.PatchSHA256] || patchCitations[mu.PatchSHA256] != 1 {
 				continue
 			}
 		case model.MutantKilled:
-			if !failedTestsRecorded(mu.FailedTests, run.Output) {
+			if len(mu.FailedTests) == 0 || !sameArgv(mu.FailedTests, v.FailedTests) {
 				continue
 			}
 		}
@@ -112,32 +130,17 @@ func verifyMutation(r *model.Report) map[string]string {
 	return verified
 }
 
-// failedTestsRecorded reports 1..5 distinct names whose recorded outcome in
-// output is fail.
-func failedTestsRecorded(names []string, output string) bool {
-	if len(names) == 0 || len(names) > 5 {
+// sameArgv reports equal non-empty string lists.
+func sameArgv(a, b []string) bool {
+	if len(a) == 0 || len(a) != len(b) {
 		return false
 	}
-	seen := map[string]bool{}
-	for _, name := range names {
-		if name == "" || seen[name] {
-			return false
-		}
-		seen[name] = true
-		if action, _ := harness.GoTestOutcome(output, name); action != "fail" {
+	for i := range a {
+		if a[i] != b[i] {
 			return false
 		}
 	}
 	return true
-}
-
-func containsArg(argv []string, arg string) bool {
-	for _, a := range argv {
-		if a == arg {
-			return true
-		}
-	}
-	return false
 }
 
 // unverifiedMutantReason explains a status Finalize withdrew.
@@ -237,7 +240,7 @@ func writeMutation(b *bytes.Buffer, r *model.Report) {
 		}
 	}
 	if m.Survived > 0 {
-		line(b, "Surviving mutants (the package's tests all passed with the change):\n")
+		line(b, "Surviving mutants (no test that the command ran for the package failed with the change; skipped tests are not counted):\n")
 		for _, mu := range m.Mutants {
 			if mu.Status != model.MutantSurvived {
 				continue

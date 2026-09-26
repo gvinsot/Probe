@@ -292,12 +292,14 @@ func ignoredPath(p string) bool {
 	return false
 }
 
-// osArchConstrained applies the go/build file name rule: after the first "_",
-// a trailing GOOS, GOARCH or GOOS_GOARCH element (before an optional "_test")
-// restricts the file to that platform. Such files are skipped whatever the
-// sandbox platform: a file a build excludes would let every mutant survive.
+// osArchConstrained applies the go/build file name rule (goodOSArchFile): the
+// base name is cut at its first "." (so x_windows.impl.go counts as x_windows),
+// then, after the first "_", a trailing GOOS, GOARCH or GOOS_GOARCH element
+// (before an optional "_test") restricts the file to that platform. Such files
+// are skipped whatever the sandbox platform: a file a build excludes would let
+// every mutant survive.
 func osArchConstrained(file string) bool {
-	name := strings.TrimSuffix(path.Base(file), ".go")
+	name, _, _ := strings.Cut(path.Base(file), ".")
 	i := strings.Index(name, "_")
 	if i < 0 {
 		return false

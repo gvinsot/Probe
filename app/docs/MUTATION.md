@@ -2,7 +2,7 @@
 
 Coverage tells you whether an added line was executed by the package's tests. It does not tell you whether any test would notice if that line did something else. With a `mutation` object in the trusted policy, `swiftproof review` makes small, deterministic changes (mutants) to the **added lines of changed non-test Go files**, runs the package's tests once per mutant inside the sandbox, and records which single changes made a named test fail and which did not. No model is involved.
 
-A mutant that no test noticed (`SURVIVED`) becomes a medium `surviving_mutant` review signal. That is an observation about the recorded runs, not a defect: the mutant may be semantically equivalent to the original code, and only the tests of the mutated file's own package ran. A mutant that a test noticed (`KILLED`) is counted and never listed: it is no reassurance about the tests. Mutation creates no evidence record and no hypothesis, never produces exit 1, never removes, lowers or dismisses anything else in the report, and computes no mutation score and no percentage.
+A mutant with which no test that the command ran for its package failed (`SURVIVED`) becomes a medium `surviving_mutant` review signal. That is an observation about the recorded runs, not a defect: the mutant may be semantically equivalent to the original code, and only the tests of the mutated file's own package ran. A mutant with which a named test failed (`KILLED`) is counted and never listed: it is no reassurance about the tests. Mutation creates no evidence record and no hypothesis, never produces exit 1, never removes, lowers or dismisses anything else in the report, and computes no mutation score and no percentage.
 
 The stage runs during `review` only, mutates Go only, and has no flag of its own.
 
@@ -39,7 +39,7 @@ A changed file is considered when it is not deleted, not binary, ends in `.go` a
 
 - it has no added line;
 - a path component starts with `_` or `.`, is `testdata` or `vendor`, or the path contains `...` (the go command ignores or treats these specially);
-- its file name ends in a GOOS or GOARCH element (`x_windows.go`, `x_linux_arm64.go`), or it has a `//go:build` or `// +build` constraint: a file a build may exclude would let every mutant survive, so such files are skipped whatever the sandbox platform;
+- its file name ends in a GOOS or GOARCH element (`x_windows.go`, `x_linux_arm64.go`; as in `go/build`, the name is read up to its first dot, so `x_windows.impl.go` counts too), or it has a `//go:build` or `// +build` constraint: a file a build may exclude would let every mutant survive, so such files are skipped whatever the sandbox platform;
 - it is marked as generated (`// Code generated ... DO NOT EDIT.`), imports `C`, or does not parse;
 - it cannot be read from the sanitized candidate snapshot (an excluded credential-bearing path, not a regular text file, or larger than 1 MiB);
 - its directory contains no `*_test.go` file.
@@ -48,7 +48,7 @@ Only function bodies are mutated, and a mutant is generated only when **every li
 
 | Operator | Change | Example |
 |---|---|---|
-| `drop_error` | The last result of a `return` in a function whose last result is `error` becomes `nil` (not for `return nil`, bare returns or `return f()`; a function literal's own results decide inside it). | `return 0, ErrNegative` → `return 0, nil` |
+| `drop_error` | The last result of a `return` in a function whose last result is `error` becomes `nil` (not for `return nil`, bare returns or `return f()`; a function literal's own results decide inside it). A result that spans several lines, such as a gofmt'd multi-line `fmt.Errorf(...)`, becomes `nil` followed by as many line breaks, so no other line moves. | `return 0, ErrNegative` → `return 0, nil` |
 | `negate_condition` | An `if` condition `c` becomes `!(c)`. | `if total < 0` → `if !(total < 0)` |
 | `boundary` | `<` ↔ `<=`, `>` ↔ `>=`. | `total >= 100` → `total > 100` |
 | `negate_comparison` | `==` ↔ `!=`. | `a == b` → `a != b` |
@@ -57,9 +57,9 @@ Only function bodies are mutated, and a mutant is generated only when **every li
 | `flip_boolean` | `true` ↔ `false` as a direct `return` result. | `return true` → `return false` |
 | `swap_arithmetic` | `+` ↔ `-`, `*` ↔ `/` (`+` with a string literal operand is left alone). | `total - 10` → `total + 10` |
 
-`drop_error` is not generated when the dropped expression holds every use of an imported package in the file (for example the only `errors.New` of a file that imports `errors`): the import would become unused and the mutant could not compile. The analysis is syntactic and host-side (`go/parser` over at most 1 MiB per file); repository code is never executed or type-checked with importers to find mutants. Enumeration stops at 2,000 candidate mutants per file and 20,000 per review, and the report says so.
+`drop_error` is not generated when the dropped expression holds every use of an imported package in the file (for example the only `errors.New` of a file that imports `errors`): the import would become unused and the mutant could not compile. The analysis is syntactic and host-side (`go/parser` over at most 1 MiB per file); repository code is never executed or type-checked with importers to find mutants. Enumeration stops at 2,000 candidate mutants per file and 20,000 per review, and the report says so. A mutant whose replacement would merge with a neighbouring character into another token is not generated either (`-1+-4` would become the decrement in `-1--4`, `a**p` would open a comment in `a/*p`).
 
-Every mutant is applied as one byte splice that must find its original text at the recorded position, keep the number of lines and still parse; otherwise it is `INCONCLUSIVE` without a run.
+Every mutant is applied as one byte splice that must find its original text at the recorded position, keep the number of lines, not merge with a neighbouring character, and still parse; otherwise it is `INCONCLUSIVE` without a run. Every mutant the enumeration generates meets these conditions; on 2026-09-26 all 241,506 candidate mutants of the 2,977 non-test files of the go1.26.8 standard library that were not skipped applied.
 
 ## Selection and order
 
@@ -80,15 +80,17 @@ Control and mutant runs are recorded in a **separate check ledger**, `mutation.c
 
 ## Outcomes
 
-Each outcome is read from the recorded control and mutant checks only: their status, exit code, truncation flag and the `go test -json` events of their retained logs, per top-level test name (exactly one `run` and one terminal event in one package). Test output cannot forge events: `go test -json` frames it inside `output` events.
+Each outcome is read from the recorded control and mutant checks only: their status, exit code, truncation flag and the `go test -json` events of their retained logs, per top-level test name (exactly one `run` and one terminal event in one package, the rule of the other v0.4 stages that read Go test logs). Each log is read once, so classification time grows with the size of the logs, not with the number of tests in them.
+
+Outcomes come from the recorded log, which code executing in the sandbox can write: a test can print lines with the framing marker that `go test -json` uses since go1.24, or write raw events to the standard output of the `go` process, and `test2json` records them as events of any test name. A plain print that looks like an event stays inside an `output` event. Forging can only change which mutant statuses and test counts are recorded; mutation never creates evidence, and it affects the exit code only through an `incomplete` or `not_run` section.
 
 | Status | Requires | It is | It is not |
 |---|---|---|---|
-| `SURVIVED` | A valid control; identical command; mutant PASS with exit code 0 and an uncut log; at least one top-level test passed in the control's package and none failed; the redacted patch retained as a `mutant_patch` artifact. | The tests this command ran for this package all passed with this one change. | A bug, a missing test, dead code, or a line nobody executes. The mutant may be semantically equivalent; tests of other packages did not run. |
+| `SURVIVED` | A valid control; identical command; mutant PASS with exit code 0 and an uncut log; at least one top-level test passed in the control's package and none failed; the redacted patch retained as a `mutant_patch` artifact. | No test that this command ran for this package failed with this one change, and at least one passed (skipped tests are not counted). | A bug, a missing test, dead code, or a line nobody executes. The mutant may be semantically equivalent; tests of other packages did not run. |
 | `KILLED` | A valid control; identical command; mutant FAIL with exit code 1 to 124 and an uncut log; at least one named test failed in the control's package (up to five names are recorded). | Some named test failed with the change. | Reassurance of any kind. Any test failure counts, including a flaky one, so it is counted and never listed. |
 | `INVALID` | A build or vet failure of the mutant (a `build-fail` event, a `FailedBuild` field, or a package-level `[build failed]` or `[setup failed]` marker). | The mutant did not build or did not pass `go vet`. | A conclusion about the line. |
-| `TIMEOUT` | The container reached its time limit, or the test binary reported its own timeout. | The run did not finish in time. | A kill or a defect. |
-| `INCONCLUSIVE` | An infrastructure ERROR, a cut or unreadable log, tests of another package, a pass or failure without a named test result (for example `TestMain` exiting early), a mutant that could not be applied, a patch artifact that could not be kept, a run ended by the overall deadline, or a status `Finalize` could not re-derive. | No outcome. | Anything. |
+| `TIMEOUT` | The container reached the mutant's own time limit (see the runtime budget), or the test binary reported its own timeout. | The run did not finish in time. | A kill or a defect. |
+| `INCONCLUSIVE` | An infrastructure ERROR, a cut or unreadable log, tests of another package, a pass or failure without a named test result (for example `TestMain` exiting early), a mutant that could not be applied, a patch artifact that could not be kept, a run ended by the overall deadline, a run that a runtime budget left less than its own time limit and that used all of it, or a status `Finalize` could not re-derive. | No outcome. | Anything. |
 | `NOT_RUN` | The control was not valid, the sub-cap, the shared budget, the reviewer reserve or the deadline stopped the stage, or the workspace was aborted. | No run. | Anything. |
 
 A truncated log is never read: size `sandbox.max_output_bytes` to hold the package's `go test -json` log, or its mutants stay `INCONCLUSIVE` and its control invalid.
@@ -100,11 +102,11 @@ A truncated log is never read: size `sandbox.max_output_bytes` to hold the packa
 - `incomplete`: anything else, including candidates dropped by `max_mutants`, and any `INCONCLUSIVE` or `NOT_RUN` mutant;
 - `not_run`: the sandbox never ran a control or mutant command, with the reason (for example a missing image, a failed dependency preparation, `--checks=false`, or an exhausted budget).
 
-`incomplete` and `not_run` add one Unverified sentence, "Mutation analysis is incomplete: …" or "Mutation analysis did not run: …".
+`incomplete` and `not_run` add one Unverified sentence, "Mutation analysis is incomplete: …" or "Mutation analysis did not run: …", whether the stage recorded the status or never started (`--checks=false`, a failed dependency preparation).
 
 ## Re-derivation by `Finalize`
 
-`report.Finalize` re-derives every `KILLED` and `SURVIVED` mutant from the saved report, including when `swiftproof report` re-renders it. A mutant keeps its status only when its ID is `mutant-N` and unique; its `check_id` and `control_check_id` differ, match `mutation-check-N`, each occur exactly once in `mutation.checks`, collide with no ID in `checks`, and have the kinds `mutant` and `mutation_control`; its package is the `{package}` expansion of its path and an argument of the recorded command; and the outcome rules above give the same status from those two checks. `SURVIVED` also needs `tests_run` to equal the number of top-level tests that passed in the mutant's log, no `failed_tests`, and a `mutant_patch` artifact whose sha256 is `patch_sha256`. `KILLED` also needs every `failed_tests` name to have failed in the mutant's log. Every other `KILLED` or `SURVIVED` becomes `INCONCLUSIVE` ("the recorded mutation checks do not support this status"), the counts are recomputed, and a section that no longer satisfies `ran` becomes `incomplete`. Survivor signals are not rewritten: a stale one can only add a review target.
+`report.Finalize` re-derives every `KILLED` and `SURVIVED` mutant from the saved report, including when `swiftproof report` re-renders it. A mutant keeps its status only when its ID is `mutant-N` and unique; its `check_id` and `control_check_id` differ, match `mutation-check-N`, each occur exactly once in `mutation.checks`, collide with no ID in `checks`, and have the kinds `mutant` and `mutation_control`; no other mutant cites its `check_id` (a control may serve several mutants, a mutant run only one); its package is the `{package}` expansion of its path, and the recorded mutant command is `mutation.command` with `{package}` expanded to it; and the outcome rules above give the same status from those two checks. `SURVIVED` also needs `tests_run` to equal the number of top-level tests that passed in the mutant's log, no `failed_tests`, a `mutant_patch` artifact whose sha256 is `patch_sha256`, and no other surviving mutant citing that hash. `KILLED` also needs `failed_tests` to be the first (at most five) top-level tests that failed in the mutant's log. Every other `KILLED` or `SURVIVED` becomes `INCONCLUSIVE` ("the recorded mutation checks do not support this status"), the counts are recomputed, and a section that no longer satisfies `ran` becomes `incomplete`. Survivor signals are not rewritten: a stale one can only add a review target.
 
 ## Exit codes
 
@@ -119,7 +121,7 @@ Mutation never produces exit 1: only a reproduced high/critical hypothesis does.
 
 ## Runtime budget
 
-Every run is charged to the shared `sandbox.max_runtime_seconds` budget. The stage additionally stops at `mutation.max_runtime_seconds`, counted from the recorded run durations. A control run may take `min(timeout_seconds, what is left of the sub-cap)`; a mutant run `min(timeout_seconds, 3 × the control duration + 30 s, what is left of the sub-cap)`, since it does the same compile and test work as its control. The stage stops launching when what is left is below the last control duration. When a reviewer will run, the stage also stops at `sandbox.max_runtime_seconds` minus the reviewer reserve (half the budget), so reviewer experiments keep their share. Runs execute one at a time.
+Every run is charged to the shared `sandbox.max_runtime_seconds` budget. The stage additionally stops at `mutation.max_runtime_seconds`, counted from the recorded run durations. A control run may take `min(timeout_seconds, what is left of the sub-cap)`; a mutant run `min(timeout_seconds, 3 × the control duration + 30 s, what is left of the sub-cap)`, since it does the same compile and test work as its control. The stage stops launching when what is left is below the last control duration. When the sub-cap, the shared budget or the reviewer reserve leaves a mutant run less than its own time limit and the run uses all of it, the budget rather than the mutant ended the run: the mutant is `INCONCLUSIVE`, not `TIMEOUT`, and the stage stops. When a reviewer will run, the stage also stops at `sandbox.max_runtime_seconds` minus the reviewer reserve (half the budget), so reviewer experiments keep their share. Runs execute one at a time.
 
 Every run is a fresh container with an empty build cache, so each mutant costs about one package compile plus its tests; see [performance](PERFORMANCE.md) for measured numbers. Size `sandbox.max_runtime_seconds` for the initial checks, coverage, the other stages, `mutation.max_runtime_seconds` and the reviewer together.
 
@@ -135,7 +137,7 @@ Every run is a fresh container with an empty build cache, so each mutant costs a
 
 Only the trusted policy chooses the command and the budgets; `{package}` comes from a diff path that already passed path validation and the skip rules, so it always starts with `./` (or is `.`) and cannot be read as a flag; nothing runs through a shell. Mutants run in a private copy under the unchanged sandbox profile, with a hash check before each write and a read-back after each restore; any mismatch aborts the stage as an operational failure. Mutant generation reads bounded snapshot bytes on the host and never runs repository code. Logs and patches are redacted, and patches are hashed after redaction.
 
-The candidate controls its own tests, so it can force `KILLED` (a test that fails whenever the source changes) or `INVALID`, `TIMEOUT` and `INCONCLUSIVE`: that only removes claims. Forcing `SURVIVED` needs passing tests and only adds review targets against the candidate itself. That is why mutation may add signals and sentences and never deletes a signal, lowers a severity, supports a dismissal, creates evidence or influences a hypothesis.
+The candidate controls its own tests, and code executing in the sandbox can write the logs the outcomes are read from (see [Outcomes](#outcomes)), so it can force any mutant status. Forcing `KILLED`, `INVALID`, `TIMEOUT` or `INCONCLUSIVE` only removes claims or requests review; forcing `SURVIVED` only adds review targets against the candidate itself. That is why mutation may add signals and sentences and never deletes a signal, lowers a severity, supports a dismissal, creates evidence or influences a hypothesis.
 
 ## Limitations
 
@@ -170,4 +172,4 @@ Changed Go files that were not mutated:
 - price/fast\_windows.go: the file name has a GOOS or GOARCH suffix; files a build may exclude are not mutated
 ```
 
-The survivors say only that no test of package `price` distinguishes `total < 0` from `total <= 0`, or `total >= 100` from `total > 100`: the boundaries 0 and 100 are not exercised. Whether that matters is for a human to decide.
+The survivors record only that no test this command ran for `./price` failed, and both of its named tests passed, with `total < 0` changed to `total <= 0`, with `0` changed to `(0+1)`, with `total >= 100` changed to `total > 100`, and with `100` changed to `(100+1)`, one change at a time. Whether that matters is for a human to decide.

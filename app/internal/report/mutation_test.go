@@ -47,7 +47,7 @@ func mutationReport() *model.Report {
 		Version: 1,
 		Change:  model.Change{Files: []model.ChangedFile{{Path: "price/price.go", Status: "M", Additions: 9, Hunks: []model.Hunk{{NewStart: 5, NewLines: 9, Lines: lines}}}}, Additions: 9},
 		Checks:  []model.Check{{ID: "check-1", Kind: "test", Status: "PASS", Command: []string{"go", "test", "./..."}, Output: "ok"}},
-		Signals: []model.Signal{{ID: "sig-1", Kind: model.SignalSurvivingMutant, Path: "price/price.go", Line: 6, Side: "new", Symbol: "Discount", Severity: "medium", Summary: "A single-change mutant of this added line did not make any test of its package fail", Evidence: "Mutant mutant-1 (boundary) ..."}},
+		Signals: []model.Signal{{ID: "sig-1", Kind: model.SignalSurvivingMutant, Path: "price/price.go", Line: 6, Side: "new", Symbol: "Discount", Severity: "medium", Summary: "With a single-change mutant of this added line, no test that the mutation command ran for its package failed", Evidence: "Mutant mutant-1 (boundary) ..."}},
 		Mutation: &model.Mutation{
 			Status: model.MutationRan, Command: []string{"go", "test", "-json", "-count=1", "-failfast", "{package}"},
 			Limits: model.MutationLimits{MaxMutants: 10, TimeoutSeconds: 60, MaxRuntimeSeconds: 400},
@@ -147,6 +147,13 @@ func TestTamperedMutantsBecomeInconclusive(t *testing.T) {
 		}},
 		{"killed check truncated", "mutant-2", func(r *model.Report) { r.Mutation.Checks[2].Truncated = true }},
 		{"killed with an infrastructure exit code", "mutant-2", func(r *model.Report) { r.Mutation.Checks[2].ExitCode = 125 }},
+		{"runs not of the section command", "mutant-1", func(r *model.Report) {
+			other := []string{"go", "test", "-json", "-run=TestClamp", "./price"}
+			r.Mutation.Checks[0].Command, r.Mutation.Checks[1].Command = other, append([]string(nil), other...)
+		}},
+		{"section command changed", "mutant-1", func(r *model.Report) {
+			r.Mutation.Command = []string{"go", "test", "-json", "{package}"}
+		}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			r := mutationReport()
@@ -171,6 +178,65 @@ func TestTamperedMutantsBecomeInconclusive(t *testing.T) {
 				t.Fatalf("counts %+v", r.Mutation)
 			}
 		})
+	}
+}
+
+// One recorded mutant run and one patch belong to one mutant. A tampered
+// report that adds a mutant at another line citing an existing survivor's
+// check or patch hash gets no SURVIVED mutant from them: every mutant that
+// shares a run or a patch becomes INCONCLUSIVE, and the section incomplete.
+func TestSharedMutantRunOrPatchIsInconclusive(t *testing.T) {
+	const pkg = "example.test/shop/price"
+	for _, tc := range []struct {
+		name string
+		edit func(r *model.Report, extra *model.Mutant)
+	}{
+		{"same check and patch", func(r *model.Report, extra *model.Mutant) {}},
+		{"own check, same patch", func(r *model.Report, extra *model.Mutant) {
+			c := r.Mutation.Checks[1]
+			c.ID = "mutation-check-4"
+			r.Mutation.Checks = append(r.Mutation.Checks, c)
+			extra.CheckID = "mutation-check-4"
+		}},
+		{"same check, own patch", func(r *model.Report, extra *model.Mutant) {
+			other := strings.Repeat("a", 64)
+			r.Artifacts = append(r.Artifacts, model.Artifact{Path: "artifacts/run-mutant-3.patch", Kind: model.ArtifactMutantPatch, SHA256: other})
+			extra.PatchSHA256 = other
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			r := mutationReport()
+			extra := model.Mutant{ID: "mutant-3", Path: "price/price.go", Line: 12, Column: 9, Symbol: "Discount", Package: "./price", Operator: "flip_boolean", Original: "true", Mutated: "false", Status: model.MutantSurvived, CheckID: "mutation-check-2", ControlCheckID: "mutation-check-1", PatchSHA256: patchSHA, TestsRun: 2}
+			tc.edit(r, &extra)
+			r.Mutation.Mutants = append(r.Mutation.Mutants, extra)
+			r.Mutation.Generated, r.Mutation.Survived = 3, 2
+			verified := verifyMutation(r)
+			if _, ok := verified["mutant-3"]; ok {
+				t.Fatalf("the added mutant was verified: %v", verified)
+			}
+			if verified["mutant-2"] != model.MutantKilled {
+				t.Fatalf("an unrelated killed mutant lost its status: %v", verified)
+			}
+			Finalize(r, true)
+			for _, mu := range r.Mutation.Mutants {
+				if mu.ID != "mutant-2" && mu.Status != model.MutantInconclusive {
+					t.Fatalf("%s kept %s", mu.ID, mu.Status)
+				}
+			}
+			if r.Mutation.Survived != 0 || r.Mutation.Status != model.MutationIncomplete || r.ExitCode != 2 {
+				t.Fatalf("section %+v exit %d", r.Mutation, r.ExitCode)
+			}
+		})
+	}
+	// Two genuine survivors with their own runs and patches both verify.
+	r := mutationReport()
+	c := model.Check{ID: "mutation-check-4", Kind: model.CheckMutant, Status: "PASS", Command: append([]string(nil), mutationCommand...), Output: goTestLog(pkg, [2]string{"TestClamp", "pass"}, [2]string{"TestDiscount", "pass"})}
+	other := strings.Repeat("b", 64)
+	r.Mutation.Checks = append(r.Mutation.Checks, c)
+	r.Artifacts = append(r.Artifacts, model.Artifact{Path: "artifacts/run-mutant-3.patch", Kind: model.ArtifactMutantPatch, SHA256: other})
+	r.Mutation.Mutants = append(r.Mutation.Mutants, model.Mutant{ID: "mutant-3", Path: "price/price.go", Line: 12, Package: "./price", Operator: "flip_boolean", Original: "true", Mutated: "false", Status: model.MutantSurvived, CheckID: "mutation-check-4", ControlCheckID: "mutation-check-1", PatchSHA256: other, TestsRun: 2})
+	if v := verifyMutation(r); len(v) != 3 {
+		t.Fatalf("verified %v, want all three", v)
 	}
 }
 
