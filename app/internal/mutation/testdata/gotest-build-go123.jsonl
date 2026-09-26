@@ -1,0 +1,5 @@
+# example.test/probe/build [example.test/probe/build.test]
+build/b.go:3:33: invalid operation: a - "x" (mismatched types int and untyped string)
+{"Time":"2026-09-25T23:14:45.513918298Z","Action":"start","Package":"example.test/probe/build"}
+{"Time":"2026-09-25T23:14:45.514141391Z","Action":"output","Package":"example.test/probe/build","Output":"FAIL\texample.test/probe/build [build failed]\n"}
+{"Time":"2026-09-25T23:14:45.514198185Z","Action":"fail","Package":"example.test/probe/build","Elapsed":0}

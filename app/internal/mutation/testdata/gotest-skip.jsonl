@@ -1,0 +1,9 @@
+{"Time":"2026-09-25T23:03:52.273951423Z","Action":"start","Package":"example.test/probe/skip"}
+{"Time":"2026-09-25T23:03:52.276790207Z","Action":"run","Package":"example.test/probe/skip","Test":"TestSkip"}
+{"Time":"2026-09-25T23:03:52.276914249Z","Action":"output","Package":"example.test/probe/skip","Test":"TestSkip","Output":"=== RUN   TestSkip\n"}
+{"Time":"2026-09-25T23:03:52.276984208Z","Action":"output","Package":"example.test/probe/skip","Test":"TestSkip","Output":"    s_test.go:5: no\n"}
+{"Time":"2026-09-25T23:03:52.27736306Z","Action":"output","Package":"example.test/probe/skip","Test":"TestSkip","Output":"--- SKIP: TestSkip (0.00s)\n"}
+{"Time":"2026-09-25T23:03:52.277411245Z","Action":"skip","Package":"example.test/probe/skip","Test":"TestSkip","Elapsed":0}
+{"Time":"2026-09-25T23:03:52.277448137Z","Action":"output","Package":"example.test/probe/skip","Output":"PASS\n"}
+{"Time":"2026-09-25T23:03:52.277500997Z","Action":"output","Package":"example.test/probe/skip","Output":"ok  \texample.test/probe/skip\t0.003s\n"}
+{"Time":"2026-09-25T23:03:52.277575072Z","Action":"pass","Package":"example.test/probe/skip","Elapsed":0.004}

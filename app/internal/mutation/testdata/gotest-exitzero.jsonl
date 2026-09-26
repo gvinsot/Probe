@@ -1,0 +1,3 @@
+{"Time":"2026-09-25T23:03:51.149443264Z","Action":"start","Package":"example.test/probe/exitzero"}
+{"Time":"2026-09-25T23:03:51.156171526Z","Action":"output","Package":"example.test/probe/exitzero","Output":"ok  \texample.test/probe/exitzero\t0.006s\n"}
+{"Time":"2026-09-25T23:03:51.156330409Z","Action":"pass","Package":"example.test/probe/exitzero","Elapsed":0.007}

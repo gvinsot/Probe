@@ -1,0 +1,9 @@
+{"Time":"2026-09-25T23:03:49.964703106Z","Action":"start","Package":"example.test/probe/fail"}
+{"Time":"2026-09-25T23:03:49.966325957Z","Action":"run","Package":"example.test/probe/fail","Test":"TestAdd"}
+{"Time":"2026-09-25T23:03:49.966404063Z","Action":"output","Package":"example.test/probe/fail","Test":"TestAdd","Output":"=== RUN   TestAdd\n"}
+{"Time":"2026-09-25T23:03:49.966498569Z","Action":"output","Package":"example.test/probe/fail","Test":"TestAdd","Output":"    ok_test.go:7: got 3\n"}
+{"Time":"2026-09-25T23:03:49.966792438Z","Action":"output","Package":"example.test/probe/fail","Test":"TestAdd","Output":"--- FAIL: TestAdd (0.00s)\n"}
+{"Time":"2026-09-25T23:03:49.966936016Z","Action":"fail","Package":"example.test/probe/fail","Test":"TestAdd","Elapsed":0}
+{"Time":"2026-09-25T23:03:49.967011958Z","Action":"output","Package":"example.test/probe/fail","Output":"FAIL\n"}
+{"Time":"2026-09-25T23:03:49.973057119Z","Action":"output","Package":"example.test/probe/fail","Output":"FAIL\texample.test/probe/fail\t0.008s\n"}
+{"Time":"2026-09-25T23:03:49.973178686Z","Action":"fail","Package":"example.test/probe/fail","Elapsed":0.008}

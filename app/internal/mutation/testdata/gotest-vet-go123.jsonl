@@ -1,0 +1,6 @@
+# example.test/probe/vet
+# [example.test/probe/vet]
+vet/v.go:5:34: fmt.Sprintf format %s has arg n of wrong type int
+{"Time":"2026-09-25T23:14:45.976473845Z","Action":"start","Package":"example.test/probe/vet"}
+{"Time":"2026-09-25T23:14:45.980320159Z","Action":"output","Package":"example.test/probe/vet","Output":"FAIL\texample.test/probe/vet [build failed]\n"}
+{"Time":"2026-09-25T23:14:45.980914279Z","Action":"fail","Package":"example.test/probe/vet","Elapsed":0.004}

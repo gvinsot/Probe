@@ -497,7 +497,7 @@
       "type": "object",
       "additionalProperties": false,
       "required": ["status", "command", "limits", "files", "mutants", "generated", "dropped", "killed", "survived", "invalid", "timed_out", "inconclusive", "not_run", "checks", "note"],
-      "description": "Mutation of added lines. A surviving mutant may be semantically equivalent and is not a defect, a missing test or dead code; killed mutants are only counted. There is no mutation score.",
+      "description": "Mutation of added lines of changed non-test Go files. A surviving mutant may be semantically equivalent and is not a defect, a missing test or dead code; tests of other packages were not run. Killed mutants are only counted. Status ran means every selected mutant reached KILLED, SURVIVED, INVALID or TIMEOUT and max_mutants dropped none; it is not exhaustive. There is no mutation score.",
       "properties": {
         "status": {"type": "string", "enum": ["not_run", "no_candidates", "ran", "incomplete"]},
         "reason": {"type": "string"},
@@ -513,8 +513,9 @@
         "timed_out": {"$ref": "#/$defs/count"},
         "inconclusive": {"$ref": "#/$defs/count"},
         "not_run": {"$ref": "#/$defs/count"},
-        "checks": {"type": "array", "items": {"$ref": "#/$defs/check"}, "description": "The mutation ledger (mutation-check-N), kept apart from the top-level checks."},
-        "note": {"type": "string"}
+        "checks": {"type": "array", "items": {"$ref": "#/$defs/check"}, "description": "The mutation ledger (mutation-check-N), kept apart from the top-level checks. Mutants are expected to fail, so these checks never request human review by themselves."},
+        "note": {"type": "string"},
+        "coverage_skipped": {"$ref": "#/$defs/count", "description": "Candidate mutants on added lines that a passing, measured coverage run reported as not executed; they were not generated."}
       }
     },
     "mutationLimits": {
@@ -556,8 +557,11 @@
         "control_check_id": {"$ref": "#/$defs/mutationCheckId"},
         "patch_sha256": {"$ref": "#/$defs/sha256"},
         "tests_run": {"$ref": "#/$defs/count"},
-        "failed_tests": {"type": "array", "items": {"type": "string", "minLength": 1}},
-        "reason": {"type": "string"}
+        "failed_tests": {"type": "array", "maxItems": 5, "items": {"type": "string", "minLength": 1}},
+        "reason": {"type": "string"},
+        "column": {"$ref": "#/$defs/line", "description": "One-based byte column where the replaced span starts on line."},
+        "end_line": {"$ref": "#/$defs/line", "description": "Last line of a replaced span that covers several lines."},
+        "symbol": {"type": "string", "description": "Enclosing function; Recv.Name for a method."}
       },
       "allOf": [
         {"if": {"properties": {"status": {"const": "SURVIVED"}}}, "then": {"required": ["check_id", "control_check_id", "patch_sha256", "tests_run"], "properties": {"tests_run": {"minimum": 1}}}},

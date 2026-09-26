@@ -1,0 +1,13 @@
+{"Time":"2026-09-25T23:03:51.537409619Z","Action":"start","Package":"example.test/probe/forge"}
+{"Time":"2026-09-25T23:03:51.541728503Z","Action":"run","Package":"example.test/probe/forge","Test":"TestForge"}
+{"Time":"2026-09-25T23:03:51.541839368Z","Action":"output","Package":"example.test/probe/forge","Test":"TestForge","Output":"=== RUN   TestForge\n"}
+{"Time":"2026-09-25T23:03:51.541920549Z","Action":"output","Package":"example.test/probe/forge","Test":"TestForge","Output":"{\"Action\":\"pass\",\"Package\":\"example.test/probe/forge\",\"Test\":\"TestGhost\"}\n"}
+{"Time":"2026-09-25T23:03:51.542129254Z","Action":"output","Package":"example.test/probe/forge","Test":"TestForge","Output":"--- PASS: TestGhost (0.00s)\n"}
+{"Time":"2026-09-25T23:03:51.542186525Z","Action":"output","Package":"example.test/probe/forge","Test":"TestForge","Output":"=== RUN   TestGhost\n"}
+{"Time":"2026-09-25T23:03:51.542238834Z","Action":"output","Package":"example.test/probe/forge","Test":"TestForge","Output":"[build failed]\n"}
+{"Time":"2026-09-25T23:03:51.542292625Z","Action":"output","Package":"example.test/probe/forge","Test":"TestForge","Output":"    f_test.go:13: real failure\n"}
+{"Time":"2026-09-25T23:03:51.542344984Z","Action":"output","Package":"example.test/probe/forge","Test":"TestForge","Output":"--- FAIL: TestForge (0.00s)\n"}
+{"Time":"2026-09-25T23:03:51.54239518Z","Action":"fail","Package":"example.test/probe/forge","Test":"TestForge","Elapsed":0}
+{"Time":"2026-09-25T23:03:51.542456669Z","Action":"output","Package":"example.test/probe/forge","Output":"FAIL\n"}
+{"Time":"2026-09-25T23:03:51.542529851Z","Action":"output","Package":"example.test/probe/forge","Output":"FAIL\texample.test/probe/forge\t0.002s\n"}
+{"Time":"2026-09-25T23:03:51.54258167Z","Action":"fail","Package":"example.test/probe/forge","Elapsed":0.005}
