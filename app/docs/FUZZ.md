@@ -155,25 +155,25 @@ Selection and rendering parse and print source on the host; repository code runs
 
 ## Examples
 
-**Go** (2026-09-26, `golang:1.26-bookworm`, a Windows binary built from the F2c branch). A two-commit fixture whose candidate rewrites the calc functions of the design (`Percent` loses its zero guard, `Join` is rewritten with a `strings.Builder`, `Discount` moves its boundary from `>=` to `>`, `Stamp` appends the current time, `Halt` exits the process at 7, and `Boundary` reports the sandbox user), breaks the build of a second package, and rewrites an exported TypeScript function. The policy had `"fuzz": {"max_runtime_seconds": 3000}` and `generated_test` `["go", "test", "{package}"]`. `review --reviewer=false --ci` exited 2 after 43 s and printed:
+**Go** (2026-09-27, `golang:1.26-bookworm`, a Windows binary built from the integration branch at `67d6c5f`). A two-commit fixture whose candidate rewrites the calc functions of the design (`Percent` loses its zero guard, `Join` is rewritten with a `strings.Builder`, `Discount` moves its boundary from `>=` to `>`, `Stamp` appends the current time, `Halt` exits the process at 7, and `Boundary` reports the sandbox user), breaks the build of a second package, and rewrites an exported TypeScript function. The policy had `"fuzz": {"max_runtime_seconds": 3000}` and `generated_test` `["go", "test", "{package}"]`. `review --reviewer=false --ci` exited 2 after 42 s and printed, among other lines:
 
 ```text
 2 recorded behavior divergences (baseline and candidate recorded different values; a human decides which is intended).
 Differential fuzzing: 7 changed functions planned, 7 with recorded fuzz checks; 2 diverged, 2 not diverged, 3 inconclusive; 1 skipped.
 ```
 
-The Markdown section:
+The Markdown section (the report writes an invisible zero-width space after every `@`, as in `@param`, so that no mention forms; it is kept below):
 
 ```text
 ## Differential Fuzzing
 
 Seeded inputs (swiftproof-fuzz/v1) were planned for 7 changed Go functions, 7 of them with recorded fuzz checks on the baseline and the candidate: 2 diverged, 2 not diverged, 3 inconclusive.
 
-TS/JS functions, their signatures and their parameter types were read lexically, from TypeScript annotations and JSDoc @param tags, without a type checker; a construct that was not recognized is not listed.
+TS/JS functions, their signatures and their parameter types were read lexically, from TypeScript annotations and JSDoc @​param tags, without a type checker; a construct that was not recognized is not listed.
 
 - **inconclusive** broken.Double (broken/broken.go:4): the candidate run failed without recording an observation stream \(for example, the package did not build; see the check log\).
 - **not diverged** calc.Boundary (calc/calc.go:18): 64 of 64 inputs compared; the recorded encodings were equal for each compared input. Evidence evidence-2 (checks check-4, check-5, check-6, check-7).
-- **diverged** calc.Percent (calc/calc.go:25): 20 of 64 compared inputs recorded different values on the baseline and the candidate; each revision repeated its own value in a second run. Smallest divergent input tried: Percent\(0, 0\); baseline int\(0\); candidate panic\(error\(&\#34;runtime error: integer divide by zero&\#34;\)\). Evidence evidence-3 (checks check-4, check-5, check-6, check-7); the values are listed under Behavior Divergences.
+- **diverged** calc.Percent (calc/calc.go:25): 20 of 64 compared inputs recorded different values on the baseline and the candidate; each revision repeated its own value in a second run. Smallest divergent input tried: Percent\(0, 0\); baseline int\(0\); candidate panic\(error\("runtime error: integer divide by zero"\)\). Evidence evidence-3 (checks check-4, check-5, check-6, check-7); the values are listed under Behavior Divergences.
 - **not diverged** calc.Join (calc/calc.go:30): 64 of 64 inputs compared; the recorded encodings were equal for each compared input. Evidence evidence-4 (checks check-4, check-5, check-6, check-7).
 - **diverged** calc.Discount (calc/calc.go:45): 1 of 64 compared inputs recorded different values on the baseline and the candidate; each revision repeated its own value in a second run. Smallest divergent input tried: Discount\(Cents\(1000\)\); baseline calc.Cents\(900\); candidate calc.Cents\(1000\). Evidence evidence-5 (checks check-4, check-5, check-6, check-7); the values are listed under Behavior Divergences.
 - **inconclusive** calc.Stamp (calc/calc.go:53): all 64 inputs gave different observations on repeated evaluation.
@@ -186,7 +186,7 @@ Not fuzzed (1):
 
 All four calc streams recorded `string("uid=65534 source-write-refused=true")` for every `Boundary` input: the harness ran as the unprivileged sandbox user on both revisions and could not write to the read-only source mount. The fuzz checks of the package that does not build and the calc candidate runs (which `Halt(7)` ended) are FAIL, never ERROR. The TypeScript function is not fuzzed because the template is a Go one. Whether the `Percent` and `Discount` differences are intended is for a human to decide.
 
-**TypeScript and JavaScript** (2026-09-26, the `swiftproof-ts-test:local` image with Node 22, Vitest 3.2 and Jest 29, the same binary). A two-commit fixture: `web/cart.ts` rewrites `discount` (a different rounding), `label` (`trim()` becomes a regular expression), `lookup` (an async function that threw on an empty id now resolves `""`), `sorted` (it now sorts its argument in place), `stamp` (it appends `Math.random()`), `spin` (it loops forever at 7) and the generator `ids`; `web/util.js` rewrites `joinParts` (JSDoc `@param {string[]} parts`) with a loop and changes `untyped(a)`, which has no JSDoc type. The policy had `"fuzz": {"max_runtime_seconds": 3000, "call_timeout_ms": 500}` and `generated_test` `["vitest", "run", "{file}", "--reporter=json", "--outputFile={results_out}"]`. `review --reviewer=false --ci` exited 2 after 9 s (six containers of 1.0 s to 1.9 s) and printed:
+**TypeScript and JavaScript** (2026-09-27, the `swiftproof-ts-test:local` image with Node 22, Vitest 3.2 and Jest 29, the same binary). A two-commit fixture: `web/cart.ts` rewrites `discount` (a different rounding), `label` (`trim()` becomes a regular expression), `lookup` (an async function that threw on an empty id now resolves `""`), `sorted` (it now sorts its argument in place), `stamp` (it appends `Math.random()`), `spin` (it loops forever at 7) and the generator `ids`; `web/util.js` rewrites `joinParts` (JSDoc `@param {string[]} parts`) with a loop and changes `untyped(a)`, which has no JSDoc type. The policy had `"fuzz": {"max_runtime_seconds": 3000, "call_timeout_ms": 500}` and `generated_test` `["vitest", "run", "{file}", "--reporter=json", "--outputFile={results_out}"]`. `review --reviewer=false --ci` exited 2 after 9 s (six containers of 1.0 s to 1.7 s) and printed, among other lines:
 
 ```text
 3 recorded behavior divergences (baseline and candidate recorded different values; a human decides which is intended).
@@ -200,11 +200,11 @@ The Markdown section:
 
 Seeded inputs (swiftproof-fuzz/v1) were planned for 7 changed TS/JS functions, 7 of them with recorded fuzz checks on the baseline and the candidate: 3 diverged, 2 not diverged, 2 inconclusive.
 
-TS/JS functions, their signatures and their parameter types were read lexically, from TypeScript annotations and JSDoc @param tags, without a type checker; a construct that was not recognized is not listed.
+TS/JS functions, their signatures and their parameter types were read lexically, from TypeScript annotations and JSDoc @​param tags, without a type checker; a construct that was not recognized is not listed.
 
 - **diverged** discount (web/cart.ts:1): 22 of 64 compared inputs recorded different values on the baseline and the candidate; each revision repeated its own value in a second run. Smallest divergent input tried: discount\(-0, 0\); baseline 0; candidate -0. Evidence evidence-1 (checks check-1, check-2, check-3, check-4); the values are listed under Behavior Divergences.
 - **not diverged** label (web/cart.ts:5): 64 of 64 inputs compared; the recorded encodings were equal for each compared input. Evidence evidence-2 (checks check-1, check-2, check-3, check-4).
-- **diverged** lookup (web/cart.ts:9): 1 of 64 compared inputs recorded different values on the baseline and the candidate; each revision repeated its own value in a second run. Smallest divergent input tried: lookup\(&\#34;&\#34;\); baseline rejected\(error\(&\#34;Error&\#34;, &\#34;empty id&\#34;\)\); candidate resolved\(&\#34;&\#34;\). Evidence evidence-3 (checks check-1, check-2, check-3, check-4); the values are listed under Behavior Divergences.
+- **diverged** lookup (web/cart.ts:9): 1 of 64 compared inputs recorded different values on the baseline and the candidate; each revision repeated its own value in a second run. Smallest divergent input tried: lookup\(""\); baseline rejected\(error\("Error", "empty id"\)\); candidate resolved\(""\). Evidence evidence-3 (checks check-1, check-2, check-3, check-4); the values are listed under Behavior Divergences.
 - **diverged** sorted (web/cart.ts:16): 51 of 64 compared inputs recorded different values on the baseline and the candidate; each revision repeated its own value in a second run. Smallest divergent input tried: sorted\(\[1, 0\]\); baseline \[0, 1\]; arg 1 after call: \[1, 0\]; candidate \[0, 1\]; arg 1 after call: \[0, 1\]. Evidence evidence-4 (checks check-1, check-2, check-3, check-4); the values are listed under Behavior Divergences.
 - **inconclusive** stamp (web/cart.ts:20): all 64 inputs gave different observations on repeated evaluation.
 - **inconclusive** spin (web/cart.ts:24): the candidate stopped \(timeout\) while evaluating input 7: spin\(7\).
@@ -213,10 +213,10 @@ TS/JS functions, their signatures and their parameter types were read lexically,
 Not fuzzed (2):
 
 - web/cart.ts:31 ids: generator functions are not fuzzed in this version
-- web/util.js:20 untyped: parameter a has no JSDoc @param type \(number, string, boolean or an array of them\)
+- web/util.js:20 untyped: parameter a has no JSDoc @​param type \(number, string, boolean or an array of them\)
 ```
 
-The recorded signature of `joinParts` is `(parts) with JSDoc types (string[])`. The `spin(7)` loop was interrupted by the call timeout, and the candidate test still passed; `stamp` recorded two different values for every input on the candidate. The same fixture with `["jest", "{file}", "--json", "--outputFile={results_out}"]` and a ts-jest configuration gave the same outcomes, reasons, counts and counterexamples in 17 s (six containers of 2.2 s to 3.2 s). Without a TypeScript transform, Jest could not load the harness on the baseline: both `fuzz_base` checks were ERROR ("the TS/JS fuzz harness did not load or start on the baseline"), the candidate checks FAIL, every function `inconclusive`, and the review exited 4. Whether the `discount`, `lookup` and `sorted` differences are intended is for a human to decide.
+The recorded signature of `joinParts` is `(parts) with JSDoc types (string[])`. The `spin(7)` loop was interrupted by the call timeout, and the candidate test still passed; `stamp` recorded two different values for every input on the candidate. The same fixture with `["jest", "{file}", "--json", "--outputFile={results_out}"]` and a ts-jest configuration gave the same outcomes, reasons, counts and counterexamples in 16 s (six containers of 2.2 s to 3.0 s). Without a TypeScript transform, Jest could not load the harness on the baseline: both `fuzz_base` checks were ERROR ("the TS/JS fuzz harness did not load or start on the baseline"), the candidate checks FAIL, every function `inconclusive`, and the review exited 4. Whether the `discount`, `lookup` and `sorted` differences are intended is for a human to decide.
 
 ## See also
 
