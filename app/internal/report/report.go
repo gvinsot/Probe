@@ -615,15 +615,20 @@ var inlineEscaper = strings.NewReplacer("&", "&amp;", "<", "&lt;", ">", "&gt;",
 	"\\", "\\\\", "`", "\\`", "*", "\\*", "_", "\\_", "[", "\\[", "]", "\\]", "(", "\\(", ")", "\\)", "#", "\\#", "|", "\\|", "!", "\\!")
 
 // inline renders an untrusted string as inert Markdown text on one line:
-// control and bidirectional characters become spaces, no HTML tag, entity,
-// code span, emphasis, link, heading or table cell can start from it.
+// control and bidirectional formatting characters (isBidi) become spaces, and
+// no HTML tag, entity, code span, emphasis, link, heading or table cell can
+// start from it. A zero-width space breaks "://", "www." and "@", as in the
+// PR comment, so that no GitHub-flavored extended autolink (URL or e-mail
+// address) or mention forms either: the report is appended to the job summary,
+// where those extensions apply.
 func inline(s string) string {
 	s = strings.Map(func(r rune) rune {
-		if unicode.IsControl(r) || r == '\u202e' || r == '\u202d' || r == '\u2066' || r == '\u2067' || r == '\u2068' || r == '\u2069' {
+		if unicode.IsControl(r) || isBidi(r) {
 			return ' '
 		}
 		return r
 	}, s)
+	s = strings.ReplaceAll(breakLinks(s), "@", "@"+zeroWidthSpace)
 	return inlineEscaper.Replace(s)
 }
 

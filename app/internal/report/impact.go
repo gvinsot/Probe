@@ -3,6 +3,7 @@ package report
 import (
 	"bytes"
 	"fmt"
+	"strings"
 
 	"github.com/gvinsot/SwiftProof/app/internal/model"
 )
@@ -143,7 +144,7 @@ func writeImpact(b *bytes.Buffer, r *model.Report) {
 		fmt.Fprintf(b, "Static Go index of %d files (approximate). Callers are reference sites in unchanged, non-test code; tests are existing Go tests that reach a changed function within 3 references.\n\n", im.IndexedFiles)
 	case model.ImpactLimited:
 		searched = true
-		fmt.Fprintf(b, "Static Go index of %d files (approximate), limited: %s. Callers and tests of changed functions may be missing.\n\n", im.IndexedFiles, inline(im.Reason))
+		fmt.Fprintf(b, "Static Go index of %d files (approximate), limited: %s. Callers and tests of changed functions may be missing.\n\n", im.IndexedFiles, inline(noFinalPeriod(im.Reason)))
 	case model.ImpactUnavailable:
 		fmt.Fprintf(b, "The static Go index is unavailable: %s. Callers and tests of changed functions were not searched.\n\n", inline(orNone(im.Reason)))
 	case model.ImpactNotApplicable:
@@ -169,7 +170,7 @@ func writeImpact(b *bytes.Buffer, r *model.Report) {
 			continue
 		}
 		if f.Reason != "" {
-			fmt.Fprintf(b, "  Search bound reached: %s.\n", inline(f.Reason))
+			fmt.Fprintf(b, "  Search bound reached: %s.\n", inline(noFinalPeriod(f.Reason)))
 		}
 		if f.CallersTotal == 0 {
 			line(b, "  Callers in unchanged code found by the index: 0 (not proof that none exist).")
@@ -209,18 +210,26 @@ func writeImpact(b *bytes.Buffer, r *model.Report) {
 	}
 	if im.TestsStatus != "" {
 		reason := ""
-		if im.TestsReason != "" {
-			reason = ": " + inline(im.TestsReason)
+		if r := noFinalPeriod(im.TestsReason); r != "" {
+			reason = ": " + inline(r)
 		}
 		fmt.Fprintf(b, "\nImpacted tests: %s%s.\n", inline(im.TestsStatus), reason)
 	}
 	fmt.Fprintf(b, "\n%s\n", inline(im.Note))
 }
 
-// orNone replaces an empty reason with a fixed text.
+// orNone replaces an empty reason with a fixed text, and drops a final
+// period: every caller ends the sentence itself.
 func orNone(s string) string {
-	if s == "" {
+	if s = noFinalPeriod(s); s == "" {
 		return "no reason was recorded"
 	}
 	return s
+}
+
+// noFinalPeriod trims s and drops one final period, for a reason that is
+// printed inside a sentence the writer ends itself. Reasons are recorded
+// verbatim from the harness, whose fixed texts end with a period.
+func noFinalPeriod(s string) string {
+	return strings.TrimSuffix(strings.TrimSpace(s), ".")
 }

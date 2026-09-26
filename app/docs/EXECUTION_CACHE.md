@@ -35,7 +35,7 @@ The re-run kinds `generated_test_base_repeat`, `fuzz_base_confirm` and `fuzz_can
 
 A live result is **stored** only when it completed: status PASS or FAIL, exit code 0 to 124, no timeout, no Docker error, and its log was retained. A payload (a Jest-compatible report or a fuzz observation stream) must be complete and unchanged by redaction. Nothing else is written, so a transient infrastructure failure is never kept.
 
-An entry is **served** only when it is not a live-only run, passes every integrity check (below), was recorded by **at least two live runs that agreed** on status, exit code and truncation, was never contradicted, and its recorded duration is below the run's current per-run timeout. Only a **PASS** entry is served. A FAIL entry is stored, so that a later live run that disagrees removes it, but it is never replayed: a replayed baseline FAIL supports no positive result, so replaying it could only leave undecided an experiment that a live baseline would decide.
+An entry is **served** only when it is not a live-only run, passes every integrity check (below), was recorded by **at least two live runs that agreed** on status, exit code and truncation, was never contradicted, and its recorded duration is below the run's current per-run timeout, also bounded by what remains of the stage's time limit. Only a **PASS** entry is served. A FAIL entry is stored, so that a later live run that disagrees removes it, but it is never replayed: a replayed baseline FAIL supports no positive result, so replaying it could only leave undecided an experiment that a live baseline would decide.
 
 ## The key
 
@@ -53,7 +53,7 @@ The key is the SHA-256 of a canonical JSON preimage (schema `swiftproof-execcach
 | `docker_args_sha256` | The complete `docker run` argument vector, built with a fixed container name and mount path: isolation flags, limits, user, mounts, environment, wrapper or capture script and command. |
 | `argv_sha256` | The command. |
 | `capture` | The in-container payload path, if any. |
-| `timeout_ms`, `max_output_bytes` | The per-run timeout after stage tightening (not the budget-clamped value, which changes from run to run) and the output limit. |
+| `timeout_ms`, `max_output_bytes` | The per-run timeout after tightening by a stage's fixed limit (for changed baseline tests and impacted tests, the lower of the policy timeout and their 180 s sub-cap) and the output limit. Neither what remains of a stage's sub-cap nor the budget-clamped value is keyed: both depend on how long earlier runs took, so they would make every key unique; they only bound the launch and which entry may be served. |
 
 `docker_server` is recorded in addition to the fields the integration contract lists, so that a Docker engine upgrade starts new entries. The kernel version and runtime internals beyond the server version are **not** part of the key.
 
@@ -76,7 +76,7 @@ A replay charges nothing to the runtime budget. A live eligible run that was wri
 A positive status never rests on a replay:
 
 - **Generated tests.** When a replayed baseline PASS and a live candidate FAIL would record `REPRODUCED`, the harness runs the baseline again, live, with the same kind, staged file and command. The evidence then cites the live check as `base_check_id`, and its description says that the baseline was replayed and run again. If the live run passes, the result is `REPRODUCED`; if it completes without passing (including a named-test validation that the replay passed and the live run fails), the result is `UNVERIFIED` and the entry is removed as contradicted, and the evidence description says whether the removal succeeded (a live check whose entry was removed carries no `cache` provenance); if it does not complete (SKIPPED, TIMEOUT, ERROR), the result is `UNVERIFIED` and the entry stays.
-- `report.Finalize` independently refuses `REPRODUCED` when the cited baseline is a replay, including when `swiftproof report` re-renders a saved report. The observation repeat, the fuzz confirmation pair and the live re-runs of changed or impacted tests follow the same rule (§3.4 of the specification).
+- `report.Finalize` independently refuses `REPRODUCED` when the cited baseline is a replay, including when `swiftproof report` re-renders a saved report. The observation repeat, the fuzz confirmation pair and the live re-runs of changed or impacted tests follow the same rule (§3.4 of the specification). A live re-run of a changed or impacted test's replayed baseline that completes without reproducing it (another status, exit code or truncation, or another outcome of a selected test) removes the entry as contradicted, as for generated tests, so the next review runs that baseline live.
 
 A **negative** status (`NOT_REPRODUCED`, `NOT_DIVERGED`, `PASSES_ON_CANDIDATE`) may rest on a replayed baseline, because a served entry needs two agreeing live runs. `Finalize` lists every such evidence ID, sorted, in `execution.replay_backed`, and the Markdown names them. Such a conclusion does not by itself request human review (refinement R3 of the specification).
 
@@ -108,7 +108,7 @@ A review without `--cache-dir` records `execution.cache.status: disabled` with t
 
 When a pull request is updated, a review that shares the `--cache-dir` of earlier reviews replays each baseline experiment whose key did not change: same base commit, same experiment content (for example the same generated test), same policy, image, Docker server and SwiftProof build. The candidate side always runs again. `--previous-report` and `--since` are not provided: a saved report is not authenticated and does not hold the inputs a key needs.
 
-The payoff depends on how often baseline experiments repeat. Model-written generated tests rarely repeat across reviews; deterministic stages (changed baseline tests, impacted tests, differential fuzzing) repeat more often when the base commit is unchanged. Measure hit rates on your own reviews before expecting shorter reviews ([measured costs](PERFORMANCE.md)).
+The payoff depends on how often baseline experiments repeat. Model-written generated tests rarely repeat across reviews. The baseline runs of changed baseline tests (`--base-tests`) and impacted tests (`--impacted-tests`) repeat when the base commit, the selected tests and the policy are unchanged, since their key holds the stage's fixed time limit rather than what remains of it. Differential fuzzing does not benefit: every review renders its harness with a new random suffix, so a `fuzz_base` key never repeats in practice ([differential fuzzing limitations](FUZZ.md#limitations)). Measure hit rates on your own reviews before expecting shorter reviews ([measured costs](PERFORMANCE.md)).
 
 ## Trust and privacy
 

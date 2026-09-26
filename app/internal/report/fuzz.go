@@ -457,8 +457,10 @@ func fuzzPlural(n int, noun string) string {
 	return fmt.Sprintf("%d %ss", n, noun)
 }
 
+// fuzzReasonText is a reason for a sentence its caller ends itself: an empty
+// reason gets a fixed text, and a final period is dropped.
 func fuzzReasonText(s string) string {
-	if strings.TrimSpace(s) == "" {
+	if s = noFinalPeriod(s); s == "" {
 		return "no reason was recorded"
 	}
 	return s

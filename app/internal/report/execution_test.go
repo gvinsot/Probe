@@ -219,7 +219,7 @@ func TestMarkdownRendersCacheProvenanceAndSummary(t *testing.T) {
 	r = &model.Report{Execution: &model.Execution{Cache: model.ExecutionCache{Status: model.CacheDisabled, Reason: "the sandbox image could not be pinned: <b>*x*</b> [link](http://x)"}}}
 	Finalize(r, false)
 	md = string(Markdown(r))
-	if !strings.Contains(md, "Execution cache: disabled (the sandbox image could not be pinned: &lt;b&gt;\\*x\\*&lt;/b&gt; \\[link\\]\\(http://x\\)).") {
+	if !strings.Contains(md, "Execution cache: disabled (the sandbox image could not be pinned: &lt;b&gt;\\*x\\*&lt;/b&gt; \\[link\\]\\(http:​//x\\)).") {
 		t.Fatalf("disabled summary not escaped:\n%s", md)
 	}
 	if strings.Contains(md, "A replayed check") || strings.Contains(md, "Negative conclusions resting") {

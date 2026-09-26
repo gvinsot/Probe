@@ -138,9 +138,11 @@ func TestRunObservedStagesRunsAndRecords(t *testing.T) {
 		t.Fatalf("runs %d", len(argvs))
 	}
 	for i, args := range argvs {
-		dir := h.base
+		dir, script := h.base, captureScript(FuzzObservationsPath)
 		if i == 1 {
-			dir = h.candidate
+			// The candidate side keeps exit codes of 125 and above for
+			// sandbox failures (candidateCaptureScript).
+			dir, script = h.candidate, candidateCaptureScript(FuzzObservationsPath)
 		}
 		name := args[indexOfArg(args, "--name")+1]
 		plain := h.dockerArgs(name, dir, command)
@@ -148,7 +150,7 @@ func TestRunObservedStagesRunsAndRecords(t *testing.T) {
 			t.Fatalf("fuzz argv has %d arguments against %d for a plain run", len(args), len(plain))
 		}
 		for j := range args {
-			if args[j] != plain[j] && !(plain[j] == wrapperScript && args[j] == captureScript(FuzzObservationsPath)) {
+			if args[j] != plain[j] && !(plain[j] == wrapperScript && args[j] == script) {
 				t.Fatalf("fuzz argv differs at %d: %q against %q", j, args[j], plain[j])
 			}
 		}

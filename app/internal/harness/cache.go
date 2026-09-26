@@ -537,6 +537,37 @@ func (h *Harness) evictContradicted(key string, executed model.Check) bool {
 	return true
 }
 
+// settleReplayedGoBaseline completes the live re-run of a replayed F3 or F6b
+// baseline (§1.11), as confirmBaseline does for generated tests. When the
+// re-run completed (PASS or FAIL) and did not reproduce the replay (its
+// status, exit code or truncation differs, or one of names has another
+// outcome in its log), the entry that was replayed is removed as
+// contradicted, so that no later review is served from it. A live check whose
+// write-through extended that entry then loses the cache provenance it no
+// longer describes. It returns live, updated in the ledger. Caller holds h.mu.
+func (h *Harness) settleReplayedGoBaseline(replayed, live model.Check, names []string) model.Check {
+	if replayed.Cache == nil || live.Status != "PASS" && live.Status != "FAIL" {
+		return live
+	}
+	agrees := live.Status == replayed.Status && live.ExitCode == replayed.ExitCode && live.Truncated == replayed.Truncated
+	for _, n := range names {
+		if !agrees {
+			break
+		}
+		was, _ := GoTestOutcome(replayed.Output, n)
+		now, _ := GoTestOutcome(live.Output, n)
+		agrees = was == now
+	}
+	if agrees {
+		return live
+	}
+	if h.evictContradicted(replayed.Cache.Key, live) && live.Cache != nil {
+		live.Cache = nil
+		h.replaceCheck(live)
+	}
+	return live
+}
+
 // Execution summarizes the cache, the initial checks' parallelism and the
 // budget. The cache counters are h.cacheCountersLocked() (the harness's own
 // plus the store's); the status, scope, identity and note are filled here.

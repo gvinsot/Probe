@@ -283,7 +283,27 @@ const wrapperScript = `cp -R /source/. /workspace/ && exec "$@"`
 // container. It is built from the frame constants so the producer and the
 // decoder cannot drift apart. path is a fixed constant, never policy input.
 func captureScript(path string) string {
-	return `cp -R /source/. /workspace/ 1>&2 || exit 125; "$@" >&2; s=$?; if [ -s ` + path +
+	return captureScriptStatus(path, `s=$?; `)
+}
+
+// candidateCaptureScript is captureScript for a candidate-side kind (one for
+// which logDecidesError is false) whose command passes the exit code of code
+// under review through: a Jest or Vitest runner ends with the code that a
+// process.exit call in the tested module chose. The command's own status is
+// reported as 124 when it is 125 or above, so that the container ends with
+// 125 or above only when the sandbox itself failed (Docker, the snapshot
+// copy, or the end of the wrapper shell, which as PID 1 of its namespace
+// cannot be signalled by the command). Candidate code therefore cannot make
+// such a check ERROR through its exit code (§1.17, Appendix D.6). The script
+// is used only for kinds that are never cached, so no cache key holds it.
+func candidateCaptureScript(path string) string {
+	return captureScriptStatus(path, `s=$?; if [ "$s" -ge 125 ]; then s=124; fi; `)
+}
+
+// captureScriptStatus builds the capture script with status, the shell text
+// that sets s from the command's exit status.
+func captureScriptStatus(path, status string) string {
+	return `cp -R /source/. /workspace/ 1>&2 || exit 125; "$@" >&2; ` + status + `if [ -s ` + path +
 		` ]; then set -- $(wc -c < ` + path + `); printf '` + coverage.FrameHeader + `%s\n' "$1"; cat ` +
 		path + `; printf '%s\n' '` + strings.TrimSuffix(coverage.FrameFooter, "\n") + `'; fi; exit $s`
 }

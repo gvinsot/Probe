@@ -21,10 +21,13 @@ import (
 	"github.com/gvinsot/SwiftProof/app/internal/report"
 )
 
-// Integration agent I (contract §2 "Agent I"): the largest report a review
-// can write with the default policy limits must still be re-rendered by
-// `swiftproof report`, whose input limit is 64 MiB, and the re-render must be
-// idempotent. The synthetic report fills the structured-results budget
+// Integration agent I (contract §2 "Agent I"): a report at the largest
+// configuration of the contract (16 fuzz functions, 200 mutants, the default
+// max_output_bytes) must still be re-rendered by `swiftproof report`, whose
+// input limit is 64 MiB, and the re-render must be idempotent. It is not the
+// largest report the default limits allow: a policy allows up to 32 fuzz
+// functions, and reviewer experiments add checks with logs of their own
+// (CI.md, "Report size"). The synthetic report fills the structured-results budget
 // (harness.ResultsBudget) with fuzz observation streams of 16 fuzz functions,
 // holds 200 mutants with one control run per mutant package (400 mutation
 // checks), and gives every check a log of the default sandbox.max_output_bytes

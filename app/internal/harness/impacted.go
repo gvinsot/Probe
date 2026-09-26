@@ -412,9 +412,11 @@ func (r *impactedRun) stopReason() string {
 
 // exec records one run of the stage with what remains of the sub-cap as its
 // timeout ceiling. Callers check stopReason first, so that timeout is positive.
+// The cache key holds the fixed sub-cap, not the remainder, so that it does
+// not depend on how long the stage's earlier runs took (runOptions.remaining).
 func (r *impactedRun) exec(kind, dir string, command []string, live bool) model.Check {
 	started := time.Now()
-	c, _, _ := r.h.runWithOptions(r.ctx, kind, dir, command, runOptions{timeout: impactedSubCap - r.spent, ceiling: r.ceiling, live: live})
+	c, _, _ := r.h.runWithOptions(r.ctx, kind, dir, command, runOptions{timeout: impactedSubCap, remaining: impactedSubCap - r.spent, ceiling: r.ceiling, live: live})
 	if !c.Replayed() {
 		r.spent += time.Since(started)
 	}
@@ -657,11 +659,12 @@ func (r *impactedRun) pair(u *impactedUnit, names []string, narrowBase bool, rec
 	}
 	// §1.11: a replayed baseline never supports FAILS_ON_CANDIDATE. The
 	// baseline runs again live with the same kind and command; the replayed
-	// check stays in the ledger.
+	// check stays in the ledger, and a live run that does not reproduce it
+	// evicts the entry it was replayed from.
 	reason := r.stopReason()
 	var live model.Check
 	if reason == "" {
-		live = record(r.exec(model.CheckImpactedTestBase, h.base, command, true))
+		live = h.settleReplayedGoBaseline(base, record(r.exec(model.CheckImpactedTestBase, h.base, command, true)), names)
 		if live.Status == "SKIPPED" {
 			reason = fmt.Sprintf("%s did not start: %s", live.ID, impactedSkipText(live))
 		}
