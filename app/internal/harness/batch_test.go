@@ -293,8 +293,24 @@ func TestRunChecksExhaustedBudgetMatchesOneAtATime(t *testing.T) {
 		t.Fatalf("checks %+v (peak %d)", checks, c.peak.Load())
 	}
 	p := h.Execution().Parallelism
-	if p.Effective != 1 || !strings.HasPrefix(p.Note, parallelSerialNote+" ") || !strings.Contains(p.Note, parallelBudgetNote) || strings.Contains(p.Note, parallelSemanticsNote) {
+	if p.Effective != 1 || p.Note != parallelSerialNote+" "+parallelBudgetNote {
 		t.Fatalf("parallelism %+v", p)
+	}
+
+	// A budget used up before the initial checks: every check is SKIPPED, as
+	// one at a time, and the note does not say that any of them ran.
+	spentBefore := batchFixture(t, 3, func(o *Options) { o.Timeout, o.MaxRuntime = 100*time.Millisecond, 50*time.Millisecond })
+	calls := countingExec(spentBefore, "ok\n")
+	spentBefore.mu.Lock()
+	spentBefore.spent = 50 * time.Millisecond
+	spentBefore.mu.Unlock()
+	for _, check := range spentBefore.RunChecks(context.Background(), initialKinds) {
+		if check.Status != "SKIPPED" || check.Output != budgetExhaustedText {
+			t.Fatalf("check after the budget was used up %+v", check)
+		}
+	}
+	if p := spentBefore.Execution().Parallelism; *calls != 0 || p.Effective != 1 || p.Note != parallelNoSandboxNote {
+		t.Fatalf("parallelism %+v, executor calls %d", p, *calls)
 	}
 }
 
@@ -371,16 +387,21 @@ func TestRunChecksParallelismCappedByDockerCapacity(t *testing.T) {
 		cpus, mem int
 		effective int
 		note      []string
+		exact     string // the whole note, when set
 	}{
-		{"cpus", capacityDocker(2, 32<<30), 3, 2, 1024, 1, []string{parallelSerialNote, "The Docker server reports 2 CPUs and 32768 MiB of memory: room for 1 sandbox of 2 CPUs and 1024 MiB at a time."}},
-		{"cpus_two", capacityDocker(2, 32<<30), 3, 1, 1024, 2, []string{"The Docker server reports 2 CPUs and 32768 MiB of memory: room for 2 sandboxes of 1 CPU and 1024 MiB at a time. " + parallelSemanticsNote}},
-		{"memory", capacityDocker(16, 3<<30), 4, 1, 2048, 1, []string{parallelSerialNote, "3072 MiB of memory: room for 1 sandbox"}},
-		{"enough", capacityDocker(16, 64<<30), 3, 2, 1024, 3, []string{parallelSemanticsNote}},
-		{"zero_cpus", capacityDocker(0, 64<<30), 3, 2, 1024, 1, []string{parallelSerialNote, "could not be read: docker info reported 0 CPUs"}},
-		{"probe_error", &fakeDocker{info: func() (string, error) { return "", errors.New("Cannot connect to the Docker daemon") }}, 3, 2, 1024, 1, []string{parallelSerialNote, "The capacity of the Docker server could not be read: docker info"}},
+		{"cpus", capacityDocker(2, 32<<30), 3, 2, 1024, 1, nil, parallelSerialNote + " The Docker server reports 2 CPUs and 32768 MiB of memory: room for 1 sandbox of 2 CPUs and 1024 MiB at a time."},
+		{"cpus_two", capacityDocker(2, 32<<30), 3, 1, 1024, 2, nil, "The Docker server reports 2 CPUs and 32768 MiB of memory: room for 2 sandboxes of 1 CPU and 1024 MiB at a time. " + parallelSemanticsNote},
+		{"memory", capacityDocker(16, 3<<30), 4, 1, 2048, 1, []string{parallelSerialNote, "3072 MiB of memory: room for 1 sandbox"}, ""},
+		// A capacity of 0 is reported as such: the checks still run one at a
+		// time, as with --parallel 1, but the probe found no room.
+		{"no_room_cpus", capacityDocker(1, 32<<30), 3, 2, 1024, 1, nil, parallelSerialNote + " The Docker server reports 1 CPU and 32768 MiB of memory: no room for a single sandbox of 2 CPUs and 1024 MiB."},
+		{"no_room_memory", capacityDocker(2, 30865<<20), 3, 1, 32768, 1, nil, parallelSerialNote + " The Docker server reports 2 CPUs and 30865 MiB of memory: no room for a single sandbox of 1 CPU and 32768 MiB."},
+		{"enough", capacityDocker(16, 64<<30), 3, 2, 1024, 3, nil, parallelSemanticsNote},
+		{"zero_cpus", capacityDocker(0, 64<<30), 3, 2, 1024, 1, []string{parallelSerialNote, "could not be read: docker info reported 0 CPUs"}, ""},
+		{"probe_error", &fakeDocker{info: func() (string, error) { return "", errors.New("Cannot connect to the Docker daemon") }}, 3, 2, 1024, 1, []string{parallelSerialNote, "The capacity of the Docker server could not be read: docker info"}, ""},
 		{"server_error", &fakeDocker{info: func() (string, error) {
 			return `{"ServerVersion":"28.4.0","NCPU":8,"MemTotal":1,"ServerErrors":["daemon unhealthy"]}`, nil
-		}}, 3, 2, 1024, 1, []string{"could not be read", "daemon unhealthy"}},
+		}}, 3, 2, 1024, 1, []string{"could not be read", "daemon unhealthy"}, ""},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			useDocker(t, tc.docker)
@@ -397,6 +418,9 @@ func TestRunChecksParallelismCappedByDockerCapacity(t *testing.T) {
 			if p.Requested != tc.parallel || p.Effective != tc.effective || int(c.peak.Load()) > tc.effective || tc.docker.calls != 1 {
 				t.Fatalf("parallelism %+v, peak %d, docker calls %d", p, c.peak.Load(), tc.docker.calls)
 			}
+			if tc.exact != "" && p.Note != tc.exact {
+				t.Fatalf("note %q, want %q", p.Note, tc.exact)
+			}
 			for _, part := range tc.note {
 				if !strings.Contains(p.Note, part) {
 					t.Fatalf("note %q lacks %q", p.Note, part)
@@ -407,7 +431,9 @@ func TestRunChecksParallelismCappedByDockerCapacity(t *testing.T) {
 }
 
 // No Docker call and no concurrency when one check at a time is requested,
-// when there is a single check, and when no container can start.
+// when there is a single check, and when no container can start. When no
+// initial check started a sandbox, the note says so instead of saying that
+// they ran.
 func TestRunChecksProbesOnlyWhenChecksCanOverlap(t *testing.T) {
 	forbidDocker(t)
 	one := batchFixture(t, 1, nil)
@@ -433,8 +459,14 @@ func TestRunChecksProbesOnlyWhenChecksCanOverlap(t *testing.T) {
 			t.Fatalf("check without an image %+v", c)
 		}
 	}
-	if p := noImage.Execution().Parallelism; *calls != 0 || p.Effective != 1 || !strings.Contains(p.Note, "No sandbox image is configured") {
+	if p := noImage.Execution().Parallelism; *calls != 0 || p.Effective != 1 || p.Note != "No initial check started a sandbox. No sandbox image is configured." {
 		t.Fatalf("parallelism %+v, executor calls %d", p, *calls)
+	}
+
+	singleNoImage := batchFixture(t, 2, func(o *Options) { o.Image = "" })
+	singleNoImage.RunChecks(context.Background(), []string{"test"})
+	if p := singleNoImage.Execution().Parallelism; p.Effective != 1 || p.Note != "No initial check started a sandbox. Only one initial check was requested." {
+		t.Fatalf("parallelism %+v", p)
 	}
 
 	expired, cancel := context.WithDeadlineCause(context.Background(), time.Now().Add(-time.Second), ErrOverallDeadline)
@@ -446,8 +478,31 @@ func TestRunChecksProbesOnlyWhenChecksCanOverlap(t *testing.T) {
 			t.Fatalf("check after the overall deadline %+v", c)
 		}
 	}
-	if p := late.Execution().Parallelism; *calls != 0 || p.Effective != 1 || !strings.Contains(p.Note, "time limit was reached") {
+	if p := late.Execution().Parallelism; *calls != 0 || p.Effective != 1 || p.Note != "No initial check started a sandbox. The time limit was reached before the initial checks started." {
 		t.Fatalf("parallelism %+v, executor calls %d", p, *calls)
+	}
+
+	// A cancelled review (an interrupt) is not a time limit. Its runs are
+	// launched, as they are one at a time, but the Docker client does not
+	// start on an ended context: the executor below behaves as runDocker.
+	interrupted, stop := context.WithCancel(context.Background())
+	stop()
+	cancelled := batchFixture(t, 3, nil)
+	var starts atomic.Int32
+	cancelled.execute = func(ctx context.Context, _ string, _ []string, _ io.Writer) execution {
+		if ctx.Err() != nil {
+			return execution{ExitCode: -1, Err: ctx.Err(), TimedOut: true}
+		}
+		starts.Add(1)
+		return execution{ExitCode: 0}
+	}
+	for _, c := range cancelled.RunChecks(interrupted, initialKinds) {
+		if c.Status != "TIMEOUT" {
+			t.Fatalf("check of a cancelled review %+v", c)
+		}
+	}
+	if p := cancelled.Execution().Parallelism; starts.Load() != 0 || p.Effective != 1 || p.Note != "No initial check started a sandbox. The review was cancelled before the initial checks started." {
+		t.Fatalf("parallelism %+v, started %d", p, starts.Load())
 	}
 
 	closed := batchFixture(t, 3, nil)
@@ -457,23 +512,28 @@ func TestRunChecksProbesOnlyWhenChecksCanOverlap(t *testing.T) {
 			t.Fatalf("check on a closed harness %+v", c)
 		}
 	}
+	if p := closed.Execution().Parallelism; p.Effective != 1 || p.Note != "No initial check started a sandbox. The sandbox harness was closed." {
+		t.Fatalf("parallelism of a closed harness %+v", p)
+	}
 
+	// Without kinds, RunChecks records nothing: the summary stays the one the
+	// harness started with.
 	empty := batchFixture(t, 3, nil)
 	if checks := empty.RunChecks(context.Background(), nil); checks == nil || len(checks) != 0 {
 		t.Fatalf("no kinds: %#v", checks)
 	}
-	if p := empty.Execution().Parallelism; p.Effective != 1 || !strings.Contains(p.Note, "did not run in this review") {
+	if p := empty.Execution().Parallelism; p != (model.ExecutionParallelism{Requested: 3, Effective: 1, Note: sequentialNote(3)}) {
 		t.Fatalf("parallelism without initial checks %+v", p)
 	}
 }
 
-// Before RunChecks records a summary, a review whose initial checks never ran
-// says so; RunChecks replaces it, and a later call with a smaller group does
-// not lower what an earlier call recorded.
+// Before RunChecks records a summary, the harness keeps the one it started
+// with (newExecState's); RunChecks replaces it, and a later call with a
+// smaller group does not lower what an earlier call recorded.
 func TestParallelismSummaryFollowsRunChecks(t *testing.T) {
 	useDocker(t, capacityDocker(8, 16<<30))
 	h := batchFixture(t, 3, nil)
-	if p := h.Execution().Parallelism; p.Requested != 3 || p.Effective != 1 || p.Note != "The initial checks did not run in this review, so --parallel had no effect: every sandbox run ran one at a time." {
+	if p := h.Execution().Parallelism; p != (model.ExecutionParallelism{Requested: 3, Effective: 1, Note: sequentialNote(3)}) {
 		t.Fatalf("parallelism before the initial checks %+v", p)
 	}
 	h.execute = func(_ context.Context, _ string, _ []string, out io.Writer) execution {

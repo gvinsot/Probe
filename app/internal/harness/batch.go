@@ -9,12 +9,14 @@ package harness
 // once all of them have ended the group is recorded in configured order
 // (checks, log artifacts, audit events). A group has more than one member only
 // while the remaining budget covers the full per-run timeout of every member,
-// so every concurrent run gets the policy timeout, and the sum of the timeouts
-// in flight never exceeds the remaining budget. Every other run of the harness
+// so every concurrent run gets the policy timeout (an expiring context, such
+// as the overall deadline, still ends it), and the sum of the timeouts in
+// flight never exceeds the remaining budget. Every other run of the harness
 // stays sequential under h.mu.
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -24,14 +26,22 @@ import (
 	"github.com/gvinsot/SwiftProof/app/internal/model"
 )
 
-// Fixed texts of execution.parallelism.note.
+// Fixed texts of execution.parallelism.note. They avoid apostrophes, which the
+// Markdown renderer escapes as entities.
 const (
 	// parallelOneNote is the note when one initial check at a time was
-	// requested; it is also newExecState's note for that case.
+	// requested. It equals the note newExecState (cache.go) records before
+	// RunChecks runs.
 	parallelOneNote = "Initial checks run one at a time."
 	// parallelSerialNote opens the note when more were requested but the
-	// initial checks still ran one at a time; the reasons follow it.
+	// initial checks that started a sandbox did so one at a time; the reasons
+	// follow it.
 	parallelSerialNote = "Initial checks ran one at a time."
+	// parallelNoSandboxNote opens the note when more were requested and no
+	// initial check started a sandbox (no image, a closed harness, a context
+	// that had expired or was cancelled, an exhausted budget, no command); the
+	// recorded checks say why each did not run.
+	parallelNoSandboxNote = "No initial check started a sandbox."
 	// parallelBudgetNote says that the budget rule made a group smaller.
 	parallelBudgetNote = "The remaining sandbox runtime budget did not cover the full per-run timeout of every check of a group, so fewer checks ran at the same time."
 	// parallelUnstartedNote says that a group had members recorded without a
@@ -39,12 +49,11 @@ const (
 	parallelUnstartedNote = "Some checks of a group were recorded without starting a sandbox, so fewer ran at the same time."
 	// parallelSemanticsNote closes the note whenever checks ran at the same
 	// time. It states the rules, not an outcome: concurrent containers share
-	// the Docker host. The fixed notes avoid apostrophes, which the Markdown
-	// renderer escapes as entities.
+	// the Docker host.
 	parallelSemanticsNote = "Checks that ran at the same time are recorded in configured order (check IDs, artifacts and audit events). " +
 		"Each was started only while the remaining sandbox runtime budget covered the full per-run timeout of every check running with it, " +
-		"so each had the per-run timeout of the policy, and each is charged its own run time, as when checks run one at a time. " +
-		"Concurrent sandboxes share the Docker host, so a check can take longer than it would alone."
+		"so each had the per-run timeout of the policy, which the deadline of the review still bounds, and each is charged its own run time, as when checks run one at a time. " +
+		"Concurrent sandboxes share the Docker host, so a check can take longer than it would alone and be charged more."
 )
 
 // RunChecks runs the initial checks of kinds on the candidate snapshot, in
@@ -58,10 +67,15 @@ const (
 // and ctx; a failure means one at a time). A group of n starts only while the
 // budget left under MaxRuntime covers n full per-run timeouts, and shrinks
 // otherwise, down to a single run, which takes what remains as always.
-// Parallelism changes the wall clock only: every run gets the gates, the
-// timeout reservation, the classification and the budget charge of a run one
-// at a time, and the audit events of one group share its start time, so a
-// stable sort by time keeps the configured order.
+// Parallelism changes no rule: every run gets the gates, the timeout
+// reservation, the classification and the budget charge rule of a run one at
+// a time, and the audit events of one group share its start time, so a stable
+// sort by time keeps the configured order. Outcomes can still differ from a
+// run one at a time: concurrent runs share the Docker host, so they can take
+// longer, reach their timeout and be charged more; and every member of a group
+// passes the deadline gate when the group starts, so when ctx expires during a
+// group, its members still running end TIMEOUT, where one at a time the later
+// ones would have been SKIPPED as not started.
 //
 // RunChecks records the requested and effective concurrency, with a note, in
 // the execution summary. Effective is the largest number of sandboxes of one
@@ -79,25 +93,32 @@ func (h *Harness) RunChecks(ctx context.Context, kinds []string) []model.Check {
 		requested = 1
 	}
 	limit, reasons := h.initialCheckLimit(ctx, requested, len(kinds))
-	widest, largest, shrunk := 1, 1, false
+	// started counts the containers launched while ctx was live: a run
+	// launched on a context that had already ended starts no container.
+	widest, largest, started, shrunk := 1, 1, 0, false
 	for next := 0; next < len(kinds); {
 		allowed := min(limit, len(kinds)-next)
 		n := h.groupSize(allowed)
 		if n < allowed {
 			shrunk = true
 		}
+		live := ctx.Err() == nil
 		group, launched := h.runGroup(ctx, kinds[next:next+n])
 		checks = append(checks, group...)
-		largest, widest = max(largest, n), max(widest, launched)
+		largest = max(largest, n)
+		if live {
+			started += launched
+			widest = max(widest, launched)
+		}
 		next += n
 	}
-	if shrunk {
+	if started > 0 && shrunk {
 		reasons = append(reasons, parallelBudgetNote)
 	}
-	if widest < largest {
+	if started > 0 && widest < largest {
 		reasons = append(reasons, parallelUnstartedNote)
 	}
-	summary := model.ExecutionParallelism{Requested: requested, Effective: widest, Note: parallelismNote(requested, widest, reasons)}
+	summary := model.ExecutionParallelism{Requested: requested, Effective: widest, Note: parallelismNote(requested, widest, started, reasons)}
 	if summary.Effective >= h.exec.parallel.Effective {
 		h.exec.parallel = summary
 	}
@@ -179,11 +200,13 @@ func (h *Harness) initialCheckLimit(ctx context.Context, requested, count int) (
 	}
 	switch {
 	case h.closed:
-		return 1, append(reasons, "The sandbox harness was closed, so no initial check was executed.")
+		return 1, append(reasons, "The sandbox harness was closed.")
 	case h.opts.Image == "":
-		return 1, append(reasons, "No sandbox image is configured, so no initial check was executed.")
-	case ctx.Err() != nil:
+		return 1, append(reasons, "No sandbox image is configured.")
+	case errors.Is(ctx.Err(), context.DeadlineExceeded):
 		return 1, append(reasons, "The time limit was reached before the initial checks started.")
+	case ctx.Err() != nil:
+		return 1, append(reasons, "The review was cancelled before the initial checks started.")
 	}
 	probe, cancel := context.WithTimeout(ctx, probeTimeout)
 	info, err := dockerutil.ServerInfo(probe, dockerRunner)
@@ -195,9 +218,15 @@ func (h *Harness) initialCheckLimit(ctx context.Context, requested, count int) (
 		return 1, append(reasons, "The capacity of the Docker server could not be read: "+truncateUTF8(strings.TrimSpace(Redact(err.Error())), 256))
 	}
 	if capacity := sandboxCapacity(info, h.opts.CPUs, h.opts.MemoryMB); capacity < limit {
+		// The note gives the capacity the probe found. The limit stays at
+		// least 1: the checks then run one at a time, as with --parallel 1.
 		limit = max(capacity, 1)
-		reasons = append(reasons, fmt.Sprintf("The Docker server reports %s and %d MiB of memory: room for %s of %s and %d MiB at a time.",
-			plural(info.NCPU, "CPU"), info.MemTotal>>20, plural(limit, "sandbox"), plural(h.opts.CPUs, "CPU"), h.opts.MemoryMB))
+		server := fmt.Sprintf("The Docker server reports %s and %d MiB of memory", plural(info.NCPU, "CPU"), info.MemTotal>>20)
+		if capacity == 0 {
+			reasons = append(reasons, fmt.Sprintf("%s: no room for a single sandbox of %s and %d MiB.", server, plural(h.opts.CPUs, "CPU"), h.opts.MemoryMB))
+		} else {
+			reasons = append(reasons, fmt.Sprintf("%s: room for %s of %s and %d MiB at a time.", server, plural(capacity, "sandbox"), plural(h.opts.CPUs, "CPU"), h.opts.MemoryMB))
+		}
 	}
 	return limit, reasons
 }
@@ -225,14 +254,19 @@ func sandboxCapacity(info dockerutil.Info, cpus, memoryMB int) int {
 }
 
 // parallelismNote composes execution.parallelism.note from fixed texts: the
-// one-at-a-time note, or the reasons the concurrency stayed below what was
-// requested followed by the rules concurrent checks ran under.
-func parallelismNote(requested, effective int, reasons []string) string {
+// one-at-a-time note, or what happened (no initial check started a sandbox,
+// or they started one at a time) and the reasons the concurrency stayed below
+// what was requested, followed by the rules concurrent checks ran under.
+// started is the number of containers the initial checks launched.
+func parallelismNote(requested, effective, started int, reasons []string) string {
 	if requested <= 1 {
 		return parallelOneNote
 	}
 	parts := []string{}
-	if effective <= 1 {
+	switch {
+	case started == 0:
+		parts = append(parts, parallelNoSandboxNote)
+	case effective <= 1:
 		parts = append(parts, parallelSerialNote)
 	}
 	parts = append(parts, reasons...)

@@ -70,9 +70,9 @@ type execState struct {
 	pristineSHA256 string
 	pristineErr    error
 
-	// parallel summarizes the initial checks' concurrency. RunChecks (F7b,
-	// batch.go) records the effective value and its note; until it runs, the
-	// summary says that no initial check ran.
+	// parallel summarizes the initial checks' concurrency. RunChecks (F7b)
+	// records the effective value and its note when it runs checks
+	// concurrently; until then the initial checks run one at a time.
 	parallel model.ExecutionParallelism
 }
 
@@ -154,14 +154,13 @@ func newExecStateContext(ctx context.Context, opts Options) (execState, error) {
 	return s, nil
 }
 
-// sequentialNote is the parallelism note of a harness before RunChecks
-// records its own (batch.go): a review that never runs its initial checks
-// (--checks=false, or no test, typecheck or build command) keeps it.
+// sequentialNote is the parallelism note of a harness whose initial checks run
+// one at a time.
 func sequentialNote(requested int) string {
 	if requested > 1 {
-		return "The initial checks did not run in this review, so --parallel had no effect: every sandbox run ran one at a time."
+		return "Initial checks run one at a time: this build does not run them concurrently."
 	}
-	return parallelOneNote
+	return "Initial checks run one at a time."
 }
 
 // policyDigest is the policy_sha256 of the keys: the SHA-256 of the execution

@@ -2,7 +2,7 @@
 
 The execution cache lets `swiftproof review` replay the recorded result of a baseline-side sandbox run instead of executing it again, when the same inputs were already run live and two live runs agreed. It is **opt-in**: nothing is cached, read or written unless `--cache-dir DIR` is passed. Candidate-side runs are never cached; they always execute.
 
-A replay is not a fresh execution. It never supports a reproduced issue, a divergence or a `FAILS_ON_CANDIDATE` result, and the report marks every replayed check. It can, however, keep such a result from being recorded: a replayed baseline FAIL decides nothing, and nothing runs that baseline again (see the damage bound under [Trust and privacy](#trust-and-privacy)). The binding rules are §3.3, §3.4 and §F7 of the [v0.4 specification](../../specs/swiftproof-v0.4-spec.md). This page also describes `--parallel`, which runs the initial checks concurrently and is independent of the cache ([Parallel initial checks](#parallel-initial-checks)).
+A replay is not a fresh execution. It never supports a reproduced issue, a divergence or a `FAILS_ON_CANDIDATE` result, and the report marks every replayed check. It can, however, keep such a result from being recorded: a replayed baseline FAIL decides nothing, and nothing runs that baseline again (see the damage bound under [Trust and privacy](#trust-and-privacy)). The binding rules are §3.3, §3.4 and §F7 of the [v0.4 specification](../../specs/swiftproof-v0.4-spec.md).
 
 ## Enabling it
 
@@ -85,7 +85,7 @@ A **negative** status (`NOT_REPRODUCED`, `NOT_DIVERGED`, `PASSES_ON_CANDIDATE`) 
 - `checks[].cache` on stored and replayed baseline-side checks only (the schema refuses it on any kind that does not end in `_base`).
 - `execution`, present whenever a sandbox harness was created:
   - `cache`: `status` (`enabled` or `disabled`), `reason` when disabled, `scope` (`baseline_only`), `image_id`, `policy_sha256`, `runtime` (the Docker server identity), the counters `hits`, `stored`, `misses`, `uncacheable`, `rejected`, `write_failures`, `evicted`, `contradicted`, and a fixed `note`;
-  - `parallelism`: requested and effective concurrency of the initial checks, with a fixed note (see [Parallel initial checks](#parallel-initial-checks));
+  - `parallelism`: requested and effective concurrency of the initial checks;
   - `budget`: `max_runtime_ms`, `spent_ms`, `reviewer_reserve_ms`, `deadline_reached`;
   - `replay_backed`: evidence IDs, always an array.
 - The Markdown notes each stored or replayed check under **Automated Checks** and ends that section with the execution summary and the replay-backed evidence IDs.
@@ -134,21 +134,3 @@ A replay never produces exit 1 by itself, and a replay-backed negative conclusio
 - The key does not capture kernel or runtime internals beyond the recorded Docker server identity.
 - A replayed baseline says nothing about the candidate.
 - No speed-up is claimed without a measurement of the workload and environment.
-
-## Parallel initial checks
-
-```sh
-swiftproof review --base main --parallel 3
-```
-
-`--parallel N` (review only, 1 to 4, default 1; on `lint` it exits 3) lets the initial checks, test, typecheck and build, run up to N at a time. Nothing else runs concurrently: coverage, changed baseline tests, impacted tests, fuzzing, mutation, reviewer experiments and every baseline-side run stay one at a time. With `--checks=false` the flag is accepted and has no effect. It is independent of the cache: initial checks are candidate-side runs and are never cached.
-
-**The limit.** The effective concurrency is the smallest of N, the number of configured initial checks, and the number of sandboxes the Docker server can hold at once: its CPUs divided by `sandbox.cpus` and its memory divided by `sandbox.memory_mb`, whichever is lower. SwiftProof reads them with one `docker info` call (at most 15 seconds, bounded by `--deadline`), made only when more than one check could run at a time. If the call fails, the checks run one at a time and the note says why. With the default `sandbox.cpus: 2`, a Docker server with 2 CPUs runs them one at a time.
-
-**The budget rule.** The checks run in groups. A group of n checks starts together only while the runtime budget left under `sandbox.max_runtime_seconds` covers n full per-run timeouts (`sandbox.timeout_seconds` each); otherwise the group is smaller, down to a single check, which reserves what remains and is skipped when nothing does, exactly as without `--parallel`. So every check that runs beside others gets the policy's full per-run timeout, the timeouts reserved at the same time never exceed what remains of the budget, and each check is charged its own run time, as it is one at a time. Parallelism does not change a check's gates, timeout, classification, redaction, output bound or log retention.
-
-**Order.** The checks of a group are planned in configured order (their check IDs are fixed then), and they are recorded, with their log artifacts and their `run_<kind>` audit events, in that order once every check of the group has ended. The audit events of a group carry the group's start time. Nothing else runs, and nothing reads the recorded checks, while a group runs.
-
-**What the report says.** `execution.parallelism` records `requested`, `effective` (the most initial checks that ran at the same time) and a `note` built from fixed sentences: why `effective` is below `requested` (fewer checks, the Docker server's capacity, an unreadable capacity, the budget rule, checks of a group that were recorded without starting a sandbox, for example after the deadline) and, when checks ran at the same time, the rules above. A review whose initial checks did not run records that `--parallel` had no effect. With `--parallel` above 1, standard output gets `Initial checks: up to E at a time (requested R).`, and the Markdown ends **Automated Checks** with the same values and the note.
-
-**What it does not claim.** Concurrent sandboxes share the Docker host's CPUs, memory and disk, within each sandbox's own limits, so a check can take longer than it would alone; a suite that runs close to its timeout can reach it. No speed-up is claimed without a measurement ([measured costs](PERFORMANCE.md)); run your checks with `--parallel 1` and with a higher value and compare.
