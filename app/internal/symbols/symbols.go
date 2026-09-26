@@ -70,9 +70,12 @@ type Limits struct {
 	// functions not fully searched within it are reported, and the section
 	// is limited.
 	MaxSearchVisits int64
-	// Timeout bounds the whole analysis. It is checked between packages and
+	// Timeout is the analysis time limit. It is checked between packages and
 	// on each type error (remaining packages are not indexed), and during the
-	// impact searches (remaining callers and tests are not searched).
+	// impact searches, before every interface-implementation check (remaining
+	// callers and tests are not searched). go/types cannot be interrupted
+	// otherwise: the type check of one package that produces no type error
+	// runs to its end, so the limit does not bound the whole analysis.
 	Timeout time.Duration
 }
 

@@ -80,8 +80,9 @@ type Index struct {
 	changed      map[int32]string // declaration -> change class, set by Analyze
 	indexedFiles int
 
-	mu   sync.Mutex
-	impl map[int32]implEntry
+	mu    sync.Mutex
+	impl  map[int32]implEntry
+	steps map[*types.Named]int64 // lookupSteps of receiver types, guarded by mu
 
 	snipMu        sync.Mutex
 	redacted      map[int32][]string // whole-file redaction of indexed files, split in lines
@@ -89,10 +90,13 @@ type Index struct {
 }
 
 // implEntry is the cached result of implementers: the interface methods, and
-// whether candidates beyond maxImplementCandidates were left unchecked.
+// which candidates were left unchecked (see the budget flags of the same
+// names).
 type implEntry struct {
-	ids    []int32
-	capped bool
+	ids     []int32
+	capped  bool
+	costly  bool
+	generic bool
 }
 
 // builder is the state of one index construction.
@@ -117,7 +121,8 @@ type builder struct {
 	timedOut int // packages not checked because the time limit was reached
 }
 
-// newBuilder starts an index construction that stops type-checking at deadline.
+// newBuilder starts an index construction whose type checks stop at deadline
+// on their next type error (Analyze also checks it between packages).
 func newBuilder(fset *token.FileSet, limits Limits, deadline time.Time) *builder {
 	return &builder{fset: fset, limits: limits, deadline: deadline, checked: map[string]*types.Package{}, fakes: map[string]*types.Package{}, declID: map[string]int32{}, fileID: map[string]int32{}, recv: map[int32]*types.Named{}, ifaces: map[int32]*types.Interface{}}
 }
@@ -597,7 +602,7 @@ func (b *builder) finish(content map[string][]byte, indexedFiles int) *Index {
 	}
 	sort.Slice(perm, func(i, j int) bool { return b.decls[perm[i]].Key < b.decls[perm[j]].Key })
 	remap := make([]int32, len(b.decls))
-	x := &Index{byKey: map[string]int32{}, byName: map[string][]int32{}, content: content, recv: map[int32]*types.Named{}, ifaces: map[int32]*types.Interface{}, ifaceByName: map[string][]int32{}, changed: map[int32]string{}, impl: map[int32]implEntry{}, redacted: map[int32][]string{}, indexedFiles: indexedFiles}
+	x := &Index{byKey: map[string]int32{}, byName: map[string][]int32{}, content: content, recv: map[int32]*types.Named{}, ifaces: map[int32]*types.Interface{}, ifaceByName: map[string][]int32{}, changed: map[int32]string{}, impl: map[int32]implEntry{}, steps: map[*types.Named]int64{}, redacted: map[int32][]string{}, indexedFiles: indexedFiles}
 	for newID, old := range perm {
 		remap[old] = int32(newID)
 		x.decls = append(x.decls, b.decls[old])
@@ -731,63 +736,268 @@ func (x *Index) callees(id int32) []int32 {
 // the receiver type of the concrete method id (T or *T) implements. A call to
 // one of them may dispatch to id; the dispatch itself is not resolved.
 //
+// For a method of a generic type the check is made on the generic type
+// itself. It finds the interfaces that every instantiation implements: those
+// whose methods match methods of the type with signatures that do not use its
+// type parameters. An interface that some instantiation may implement through
+// a signature that uses them is not listed, and bud.implGeneric is set.
+//
 // Only the first maxImplementCandidates interface methods of the same name are
-// checked; when more exist, bud.implCapped is set. Each check is charged to
-// bud (one unit plus the interface's method count). When bud stops during the
-// checks, the partial result is returned and not cached; the caller sees
+// checked; when more exist, bud.implCapped is set. A single go/types check can
+// cost far more than a unit (see lookupSteps), so a check whose estimated
+// work exceeds maxImplementSteps is not made and sets bud.implCostly; the
+// deadline and the context are checked before every other check, and each is
+// charged to bud in proportion to its estimated work. When bud stops during
+// the checks, the partial result is returned and not cached; the caller sees
 // bud.stopped.
 func (x *Index) implementers(id int32, bud *budget) []int32 {
 	if x == nil {
 		return nil
 	}
 	named, ok := x.recv[id]
-	if !ok || named.TypeParams().Len() > 0 {
+	if !ok {
 		return nil
 	}
 	// The lock also serializes the go/types calls below.
 	x.mu.Lock()
 	defer x.mu.Unlock()
 	if entry, ok := x.impl[id]; ok {
-		if entry.capped {
-			bud.implCapped = true
-		}
+		entry.flag(bud)
 		return entry.ids
 	}
-	name := x.decls[id].Name[strings.LastIndex(x.decls[id].Name, ".")+1:]
-	candidates := x.ifaceByName[name]
-	capped := len(candidates) > maxImplementCandidates
-	if capped {
+	candidates := x.ifaceByName[lastName(x.decls[id].Name)]
+	entry := implEntry{capped: len(candidates) > maxImplementCandidates}
+	if entry.capped {
 		candidates = candidates[:maxImplementCandidates]
 	}
-	var out []int32
+	generic := named.TypeParams().Len() > 0
 	interrupted := false
 	func() {
 		// go/types on faked imports is exercised far from its usual inputs; a
 		// panic here only loses interface edges.
 		defer func() { _ = recover() }()
+		steps := x.lookupStepsLocked(named)
 		ptr := types.NewPointer(named)
 		for _, im := range candidates {
 			iface := x.ifaces[im]
 			if iface == nil || iface.Empty() {
 				continue
 			}
-			if !bud.spend(1 + iface.NumMethods()) {
+			work := implementWork(iface.NumMethods(), steps, generic)
+			if work > maxImplementSteps {
+				entry.costly = true
+				continue
+			}
+			if !bud.ok() || !bud.spend(1+iface.NumMethods()+int(work>>10)) {
 				interrupted = true
 				return
 			}
-			if types.Implements(named, iface) || types.Implements(ptr, iface) {
-				out = append(out, im)
+			switch {
+			case types.Implements(named, iface) || types.Implements(ptr, iface):
+				entry.ids = append(entry.ids, im)
+			case generic && mayImplementOnceInstantiated(ptr, iface):
+				entry.generic = true
 			}
 		}
 	}()
-	if interrupted {
-		return out
+	entry.flag(bud)
+	if !interrupted {
+		x.impl[id] = entry
 	}
-	if capped {
-		bud.implCapped = true
+	return entry.ids
+}
+
+// flag records on bud which candidates the lookup left unchecked.
+func (e implEntry) flag(bud *budget) {
+	bud.implCapped = bud.implCapped || e.capped
+	bud.implCostly = bud.implCostly || e.costly
+	bud.implGeneric = bud.implGeneric || e.generic
+}
+
+// maxImplementSteps bounds the estimated go/types work (implementWork) of one
+// implementation check of a receiver type against one interface. It is a
+// variable only so that tests can lower it. Measured in golang:1.26-bookworm
+// with 2 CPUs while other builds ran (BenchmarkImplementsWideEmbedding), a
+// step cost 5.5 to 11 ns, so the largest check made takes up to about 100 ms.
+var maxImplementSteps int64 = 1 << 23
+
+// implementWork estimates the go/types work of checking a receiver type whose
+// lookups cost steps each (lookupSteps) against an interface of n methods:
+// types.Implements looks up each method, and once more for a missing one, on
+// T and on *T; for a generic type, mayImplementOnceInstantiated looks up each
+// method once more.
+func implementWork(n int, steps int64, generic bool) int64 {
+	lookups := 2 * int64(n+2)
+	if generic {
+		lookups += int64(n)
 	}
-	x.impl[id] = implEntry{ids: out, capped: capped}
-	return out
+	return lookups * steps
+}
+
+// lookupStepsLocked returns the cached lookupSteps of a receiver type; x.mu is
+// held. The smallest check makes six lookups, so an estimate above a sixth of
+// maxImplementSteps is not refined.
+func (x *Index) lookupStepsLocked(named *types.Named) int64 {
+	if s, ok := x.steps[named]; ok {
+		return s
+	}
+	s := lookupSteps(named, maxImplementSteps/6)
+	x.steps[named] = s
+	return s
+}
+
+// lookupSteps estimates an upper bound, in elementary steps, of the work of
+// one go/types lookup of a field or method name that named (or *named) does
+// not have. go/types walks the embedded types breadth first. It scans the
+// methods and fields of each type it meets, compares an instance of a generic
+// type with the instances of the same type met before, and before each level
+// de-duplicates the level's embedded types by comparing each with every
+// distinct type kept so far, which is quadratic in the width of the level. A
+// struct that embeds a few thousand types therefore costs hundreds of
+// milliseconds per lookup. The walk here is linear in the types and fields it
+// meets: named types are de-duplicated by pointer, which can only
+// overestimate. It stops once the estimate exceeds limit and returns limit+1.
+func lookupSteps(named *types.Named, limit int64) int64 {
+	var steps int64
+	seen := map[*types.Named]bool{}
+	instances := map[*types.Named]int64{} // instances met per generic origin
+	current := []types.Type{named}
+	for len(current) > 0 {
+		var next []types.Type
+		for _, t := range current {
+			steps++
+			if n, ok := types.Unalias(t).(*types.Named); ok {
+				if seen[n] {
+					continue
+				}
+				seen[n] = true
+				steps += int64(n.NumMethods())
+				if n.TypeArgs().Len() > 0 {
+					o := n.Origin()
+					steps += instances[o]
+					instances[o]++
+				}
+			}
+			switch u := t.Underlying().(type) {
+			case *types.Struct:
+				steps += int64(u.NumFields())
+				for i := 0; i < u.NumFields(); i++ {
+					if f := u.Field(i); f.Embedded() {
+						ft := types.Unalias(f.Type())
+						if p, ok := ft.(*types.Pointer); ok {
+							ft = p.Elem()
+						}
+						next = append(next, ft)
+					}
+				}
+			case *types.Interface:
+				steps += int64(u.NumMethods())
+			}
+			if steps > limit {
+				return limit + 1
+			}
+		}
+		w := int64(len(next))
+		steps += w * w
+		if steps > limit {
+			return limit + 1
+		}
+		current = next
+	}
+	return steps
+}
+
+// mayImplementOnceInstantiated reports whether some instantiation of a
+// generic receiver type may implement iface although the generic type itself
+// does not: every method of iface is a method of the type (ptr is its pointer
+// type) by name, since method names do not depend on the type arguments, and
+// at least one of those methods has a signature that uses type parameters, so
+// it may match after substitution.
+func mayImplementOnceInstantiated(ptr types.Type, iface *types.Interface) bool {
+	usesParams := false
+	for i := 0; i < iface.NumMethods(); i++ {
+		m := iface.Method(i)
+		obj, _, _ := types.LookupFieldOrMethod(ptr, false, m.Pkg(), m.Name())
+		fn, ok := obj.(*types.Func)
+		if !ok {
+			return false
+		}
+		if !usesParams {
+			if sig, ok := fn.Type().(*types.Signature); ok {
+				usesParams = usesTypeParams(sig.Params()) || usesTypeParams(sig.Results())
+			}
+		}
+	}
+	return usesParams
+}
+
+// usesTypeParams reports whether t mentions a type parameter. A named type is
+// not expanded, only its type arguments. A type too large or too deep to walk
+// within a small bound counts as mentioning one, which can only report the
+// generic-receiver gap more often.
+func usesTypeParams(t types.Type) bool {
+	left := 10000
+	var walk func(t types.Type, depth int) bool
+	walk = func(t types.Type, depth int) bool {
+		left--
+		if left < 0 || depth > 64 {
+			return true
+		}
+		switch t := types.Unalias(t).(type) {
+		case *types.TypeParam:
+			return true
+		case *types.Named:
+			args := t.TypeArgs()
+			for i := 0; i < args.Len(); i++ {
+				if walk(args.At(i), depth+1) {
+					return true
+				}
+			}
+		case *types.Pointer:
+			return walk(t.Elem(), depth+1)
+		case *types.Slice:
+			return walk(t.Elem(), depth+1)
+		case *types.Array:
+			return walk(t.Elem(), depth+1)
+		case *types.Map:
+			return walk(t.Key(), depth+1) || walk(t.Elem(), depth+1)
+		case *types.Chan:
+			return walk(t.Elem(), depth+1)
+		case *types.Signature:
+			return walk(t.Params(), depth+1) || walk(t.Results(), depth+1)
+		case *types.Tuple:
+			for i := 0; i < t.Len(); i++ {
+				if walk(t.At(i).Type(), depth+1) {
+					return true
+				}
+			}
+		case *types.Struct:
+			for i := 0; i < t.NumFields(); i++ {
+				if walk(t.Field(i).Type(), depth+1) {
+					return true
+				}
+			}
+		case *types.Interface:
+			for i := 0; i < t.NumExplicitMethods(); i++ {
+				if walk(t.ExplicitMethod(i).Type(), depth+1) {
+					return true
+				}
+			}
+			for i := 0; i < t.NumEmbeddeds(); i++ {
+				if walk(t.EmbeddedType(i), depth+1) {
+					return true
+				}
+			}
+		case *types.Union:
+			for i := 0; i < t.Len(); i++ {
+				if walk(t.Term(i).Type(), depth+1) {
+					return true
+				}
+			}
+		}
+		return false
+	}
+	return walk(t, 0)
 }
 
 // Files returns the number of Go files the index type-checked.

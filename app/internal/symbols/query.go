@@ -22,15 +22,15 @@ const (
 // Work bounds of one query: every reference visited, interface check and
 // redacted snippet file is charged to a budget of maxQueryWork units, and the
 // query stops after queryTimeout or when its context ends, whichever comes
-// first. A query that meets a bound answers with what it found and
-// "truncated": true.
-const (
-	maxQueryWork = 2000000
-	queryTimeout = 10 * time.Second
-)
+// first; both are checked before every interface check. A query that meets a
+// bound answers with what it found and "truncated": true.
+const maxQueryWork = 2000000
+
+// queryTimeout is a variable only so that tests can lower it.
+var queryTimeout = 10 * time.Second
 
 // truncatedNote explains "truncated": true in a tool response.
-const truncatedNote = "Not every result is listed: the response keeps at most the listed number of entries, and the search stops at its visit, work and time bounds and checks at most 200 interface methods of one name. More may exist."
+const truncatedNote = "Not every result is listed: the response keeps at most the listed number of entries, and the search stops at its visit, work and time bounds. It checks at most 200 interface methods of one name, does not check receiver types too large for its bound against interfaces, and does not check interfaces a generic type may implement only once instantiated. More may exist."
 
 // Query answers the reviewer tools find_references, inspect_symbol and
 // find_callers from the index, satisfying harness.SymbolIndex. found is false
@@ -198,7 +198,7 @@ func (x *Index) referencesOf(id int32, bud *budget) map[string]any {
 	}
 	out := map[string]any{
 		"method": Method, "limitations": Limitations, "declaration": x.declaration(id),
-		"references": refs, "references_total": total, "truncated": total > len(refs) || bud.stopped || bud.implCapped,
+		"references": refs, "references_total": total, "truncated": total > len(refs) || bud.stopped || bud.implGap(),
 	}
 	if matches, n := x.nameMatches(id, bud); n > 0 {
 		out["name_matches"] = matches
@@ -295,7 +295,7 @@ func (x *Index) callers(id int32, depth int, bud *budget) map[string]any {
 	}
 	return map[string]any{
 		"method": Method, "limitations": Limitations, "declaration": x.declaration(id), "depth": depth,
-		"callers": results, "callers_total": total, "truncated": truncated || bud.implCapped || total > len(results),
+		"callers": results, "callers_total": total, "truncated": truncated || bud.implGap() || total > len(results),
 	}
 }
 
@@ -375,6 +375,6 @@ func (x *Index) inspect(id int32, bud *budget) map[string]any {
 	out["tests_reaching"] = listed
 	out["tests_reaching_total"] = total
 	out["tests_reaching_note"] = "Existing TestX functions that reach this declaration within 3 references in the static index. Reaching a function is not evidence that a test asserts its behavior."
-	out["truncated"] = bud.stopped || bud.implCapped || capped || calleeTotal > len(callees)
+	out["truncated"] = bud.stopped || bud.implGap() || capped || calleeTotal > len(callees)
 	return out
 }

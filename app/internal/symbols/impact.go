@@ -458,6 +458,8 @@ const (
 	reasonTestsStopped   = "the reaching-test search stopped at its time or visit limit; reaching tests of this function may be missing"
 	reasonReachCapped    = "the reaching-test search stopped at its declaration limit; reaching tests of this function may be missing"
 	reasonImplCapped     = "interface methods beyond the first ones with the same name were not checked; interface calls reaching this function may be missing"
+	reasonImplCostly     = "a receiver type met by the search is too large to check against some interfaces (a wide embedding, or many fields or methods); interface calls reaching this function may be missing"
+	reasonImplGeneric    = "a generic receiver type met by the search may implement some interfaces only once instantiated, which is not checked; interface calls reaching this function may be missing"
 )
 
 // describe fills the changed functions, their callers and reaching tests, and
@@ -523,7 +525,26 @@ func (a *analysis) describe(ctx context.Context, x *Index, mods modules, deadlin
 	}
 
 	reasons := make([][]string, len(fns))
-	callersCut, testsCut, reachCapped, implCapped := 0, 0, 0, 0
+	callersCut, testsCut, reachCapped := 0, 0, 0
+	implCapped, implCostly, implGeneric := 0, 0, 0
+	// implReasons adds the reasons of the interface methods an implementers
+	// lookup left unchecked during the search of function i, once each.
+	implReasons := func(i int, b *budget) {
+		for _, gap := range []struct {
+			on     bool
+			reason string
+			count  *int
+		}{
+			{b.implCapped, reasonImplCapped, &implCapped},
+			{b.implCostly, reasonImplCostly, &implCostly},
+			{b.implGeneric, reasonImplGeneric, &implGeneric},
+		} {
+			if gap.on && !contains(reasons[i], gap.reason) {
+				*gap.count++
+				reasons[i] = append(reasons[i], gap.reason)
+			}
+		}
+	}
 	signalled := 0
 	callerBudget := newBudget(ctx, deadline, a.lim.MaxSearchVisits)
 	for i := range fns {
@@ -531,12 +552,9 @@ func (a *analysis) describe(ctx context.Context, x *Index, mods modules, deadlin
 			continue
 		}
 		fn := &fns[i]
-		callerBudget.implCapped = false
+		callerBudget.resetImpl()
 		sites, ok := x.sites(ids[i], touchedKeys, added, callerBudget)
-		if callerBudget.implCapped {
-			implCapped++
-			reasons[i] = append(reasons[i], reasonImplCapped)
-		}
+		implReasons(i, callerBudget)
 		if !ok {
 			callersCut++
 			reasons[i] = append(reasons[i], reasonCallersStopped)
@@ -567,13 +585,10 @@ func (a *analysis) describe(ctx context.Context, x *Index, mods modules, deadlin
 			continue
 		}
 		fn := &fns[i]
-		testBudget.implCapped = false
+		testBudget.resetImpl()
 		tests, total, ok, capped := x.reachingTests(ids[i], mods, a.changedPaths, testBudget)
 		fn.Tests, fn.TestsTotal = tests, total
-		if testBudget.implCapped && !contains(reasons[i], reasonImplCapped) {
-			implCapped++
-			reasons[i] = append(reasons[i], reasonImplCapped)
-		}
+		implReasons(i, testBudget)
 		if capped {
 			reachCapped++
 			reasons[i] = append(reasons[i], reasonReachCapped)
@@ -612,6 +627,12 @@ func (a *analysis) describe(ctx context.Context, x *Index, mods modules, deadlin
 	}
 	if implCapped > 0 {
 		a.limit(fmt.Sprintf("more than %d interface methods share a method name the search met; the others were not checked, so interface calls reaching %d changed functions may be missing", maxImplementCandidates, implCapped))
+	}
+	if implCostly > 0 {
+		a.limit(fmt.Sprintf("receiver types whose check against an interface would exceed %d estimated type-checker steps (a wide embedding, or many fields or methods) were not checked, so interface calls reaching %d changed functions may be missing", maxImplementSteps, implCostly))
+	}
+	if implGeneric > 0 {
+		a.limit(fmt.Sprintf("interfaces that a generic receiver type may implement only once instantiated were not checked, so interface calls reaching %d changed functions may be missing", implGeneric))
 	}
 	return nil
 }

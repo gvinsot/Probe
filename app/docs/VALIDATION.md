@@ -130,6 +130,31 @@ The three entries below record the runs that the F0a, F0b and F0d implementers r
   - `lint --base main` on the shop fixture: exit 0, the same impact as the first entry (2 changed functions, 2 caller sites, 2 reaching tests).
   - `review --config <policy with the scripted loopback provider> --ci` on the shop fixture: exit 2 after 70 s (test and coverage FAIL, as in the first entry); the provider's `find_callers`, `inspect_symbol` and `find_references` calls were answered with `method: go_static_index`, `Totaler` lexically with the index note, and depth 4 was refused. No `swiftproof-` container created by these runs remained.
 - `BenchmarkImpactSearchAdversarial` (three runs of three iterations) gave the adversarial-shape costs in [performance](PERFORMANCE.md).
+
+**2026-09-26, F6a second review fixes (branch `feat/f6a-index`).** Same host and images. The fixes:
+
+- Each interface-implementation check is estimated from the receiver type's embedded types, fields and methods and the interface's methods. A check estimated above 8,388,608 `go/types` steps is not made: the section is `limited` with a reason, and tool answers are `truncated`.
+- The time limit and cancellation are checked before every check, and each check is charged to the budget in proportion to its estimate.
+- A method of a generic type is checked on the generic type. An interface that only some instantiation may implement is reported as a gap.
+- The documentation no longer presents the 120 s limit as a bound on the whole analysis: the type check of one package without type errors is not interrupted.
+
+- From `app/` in `golang:1.26-bookworm`: `go vet ./...` and `go test -count=1 ./...` exit 0; `CGO_ENABLED=1 go test -race -count=1` of `internal/symbols`, `internal/cli`, `internal/harness` and `internal/report` exits 0. From `hub/`: `go vet ./...` and `go test -count=1 ./...` exit 0. In `golang:1.23-bookworm`: `go vet ./...` from `app/` with and without the workspace, and `GOWORK=off go test -count=1` of `symbols`, `cli`, `report`, `model` and `harness`, exit 0.
+- New tests: `TestLookupSteps`, `TestUsesTypeParams`, `TestWideEmbeddingReceiverNotChecked`, `TestImplementersCheckDeadlineBeforeEachCheck`, `TestImplementationChecksStopAtTimeLimitsAndCancel` and `TestGenericReceiverInterfaceCallers`. Copies of the last three, adapted to compile against the previous commit `b17b451`, failed there:
+  - a budget past its deadline did not stop the implementation checks;
+  - the searches took 15.1 s against a 1 s deadline;
+  - `Box.Size` got no interface caller.
+- Windows amd64 test binaries: the `symbols`, `report`, `harness` and `cli` suites pass on the host; with `SWIFTPROOF_TEST_DOCKER_IMAGE=golang:1.26-bookworm`, `TestDockerReviewEndToEnd`, `TestDockerReviewSkeletonAroundRealChecks` and `TestDockerDeadlineStopsRunningCheck` pass.
+- A Windows binary built from the fixes (`-X main.version=F6afix2-e2e`):
+  - `lint --base main` on the shop fixture: exit 0, `indexed`, the same impact as the first entry.
+  - `lint --base main` on a fixture with 1,000 types, each embedding a struct of 3,000 empty types and each with a `Do` method calling the changed `f.F`, and 200 interfaces `I{ Do() int; Xk() }`: exit 0 in 0.3 s. `limited` with the implementation-check reason; `callers_total` 1,000 and `tests_total` 1 for `f.F`; 10 `impacted_caller` signals and one `analysis_limited` signal.
+  - `lint --base main` on a fixture where `Box[T].Size() int` and `Box[T].Get() T` changed, with `Sizer{ Size() int }` and `IntGetter{ Get() int }` called in `u/u.go`: exit 0. `Box.Size` has the `interface` caller `u/u.go:5`; `Box.Get` has the generic-receiver reason, and the section is `limited`.
+  - `review --checks=false` with a scripted loopback provider on the wide fixture: exit 0 in 0.35 s. `find_references` (`ts.T40.Do`), `inspect_symbol` (`ifs.I0.Do`) and `find_callers` (`f.F`, depth 2) were answered with `method: go_static_index` and `"truncated": true` (`callers_total` 1,001), and each call is audited.
+  - `review --config policy.json --reviewer=false --ci` on the shop fixture: exit 2 after 45 s. Test and coverage FAIL, typecheck and build PASS, as in the first entry; the impact is as in lint.
+  - The fixture checkouts stayed clean, and no `swiftproof-` container created by these runs remained.
+- The review's probe tests, run in a scratch copy of the fixed code and not committed, with 2 CPUs:
+  - The shapes the review had measured on the previous code at 1 min 44 s (3 s limit), 2 min 33 s (default limits) and 6 min 58 s (6,000 embedded types) ended in 24–307 ms, `limited`.
+  - With 1,000 embedded types and 1,000 types (each check within the bound), a 3 s limit ended the analysis at 3.013 s. A cancellation at 3 s returned `context canceled` at 3.021 s, and `find_references ts.T40.Do` took 5.0 s against its 10 s bound.
+- `BenchmarkImplementsWideEmbedding` (three runs), `BenchmarkImpactSearchWideEmbedding` and `BenchmarkImpactSearchAdversarial` (three runs of three iterations each) gave the costs in [performance](PERFORMANCE.md).
 <!-- F6:end -->
 
 <!-- F7:begin -->

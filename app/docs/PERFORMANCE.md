@@ -42,15 +42,24 @@ Measured on 2026-09-26 in `golang:1.26-bookworm` (Go 1.26.8, linux/amd64) on the
 
 The standard library is a stress case, not a typical repository: its module path `std` is not a prefix of its import paths, so every import is treated as outside the repository, and one skipped 2 MiB generated file leaves its large package with many unresolved names. Before imported packages were marked so that `go/types` skips building error messages for missing names, the same run took 20–39 s (three runs), spent mostly sorting that package's names once per unresolved reference; the 120 s limit, also checked on every type error, bounds such cases.
 
-The impact searches were measured on an adversarial shape, `BenchmarkImpactSearchAdversarial` (same day and setup, three runs of three iterations): 1,000 types whose `Do` method calls every changed function, one interface `I{ Do() }` called 200,000 times, and one test reaching a caller (33 indexed files). Every changed function then reaches the 200,000 interface calls through 1,000 implementing methods.
+The impact searches were measured on an adversarial shape, `BenchmarkImpactSearchAdversarial` (same day and setup, three runs of three iterations, re-measured after the implementation-check bound below was added): 1,000 types whose `Do` method calls every changed function, one interface `I{ Do() }` called 200,000 times, and one test reaching a caller (33 indexed files). Every changed function then reaches the 200,000 interface calls through 1,000 implementing methods.
 
 | Changed functions | Time per analysis | Allocated per analysis | `impact.status` |
 | --- | --- | --- | --- |
-| 1 | 388–528 ms | 205 MB | `indexed` |
-| 10 | 624–647 ms | 218 MB | `indexed` |
-| 200 | 0.80–1.44 s | 435 MB | `limited`: the reaching-test search reached its 10,000,000-visit budget |
+| 1 | 233–334 ms | 204–206 MB | `indexed` |
+| 10 | 254–394 ms | 218 MB | `indexed` |
+| 200 | 0.60–1.12 s | 435 MB | `limited`: the reaching-test search reached its 10,000,000-visit budget |
 
 Each search follows an interface method's references once, and every visit is charged to the search budget. Before that, a review run of a similar shape (1,000 calls per caller function) with a 2 s time limit, which the searches did not check then, took 6.9 s with one changed function and 76 s with ten, and stayed `indexed`.
+
+One implementation check can cost far more than a visit. `go/types` compares each embedded type of one embedding level with every distinct type kept so far, so a lookup on a type that embeds a wide struct costs time quadratic in the struct's width. `BenchmarkImplementsWideEmbedding` (same day and setup, three runs) checks `T` and `*T` against a two-method interface that `T` does not implement. It measured 0.74–0.92 ms per check at width 100, 5.5–5.6 ms at 300 and 44–61 ms at 1,000, or 5.5 to 11 ns per estimated step. A check estimated above 8,388,608 steps is not made. `BenchmarkImpactSearchWideEmbedding` (three runs of three iterations, with a 3 s time limit) uses 1,000 types whose `Do` method calls the changed function and embeds a struct of 1,000 or 3,000 empty types, 200 interfaces `I{ Do() int; Xk() }`, and one test reaching a caller:
+
+| Embedded types | Time per analysis | Allocated per analysis | `impact.status` |
+| --- | --- | --- | --- |
+| 1,000 | 3.009–3.028 s | 158–240 MB | `limited`: each check is estimated within the bound, and the reaching-test search stopped at the 3 s time limit |
+| 3,000 | 138–485 ms | 177 MB | `limited`: no check is made, since each is estimated above the bound |
+
+Before the bound, and before the time limit was checked ahead of every implementation check, the searches noticed the limit only every 1,024 work units, about 340 checks. On that code, the test `TestImplementationChecksStopAtTimeLimitsAndCancel` (900 embedded types, 50 types) took 15.1 s against a 1 s search deadline (one run). The review of that code measured 1 min 44 s with a 3 s limit for 3,000 embedded types and 50 types. The type check is not bounded this way: a package without type errors that uses selectors on such a type is checked to its end (see [impact analysis](IMPACT.md#trust-and-security)).
 
 Reproduce with:
 
@@ -58,6 +67,8 @@ Reproduce with:
 go test ./internal/symbols -run '^$' -bench IndexSynthetic -benchmem
 SWIFTPROOF_BENCH_REPO=/path/to/git/repo go test ./internal/symbols -run '^$' -bench AnalyzeRepository -benchtime 3x -benchmem
 go test ./internal/symbols -run '^$' -bench ImpactSearchAdversarial -benchtime 3x -benchmem
+go test ./internal/symbols -run '^$' -bench ImplementsWideEmbedding -count 3
+go test ./internal/symbols -run '^$' -bench ImpactSearchWideEmbedding -benchtime 3x -benchmem
 ```
 <!-- F6:end -->
 

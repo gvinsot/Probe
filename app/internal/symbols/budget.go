@@ -12,9 +12,11 @@ const budgetCheckEvery = 1024
 // budget bounds the work of one search over the index: every reference
 // visited and every interface-implementation check is charged against a
 // fixed number of units, and the deadline and the context are checked every
-// budgetCheckEvery units and at the start of each search. Once any of them is
-// reached the budget stays stopped, and the search that noticed returns what
-// it found so far as incomplete. A budget is used by one goroutine.
+// budgetCheckEvery units, at the start of each search and before every
+// implementation check (one check can cost far more than a unit). Once any of
+// them is reached the budget stays stopped, and the search that noticed
+// returns what it found so far as incomplete. A budget is used by one
+// goroutine.
 type budget struct {
 	ctx        context.Context
 	deadline   time.Time
@@ -29,6 +31,26 @@ type budget struct {
 	// maxImplementCandidates: interface methods of the same name beyond it
 	// were not checked, and the search went on without them.
 	implCapped bool
+	// implCostly records that an implementers lookup skipped checks whose
+	// estimated go/types work exceeded maxImplementSteps (a receiver type
+	// with a wide embedding, or many fields or methods).
+	implCostly bool
+	// implGeneric records that an implementers lookup met an interface that a
+	// generic receiver type may implement only once instantiated, which is
+	// not checked.
+	implGeneric bool
+}
+
+// resetImpl clears the implementers flags before the search of one changed
+// function.
+func (b *budget) resetImpl() {
+	b.implCapped, b.implCostly, b.implGeneric = false, false, false
+}
+
+// implGap reports whether an implementers lookup left interface methods
+// unchecked.
+func (b *budget) implGap() bool {
+	return b.implCapped || b.implCostly || b.implGeneric
 }
 
 func newBudget(ctx context.Context, deadline time.Time, units int64) *budget {
