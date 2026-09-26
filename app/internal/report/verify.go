@@ -143,7 +143,10 @@ func (l *ledger) reject(id string) {
 //   - (a) a verified DIVERGED differential_observation has the same CheckID;
 //   - (b) its CheckID is in masked, the set observationMasks returns (every
 //     candidate check whose observation record, whatever its verified status,
-//     recorded a key on both sides with different full values).
+//     recorded a key on both sides with different full values; F1 extends this
+//     to fail closed: one-sided keys, unreadable values, redacted keys or
+//     values and channel errors also count, and the values are also read from
+//     each differential_test's own checks, so the set can only be larger).
 func (l *ledger) applyMasks(masked map[string]bool) {
 	diverged := map[string]bool{}
 	for id, status := range l.verified {
