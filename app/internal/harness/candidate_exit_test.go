@@ -56,9 +56,15 @@ func TestCandidateCaptureScriptKeepsHighExitCodesForTheSandbox(t *testing.T) {
 			t.Errorf("capture script: command status %s changed", status)
 		}
 	}
-	// Outside a sandbox /source does not exist: the copy step fails with 125.
+	// A failed snapshot copy exits 125. The copy source is replaced by a path
+	// that does not exist, so the step fails wherever the test runs (inside
+	// a SwiftProof sandbox /source exists) and copies nothing.
 	if _, err := exec.LookPath("cp"); err == nil {
-		if got := exitOf(candidateCaptureScript(path), "0"); got != 125 {
+		failing := strings.Replace(candidateCaptureScript(path), "cp -R /source/. ", "cp -R /nonexistent/swiftproof-source/. ", 1)
+		if failing == candidateCaptureScript(path) {
+			t.Fatal("the copy step was not found")
+		}
+		if got := exitOf(failing, "0"); got != 125 {
 			t.Errorf("a failed snapshot copy gave %d, want 125", got)
 		}
 	}
