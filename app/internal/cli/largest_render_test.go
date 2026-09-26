@@ -142,6 +142,11 @@ func TestLargestReportReRendersWithinTheInputLimit(t *testing.T) {
 	if testing.Short() {
 		t.Skip("builds and renders a report of tens of MiB")
 	}
+	if raceEnabled {
+		// A pure data-size test: the race detector adds no coverage and
+		// turns 16 s into about five minutes.
+		t.Skip("skipped under the race detector")
+	}
 	dir := t.TempDir()
 	r := largestReport()
 	report.Finalize(&r, true)
