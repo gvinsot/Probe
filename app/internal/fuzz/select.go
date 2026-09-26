@@ -125,30 +125,50 @@ func Select(baseDir, candidateDir string, change model.Change, signals []model.S
 }
 
 // SelectAll plans the changed Go functions (Select) and the changed TS/JS
-// functions (SelectScripts) of change under one budget: their packages and
-// modules are taken in the order of their best function up to max_packages,
-// then functions up to max_functions, with the priority rules of Select (a
-// TS/JS function is exported, and its module counts as a package). family is
-// the runner family of the generated_test template (ScriptFamily); when it
-// is "", no TS/JS harness can run and every eligible TS/JS function is
-// skipped with ReasonScriptTemplate. ctx bounds the TS/JS enumeration (the
-// fuzz sub-cap and --deadline). Nothing is executed.
+// functions (SelectScripts) of change that the generated_test template can
+// run, with the budget and priority rules of Select (a TS/JS function is
+// exported, and its module counts as a package). family is the runner family
+// of the template (ScriptFamily), which decides the language:
+//   - "": no TS/JS harness can run. Every eligible TS/JS function is skipped
+//     with ReasonScriptTemplate, and the Go functions are planned (the
+//     caller decides whether the template runs them).
+//   - vitest or jest: the template cannot be a Go fuzz template. Every
+//     eligible Go function is skipped with ReasonGoTemplate and counted in
+//     Plan.GoTemplateSkipped before the budget, so it takes no share of it,
+//     and an eligible TS/JS function whose module the runner cannot target
+//     is skipped with that reason (scriptRunnerProblem).
+//
+// ctx bounds the TS/JS enumeration (the fuzz sub-cap and --deadline).
+// Nothing is executed.
 func SelectAll(ctx context.Context, baseDir, candidateDir string, change model.Change, signals []model.Signal, limits Limits, family string) (Plan, error) {
 	eligible, skipped, s, err := selectGo(baseDir, candidateDir, change, signals, limits)
 	if err != nil {
 		return Plan{}, err
 	}
+	goTemplateSkipped := 0
+	if family != "" {
+		for _, t := range eligible {
+			skipped = append(skipped, model.FuzzSkip{Path: t.Path, Line: t.Line, Symbol: t.Symbol, Reason: ReasonGoTemplate})
+		}
+		goTemplateSkipped, eligible = len(eligible), nil
+	}
 	scripts := SelectScripts(ctx, baseDir, candidateDir, change)
 	skipped = append(skipped, scripts.Skipped...)
 	for _, t := range scripts.Targets {
-		if family == "" {
-			skipped = append(skipped, model.FuzzSkip{Path: t.Path, Line: t.Line, Symbol: t.Symbol, Reason: ReasonScriptTemplate})
+		reason := ReasonScriptTemplate
+		if family != "" {
+			reason = scriptRunnerProblem(family, t.Path)
+		}
+		if reason != "" {
+			skipped = append(skipped, model.FuzzSkip{Path: t.Path, Line: t.Line, Symbol: t.Symbol, Reason: reason})
 			continue
 		}
 		t.Priority = priority(t, signals)
 		eligible = append(eligible, t)
 	}
-	return finishPlan(eligible, skipped, limits, s), nil
+	plan := finishPlan(eligible, skipped, limits, s)
+	plan.GoTemplateSkipped = goTemplateSkipped
+	return plan, nil
 }
 
 // selectGo examines the changed Go functions: the eligible targets, with

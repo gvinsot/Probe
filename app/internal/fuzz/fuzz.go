@@ -50,7 +50,17 @@ const (
 const (
 	ReasonRuntimeBudget = "fuzz.max_runtime_seconds or the overall deadline was reached before this package ran"
 	ReasonNoCandidates  = "no changed Go or TS/JS function is eligible for differential fuzzing"
+	// ReasonNoRunnable replaces ReasonNoCandidates when nothing was planned
+	// and at least one function meets the eligibility rules but was skipped
+	// because the generated_test template cannot run it (templateReasons).
+	ReasonNoRunnable = "no changed function can run with this generated_test template"
 )
+
+// templateReasons are the skip reasons of functions that meet the
+// eligibility rules but that the generated_test template cannot run.
+var templateReasons = map[string]bool{
+	ReasonScriptTemplate: true, ReasonGoTemplate: true, ReasonScriptJestPath: true, ReasonScriptVitestExcluded: true,
+}
 
 // CounterexampleCutNote accompanies a counterexample whose displays are not
 // the whole recorded encodings (Evaluation.CounterexampleCut).
@@ -179,6 +189,12 @@ func Run(ctx context.Context, runner Runner, plan Plan, o Options) model.FuzzRep
 	skipped := append([]model.FuzzSkip(nil), plan.Skipped...)
 	if plan.Targets() == 0 {
 		rep.Status, rep.Reason = model.FuzzNoCandidates, ReasonNoCandidates
+		for _, s := range skipped {
+			if templateReasons[s.Reason] {
+				rep.Reason = ReasonNoRunnable
+				break
+			}
+		}
 	}
 	deadline := now().Add(o.Limits.MaxRuntime)
 	for _, pkg := range plan.Packages {
@@ -386,10 +402,17 @@ func errorText(err error) string {
 	return redact.TruncateUTF8(redact.Redact(err.Error()), maxErrorText)
 }
 
+// GoTemplateUnverified is the Unverified line of the eligible Go functions
+// that a Vitest or Jest template could not run while it ran TS/JS functions.
+func GoTemplateUnverified(n int) string {
+	return fmt.Sprintf("Differential fuzzing did not run on %d changed Go functions: the generated_test template is a Vitest or Jest template, which cannot run a Go fuzz harness (see fuzz.skipped).", n)
+}
+
 // Unverified returns the Unverified lines of a fuzz stage: one per
-// inconclusive function and one for the functions cut by max_functions or
-// max_packages, at most 20 lines in total.
-func Unverified(rep model.FuzzReport, budgetSkipped int) []string {
+// inconclusive function, one for the functions cut by max_functions or
+// max_packages, and one for the eligible Go functions that a Vitest or Jest
+// template could not run (goTemplateSkipped), at most 20 lines in total.
+func Unverified(rep model.FuzzReport, budgetSkipped, goTemplateSkipped int) []string {
 	var lines []string
 	inconclusive := 0
 	for _, f := range rep.Functions {
@@ -399,6 +422,9 @@ func Unverified(rep model.FuzzReport, budgetSkipped int) []string {
 	}
 	room := maxUnverified
 	if budgetSkipped > 0 {
+		room--
+	}
+	if goTemplateSkipped > 0 {
 		room--
 	}
 	shown := 0
@@ -415,6 +441,9 @@ func Unverified(rep model.FuzzReport, budgetSkipped int) []string {
 	}
 	if budgetSkipped > 0 {
 		lines = append(lines, fmt.Sprintf("Differential fuzzing did not run on %d changed functions because fuzz.max_functions or fuzz.max_packages was reached (see fuzz.skipped).", budgetSkipped))
+	}
+	if goTemplateSkipped > 0 {
+		lines = append(lines, GoTemplateUnverified(goTemplateSkipped))
 	}
 	return lines
 }

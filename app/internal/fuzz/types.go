@@ -93,6 +93,9 @@ type Plan struct {
 	Packages      []PackagePlan    `json:"packages"`
 	Skipped       []model.FuzzSkip `json:"skipped"`
 	BudgetSkipped int              `json:"budget_skipped"` // entries of Skipped cut by max_functions or max_packages
+	// GoTemplateSkipped counts the entries of Skipped that are eligible Go
+	// functions a Vitest or Jest template cannot run (ReasonGoTemplate).
+	GoTemplateSkipped int `json:"go_template_skipped"`
 }
 
 // Targets returns the number of planned functions.
@@ -113,21 +116,6 @@ func (p Plan) GoTargets() int {
 		}
 	}
 	return n
-}
-
-// ScriptSkips returns an entry with reason for every planned TS/JS function,
-// for a stage that does not run them.
-func (p Plan) ScriptSkips(reason string) []model.FuzzSkip {
-	var out []model.FuzzSkip
-	for _, pkg := range p.Packages {
-		if pkg.Script == nil {
-			continue
-		}
-		for _, t := range pkg.Targets {
-			out = append(out, model.FuzzSkip{Path: t.Path, Line: t.Line, Symbol: t.Symbol, Reason: reason})
-		}
-	}
-	return out
 }
 
 // Scalar holds one generated value of a basic type. Only the field of the

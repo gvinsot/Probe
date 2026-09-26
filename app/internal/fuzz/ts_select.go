@@ -24,17 +24,28 @@ const (
 	// ReasonScriptTemplate is the reason of an eligible TS/JS function when
 	// the generated_test template cannot run a TS/JS harness.
 	ReasonScriptTemplate = "TS/JS differential fuzzing needs a verifiable Vitest or Jest generated_test template (a {file} target and a {results_out} report)"
-	// ReasonScriptStageNotRun is the reason of an eligible TS/JS function when
-	// the stage did not run at all (fuzz.reason says why).
-	ReasonScriptStageNotRun  = "not fuzzed: the fuzz stage did not run (see fuzz.reason)"
-	ReasonScriptGenerator    = "generator functions are not fuzzed in this version"
-	ReasonScriptCommonJS     = "CommonJS modules (.cjs, .cts) are not fuzzed in this version"
-	ReasonScriptRenamed      = "module was renamed or moved; the harness imports one path on both revisions"
-	ReasonScriptModuleName   = "the module file name is not supported by the fuzz harness (letters, digits, '.', '_' and '-' only)"
-	ReasonScriptExportName   = "the exported name is not an ASCII identifier"
-	ReasonScriptThis         = "functions with a this parameter are not fuzzed in this version"
-	ReasonScriptDestructured = "destructured parameters are not fuzzed in this version"
-	ReasonScriptJSDocDiffers = "JSDoc parameter types differ between revisions"
+	// ReasonGoTemplate is the reason of an eligible Go function when the
+	// generated_test template is a Vitest or Jest template: it runs the TS/JS
+	// functions of the change, and it cannot run a Go harness.
+	ReasonGoTemplate = "Go differential fuzzing needs a single-package go test generated_test template with the {package} target; this template is a Vitest or Jest template"
+	// ReasonScriptJestPath is the reason of an eligible TS/JS function under
+	// a Jest template when the module's directory contains a character that
+	// Jest reads as a regular expression in its test path pattern: the
+	// harness path would not select the harness file.
+	ReasonScriptJestPath = "the module path contains a character that Jest reads as a regular expression in its test path pattern (one of ( ) [ ] { } $ ^ + * ? | \\)"
+	// ReasonScriptVitestExcluded is the reason of an eligible TS/JS function
+	// under a Vitest template when the module is under a directory that
+	// Vitest excludes from test files by default: the harness next to the
+	// module would not be found.
+	ReasonScriptVitestExcluded = "the module is under a dist or cypress directory, which Vitest excludes from test files by default"
+	ReasonScriptGenerator      = "generator functions are not fuzzed in this version"
+	ReasonScriptCommonJS       = "CommonJS modules (.cjs, .cts) are not fuzzed in this version"
+	ReasonScriptRenamed        = "module was renamed or moved; the harness imports one path on both revisions"
+	ReasonScriptModuleName     = "the module file name is not supported by the fuzz harness (letters, digits, '.', '_' and '-' only)"
+	ReasonScriptExportName     = "the exported name is not an ASCII identifier"
+	ReasonScriptThis           = "functions with a this parameter are not fuzzed in this version"
+	ReasonScriptDestructured   = "destructured parameters are not fuzzed in this version"
+	ReasonScriptJSDocDiffers   = "JSDoc parameter types differ between revisions"
 )
 
 func reasonScriptUntyped(name string, js bool) string {
@@ -57,6 +68,37 @@ var (
 	scriptArrayType  = regexp.MustCompile(`^(?:readonly (number|string|boolean)\[\]|(number|string|boolean)\[\]|(?:Readonly)?Array<(number|string|boolean)>|Array\.<(number|string|boolean)>)$`)
 	scriptRestJSDoc  = regexp.MustCompile(`^\.\.\.(number|string|boolean)$`)
 )
+
+// jestPatternChars are the characters of a path that Jest's test path
+// pattern, a regular expression, does not match literally. "." only widens
+// the pattern (it also matches itself), and the harness file name has a
+// random suffix, so it is not listed.
+const jestPatternChars = `()[]{}$^+*?|\`
+
+// scriptRunnerProblem returns why the runner family cannot run a harness
+// next to module p, or "". The harness path is the {file} target of the
+// template: Jest reads it as a regular expression, so a module directory
+// with a regular expression metacharacter (a Next.js "(group)" or "[id]"
+// segment, SvelteKit's "$lib") would select no file; Vitest matches it as a
+// substring, but its default exclude list drops files under dist and
+// cypress directories. Either would make the baseline run find no test, a
+// baseline ERROR that the tool, not the code, would cause. The module base
+// name is already restricted to letters, digits, '.', '_' and '-'.
+func scriptRunnerProblem(family, p string) string {
+	switch family {
+	case FamilyJest:
+		if strings.ContainsAny(p, jestPatternChars) {
+			return ReasonScriptJestPath
+		}
+	case FamilyVitest:
+		for _, part := range strings.Split(path.Dir(p), "/") {
+			if part == "dist" || part == "cypress" {
+				return ReasonScriptVitestExcluded
+			}
+		}
+	}
+	return ""
+}
 
 // isTypeScriptPath reports whether a module is TypeScript (its parameters
 // carry annotations) rather than JavaScript (JSDoc types).

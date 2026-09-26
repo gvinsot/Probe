@@ -301,7 +301,7 @@ With a `fuzz` object in the trusted base-branch policy (`"fuzz": {}` takes the d
 - `not_diverged`: equal recorded encodings for every compared input. This does not establish equivalent behavior, even for those inputs.
 - `inconclusive`: a timeout, a crash, nondeterminism, a candidate that does not build, a budget cut, and so on.
 
-Other changed functions are listed as not fuzzed, with a reason (a TS/JS function without a Vitest or Jest template among them). `Finalize` derives every outcome again from the recorded checks and observation streams. Fuzzing never produces exit 1: a divergence, an inconclusive function or a stage that did not run requests review (exit 2 with `--ci`); only a baseline-side harness failure or an infrastructure failure of a fuzz run is exit 4 (a cut log never is). `--fuzz=false` disables it for one run; `fuzz.max_runtime_seconds` is a sub-cap inside the shared sandbox budget. See [differential fuzzing](docs/FUZZ.md).
+Other changed functions are listed as not fuzzed, with a reason (a TS/JS function without a Vitest or Jest template, or a Go function with one, among them). `Finalize` derives every outcome again from the recorded checks and observation streams. Fuzzing never produces exit 1: a divergence, an inconclusive function or a stage that did not run requests review (exit 2 with `--ci`); only a baseline-side harness failure or an infrastructure failure of a fuzz run is exit 4 (a cut log never is). `--fuzz=false` disables it for one run; `fuzz.max_runtime_seconds` is a sub-cap inside the shared sandbox budget. See [differential fuzzing](docs/FUZZ.md).
 <!-- F2:end -->
 
 <!-- F4:begin -->

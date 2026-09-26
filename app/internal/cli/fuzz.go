@@ -27,15 +27,17 @@ const fuzzTemplateReason = "the generated_test command cannot run a fuzz harness
 
 // runFuzz runs differential fuzzing when the policy has fuzz and --fuzz is not
 // false. Selection only parses the two snapshots on the host. A change with no
-// eligible Go or TS/JS function records no_candidates without running a
-// container. Eligible TS/JS functions run only with a verifiable Vitest or
-// Jest generated_test template; with any other template they are listed in
-// fuzz.skipped with the reason. Eligible Go functions with a template that
-// cannot run a Go fuzz harness, or a selection failure, record not_run with an
-// Unverified line (and any eligible TS/JS function is then listed as not
-// fuzzed). Otherwise every planned function ends diverged, not_diverged or
-// inconclusive, and each inconclusive function and the budget cuts get an
-// Unverified line.
+// function to run records no_candidates without running a container. The
+// template decides the language (fuzz.SelectAll): eligible TS/JS functions run
+// only with a verifiable Vitest or Jest generated_test template, and with any
+// other template they are listed in fuzz.skipped with the reason; eligible Go
+// functions run only with a Go fuzz template. Eligible Go functions that the
+// template cannot run, when no TS/JS function runs either, or a selection
+// failure, record not_run with an Unverified line. When a Vitest or Jest
+// template runs TS/JS functions, the eligible Go functions are listed in
+// fuzz.skipped and get one Unverified line. Every planned function ends
+// diverged, not_diverged or inconclusive, and each inconclusive function and
+// the budget cuts get an Unverified line.
 func runFuzz(ctx context.Context, h *harness.Harness, cfg config.Config, change model.Change, baseDir, candidateDir string, r *model.Report, enabled bool, errOut io.Writer) {
 	if cfg.Fuzz == nil || !enabled {
 		return
@@ -52,8 +54,12 @@ func runFuzz(ctx context.Context, h *harness.Harness, cfg config.Config, change 
 		fuzzNotRun(cfg, r, nil, "the changed functions could not be selected: "+err.Error())
 		return
 	}
-	if plan.GoTargets() > 0 && !fuzz.CommandSupported(template) {
-		fuzzNotRun(cfg, r, append(plan.Skipped, plan.ScriptSkips(fuzz.ReasonScriptStageNotRun)...), fuzzTemplateReason)
+	// With a Vitest or Jest template, the Go functions are already skipped
+	// (plan.GoTemplateSkipped); with any other template no TS/JS function is
+	// planned. Either way, eligible Go functions that the template cannot run
+	// make the stage not_run unless TS/JS functions run.
+	if plan.GoTargets() > 0 && !fuzz.CommandSupported(template) || plan.Targets() == 0 && plan.GoTemplateSkipped > 0 {
+		fuzzNotRun(cfg, r, plan.Skipped, fuzzTemplateReason)
 		return
 	}
 	if plan.Targets() > 0 {
@@ -66,7 +72,7 @@ func runFuzz(ctx context.Context, h *harness.Harness, cfg config.Config, change 
 		ScriptFamily:     family,
 	})
 	r.Fuzz = &rep
-	r.Unverified = append(r.Unverified, fuzz.Unverified(rep, plan.BudgetSkipped)...)
+	r.Unverified = append(r.Unverified, fuzz.Unverified(rep, plan.BudgetSkipped, plan.GoTemplateSkipped)...)
 }
 
 // fuzzNotRun records a configured stage that could not run, with the skipped

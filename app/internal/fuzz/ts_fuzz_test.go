@@ -165,7 +165,7 @@ func TestRunScriptModuleWithAFailingCandidate(t *testing.T) {
 	if outcomes["halt"].Outcome != model.FuzzInconclusive || outcomes["halt"].Reason != "the candidate process ended while evaluating input 2: "+r.requests[0].Harness.Tests[1].Inputs[2].Call {
 		t.Fatalf("halt %+v", outcomes["halt"])
 	}
-	lines := Unverified(rep, 0)
+	lines := Unverified(rep, 0, 0)
 	if len(lines) != 2 || !strings.HasPrefix(lines[0], "Differential fuzzing of price (web/price.ts) is inconclusive: ") {
 		t.Fatalf("unverified %q", lines)
 	}

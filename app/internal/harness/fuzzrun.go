@@ -23,8 +23,13 @@ package harness
 //     (sandbox.max_output_bytes) never decides ERROR: the run keeps PASS or
 //     FAIL, and the comparison makes its functions inconclusive. For a TS/JS
 //     harness the log is not read at all: a run that returned no payload did
-//     not load or start the harness, and a passing run whose stream shows a
-//     test without its head record skipped one (scriptBaselineStartFailure).
+//     not load or start the harness, and a passing run whose stream ended
+//     between two tests (after a done record, before the next head record)
+//     did not run every test (scriptBaselineStartFailure). A passing run
+//     whose stream ended inside a test (a head record without its done
+//     record) keeps PASS: the baseline process ended while it evaluated an
+//     input (Jest lets a process.exit(0) end the run with exit code 0), as a
+//     failing run that started the harness keeps FAIL.
 //   - A candidate-side run (fuzz_candidate, fuzz_candidate_confirm) keeps the
 //     status run.go gave it: a compile, setup or run failure stays FAIL, and
 //     only an infrastructure cause (Docker, exit code 125 or above, a lost
@@ -72,7 +77,7 @@ const (
 	// Baseline-side ERROR causes of a TS/JS harness, decided from its stream
 	// (the framework's log is never read).
 	fuzzScriptNotStarted  = "the TS/JS fuzz harness did not load or start on the baseline: the run wrote no observation stream"
-	fuzzScriptTestsMissed = "the TS/JS fuzz harness did not run every harness test on the baseline although the run passed: a test wrote no head record"
+	fuzzScriptTestsMissed = "the TS/JS fuzz harness did not run every harness test on the baseline although the run passed: the stream ended between two tests"
 	// fuzzCausePrefix introduces the ERROR cause line appended to the
 	// recorded output of a fuzz check (after its log artifact was retained).
 	fuzzCausePrefix = "\nswiftproof: "
@@ -120,9 +125,11 @@ type ObservedRun struct {
 	// template is a verifiable Vitest or Jest template.
 	Runner string
 	// Started is required for a TS/JS harness: it returns how many harness
-	// tests a normalized stream shows as started (their head record), which
-	// decides the baseline-side ERROR rules instead of the log.
-	Started func(results string) int
+	// tests a normalized stream shows as started (their head record), and
+	// whether the stream ended inside a started test (its head record
+	// without its done record). These decide the baseline-side ERROR rules
+	// instead of the log.
+	Started func(results string) (started int, inside bool)
 }
 
 // ObservedSide is one recorded run of an ObservedRun.
@@ -523,10 +530,15 @@ func (h *Harness) scriptFuzzPrecheck(run ObservedRun) ([]string, error) {
 // framework's log: a run that returned no payload at all did not start the
 // harness (the module or the harness could not be loaded, or the runner found
 // no test to run), and a passing run whose stream shows fewer started tests
-// than the harness declares skipped some. A failing run that started the
-// harness is left FAIL: the baseline process ended while it evaluated inputs.
-// A rejected stream of a failing run, and a stream kept only as an artifact
-// (the results budget), decide nothing here.
+// than the harness declares, and ended between two tests, did not run every
+// test. A run whose stream ended inside a started test is left PASS or FAIL:
+// the baseline process ended while it evaluated an input, which is behavior
+// of the baseline code, not a failure of the harness (under Jest, a
+// process.exit(0) in the code ends the run with exit code 0 and the
+// remaining tests unrun); its functions are inconclusive. A failing run that
+// started the harness is left FAIL for the same reason. A rejected stream of
+// a failing run, and a stream kept only as an artifact (the results budget),
+// decide nothing here.
 func scriptBaselineStartFailure(c model.Check, payload []byte, overflow bool, run ObservedRun) string {
 	switch {
 	case len(payload) == 0:
@@ -534,11 +546,11 @@ func scriptBaselineStartFailure(c model.Check, payload []byte, overflow bool, ru
 	case overflow || c.Results == "":
 		return ""
 	}
-	started := run.Started(c.Results)
+	started, inside := run.Started(c.Results)
 	switch {
 	case started == 0:
 		return fuzzScriptNotStarted
-	case c.Status == "PASS" && started != len(run.TestNames):
+	case c.Status == "PASS" && started != len(run.TestNames) && !inside:
 		return fuzzScriptTestsMissed
 	}
 	return ""

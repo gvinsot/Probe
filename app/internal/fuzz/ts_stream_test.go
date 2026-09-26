@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/gvinsot/SwiftProof/app/internal/harness"
+	"github.com/gvinsot/SwiftProof/app/internal/model"
 )
 
 // scriptStreamHarness renders a two-test TS/JS harness: a(number) with 3
@@ -53,8 +54,11 @@ func TestNormalizeScriptValidStream(t *testing.T) {
 	if r := s.Functions[1].Records[0]; !r.Unstable || r.Call != h.Tests[1].Inputs[0].Call {
 		t.Fatalf("record %+v", r)
 	}
-	if StartedTests(results) != 2 || StartedTests("x") != 0 {
-		t.Fatal("started tests")
+	if n, inside := StartedTests(results); n != 2 || inside {
+		t.Fatalf("started tests %d, inside %v", n, inside)
+	}
+	if n, inside := StartedTests("x"); n != 0 || inside {
+		t.Fatalf("started tests of an invalid stream %d, inside %v", n, inside)
 	}
 	// The same raw lines without the framing are a Go stream, which a TS/JS
 	// harness rejects.
@@ -107,6 +111,62 @@ func TestNormalizeScriptEarlyEnds(t *testing.T) {
 	check("stop without done", []string{headOf(h, 1), beginLine(1, 3), stopLine(1, 0, StopAbort)}, "interrupted::"+a0, "not_started::")
 	check("abort", []string{headOf(h, 1), beginLine(1, 3), stopLine(1, 0, StopAbort), doneOf(h, 1, 0), headOf(h, 2)},
 		"stopped:abort:"+a0, "interrupted::"+b0)
+}
+
+// StartedTests tells the shapes of a stream that does not show every test:
+// it ended inside a test (the process ended while it evaluated an input) or
+// between two tests (after a done record), and how many tests started.
+func TestStartedTestsShapes(t *testing.T) {
+	h := scriptStreamHarness(t)
+	for name, tc := range map[string]struct {
+		lines   []string
+		started int
+		inside  bool
+	}{
+		"complete":            {scriptCompleteLines(h), 2, false},
+		"inside the first":    {[]string{headOf(h, 1), beginLine(1, 3), obsLine(1, 0, "0", false)}, 1, true},
+		"after the first":     {scriptCompleteLines(h)[:7], 1, false},
+		"inside the second":   {scriptCompleteLines(h)[:10], 2, true},
+		"after a stop":        {[]string{headOf(h, 1), beginLine(1, 3), stopLine(1, 0, StopAbort), doneOf(h, 1, 0)}, 1, false},
+		"head of the second":  {scriptCompleteLines(h)[:8], 2, true},
+		"end without done":    {scriptCompleteLines(h)[:6], 1, true},
+		"head of the first":   {[]string{headOf(h, 1)}, 1, true},
+		"stop without done":   {[]string{headOf(h, 1), beginLine(1, 3), stopLine(1, 0, StopAbort)}, 1, true},
+		"second after a stop": {[]string{headOf(h, 1), beginLine(1, 3), stopLine(1, 0, StopAbort), doneOf(h, 1, 0), headOf(h, 2), beginLine(2, 2)}, 2, true},
+	} {
+		results, err := h.Normalize(rawStream(tc.lines...))
+		if err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		if n, inside := StartedTests(results); n != tc.started || inside != tc.inside {
+			t.Errorf("%s: started %d inside %v, want %d %v", name, n, inside, tc.started, tc.inside)
+		}
+	}
+}
+
+// A goexit stop never parses in a TS/JS stream, also when a stored stream is
+// parsed again on re-render; a Go stream keeps it.
+func TestParseResultsRefusesGoexitInScriptStreams(t *testing.T) {
+	stopped := FunctionStream{Test: testName, Planned: 3, State: StateStopped, Stop: StopGoexit, At: 1, AtCall: "F(1)", Records: encodings("0")}
+	if _, err := ParseResults(results(t, stopped)); err != nil {
+		t.Fatalf("Go stream with a goexit stop: %v", err)
+	}
+	s := Stream{Version: StreamVersion, Scheme: model.FuzzSeedScheme, Display: MaxDisplayBytes, Runner: harness.RunnerJest, Functions: []FunctionStream{stopped}}
+	out, err := encodeStream(s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ParseResults(string(out)); err == nil || !strings.Contains(err.Error(), "goexit") {
+		t.Fatalf("TS/JS stream with a goexit stop: %v", err)
+	}
+	stopped.Stop = StopAbort
+	s.Functions = []FunctionStream{stopped}
+	if out, err = encodeStream(s); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ParseResults(string(out)); err != nil {
+		t.Fatalf("TS/JS stream with an abort stop: %v", err)
+	}
 }
 
 func TestNormalizeScriptRejectsMalformedStreams(t *testing.T) {

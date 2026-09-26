@@ -531,7 +531,7 @@ func TestFuzzWordingMakesNoBannedClaims(t *testing.T) {
 	skips := []model.FuzzSkip{}
 	for i, reason := range []string{fuzz.ReasonMethod, fuzz.ReasonGeneric, fuzz.ReasonSignature, fuzz.ReasonConstrained, fuzz.ReasonCgo, fuzz.ReasonPackageName, fuzz.ReasonPackageClause, fuzz.ReasonShadowed,
 		fuzz.ReasonSensitive, fuzz.ReasonMovedDir, fuzz.ReasonNotInSnapshot, fuzz.ReasonNoBody, fuzz.ReasonDuplicate, fuzz.ReasonNoInput, fuzz.ReasonBudgetPackages, fuzz.ReasonBudgetFunctions,
-		fuzz.ReasonScriptTemplate, fuzz.ReasonScriptStageNotRun, fuzz.ReasonScriptGenerator, fuzz.ReasonScriptCommonJS, fuzz.ReasonScriptRenamed, fuzz.ReasonScriptModuleName,
+		fuzz.ReasonScriptTemplate, fuzz.ReasonGoTemplate, fuzz.ReasonScriptJestPath, fuzz.ReasonScriptVitestExcluded, fuzz.ReasonScriptGenerator, fuzz.ReasonScriptCommonJS, fuzz.ReasonScriptRenamed, fuzz.ReasonScriptModuleName,
 		fuzz.ReasonScriptExportName, fuzz.ReasonScriptThis, fuzz.ReasonScriptDestructured, fuzz.ReasonScriptJSDocDiffers, fuzz.ReasonScriptTooLarge, fuzz.ReasonScriptScanBound, fuzz.ReasonScriptTotalBound, fuzz.ReasonScriptTimeLimit} {
 		skips = append(skips, model.FuzzSkip{Path: "calc/other.go", Line: i + 1, Symbol: fmt.Sprintf("calc.S%d", i), Reason: reason})
 	}
@@ -541,8 +541,8 @@ func TestFuzzWordingMakesNoBannedClaims(t *testing.T) {
 	}
 	ran.Fuzz.Skipped, ran.Fuzz.SkippedTotal = skips, len(skips)
 	reports := map[string]*model.Report{model.FuzzRan: ran}
-	for status, reason := range map[string]string{model.FuzzNoCandidates: fuzz.ReasonNoCandidates, model.FuzzNotRun: "dependency preparation did not produce an image", model.FuzzDisabled: "--fuzz=false"} {
-		reports[status] = &model.Report{Change: model.Change{Files: []model.ChangedFile{{Path: "calc/calc.go", Status: "M"}}}, Fuzz: &model.FuzzReport{Status: status, Reason: reason, Skipped: skips, SkippedTotal: len(skips)}}
+	for _, s := range [][2]string{{model.FuzzNoCandidates, fuzz.ReasonNoCandidates}, {model.FuzzNoCandidates, fuzz.ReasonNoRunnable}, {model.FuzzNotRun, "dependency preparation did not produce an image"}, {model.FuzzDisabled, "--fuzz=false"}} {
+		reports[s[0]+": "+s[1]] = &model.Report{Change: model.Change{Files: []model.ChangedFile{{Path: "calc/calc.go", Status: "M"}}}, Fuzz: &model.FuzzReport{Status: s[0], Reason: s[1], Skipped: skips, SkippedTotal: len(skips)}}
 	}
 	for status, r := range reports {
 		Finalize(r, true)
@@ -558,12 +558,12 @@ func TestFuzzWordingMakesNoBannedClaims(t *testing.T) {
 				t.Errorf("%s: a review target uses %q: %s", status, word, target.reason)
 			}
 		}
-		for _, line := range fuzz.Unverified(*r.Fuzz, 3) {
+		for _, line := range fuzz.Unverified(*r.Fuzz, 3, 2) {
 			if word := fuzzBannedWord(line); word != "" {
 				t.Errorf("%s: an Unverified line uses %q: %s", status, word, line)
 			}
 		}
-		if status != model.FuzzRan {
+		if r.Fuzz.Status != model.FuzzRan {
 			claim := strings.ReplaceAll(body, "No function ran", "")
 			if regexp.MustCompile(`\bran\b|\band compared\b|\bwere planned\b`).MatchString(claim) {
 				t.Errorf("%s: a section that did not run claims execution:\n%s", status, body)

@@ -297,3 +297,111 @@ func TestDockerTSFuzzReviewEndToEnd(t *testing.T) {
 		t.Fatalf("divergences %d, exit %d", len(r2.Divergences), r2.ExitCode)
 	}
 }
+
+const e2eExitBase = `export function run(args: string[]): number {
+  if (args.length === 0) {
+    process.exit(0);
+  }
+  return args.length;
+}
+
+export function twice(n: number): number {
+  return n * 2;
+}
+`
+
+const e2eExitCandidate = `export function run(args: string[]): number {
+  if (args.length === 0) {
+    process.exit(0);
+  }
+  return args.length + 0;
+}
+
+export function twice(n: number): number {
+  return n + n;
+}
+`
+
+// Under Jest, a baseline function that calls process.exit(0) while it is
+// fuzzed ends the runner with exit code 0 and leaves its test without a done
+// record. That is behavior of the baseline code, not a harness failure: no
+// check is ERROR, both functions are inconclusive with a reason that names
+// the input being evaluated, and the review exits 2 with --ci, never 4.
+func TestDockerTSFuzzJestProcessExit(t *testing.T) {
+	image := os.Getenv("SWIFTPROOF_TEST_TS_IMAGE")
+	if image == "" {
+		t.Skip("set SWIFTPROOF_TEST_TS_IMAGE to a preloaded image with node, jest and ts-jest (for example swiftproof-ts-test:local)")
+	}
+	dir := t.TempDir()
+	git(t, dir, "init", "-b", "main")
+	write(t, dir, "package.json", "{\"name\": \"cli\", \"private\": true}\n")
+	write(t, dir, "jest.config.js", "module.exports = { preset: \"ts-jest\", testEnvironment: \"node\" };\n")
+	write(t, dir, "tsconfig.json", "{\"compilerOptions\": {\"target\": \"ES2020\", \"module\": \"commonjs\", \"strict\": true, \"esModuleInterop\": true}}\n")
+	write(t, dir, "web/cli.ts", e2eExitBase)
+	git(t, dir, "add", ".")
+	git(t, dir, "commit", "-m", "baseline")
+	git(t, dir, "checkout", "-b", "candidate")
+	write(t, dir, "web/cli.ts", e2eExitCandidate)
+	git(t, dir, "add", ".")
+	git(t, dir, "commit", "-m", "candidate")
+	cfg := config.Default("go")
+	cfg.Sandbox.Image = image
+	cfg.Sandbox.TimeoutSeconds, cfg.Sandbox.MaxRuntimeSeconds = 600, 3600
+	cfg.Commands = map[string][]string{"generated_test": {"jest", "{file}", "--json", "--outputFile={results_out}"}}
+	cfg.Fuzz = &config.Fuzz{MaxRuntimeSeconds: 1200, CallTimeoutMS: 500}
+	b, err := json.Marshal(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	scratch := t.TempDir()
+	policy := filepath.Join(scratch, "policy.json")
+	if err := os.WriteFile(policy, b, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	out := filepath.Join(scratch, "report")
+	var stdout, stderr bytes.Buffer
+	code := Run(context.Background(), []string{"review", "--repo", dir, "--config", policy, "--reviewer=false", "--ci", "--out", out}, &stdout, &stderr, "fuzz-ts-exit")
+	r := readReport(t, filepath.Join(out, "confidence-report.json"))
+	for _, c := range r.Checks {
+		t.Logf("%s %s %s exit %d, %d ms", c.ID, c.Kind, c.Status, c.ExitCode, c.DurationMS)
+	}
+	if code != 2 {
+		t.Fatalf("exit %d, want 2: unverified %q\n%s", code, r.Unverified, stderr.String())
+	}
+	fuzzChecks := 0
+	for _, c := range r.Checks {
+		if c.Status == "ERROR" {
+			t.Fatalf("check %s %s is ERROR:\n%s", c.ID, c.Kind, c.Output)
+		}
+		if strings.HasPrefix(c.Kind, "fuzz_") {
+			fuzzChecks++
+			if c.Status != "PASS" || c.ExitCode != 0 || c.Results == "" {
+				t.Fatalf("check %s %s: %s exit %d, results %d bytes", c.ID, c.Kind, c.Status, c.ExitCode, len(c.Results))
+			}
+		}
+	}
+	if fuzzChecks != 2 {
+		t.Fatalf("%d fuzz checks, want 2 (one pair, no difference to confirm)", fuzzChecks)
+	}
+	f := r.Fuzz
+	if f == nil || f.Status != model.FuzzRan || len(f.Functions) != 2 {
+		t.Fatalf("fuzz %+v", f)
+	}
+	for _, fn := range f.Functions {
+		t.Logf("%s: %s %q", fn.Symbol, fn.Outcome, fn.Reason)
+		if fn.Outcome != model.FuzzInconclusive || fn.Checks == nil {
+			t.Fatalf("%s: %+v", fn.Symbol, fn)
+		}
+	}
+	if !strings.HasPrefix(f.Functions[0].Reason, "the baseline process ended while evaluating input ") || !strings.Contains(f.Functions[0].Reason, "run([])") ||
+		f.Functions[1].Reason != "the baseline process ended before this function was evaluated" {
+		t.Fatalf("reasons %q, %q", f.Functions[0].Reason, f.Functions[1].Reason)
+	}
+	if len(r.ReproducedIssues) != 0 || len(r.Divergences) != 0 {
+		t.Fatalf("reproduced %d, divergences %d", len(r.ReproducedIssues), len(r.Divergences))
+	}
+	if status := git(t, dir, "status", "--porcelain"); status != "" {
+		t.Fatalf("checkout changed: %s", status)
+	}
+	assertNoContainerMounts(t, filepath.Base(filepath.Dir(scratch)))
+}

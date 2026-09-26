@@ -224,42 +224,59 @@ func TestSelectScriptsModuleReasons(t *testing.T) {
 	}
 }
 
-// SelectAll plans TS/JS modules like packages under the one budget, and
-// skips eligible TS/JS functions when the template cannot run them.
-func TestSelectAllSharesTheBudgetAndNeedsATemplate(t *testing.T) {
+// countReason counts the skipped entries of plan with reason.
+func countReason(plan Plan, reason string) int {
+	n := 0
+	for _, s := range plan.Skipped {
+		if s.Reason == reason {
+			n++
+		}
+	}
+	return n
+}
+
+// The template decides the language. A Go template plans the Go functions
+// and skips the eligible TS/JS functions with the template reason. A Vitest
+// or Jest template plans the TS/JS modules like packages, and skips the
+// eligible Go functions with the Go template reason before the budget, so
+// that they take no share of max_packages or max_functions.
+func TestSelectAllTemplateDecidesTheLanguage(t *testing.T) {
 	base, candidate := calcTrees(t)
 	ts := "export function price(n: number): number {\n  return n;\n}\n\nexport function tax(n: number): number {\n  return n;\n}\n"
-	writeTree(t, base, map[string]string{"web/price.ts": ts})
-	writeTree(t, candidate, map[string]string{"web/price.ts": bump(ts)})
-	change := modified("calc/calc.go", "web/price.ts")
+	fee := "export function fee(n: number): number {\n  return n;\n}\n"
+	writeTree(t, base, map[string]string{"web/price.ts": ts, "web/fee.ts": fee})
+	writeTree(t, candidate, map[string]string{"web/price.ts": bump(ts), "web/fee.ts": bump(fee)})
+	change := modified("calc/calc.go", "web/price.ts", "web/fee.ts")
 	// A Go template: the TS/JS functions are listed with the template reason.
 	plan, err := SelectAll(context.Background(), base, candidate, change, nil, defaultLimits(), "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if plan.GoTargets() != plan.Targets() || plan.Targets() == 0 {
+	if plan.GoTargets() != plan.Targets() || plan.Targets() == 0 || plan.GoTemplateSkipped != 0 {
 		t.Fatalf("plan %+v", plan)
 	}
-	templateSkips := 0
-	for _, s := range plan.Skipped {
-		if s.Reason == ReasonScriptTemplate {
-			templateSkips++
-		}
-	}
-	if templateSkips != 2 {
-		t.Fatalf("skipped %+v", plan.Skipped)
+	if n := countReason(plan, ReasonScriptTemplate); n != 3 {
+		t.Fatalf("%d template skips: %+v", n, plan.Skipped)
 	}
 	goTargets := plan.GoTargets()
-	// A Vitest template: the module is planned as its own package, after the
-	// Go package (both have exported functions without signals: path order).
+	// A Vitest template: the Go functions are skipped and counted, and each
+	// module is planned as its own package (no signals: path order).
 	plan, err = SelectAll(context.Background(), base, candidate, change, nil, defaultLimits(), FamilyVitest)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if plan.GoTargets() != goTargets || plan.Targets() != goTargets+2 {
+	if plan.GoTargets() != 0 || plan.Targets() != 3 || len(plan.Packages) != 2 || plan.BudgetSkipped != 0 {
 		t.Fatalf("plan %+v", plan.Packages)
 	}
-	last := plan.Packages[len(plan.Packages)-1]
+	if plan.GoTemplateSkipped != goTargets || countReason(plan, ReasonGoTemplate) != goTargets || countReason(plan, ReasonScriptTemplate) != 0 {
+		t.Fatalf("Go skips %d: %+v", plan.GoTemplateSkipped, plan.Skipped)
+	}
+	for _, s := range plan.Skipped {
+		if s.Reason == ReasonGoTemplate && (!strings.HasPrefix(s.Path, "calc/") || !strings.HasPrefix(s.Symbol, "calc.")) {
+			t.Fatalf("Go skip %+v", s)
+		}
+	}
+	last := plan.Packages[1]
 	if last.Script == nil || *last.Script != (ScriptModule{Path: "web/price.ts", Import: "./price", Ext: "ts"}) || len(last.Targets) != 2 || last.Dir != "web/price.ts" {
 		t.Fatalf("module plan %+v", last)
 	}
@@ -268,11 +285,8 @@ func TestSelectAllSharesTheBudgetAndNeedsATemplate(t *testing.T) {
 			t.Fatalf("inputs of %s: %d", tg.Name, tg.Inputs)
 		}
 	}
-	if skips := plan.ScriptSkips("x"); len(skips) != 2 || skips[0].Symbol != "price" {
-		t.Fatalf("script skips %+v", skips)
-	}
-	// A high signal on the module puts it first; max_packages 1 then cuts the
-	// Go package, and max_functions counts both languages.
+	// A high signal on price.ts puts it first; max_packages 1 then cuts
+	// fee.ts only: the skipped Go functions are not budget skips.
 	signals := []model.Signal{{Path: "web/price.ts", Side: "new", Line: 5, EndLine: 5, Severity: "high"}}
 	limits := defaultLimits()
 	limits.MaxPackages = 1
@@ -283,17 +297,8 @@ func TestSelectAllSharesTheBudgetAndNeedsATemplate(t *testing.T) {
 	if len(plan.Packages) != 1 || plan.Packages[0].Script == nil || plan.Packages[0].Targets[0].Name != "tax" {
 		t.Fatalf("plan %+v", plan.Packages)
 	}
-	budgetSkips := 0
-	for _, s := range plan.Skipped {
-		if s.Reason == ReasonBudgetPackages {
-			budgetSkips++
-			if !strings.HasPrefix(s.Path, "calc/") {
-				t.Fatalf("skip %+v", s)
-			}
-		}
-	}
-	if budgetSkips != goTargets || plan.BudgetSkipped != goTargets {
-		t.Fatalf("%d budget skips, want %d: %+v", budgetSkips, goTargets, plan.Skipped)
+	if plan.BudgetSkipped != 1 || countReason(plan, ReasonBudgetPackages) != 1 || plan.GoTemplateSkipped != goTargets {
+		t.Fatalf("budget skips %d, Go skips %d: %+v", plan.BudgetSkipped, plan.GoTemplateSkipped, plan.Skipped)
 	}
 	limits = defaultLimits()
 	limits.MaxFunctions = 1
@@ -301,8 +306,95 @@ func TestSelectAllSharesTheBudgetAndNeedsATemplate(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if plan.Targets() != 1 || plan.Packages[0].Targets[0].Name != "tax" {
+	if plan.Targets() != 1 || plan.Packages[0].Targets[0].Name != "tax" || plan.BudgetSkipped != 2 {
 		t.Fatalf("plan %+v", plan.Packages)
+	}
+}
+
+func TestScriptRunnerProblem(t *testing.T) {
+	for _, c := range jestPatternChars {
+		p := "web/a" + string(c) + "b/m.ts"
+		if got := scriptRunnerProblem(FamilyJest, p); got != ReasonScriptJestPath {
+			t.Errorf("jest %q: %q", p, got)
+		}
+		if got := scriptRunnerProblem(FamilyVitest, p); got != "" {
+			t.Errorf("vitest %q: %q", p, got)
+		}
+	}
+	for p, want := range map[string]string{"dist/m.ts": ReasonScriptVitestExcluded, "a/cypress/b/m.ts": ReasonScriptVitestExcluded, "m.ts": "", "dist.ts": "", "a/Dist/m.ts": "", "a/distx/m.ts": ""} {
+		if got := scriptRunnerProblem(FamilyVitest, p); got != want {
+			t.Errorf("vitest %q: %q, want %q", p, got, want)
+		}
+		if got := scriptRunnerProblem(FamilyJest, p); got != "" {
+			t.Errorf("jest %q: %q", p, got)
+		}
+	}
+	if got := scriptRunnerProblem("", "app/[id]/dist/m.ts"); got != "" {
+		t.Errorf("no family: %q", got)
+	}
+}
+
+// A module that the runner cannot target is skipped with a specific reason:
+// under Jest, a path with a character that Jest's test path pattern reads as
+// a regular expression (Next.js route groups and dynamic segments, SvelteKit's
+// $lib); under Vitest, a module under a dist or cypress directory, which
+// Vitest excludes by default. Each runner accepts what the other refuses.
+func TestSelectAllRunnerPathRules(t *testing.T) {
+	src := "export function price(n: number): number {\n  return n;\n}\n"
+	// Only characters that every CI file system accepts; the others are
+	// covered by TestScriptRunnerProblem.
+	jestOnly := []string{"app/(shop)/cart.ts", "app/[id]/page.ts", "src/$lib/util.ts", "a+b/m.ts", "x/{y}/m.ts", "x/a^b/m.ts"}
+	vitestOnly := []string{"dist/m.ts", "web/dist/m.ts", "cypress/support/m.ts", "e2e/cypress/m.ts"}
+	both := []string{"web/m.ts", "web/distance/m.ts", "web/my-cypress/m.ts", "web/v1.2/m.ts", "web/a b/m.ts", "web/@scope/m.ts"}
+	all := append(append(append([]string(nil), jestOnly...), vitestOnly...), both...)
+	b, c := t.TempDir(), t.TempDir()
+	for _, p := range all {
+		writeTree(t, b, map[string]string{p: src})
+		writeTree(t, c, map[string]string{p: bump(src)})
+	}
+	limits := defaultLimits()
+	limits.MaxPackages, limits.MaxFunctions = 16, 32
+	for _, family := range []string{FamilyJest, FamilyVitest} {
+		plan, err := SelectAll(context.Background(), b, c, modified(all...), nil, limits, family)
+		if err != nil {
+			t.Fatal(err)
+		}
+		reasons := map[string]string{}
+		for _, s := range plan.Skipped {
+			reasons[s.Path] = s.Reason
+		}
+		planned := map[string]bool{}
+		for _, pkg := range plan.Packages {
+			planned[pkg.Dir] = true
+		}
+		refused, reason := jestOnly, ReasonScriptJestPath
+		accepted := append(append([]string(nil), vitestOnly...), both...)
+		if family == FamilyVitest {
+			refused, reason = vitestOnly, ReasonScriptVitestExcluded
+			accepted = append(append([]string(nil), jestOnly...), both...)
+		}
+		for _, p := range refused {
+			if reasons[p] != reason || planned[p] {
+				t.Errorf("%s %s: reason %q, planned %v", family, p, reasons[p], planned[p])
+			}
+		}
+		for _, p := range accepted {
+			if !planned[p] {
+				t.Errorf("%s %s: not planned (%q)", family, p, reasons[p])
+			}
+		}
+		// Rendering refuses such a module too, whatever planned it.
+		for _, p := range refused {
+			module, ok := scriptModule(p)
+			if !ok {
+				t.Fatalf("module %s", p)
+			}
+			target := scriptTargetFor("price", scalar("number"))
+			target.Path, target.Dir = p, p
+			if _, err := RenderScript(PackagePlan{Dir: p, Targets: []Target{target}, Script: &module}, scriptOptions(family)); err == nil || err.Error() != reason {
+				t.Errorf("%s %s: rendered (%v)", family, p, err)
+			}
+		}
 	}
 }
 

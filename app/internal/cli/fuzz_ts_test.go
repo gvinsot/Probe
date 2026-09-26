@@ -16,36 +16,104 @@ var vitestGeneratedTest = []string{"vitest", "run", "{file}", "--reporter=json",
 
 // An eligible TS/JS function runs only with a verifiable Vitest or Jest
 // template: with the Go template it is listed as not fuzzed with the reason,
-// and nothing runs. With a Vitest template and eligible Go functions too, the
-// stage cannot run the Go functions: it records not_run, and the TS/JS
-// function is listed as not fuzzed because the stage did not run.
+// nothing runs, and the section reason says that no changed function can
+// run with this template. With a Vitest template and only eligible Go
+// functions, the stage cannot run them: it records not_run with an
+// Unverified line and lists them with the Go template reason. With a Jest
+// template and a module whose path Jest reads as a regular expression, the
+// TS/JS function is skipped with that reason and nothing runs.
 func TestRunFuzzScriptTemplateRules(t *testing.T) {
 	ts := "export function price(n: number): number {\n  return n;\n}\n"
 	goMod := "module example.test/m\n\ngo 1.23\n"
 	base, candidate := snapshots(t,
-		map[string]string{"web/price.ts": ts, "go.mod": goMod, "a.go": "package m\n\nfunc F(n int) int { return n }\n"},
-		map[string]string{"web/price.ts": strings.Replace(ts, "return n;", "return n + 1;", 1), "go.mod": goMod, "a.go": "package m\n\nfunc F(n int) int { return n + 1 }\n"})
+		map[string]string{"web/price.ts": ts, "app/[id]/page.ts": ts, "go.mod": goMod, "a.go": "package m\n\nfunc F(n int) int { return n }\n"},
+		map[string]string{"web/price.ts": strings.Replace(ts, "return n;", "return n + 1;", 1), "app/[id]/page.ts": strings.Replace(ts, "return n;", "return n + 1;", 1), "go.mod": goMod, "a.go": "package m\n\nfunc F(n int) int { return n + 1 }\n"})
 	tsOnly := model.Change{Files: []model.ChangedFile{{Path: "web/price.ts", Status: "M"}}}
 	r := &model.Report{}
 	var errOut bytes.Buffer
 	runFuzz(context.Background(), nil, fuzzPolicy(), tsOnly, base, candidate, r, true, &errOut)
-	if f := r.Fuzz; f == nil || f.Status != model.FuzzNoCandidates || f.SkippedTotal != 1 || f.Skipped[0].Symbol != "price" || f.Skipped[0].Reason != fuzz.ReasonScriptTemplate {
+	if f := r.Fuzz; f == nil || f.Status != model.FuzzNoCandidates || f.Reason != fuzz.ReasonNoRunnable || f.SkippedTotal != 1 || f.Skipped[0].Symbol != "price" || f.Skipped[0].Reason != fuzz.ReasonScriptTemplate {
 		t.Fatalf("fuzz %+v", r.Fuzz)
 	}
 	if errOut.Len() != 0 || len(r.Unverified) != 0 {
 		t.Fatalf("stderr %q, unverified %q", errOut.String(), r.Unverified)
 	}
+	if line := fuzzLine(r.Fuzz); line != "Differential fuzzing: no function ran (no changed function can run with this generated_test template; 1 skipped)." {
+		t.Fatalf("stdout line %q", line)
+	}
 	cfg := fuzzPolicy()
 	cfg.Commands["generated_test"] = vitestGeneratedTest
-	both := model.Change{Files: []model.ChangedFile{{Path: "web/price.ts", Status: "M"}, {Path: "a.go", Status: "M"}}}
+	goOnly := model.Change{Files: []model.ChangedFile{{Path: "a.go", Status: "M"}}}
 	r = &model.Report{}
-	runFuzz(context.Background(), nil, cfg, both, base, candidate, r, true, &bytes.Buffer{})
+	runFuzz(context.Background(), nil, cfg, goOnly, base, candidate, r, true, &bytes.Buffer{})
 	f := r.Fuzz
-	if f == nil || f.Status != model.FuzzNotRun || f.Reason != fuzzTemplateReason || f.SkippedTotal != 1 || f.Skipped[0].Reason != fuzz.ReasonScriptStageNotRun {
+	if f == nil || f.Status != model.FuzzNotRun || f.Reason != fuzzTemplateReason || f.SkippedTotal != 1 || f.Skipped[0].Symbol != "m.F" || f.Skipped[0].Reason != fuzz.ReasonGoTemplate {
 		t.Fatalf("fuzz %+v", f)
 	}
 	if len(r.Unverified) != 1 || r.Unverified[0] != "Differential fuzzing did not run: "+fuzzTemplateReason {
 		t.Fatalf("unverified %q", r.Unverified)
+	}
+	cfg.Commands["generated_test"] = []string{"jest", "{file}", "--json", "--outputFile={results_out}"}
+	bracket := model.Change{Files: []model.ChangedFile{{Path: "app/[id]/page.ts", Status: "M"}}}
+	r = &model.Report{}
+	errOut.Reset()
+	runFuzz(context.Background(), nil, cfg, bracket, base, candidate, r, true, &errOut)
+	if f := r.Fuzz; f == nil || f.Status != model.FuzzNoCandidates || f.Reason != fuzz.ReasonNoRunnable || f.SkippedTotal != 1 || f.Skipped[0].Reason != fuzz.ReasonScriptJestPath {
+		t.Fatalf("fuzz %+v", r.Fuzz)
+	}
+	if errOut.Len() != 0 || len(r.Unverified) != 0 {
+		t.Fatalf("stderr %q, unverified %q", errOut.String(), r.Unverified)
+	}
+}
+
+// Through the whole CLI, with a Vitest template, a change to an eligible Go
+// function and to an eligible TS/JS function, and a sandbox image that does
+// not exist: the TS/JS function runs (it has fuzz checks), and the Go
+// function is listed with the Go template reason and one Unverified line; the
+// Go function takes no share of the budget. No repository code runs, whether
+// or not Docker is installed.
+func TestScriptFuzzRunsBesideGoFunctionsThroughTheCLI(t *testing.T) {
+	dir := t.TempDir()
+	git(t, dir, "init", "-b", "main")
+	write(t, dir, "go.mod", "module example.test/m\n\ngo 1.23\n")
+	write(t, dir, "a.go", "package m\n\nfunc F(n int) int { return n }\n")
+	write(t, dir, "web/price.ts", "export function price(n: number): number {\n  return n;\n}\n")
+	git(t, dir, "add", ".")
+	git(t, dir, "commit", "-m", "baseline")
+	git(t, dir, "checkout", "-b", "candidate")
+	write(t, dir, "a.go", "package m\n\nfunc F(n int) int { return n + 1 }\n")
+	write(t, dir, "web/price.ts", "export function price(n: number): number {\n  return n + 1;\n}\n")
+	git(t, dir, "add", ".")
+	git(t, dir, "commit", "-m", "candidate")
+	policy := v04Policy(t, absentImage, func(p map[string]any) {
+		delete(p, "prepare")
+		delete(p, "mutation")
+		p["commands"] = map[string]any{"generated_test": vitestGeneratedTest}
+		p["fuzz"] = map[string]any{"max_packages": 1, "max_functions": 1}
+	})
+	_, r, _, output := runReport(t, context.Background(), dir, "review", "--config", policy, "--reviewer=false", "--ci")
+	f := r.Fuzz
+	if f == nil || f.Status != model.FuzzRan || len(f.Functions) != 1 || f.Functions[0].Symbol != "price" || f.Functions[0].Checks == nil {
+		t.Fatalf("fuzz %+v", f)
+	}
+	if f.SkippedTotal != 1 || f.Skipped[0].Symbol != "m.F" || f.Skipped[0].Reason != fuzz.ReasonGoTemplate {
+		t.Fatalf("skipped %+v", f.Skipped)
+	}
+	found := false
+	for _, u := range r.Unverified {
+		found = found || u == fuzz.GoTemplateUnverified(1)
+		if strings.Contains(u, "fuzz.max_functions or fuzz.max_packages was reached") {
+			t.Fatalf("the Go function took a share of the budget: %q", u)
+		}
+	}
+	if !found {
+		t.Fatalf("unverified %q", r.Unverified)
+	}
+	if !strings.Contains(output, "Running differential fuzzing of 1 changed TS/JS function in 1 module in isolated Docker sandboxes...") {
+		t.Fatalf("output:\n%s", output)
+	}
+	if status := git(t, dir, "status", "--porcelain"); status != "" {
+		t.Fatalf("checkout changed: %s", status)
 	}
 }
 

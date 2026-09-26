@@ -95,8 +95,28 @@ func TestEvaluateScriptRequiresPassingFramedRuns(t *testing.T) {
 			c.Candidate.Status, c.Candidate.ExitCode = "FAIL", 1
 			return c
 		}, "the candidate process ended while evaluating input 1: F(1)"},
-		"passing run without done record": {func() Checks { return scriptPair(t, &same, &interrupted, nil, nil) },
-			"the candidate run observation stream has no done record of the fuzz test although the run passed"},
+		// A passing run whose stream ended inside the test: the process ended
+		// while it evaluated an input (a process.exit(0) under Jest).
+		"passing run ended inside the test": {func() Checks { return scriptPair(t, &same, &interrupted, nil, nil) },
+			"the candidate process ended while evaluating input 1: F(1)"},
+		"passing baseline ended inside the test": {func() Checks { return scriptPair(t, &interrupted, &same, nil, nil) },
+			"the baseline process ended while evaluating input 1: F(1)"},
+		// A later test of a stream that ended inside an earlier one did not start.
+		"passing run ended inside an earlier test": {func() Checks {
+			c := scriptPair(t, &same, &same, nil, nil)
+			earlier := interrupted
+			earlier.Test = "TestSwiftProofFuzz_abcdef12_2"
+			c.Candidate.Results = scriptResults(t, earlier, FunctionStream{Test: testName, Planned: 3, State: StateNotStarted, At: -1, Records: []Record{}})
+			return c
+		}, "the candidate process ended before this function was evaluated"},
+		// A stream that ended between two tests: nothing says the process ended.
+		"passing run ended after an earlier test": {func() Checks {
+			c := scriptPair(t, &same, &same, nil, nil)
+			earlier := completeFn(3, encodings("0", "1", "2"))
+			earlier.Test = "TestSwiftProofFuzz_abcdef12_2"
+			c.Candidate.Results = scriptResults(t, earlier, FunctionStream{Test: testName, Planned: 3, State: StateNotStarted, At: -1, Records: []Record{}})
+			return c
+		}, "the candidate run observation stream has no done record of the fuzz test although the run passed"},
 		"failing candidate without stream": {func() Checks {
 			c := scriptPair(t, &same, &same, nil, nil)
 			c.Candidate.Status, c.Candidate.ExitCode, c.Candidate.Results = "FAIL", 1, ""
@@ -152,7 +172,8 @@ func TestEvaluateScriptRequiresPassingFramedRuns(t *testing.T) {
 // The TS/JS reasons and the harness texts make no claim either.
 func TestScriptTextsMakeNoClaims(t *testing.T) {
 	texts := []string{
-		ReasonScriptTemplate, ReasonScriptStageNotRun, ReasonScriptGenerator, ReasonScriptCommonJS, ReasonScriptRenamed, ReasonScriptModuleName,
+		ReasonScriptTemplate, ReasonGoTemplate, ReasonScriptJestPath, ReasonScriptVitestExcluded, ReasonNoRunnable, GoTemplateUnverified(2),
+		ReasonScriptGenerator, ReasonScriptCommonJS, ReasonScriptRenamed, ReasonScriptModuleName,
 		ReasonScriptExportName, ReasonScriptThis, ReasonScriptDestructured, ReasonScriptJSDocDiffers, reasonScriptUntyped("a", true),
 		reasonScriptUntyped("a", false), scriptHeader,
 	}

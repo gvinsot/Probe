@@ -34,8 +34,11 @@ func scriptFixture(t *testing.T) *Harness {
 	return h
 }
 
-// testStarted counts the "started:" markers of a test stream.
-func testStarted(results string) int { return strings.Count(results, "started:") }
+// testStarted counts the "started:" markers of a test stream; an "inside"
+// marker says that the stream ended inside the last started test.
+func testStarted(results string) (int, bool) {
+	return strings.Count(results, "started:"), strings.Contains(results, "inside")
+}
 
 func scriptRun(confirm bool) ObservedRun {
 	return ObservedRun{Path: scriptFuzzPath, Content: scriptFuzzSource, TestNames: fuzzNames, Confirm: confirm, SaveSource: true,
@@ -125,15 +128,24 @@ func TestRunObservedScriptPreconditions(t *testing.T) {
 func TestRunObservedScriptStatusRules(t *testing.T) {
 	both := coverageFrame("stream:started:started:")
 	one := coverageFrame("stream:started:")
+	inside := coverageFrame("stream:started:inside")
 	for name, tc := range map[string]struct {
 		base, candidate        fuzzSideRun
 		baseStatus, candStatus string
 		baseCause              string
 	}{
-		"both pass":                              {fuzzSideRun{payload: both}, fuzzSideRun{payload: both}, "PASS", "PASS", ""},
-		"baseline fails without a payload":       {fuzzSideRun{exit: 1, log: `{"Action":"run","Test":"TestSwiftProofFuzz_abcdef12_1"}`}, fuzzSideRun{exit: 1}, "ERROR", "FAIL", fuzzScriptNotStarted},
-		"baseline passes without a payload":      {fuzzSideRun{}, fuzzSideRun{payload: both}, "ERROR", "PASS", fuzzBaseNoStream},
-		"baseline passes skipping a test":        {fuzzSideRun{payload: one}, fuzzSideRun{payload: both}, "ERROR", "PASS", fuzzScriptTestsMissed},
+		"both pass":                         {fuzzSideRun{payload: both}, fuzzSideRun{payload: both}, "PASS", "PASS", ""},
+		"baseline fails without a payload":  {fuzzSideRun{exit: 1, log: `{"Action":"run","Test":"TestSwiftProofFuzz_abcdef12_1"}`}, fuzzSideRun{exit: 1}, "ERROR", "FAIL", fuzzScriptNotStarted},
+		"baseline passes without a payload": {fuzzSideRun{}, fuzzSideRun{payload: both}, "ERROR", "PASS", fuzzBaseNoStream},
+		// The stream ended between two tests: the runner did not run the second
+		// one although the run passed.
+		"baseline passes skipping a test": {fuzzSideRun{payload: one}, fuzzSideRun{payload: both}, "ERROR", "PASS", fuzzScriptTestsMissed},
+		// The stream ended inside the first test: the baseline process ended
+		// while it evaluated an input (a process.exit(0) under Jest), which is
+		// behavior of the baseline code; the check stays PASS and its functions
+		// are inconclusive.
+		"baseline passes ending inside a test":   {fuzzSideRun{payload: inside}, fuzzSideRun{payload: both}, "PASS", "PASS", ""},
+		"baseline fails ending inside a test":    {fuzzSideRun{exit: 1, payload: inside}, fuzzSideRun{payload: both}, "FAIL", "PASS", ""},
 		"baseline fails after starting":          {fuzzSideRun{exit: 1, payload: one}, fuzzSideRun{payload: both}, "FAIL", "PASS", ""},
 		"baseline fails with a rejected stream":  {fuzzSideRun{exit: 1, payload: coverageFrame("garbage")}, fuzzSideRun{payload: both}, "FAIL", "PASS", ""},
 		"baseline passes with a rejected stream": {fuzzSideRun{payload: coverageFrame("garbage")}, fuzzSideRun{payload: both}, "ERROR", "PASS", fuzzBaseBadStream},

@@ -186,19 +186,22 @@ func (h Harness) normalizeScript(payload []byte) (string, error) {
 }
 
 // StartedTests returns how many fuzz tests of a normalized TS/JS stream wrote
-// their head record, or 0 when results do not parse. The harness uses it to
-// tell a baseline run that did not start the harness (none) and a passing
-// baseline run that skipped some of its tests (fewer than all).
-func StartedTests(results string) int {
+// their head record, and whether the stream ended inside one of them (the
+// last started test is interrupted: no done record), or 0 and false when
+// results do not parse. The harness uses it to tell a baseline run that did
+// not start the harness (none started), a passing baseline run that did not
+// run every test (fewer than all, the stream ended between two tests), and a
+// baseline run whose process ended while it evaluated an input (inside).
+func StartedTests(results string) (started int, inside bool) {
 	s, err := ParseResults(results)
 	if err != nil {
-		return 0
+		return 0, false
 	}
-	n := 0
 	for _, f := range s.Functions {
 		if f.State != StateNotStarted {
-			n++
+			started++
+			inside = f.State == StateInterrupted
 		}
 	}
-	return n
+	return started, inside
 }

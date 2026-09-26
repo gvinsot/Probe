@@ -469,6 +469,10 @@ func (s Stream) validate() error {
 				if timedOut {
 					return fmt.Errorf("%s: stop after a timeout", f.Test)
 				}
+				// A TS/JS harness has no goexit stop (normalizeScript refuses it).
+				if f.Stop == StopGoexit && s.Runner == harness.RunnerJest {
+					return fmt.Errorf("%s: goexit stop in a TS/JS stream", f.Test)
+				}
 			default:
 				return fmt.Errorf("%s: unknown stop reason", f.Test)
 			}

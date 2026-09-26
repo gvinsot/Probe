@@ -35,17 +35,27 @@ func snapshots(t *testing.T, base, candidate map[string]string) (string, string)
 // A change without an eligible function records no_candidates, without a
 // harness and without any progress line or Unverified entry. With a Go
 // template, an eligible changed exported TS/JS function is listed as not
-// fuzzed with the template reason.
+// fuzzed with the template reason, and the section reason says that no
+// changed function can run with this template.
 func TestRunFuzzWithoutEligibleGoFunction(t *testing.T) {
 	base, candidate := snapshots(t,
 		map[string]string{"web/price.ts": "export function price(n: number): number {\n  return n;\n}\n", "go.mod": "module example.test/m\n\ngo 1.23\n", "a.go": "package m\n\nfunc (T) M() int { return 1 }\n\ntype T struct{}\n"},
 		map[string]string{"web/price.ts": "export function price(n: number): number {\n  return n + 1;\n}\n", "go.mod": "module example.test/m\n\ngo 1.23\n", "a.go": "package m\n\nfunc (T) M() int { return 2 }\n\ntype T struct{}\n"})
-	change := model.Change{Files: []model.ChangedFile{{Path: "web/price.ts", Status: "M"}, {Path: "a.go", Status: "M"}}}
+	goOnly := model.Change{Files: []model.ChangedFile{{Path: "a.go", Status: "M"}}}
 	r := &model.Report{}
+	runFuzz(context.Background(), nil, fuzzPolicy(), goOnly, base, candidate, r, true, &bytes.Buffer{})
+	if f := r.Fuzz; f == nil || f.Status != model.FuzzNoCandidates || f.Reason != fuzz.ReasonNoCandidates || f.SkippedTotal != 1 || len(r.Unverified) != 0 {
+		t.Fatalf("fuzz %+v, unverified %q", f, r.Unverified)
+	}
+	if line := fuzzLine(r.Fuzz); line != "Differential fuzzing: no function ran (no changed Go or TS/JS function is eligible for differential fuzzing; 1 skipped)." {
+		t.Fatalf("line %q", line)
+	}
+	change := model.Change{Files: []model.ChangedFile{{Path: "web/price.ts", Status: "M"}, {Path: "a.go", Status: "M"}}}
+	r = &model.Report{}
 	var errOut bytes.Buffer
 	runFuzz(context.Background(), nil, fuzzPolicy(), change, base, candidate, r, true, &errOut)
 	f := r.Fuzz
-	if f == nil || f.Status != model.FuzzNoCandidates || f.Reason != fuzz.ReasonNoCandidates || len(f.Functions) != 0 || f.SkippedTotal != 2 {
+	if f == nil || f.Status != model.FuzzNoCandidates || f.Reason != fuzz.ReasonNoRunnable || len(f.Functions) != 0 || f.SkippedTotal != 2 {
 		t.Fatalf("fuzz %+v", f)
 	}
 	if f.Skipped[0].Path != "a.go" || f.Skipped[0].Reason != fuzz.ReasonMethod || f.Skipped[1].Path != "web/price.ts" || f.Skipped[1].Symbol != "price" || f.Skipped[1].Reason != fuzz.ReasonScriptTemplate {
@@ -54,7 +64,7 @@ func TestRunFuzzWithoutEligibleGoFunction(t *testing.T) {
 	if errOut.Len() != 0 || len(r.Unverified) != 0 {
 		t.Fatalf("stderr %q, unverified %q", errOut.String(), r.Unverified)
 	}
-	if line := fuzzLine(f); line != "Differential fuzzing: no function ran (no changed Go or TS/JS function is eligible for differential fuzzing; 2 skipped)." {
+	if line := fuzzLine(f); line != "Differential fuzzing: no function ran (no changed function can run with this generated_test template; 2 skipped)." {
 		t.Fatalf("line %q", line)
 	}
 }

@@ -127,6 +127,9 @@ func RenderScript(p PackagePlan, o RenderOptions) (Harness, error) {
 	if !ok || module != *p.Script || p.Dir != p.Script.Path {
 		return Harness{}, fmt.Errorf("module %q cannot be imported by a harness", p.Script.Path)
 	}
+	if reason := scriptRunnerProblem(o.Family, p.Script.Path); reason != "" {
+		return Harness{}, errors.New(reason)
+	}
 	for _, t := range p.Targets {
 		if t.Language != LanguageScript || t.Path != p.Script.Path || t.Name != "default" && !asciiIdentifier.MatchString(t.Name) {
 			return Harness{}, fmt.Errorf("function %q is not an exported name of the module", t.Name)
