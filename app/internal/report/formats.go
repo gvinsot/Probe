@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/gvinsot/SwiftProof/app/internal/model"
+	"github.com/gvinsot/SwiftProof/app/internal/redact"
 )
 
 // Report formats. ValidFormat is the single whitelist that the cli flags and
@@ -61,7 +62,10 @@ func ValidFormat(format string) bool {
 // of at most 512 bytes, whose characters are all in
 // [A-Za-z0-9._~:/?#!$&*+,;=%-]. The character set cannot close a Markdown link
 // or start raw HTML: parentheses, brackets, quotes, backslashes, backticks,
-// spaces, angle brackets and "@" are all refused.
+// spaces, angle brackets and "@" are all refused. The URL is the one string of
+// the exports that the report's sanitizing never sees, so a URL that the
+// credential redaction would change (a token in its query, for example) is
+// refused rather than written into the comment.
 func ValidateReportURL(s string) error {
 	if s == "" {
 		return errors.New("the report URL is empty")
@@ -89,6 +93,9 @@ func ValidateReportURL(s string) error {
 	}
 	if u.Hostname() == "" {
 		return errors.New("the report URL must name a host")
+	}
+	if !redact.IsFixedPoint(s) {
+		return errors.New("the report URL appears to contain a credential, which SwiftProof's redaction would mask; pass a URL without secrets")
 	}
 	return nil
 }

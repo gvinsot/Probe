@@ -29,6 +29,7 @@ func TestReportOptions(t *testing.T) {
 		{"userinfo", []string{"pr-comment"}, "https://user@example.invalid", 0, "--report-url:"},
 		{"no host", []string{"pr-comment"}, "https:///runs/1", 0, "--report-url: the report URL must name a host"},
 		{"too long", []string{"pr-comment"}, "https://example.invalid/" + strings.Repeat("a", 490), 0, "exceeds 512 bytes"},
+		{"credential", []string{"pr-comment"}, "https://example.invalid/run?token=ghp_0123456789abcdefghij", 0, "--report-url: the report URL appears to contain a credential"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -134,6 +135,7 @@ func TestExportFlagErrors(t *testing.T) {
 		{"review", "--format", "pr-comment", "--report-url", "https://example.invalid/(x)"},
 		{"lint", "--format", "sarif", "--report-url", "https://example.invalid/runs/1"},
 		{"lint", "--format", "pr-comment", "--report-url", "https://user:pw@example.invalid"},
+		{"lint", "--format", "pr-comment", "--report-url", "https://example.invalid/run?access_token=abc123"},
 	} {
 		t.Run(strings.Join(args, " "), func(t *testing.T) {
 			forbidExecution(t)

@@ -42,7 +42,7 @@
                 "text": "The baseline version of a Go test function that the change modified or removed passed on a live baseline run and failed on the candidate tree with that package's test files reverted to the baseline, under the same command."
               },
               "help": {
-                "text": "This is a behavior change accompanied by a test edit, for a human to judge. It is not a reproduced issue: the change may intend the new behavior, the baseline assertion may not be the intended behavior, a flaky test can produce it, and it does not show that the test edit is wrong or deliberate. It never produces exit code 1."
+                "text": "The baseline version of a test the change edited failed on candidate code after passing on the baseline; a human judges why. It is not a reproduced issue: the change may intend a different outcome, the baseline assertion may not be the intended behavior, a flaky test can produce it, and it does not show that the test edit is wrong or deliberate. It never produces exit code 1."
               },
               "defaultConfiguration": {
                 "level": "warning"
@@ -153,6 +153,15 @@
             {
               "level": "warning",
               "message": {
+                "text": "An existing test that the change did not edit, statically linked to a changed function, passed on the baseline and failed on the candidate. No location in the changed files is recorded for this finding. Evidence: \"evidence-1-7\"; checks: \"check-1-7, check-2-7\". Its records are in confidence-report.json, and the PR-comment export (--format pr-comment) lists it unless the comment's size limits leave it out."
+              },
+              "properties": {
+                "swiftproof_kind": "unanchored_finding"
+              }
+            },
+            {
+              "level": "warning",
+              "message": {
                 "text": "Check \"candidate-1\" (generated_test_candidate) is FAIL; inspect its recorded output."
               },
               "properties": {
@@ -184,15 +193,6 @@
               },
               "properties": {
                 "swiftproof_kind": "check_not_passed"
-              }
-            },
-            {
-              "level": "warning",
-              "message": {
-                "text": "An existing test that the change did not edit, statically linked to a changed function, passed on the baseline and failed on the candidate. No location in the changed files is recorded for this finding. Evidence: \"evidence-1-7\"; checks: \"check-1-7, check-2-7\". It is listed in PR_COMMENT.md, and its records are in confidence-report.json."
-              },
-              "properties": {
-                "swiftproof_kind": "unanchored_finding"
               }
             }
           ]

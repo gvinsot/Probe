@@ -8,9 +8,11 @@ package report
 // areas, checks that did not pass, stages that did not run, and the fixed
 // sentence "No finding is not approval."), then lists the evidence-backed
 // findings by class. Every repository, model or report string goes through
-// commentText, which makes mentions, issue references, emoji shortcodes and
-// autolinks inert; the only link is the validated --report-url, besides the
-// constant attribution notice. The comment never reads as an approval.
+// commentText, which breaks mentions, "#1" and "GH-1" issue references, emoji
+// shortcodes and URL autolinks; the only link is the validated --report-url,
+// besides the constant attribution notice. Bare commit SHAs and autolinks a
+// repository configures for itself are not neutralized. The comment never
+// reads as an approval.
 
 import (
 	"bytes"
@@ -33,21 +35,35 @@ const (
 var (
 	colonWord  = regexp.MustCompile(`:([A-Za-z0-9_+-])`)
 	hashNumber = regexp.MustCompile(`#([0-9])`)
+	ghNumber   = regexp.MustCompile(`(?i)(gh-)([0-9])`)
+	// commentMarkdown is the escaping of inline() (report.go) with one
+	// difference: of the HTML characters it escapes only "&", "<" and ">".
+	// inline() also turns quotes into the numeric entities "&#39;" and
+	// "&#34;", which in a comment would show as those entities and put a "#"
+	// before a digit back into the text. A quote starts nothing once "<" is
+	// escaped and the brackets and parentheses of a link are backslash-escaped.
+	commentMarkdown = strings.NewReplacer("&", "&amp;", "<", "&lt;", ">", "&gt;",
+		"\\", "\\\\", "`", "\\`", "*", "\\*", "_", "\\_", "[", "\\[", "]", "\\]", "(", "\\(", ")", "\\)", "#", "\\#", "|", "\\|", "!", "\\!")
 )
 
 // commentText renders an untrusted string for the PR comment. It cuts the
 // string to limit bytes (UTF-8 safe, with an ellipsis), replaces control and
 // bidirectional characters, breaks "@" mentions, "://" and "www." autolinks,
-// ":name" shortcodes and "#1" references with a zero-width space, and then
-// applies everything inline() does: HTML escaping and backslash escapes of
-// the Markdown punctuation.
+// ":name" shortcodes, "#1" and "GH-1" issue references with a zero-width
+// space, then escapes "&", "<" and ">" as HTML and backslash-escapes the
+// Markdown punctuation that inline() escapes. The output never has a "#"
+// directly before a digit.
 func commentText(s string, limit int) string {
 	s = bounded(s, limit)
 	s = strings.ReplaceAll(s, "@", "@"+zeroWidthSpace)
 	s = breakLinks(s)
 	s = colonWord.ReplaceAllString(s, ":"+zeroWidthSpace+"$1")
 	s = hashNumber.ReplaceAllString(s, "#"+zeroWidthSpace+"$1")
-	return inline(s)
+	s = ghNumber.ReplaceAllString(s, "${1}"+zeroWidthSpace+"${2}")
+	s = commentMarkdown.Replace(s)
+	// The escaping adds no "#"; applying the rule to the output keeps it true
+	// whatever the escaping does.
+	return hashNumber.ReplaceAllString(s, "#"+zeroWidthSpace+"$1")
 }
 
 // prAttribution is Attribution with the version rendered through commentText,

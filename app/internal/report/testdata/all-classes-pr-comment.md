@@ -48,7 +48,7 @@ An unchanged test that the approximate static index links to a changed function 
 
 ### Differential fuzzing divergences (1)
 
-Identical seeded inputs gave different recorded values on the two revisions. This does not establish which revision is correct.
+Identical seeded inputs gave different recorded values on the two revisions. This does not establish which revision is correct. The values shown are bounded, redacted serializations of what each run recorded.
 
 - Location: calc/calc.go:10 (changed function).
   - Evidence: evidence-1-10. Checks: check-1-10, check-2-10, check-3-10, check-4-10.
@@ -63,7 +63,7 @@ Identical seeded inputs gave different recorded values on the two revisions. Thi
 
 ### Observed behavior divergences (1)
 
-A model-written test recorded different values on the two revisions for the same inputs. This does not establish which revision is correct.
+A model-written test recorded different values on the two revisions for the same inputs. This does not establish which revision is correct. The values shown are bounded, redacted serializations of what each run recorded.
 
 - Location: discount.go:4 (model-chosen location).
   - Evidence: evidence-1-15. Checks: check-1-15, check-2-15, check-3-15.

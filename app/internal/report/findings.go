@@ -104,7 +104,7 @@ var findingClasses = []findingClass{
 		Class: ClassBaseTestFailsOnCandidate, Status: model.StatusFailsOnCandidate, RuleID: "swiftproof/base-test-fails-on-candidate", RuleName: "BaseTestFailsOnCandidate", Rank: 2,
 		Short:        "The baseline version of a test that the change edited passed on the baseline and failed on candidate code.",
 		Full:         "The baseline version of a Go test function that the change modified or removed passed on a live baseline run and failed on the candidate tree with that package's test files reverted to the baseline, under the same command.",
-		Help:         "This is a behavior change accompanied by a test edit, for a human to judge. It is not a reproduced issue: the change may intend the new behavior, the baseline assertion may not be the intended behavior, a flaky test can produce it, and it does not show that the test edit is wrong or deliberate. It never produces exit code 1.",
+		Help:         "The baseline version of a test the change edited failed on candidate code after passing on the baseline; a human judges why. It is not a reproduced issue: the change may intend a different outcome, the baseline assertion may not be the intended behavior, a flaky test can produce it, and it does not show that the test edit is wrong or deliberate. It never produces exit code 1.",
 		Heading:      "Changed baseline tests that fail on candidate code",
 		Caveat:       "The baseline version of a test the change edited passed on the baseline and failed on candidate code. The change may intend this; it does not show that the test edit is wrong or deliberate.",
 		DefaultLevel: levelWarning, NeedsEvidence: true, level: fixedLevel(levelWarning),
@@ -124,7 +124,7 @@ var findingClasses = []findingClass{
 		Full:         "Differential fuzzing ran a changed function on identical seeded inputs on both revisions, and a confirmation pair, whose baseline run was live, recorded the same difference. No model chose the inputs.",
 		Help:         "A divergence records a difference between recorded values for recorded inputs. It does not establish which revision is correct and is not a defect report; the values are bounded, redacted serializations. It never produces exit code 1.",
 		Heading:      "Differential fuzzing divergences",
-		Caveat:       "Identical seeded inputs gave different recorded values on the two revisions. This does not establish which revision is correct.",
+		Caveat:       "Identical seeded inputs gave different recorded values on the two revisions. This does not establish which revision is correct. The values shown are bounded, redacted serializations of what each run recorded.",
 		DefaultLevel: levelWarning, NeedsEvidence: true, level: fixedLevel(levelWarning),
 	},
 	{
@@ -133,7 +133,7 @@ var findingClasses = []findingClass{
 		Full:         "A model-written generated test recorded values instead of asserting them, and a recorded key differed between the candidate and two baseline runs that agreed with each other, the second of them live.",
 		Help:         "The reviewer model chose the inputs. A divergence records a difference, not which revision is correct, and is not a defect report; the values are bounded, redacted serializations. It never produces exit code 1.",
 		Heading:      "Observed behavior divergences",
-		Caveat:       "A model-written test recorded different values on the two revisions for the same inputs. This does not establish which revision is correct.",
+		Caveat:       "A model-written test recorded different values on the two revisions for the same inputs. This does not establish which revision is correct. The values shown are bounded, redacted serializations of what each run recorded.",
 		DefaultLevel: levelWarning, NeedsEvidence: true, level: fixedLevel(levelWarning),
 	},
 	{
@@ -328,7 +328,11 @@ func (x *exportIndex) accepted(id, kind, status string) (model.Evidence, bool) {
 }
 
 // retainedTestArtifacts returns the retained test artifacts of kind whose file
-// name the harness derived from testPath ("<run>-<test ID>-<base name>"). The
+// name the harness derived from testPath: "<run>-generated-test-<n>-<base
+// name>" for a generated test and "<run>-intent-test-<n>-<base name>" for an
+// intent test, where <run> is the hexadecimal run ID. The pattern is anchored
+// at both ends, so a model-chosen file name that itself contains
+// "-generated-test-<n>-" cannot match the artifact of another test. The
 // evidence records no artifact ID, so a link is made only when exactly one
 // artifact matches; otherwise nothing is linked.
 func (x *exportIndex) retainedTestArtifacts(kind, testPath string) []model.Artifact {
@@ -336,7 +340,11 @@ func (x *exportIndex) retainedTestArtifacts(kind, testPath string) []model.Artif
 	if base == "" {
 		return nil
 	}
-	pattern := regexp.MustCompile(`-(?:generated|intent)-test-[1-9][0-9]*-` + regexp.QuoteMeta(base) + `$`)
+	prefix := "generated"
+	if kind == model.ArtifactIntentTest {
+		prefix = "intent"
+	}
+	pattern := regexp.MustCompile(`^[0-9a-f]+-` + prefix + `-test-[1-9][0-9]*-` + regexp.QuoteMeta(base) + `$`)
 	var out []model.Artifact
 	for _, a := range x.artifacts {
 		if a.Kind == kind && pattern.MatchString(baseName(a.Path)) {
@@ -746,4 +754,9 @@ const (
 	unanchoredText    = "No location in the changed files is recorded for this finding."
 	fileLevelText     = "file-level: the model-chosen line is not a candidate-side line of the recorded diff"
 	replayedChecksTxt = "replayed from the execution cache (not a fresh execution)"
+
+	// unanchoredRecordsText closes an unanchored finding's SARIF notification;
+	// the PR comment is not always rendered, and its caps can leave a finding
+	// out.
+	unanchoredRecordsText = "Its records are in confidence-report.json, and the PR-comment export (--format pr-comment) lists it unless the comment's size limits leave it out."
 )

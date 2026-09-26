@@ -277,12 +277,12 @@ A stage's JSON object is present exactly when the stage was requested or configu
 <!-- F9:begin -->
 ### Evidence-only exports (SARIF and PR comment)
 
-`--format sarif,pr-comment` (lint, review and report) also writes `confidence-report.sarif` (SARIF 2.1.0) and `PR_COMMENT.md`. Both list only findings backed by recorded sandbox evidence, re-derived from the recorded checks when they are rendered: reproduced hypotheses, changed baseline tests and impacted tests that fail on candidate code, fuzz and observed divergences, intent-test failures and surviving mutants, each with a fixed rule ID and level (`error` only for a reproduced high/critical hypothesis, which is also the only exit 1).
+`--format sarif,pr-comment` (lint, review and report) also writes `confidence-report.sarif` (SARIF 2.1.0) and `PR_COMMENT.md`. Both list only findings backed by recorded sandbox evidence, re-derived from the recorded checks when they are rendered: reproduced hypotheses, changed baseline tests and impacted tests that fail on candidate code, fuzz and observed divergences, intent-test failures and surviving mutants, each with a fixed rule ID and level (`error` only for a reproduced high/critical hypothesis, the only finding that can set exit 1).
 
 - Never findings: signals, review ranges, coverage, unverified, not-reproduced or dismissed hypotheses, passing or negative results, killed mutants and model judgments. Unverified areas, checks that did not pass and stages that did not run appear as status (SARIF notifications, the comment's status block), and "No finding is not approval."
 - Locations are emitted only in changed, non-deleted files; a model-chosen line outside the recorded diff becomes file-level, and a finding without such a location is listed only in the comment.
 - The comment sits between `<!-- swiftproof:pr-comment:begin v1 -->` and `<!-- swiftproof:pr-comment:end -->`, escapes every untrusted string, is at most 60 000 bytes, and links only the validated `--report-url`. Post it as a comment, never into the PR description.
-- Rendering never changes the exit code. SwiftProof publishes nothing; upload SARIF only when the exit code is 0, 1 or 2 and `executionSuccessful` is true, and treat files from fork runs as forgeable. See [exports](docs/EXPORTS.md) and [CI integration](docs/CI.md#publishing-evidence-backed-findings-sarif-and-pr-comment).
+- Rendering never changes the exit code. SwiftProof publishes nothing; upload SARIF only when the exit code is 0, 1 or 2, `executionSuccessful` is true and no `no_execution`, `stage_not_run` or `omitted_findings` notification is present, and treat files from fork runs as forgeable. See [exports](docs/EXPORTS.md) and [CI integration](docs/CI.md#publishing-evidence-backed-findings-sarif-and-pr-comment).
 <!-- F9:end -->
 
 ## Boundaries and development

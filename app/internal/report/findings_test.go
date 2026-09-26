@@ -57,42 +57,72 @@ func classes(set findingSet) []string {
 	return out
 }
 
+// jestExportFixture is exportFixture with the Vitest/Jest experiment of
+// jestProofReport: the results channel, not the log, carries the outcomes.
+func jestExportFixture() *model.Report {
+	r := exportFixture()
+	j := jestProofReport()
+	r.Checks, r.Evidence = j.Checks, j.Evidence
+	r.Evidence[0].Description = "Guest authorization must remain rejected"
+	r.Artifacts = []model.Artifact{{Path: "artifacts/0a1b2c3d-generated-test-1-cart.test.ts", Kind: model.ArtifactGeneratedTest, SHA256: strings.Repeat("a", 64)}}
+	return r
+}
+
 // Exactly one reproduced finding exists only when Finalize accepted the
 // hypothesis; every mutation that makes Finalize refuse it leaves no finding.
+// The Go cases are those of TestFinalizeRequiresDifferentialProof and the
+// Jest cases those of TestFinalizeValidatesJestDifferentialProof, plus
+// replay, forged-status and negative-experiment cases.
 func TestFindingsFollowFinalize(t *testing.T) {
 	tests := []struct {
 		name   string
+		build  func() *model.Report
 		mutate func(*model.Report)
 		want   int
 	}{
-		{"valid", func(*model.Report) {}, 1},
-		{"invented ID", func(r *model.Report) { r.Hypotheses[0].EvidenceIDs = []string{"invented"} }, 0},
-		{"no evidence", func(r *model.Report) { r.Hypotheses[0].EvidenceIDs = nil }, 0},
-		{"baseline fails", func(r *model.Report) { r.Checks[0].Status = "FAIL"; r.Checks[0].ExitCode = 1 }, 0},
-		{"candidate timeout", func(r *model.Report) { r.Checks[1].Status = "TIMEOUT" }, 0},
-		{"different commands", func(r *model.Report) { r.Checks[0].Command = []string{"true"} }, 0},
-		{"missing check", func(r *model.Report) { r.Checks = r.Checks[:1] }, 0},
-		{"ordinary test", func(r *model.Report) { r.Evidence[0].Kind = "existing_test" }, 0},
-		{"duplicate evidence", func(r *model.Report) { r.Evidence = append(r.Evidence, r.Evidence[0]) }, 0},
-		{"duplicate check", func(r *model.Report) { r.Checks = append(r.Checks, r.Checks[0]) }, 0},
-		{"container error", func(r *model.Report) { r.Checks[1].ExitCode = 125 }, 0},
-		{"unsupported runner", func(r *model.Report) { r.Evidence[0].Runner = "generic" }, 0},
-		{"truncated transcript", func(r *model.Report) { r.Checks[1].Truncated = true }, 0},
-		{"replayed baseline", func(r *model.Report) {
+		{"valid", exportFixture, func(*model.Report) {}, 1},
+		{"invented ID", exportFixture, func(r *model.Report) { r.Hypotheses[0].EvidenceIDs = []string{"invented"} }, 0},
+		{"no evidence", exportFixture, func(r *model.Report) { r.Hypotheses[0].EvidenceIDs = nil }, 0},
+		{"baseline fails", exportFixture, func(r *model.Report) { r.Checks[0].Status = "FAIL"; r.Checks[0].ExitCode = 1 }, 0},
+		{"candidate timeout", exportFixture, func(r *model.Report) { r.Checks[1].Status = "TIMEOUT" }, 0},
+		{"different commands", exportFixture, func(r *model.Report) { r.Checks[0].Command = []string{"true"} }, 0},
+		{"missing check", exportFixture, func(r *model.Report) { r.Checks = r.Checks[:1] }, 0},
+		{"ordinary test", exportFixture, func(r *model.Report) { r.Evidence[0].Kind = "existing_test" }, 0},
+		{"duplicate evidence", exportFixture, func(r *model.Report) { r.Evidence = append(r.Evidence, r.Evidence[0]) }, 0},
+		{"duplicate check", exportFixture, func(r *model.Report) { r.Checks = append(r.Checks, r.Checks[0]) }, 0},
+		{"container error", exportFixture, func(r *model.Report) { r.Checks[1].ExitCode = 125 }, 0},
+		{"missing test names", exportFixture, func(r *model.Report) { r.Evidence[0].TestNames = nil }, 0},
+		{"unsupported runner", exportFixture, func(r *model.Report) { r.Evidence[0].Runner = "generic" }, 0},
+		{"unrelated failure", exportFixture, func(r *model.Report) {
+			r.Checks[1].Output = strings.ReplaceAll(r.Checks[1].Output, "TestRegression", "TestOther")
+		}, 0},
+		{"baseline test not run", exportFixture, func(r *model.Report) { r.Checks[0].Output = "ok [no tests to run]" }, 0},
+		{"truncated transcript", exportFixture, func(r *model.Report) { r.Checks[1].Truncated = true }, 0},
+		{"replayed baseline", exportFixture, func(r *model.Report) {
 			r.Checks[0].Cache = &model.CheckCache{Status: model.CacheHit, Key: strings.Repeat("d", 64), LiveRuns: 5}
 		}, 0},
-		{"invented negative proof", func(r *model.Report) { r.Hypotheses[0].Status = "NOT_REPRODUCED" }, 0},
-		{"invented dismissal", func(r *model.Report) { r.Hypotheses[0].Status = "DISMISSED"; r.Hypotheses[0].Rationale = "fine" }, 0},
-		{"negative experiment", func(r *model.Report) {
+		{"invented negative proof", exportFixture, func(r *model.Report) { r.Hypotheses[0].Status = "NOT_REPRODUCED" }, 0},
+		{"invented dismissal", exportFixture, func(r *model.Report) { r.Hypotheses[0].Status = "DISMISSED"; r.Hypotheses[0].Rationale = "fine" }, 0},
+		{"negative experiment", exportFixture, func(r *model.Report) {
 			r.Hypotheses[0].Status, r.Evidence[0].Status = "NOT_REPRODUCED", "NOT_REPRODUCED"
 			r.Checks[1].Status, r.Checks[1].ExitCode, r.Checks[1].Output = "PASS", 0, r.Checks[0].Output
+		}, 0},
+		{"jest valid", jestExportFixture, func(*model.Report) {}, 1},
+		{"jest results only in log", jestExportFixture, func(r *model.Report) { r.Checks[1].Output, r.Checks[1].Results = r.Checks[1].Results, "" }, 0},
+		{"jest other file", jestExportFixture, func(r *model.Report) { r.Evidence[0].Path = "src/other.test.ts" }, 0},
+		{"jest unrelated title", jestExportFixture, func(r *model.Report) { r.Evidence[0].TestNames = []string{"something else"} }, 0},
+		{"jest baseline skipped", jestExportFixture, func(r *model.Report) {
+			r.Checks[0].Results = strings.Replace(r.Checks[0].Results, "passed", "skipped", 1)
 		}, 0},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			r := exportFixture()
+			r := tt.build()
 			tt.mutate(r)
 			r = finalized(r, true)
+			if accepted := len(r.ReproducedIssues); accepted != tt.want {
+				t.Fatalf("fixture: Finalize accepted %d hypotheses, want %d", accepted, tt.want)
+			}
 			set := collectFindings(r, verifyExports(r))
 			if len(set.findings) != tt.want {
 				t.Fatalf("%d findings, want %d: %+v", len(set.findings), tt.want, set.findings)
@@ -336,8 +366,12 @@ func TestClassTableIsComplete(t *testing.T) {
 
 // Every class: its fixture yields exactly one finding of that class; removing
 // the checks and evidence yields none even when a verifier would still claim
-// the status; and statuses forced into the report without evidence, then
-// finalized and re-derived, yield none.
+// the status; the class's statuses forced into the report without checks and
+// evidence, then finalized and re-derived, yield none; and the same forced
+// statuses over kept checks and evidence that record a negative outcome yield
+// none. On this branch only the reproduced class has its real verifier (the
+// others are F0 stubs that verify nothing); the cross-class forgery test with
+// every real verifier belongs to the integrator.
 func TestEveryClassRequiresRecordedEvidence(t *testing.T) {
 	for class, fixture := range classFixtures {
 		t.Run(class, func(t *testing.T) {
@@ -365,19 +399,59 @@ func TestEveryClassRequiresRecordedEvidence(t *testing.T) {
 			if forged.Mutation != nil {
 				forged.Mutation.Checks = nil
 			}
-			forceStatuses(forged)
+			forceStatuses(forged, class)
 			forged = finalized(forged, true)
 			if set := collectFindings(forged, verifyExports(forged)); len(set.findings) != 0 {
 				t.Fatalf("forged statuses became findings: %v", classes(set))
+			}
+
+			negative, _ := fixture()
+			negateOutcome[class](negative)
+			forceStatuses(negative, class)
+			negative = finalized(negative, true)
+			if set := collectFindings(negative, verifyExports(negative)); len(set.findings) != 0 {
+				t.Fatalf("forged statuses over a negative recorded outcome became findings: %v", classes(set))
 			}
 		})
 	}
 }
 
-// forceStatuses writes every class status into the report without evidence.
-func forceStatuses(r *model.Report) {
+// findingEvidenceStatus is the status each evidence kind has in a finding.
+var findingEvidenceStatus = map[string]string{
+	model.EvidenceDifferentialTest:         model.StatusReproduced,
+	model.EvidenceBaseTestDifferential:     model.StatusFailsOnCandidate,
+	model.EvidenceImpactedTestDifferential: model.StatusFailsOnCandidate,
+	model.EvidenceDifferentialFuzz:         model.StatusDiverged,
+	model.EvidenceDifferentialObservation:  model.StatusDiverged,
+	model.EvidenceIntentTest:               model.StatusIntentTestFailed,
+}
+
+// forceStatuses writes the statuses of class everywhere a report stores them,
+// without adding any check or evidence: hypotheses and the lists derived from
+// them, evidence records, base and impacted test items, fuzz functions,
+// divergence rows and mutants.
+func forceStatuses(r *model.Report, class string) {
+	status := model.StatusReproduced
+	switch class {
+	case ClassFuzzDivergence, ClassObservedDivergence:
+		status = model.StatusDiverged
+	case ClassIntentTestFailed:
+		status = model.StatusIntentTestFailed
+	}
+	r.ReproducedIssues, r.IntentTestFailures = nil, nil
 	for i := range r.Hypotheses {
-		r.Hypotheses[i].Status = model.StatusReproduced
+		r.Hypotheses[i].Status = status
+		switch status {
+		case model.StatusReproduced:
+			r.ReproducedIssues = append(r.ReproducedIssues, r.Hypotheses[i])
+		case model.StatusIntentTestFailed:
+			r.IntentTestFailures = append(r.IntentTestFailures, r.Hypotheses[i])
+		}
+	}
+	for i := range r.Evidence {
+		if s, ok := findingEvidenceStatus[r.Evidence[i].Kind]; ok {
+			r.Evidence[i].Status = s
+		}
 	}
 	if r.BaseTests != nil {
 		for i := range r.BaseTests.Tests {
@@ -391,9 +465,44 @@ func forceStatuses(r *model.Report) {
 			}
 		}
 	}
+	if r.Fuzz != nil {
+		for i := range r.Fuzz.Functions {
+			r.Fuzz.Functions[i].Outcome = model.FuzzDiverged
+		}
+	}
+	for i := range r.Divergences {
+		for j := range r.Divergences[i].Observations {
+			r.Divergences[i].Observations[j].Status = model.ObservationDiverged
+		}
+	}
 	if r.Mutation != nil {
 		for i := range r.Mutation.Mutants {
 			r.Mutation.Mutants[i].Status = model.MutantSurvived
+		}
+	}
+}
+
+// negateOutcome rewrites a class fixture's recorded checks to the negative
+// outcome of its experiment, keeping every check and evidence record.
+var negateOutcome = map[string]func(*model.Report){
+	ClassReproduced: func(r *model.Report) {
+		r.Checks[1].Status, r.Checks[1].ExitCode, r.Checks[1].Output = "PASS", 0, r.Checks[0].Output
+	},
+	ClassBaseTestFailsOnCandidate:     func(r *model.Report) { r.Checks[1].Status, r.Checks[1].ExitCode = "PASS", 0 },
+	ClassImpactedTestFailsOnCandidate: func(r *model.Report) { r.Checks[1].Status, r.Checks[1].ExitCode = "PASS", 0 },
+	ClassFuzzDivergence:               equalObservations,
+	ClassObservedDivergence:           equalObservations,
+	ClassIntentTestFailed:             func(r *model.Report) { r.Checks[0].Status, r.Checks[0].ExitCode = "PASS", 0 },
+	ClassSurvivingMutant: func(r *model.Report) {
+		r.Mutation.Checks[1].Status, r.Mutation.Checks[1].ExitCode = "FAIL", 1
+	},
+}
+
+func equalObservations(r *model.Report) {
+	for i := range r.Divergences {
+		for j := range r.Divergences[i].Observations {
+			o := &r.Divergences[i].Observations[j]
+			o.Candidate, o.Status = o.Base, model.ObservationEqual
 		}
 	}
 }
@@ -550,6 +659,21 @@ func TestCollectorDetails(t *testing.T) {
 	r.Artifacts = append(r.Artifacts, model.Artifact{Path: "artifacts/0a1b-intent-test-2-cart_intent_test.go", Kind: model.ArtifactIntentTest, SHA256: strings.Repeat("1", 64)})
 	if f := collectFindings(r, v).findings[0]; len(f.Artifacts) != 0 {
 		t.Fatalf("ambiguous artifact linked: %+v", f.Artifacts)
+	}
+	// A model-chosen test file name that contains the harness's naming pattern
+	// neither claims nor hides another test's artifact: the pattern is anchored
+	// at the run ID.
+	r, v = observationFixture()
+	r.Artifacts = append(r.Artifacts, model.Artifact{Path: "artifacts/0a1b-generated-test-3-z-generated-test-2-discount_obs_test.go", Kind: model.ArtifactGeneratedTest, SHA256: strings.Repeat("2", 64)})
+	if f := collectFindings(r, v).findings[0]; len(f.Artifacts) != 1 || f.Artifacts[0].SHA256 != strings.Repeat("e", 64) {
+		t.Fatalf("artifact link with a look-alike name: %+v", f.Artifacts)
+	}
+	// An intent test never links a generated-test artifact of the same name.
+	r, v = intentFixture()
+	r.Artifacts[0].Path = "artifacts/0a1b-generated-test-1-cart_intent_test.go"
+	r.Artifacts[0].Kind = model.ArtifactIntentTest
+	if f := collectFindings(r, v).findings[0]; len(f.Artifacts) != 0 {
+		t.Fatalf("intent finding linked a generated-test name: %+v", f.Artifacts)
 	}
 
 	r, v = mutantFixture()

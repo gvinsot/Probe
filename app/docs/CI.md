@@ -68,7 +68,12 @@ None of the v0.4 stages produces exit 1: only a reproduced high/critical hypothe
 
 `--format sarif,pr-comment` writes `confidence-report.sarif` and `PR_COMMENT.md`, which list only findings backed by recorded sandbox evidence ([exports](EXPORTS.md)). SwiftProof itself never contacts GitHub; a workflow may post the rendered files with its own token. The formats and `--report-url` make an older binary exit 3, so pass them only after the re-pin described above; the included `review.yml` and `pr-review.yml` do not pass them.
 
-- **Upload SARIF only when the exit code is 0, 1 or 2 and `executionSuccessful` is true** (`.runs[0].invocations[0]` in the SARIF file). An empty or partial upload after an operational failure, a SKIPPED, TIMEOUT or ERROR check, or a reached deadline would close earlier alerts as "fixed". That state is GitHub's, never a SwiftProof claim, and "no new alerts" or an empty comment is not an approval: keep branch protection with human review.
+- **Upload SARIF only when the exit code is 0, 1 or 2, `executionSuccessful` is true** (`.runs[0].invocations[0]` in the SARIF file), **and no notification of kind `no_execution`, `stage_not_run` or `omitted_findings` is present.** An upload closes every earlier alert of its category that it lacks as "fixed", so an empty or partial upload would close alerts that nothing re-examined. That covers an upload after an operational failure, a SKIPPED, TIMEOUT or ERROR check, or a reached deadline, and also one from a run where:
+  - nothing executed (`lint`, or `review` without checks and reviewer), where `executionSuccessful` is still true;
+  - a configured stage did not run;
+  - the 1000-result cap cut findings.
+
+  Upload only `review` output, with one category per workflow; `lint` output never has results. The "fixed" state is GitHub's, never a SwiftProof claim, and "no new alerts" or an empty comment is not an approval: keep branch protection with human review.
 - **Post `PR_COMMENT.md` as a comment, never into the pull-request description.** The description is the usual `--intent-file` source.
 - **Treat artifacts from fork runs as attacker-controlled.** A `pull_request` workflow runs the pull request's own workflow definition, so its JSON, `PR_COMMENT.md` and SARIF may be forged. Publish from a separate workflow triggered by `workflow_run` that:
   - never checks out or executes pull-request code;
@@ -142,9 +147,11 @@ jobs:
           test -n "$number"
           test "$number" != null
           echo "number=$number" >> "$GITHUB_OUTPUT"
-          jq -e '.runs[0].invocations[0] | .executionSuccessful and .exitCode <= 2' rendered/confidence-report.sarif \
+          jq -e '.runs[0].invocations[0] | .executionSuccessful and .exitCode <= 2 and
+                   all(.toolExecutionNotifications[]; .properties.swiftproof_kind | IN("no_execution", "stage_not_run", "omitted_findings") | not)' \
+            rendered/confidence-report.sarif \
             && echo "upload=true" >> "$GITHUB_OUTPUT" || echo "upload=false" >> "$GITHUB_OUTPUT"
-      - name: Upload SARIF for a successful execution only
+      - name: Upload SARIF only for a successful, unabridged execution
         if: steps.pr.outputs.upload == 'true'
         uses: github/codeql-action/upload-sarif@<pinned-sha>
         with:

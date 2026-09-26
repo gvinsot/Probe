@@ -23,31 +23,43 @@ func commentWith(r *model.Report, v exportVerification) string {
 }
 
 // The escaper required by the contract: mentions, autolinks, shortcodes and
-// issue references are broken, and everything inline() escapes is escaped.
+// issue references are broken, HTML is escaped and Markdown punctuation is
+// backslash-escaped as inline() does. Quotes stay quotes: inline()'s numeric
+// entities would show as "&#39;" and put a "#" before a digit back.
 func TestCommentTextEscapes(t *testing.T) {
 	cases := map[string]string{
-		"@user":        "@" + zeroWidthSpace + "user",
-		"https://evil": "https:" + zeroWidthSpace + "//evil",
-		"www.x":        "www" + zeroWidthSpace + ".x",
-		"WWW.x":        "WWW" + zeroWidthSpace + ".x",
-		":smile:":      ":" + zeroWidthSpace + "smile:",
-		"#12":          `\#` + zeroWidthSpace + "12",
-		"a_b*c":        `a\_b\*c`,
-		"<img src=x>":  "&lt;img src=x&gt;",
-		"it's":         `it&\#39;s`, // inline() escapes the "#" of the HTML entity, as in CONFIDENCE_REPORT.md
-		"[x](y)":       `\[x\]\(y\)`,
+		"@user":              "@" + zeroWidthSpace + "user",
+		"https://evil":       "https:" + zeroWidthSpace + "//evil",
+		"www.x":              "www" + zeroWidthSpace + ".x",
+		"WWW.x":              "WWW" + zeroWidthSpace + ".x",
+		":smile:":            ":" + zeroWidthSpace + "smile:",
+		"#12":                `\#` + zeroWidthSpace + "12",
+		"fixes GH-12":        "fixes GH-" + zeroWidthSpace + "12",
+		"gh-7":               "gh-" + zeroWidthSpace + "7",
+		"GH-x":               "GH-x",
+		"a_b*c":              `a\_b\*c`,
+		"<img src=x>":        "&lt;img src=x&gt;",
+		"a & b":              "a &amp; b",
+		"it's":               "it's",
+		`if s == "admin"`:    `if s == "admin"`,
+		"&#39; and &#x27;":   `&amp;\#` + zeroWidthSpace + `39; and &amp;\#x27;`,
+		"[x](y)":             `\[x\]\(y\)`,
+		"owner/repo#3 GH-99": `owner/repo\#` + zeroWidthSpace + "3 GH-" + zeroWidthSpace + "99",
 	}
 	for in, want := range cases {
 		if got := commentText(in, 256); got != want {
 			t.Errorf("commentText(%q) = %q, want %q", in, got, want)
 		}
 	}
-	hostile := "@octocat see https://evil.test and www.evil.test :tada: fixes #1 \n## Forged \xe2\x80\xae <b>x</b> `code` [link](https://x)"
+	hostile := "@octocat see https://evil.test and www.evil.test :tada: fixes #1 and GH-12 \n## Forged \xe2\x80\xae <b>x</b> `code` [link](https://x) Guest's \"admin\" role &#34;"
 	got := commentText(hostile, 1024)
-	for _, pattern := range []string{`@[^\x{200b}]`, `://`, `(?i)www\.`, `:[A-Za-z0-9_+-]`, `#[0-9]`, `<`, "\n", "\xe2\x80\xae", "(^|[^\\\\])`", `[^\\]\[`} {
+	for _, pattern := range []string{`@[^\x{200b}]`, `://`, `(?i)www\.`, `:[A-Za-z0-9_+-]`, `#[0-9]`, `(?i)GH-[0-9]`, `&#`, `<`, "\n", "\xe2\x80\xae", "(^|[^\\\\])`", `[^\\]\[`} {
 		if regexp.MustCompile(pattern).MatchString(got) {
 			t.Errorf("pattern %q matches %q", pattern, got)
 		}
+	}
+	if !strings.Contains(got, `Guest's "admin" role`) {
+		t.Errorf("quotes altered: %q", got)
 	}
 	// Caps: the value is cut before escaping, with an ellipsis.
 	if got := commentText(strings.Repeat("a", 300), maxTitleBytes); got != strings.Repeat("a", maxTitleBytes)+ellipsis {
@@ -177,7 +189,7 @@ func TestPRCommentNeverReadsAsApproval(t *testing.T) {
 
 func TestPRCommentEscapesUntrustedText(t *testing.T) {
 	r := exportFixture()
-	hostile := "@octocat #1 https://evil.test <img src=x onerror=alert(1)> ``` \n## Forged :smile: www.evil.test [x](y) \xe2\x80\xae"
+	hostile := "@octocat #1 GH-12 https://evil.test <img src=x onerror=alert(1)> ``` \n## Forged :smile: www.evil.test [x](y) \xe2\x80\xae Guest's \"admin\" role"
 	r.Hypotheses[0].Title = hostile
 	r.Hypotheses[0].ID = "h1 @admin #2"
 	r.Hypotheses[0].Path = "dir/@team #3.go"
@@ -218,7 +230,7 @@ func TestPRCommentEscapesUntrustedText(t *testing.T) {
 		// The line number of an anchor is rendered by SwiftProof, not taken
 		// from untrusted text.
 		l = anchorLine.ReplaceAllString(l, " (")
-		for _, pattern := range []string{`@[^\x{200b}]`, `://`, `(?i)www\.`, `:[A-Za-z0-9_+-]`, `#[0-9]`, "(^|[^\\\\])`", `\]\(`} {
+		for _, pattern := range []string{`@[^\x{200b}]`, `://`, `(?i)www\.`, `:[A-Za-z0-9_+-]`, `#[0-9]`, `(?i)GH-[0-9]`, `&#`, "(^|[^\\\\])`", `\]\(`} {
 			if regexp.MustCompile(pattern).MatchString(l) {
 				t.Errorf("pattern %q in %q", pattern, l)
 			}
@@ -316,6 +328,24 @@ func TestValidateReportURL(t *testing.T) {
 		"https://example.invalid/" + strings.Repeat("a", 500), "ftp://example.invalid"} {
 		if err := ValidateReportURL(bad); err == nil {
 			t.Errorf("%q accepted", bad)
+		}
+	}
+	// The URL bypasses the report's sanitizing, so a URL that the credential
+	// redaction would change is refused instead of being written into the
+	// comment.
+	for _, secret := range []string{
+		"https://example.invalid/run?token=ghp_0123456789abcdefghijABCDEFGHIJ",
+		"https://example.invalid/run?access_token=abc123",
+		"https://example.invalid/run?x=1&client_secret=abc",
+		"https://example.invalid/a/sk-0123456789abcdef",
+		"https://example.invalid/dl?sig=eyJhbGciOiJIUzI1.eyJzdWIiOiIxMjM0.SflKxwRJSMeKKF2QT4",
+	} {
+		err := ValidateReportURL(secret)
+		if err == nil || !strings.Contains(err.Error(), "credential") {
+			t.Errorf("%q: %v", secret, err)
+		}
+		if _, _, err := renderFormat(FormatPRComment, Sanitize(finalized(exportFixture(), true)), writeOptions{reportURL: secret}); err == nil {
+			t.Errorf("%q rendered", secret)
 		}
 	}
 }
