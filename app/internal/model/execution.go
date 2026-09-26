@@ -11,6 +11,13 @@ const (
 	CacheScopeBaseline = "baseline_only"
 )
 
+// ExecutionCacheNote is the fixed note of the execution cache summary. It
+// states what a replay is and is not, whatever the cache status.
+const ExecutionCacheNote = "The cache is opt-in and covers baseline-side runs only; candidate-side runs always execute. " +
+	"A replayed check (cache hit) is the recorded result of an earlier live run of byte-identical inputs, not a fresh execution. " +
+	"A replay never supports a reproduced issue, a divergence or a FAILS_ON_CANDIDATE result; a negative conclusion rests on a replay " +
+	"only after two agreeing live runs, and replay_backed lists it. The integrity checks of an entry detect corruption, not forgery."
+
 // CheckCache is present only on a base-side check that was stored in or
 // replayed from the opt-in execution cache. A hit is not a fresh execution.
 type CheckCache struct {
@@ -23,11 +30,14 @@ type CheckCache struct {
 	LiveRuns           int       `json:"live_runs"`
 }
 type ExecutionCache struct {
-	Status        string `json:"status"`
-	Reason        string `json:"reason,omitempty"`
-	Scope         string `json:"scope"`
-	ImageID       string `json:"image_id,omitempty"`
-	PolicySHA256  string `json:"policy_sha256,omitempty"`
+	Status       string `json:"status"`
+	Reason       string `json:"reason,omitempty"`
+	Scope        string `json:"scope"`
+	ImageID      string `json:"image_id,omitempty"`
+	PolicySHA256 string `json:"policy_sha256,omitempty"`
+	// Runtime is the Docker server version, OS type and architecture that
+	// every key of this run records (F7a).
+	Runtime       string `json:"runtime,omitempty"`
 	Hits          int    `json:"hits"`
 	Stored        int    `json:"stored"`
 	Misses        int    `json:"misses"`

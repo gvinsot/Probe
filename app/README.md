@@ -263,6 +263,9 @@ The container gets the network only when the policy asks for it and `--allow-pre
 <!-- F8:end -->
 
 <!-- F7:begin -->
+### Execution cache
+
+Opt-in with `--cache-dir DIR`, review only. A baseline-side run (a check kind ending in `_base`, on the baseline snapshot, without network) is replayed instead of executed when two earlier live runs of byte-identical inputs agreed on its result; candidate-side runs always execute. The key covers the baseline tree and any staged test, the command and the complete sandbox arguments, the image ID the run executes, the Docker server, the trusted policy's execution settings and the SwiftProof build. A replay never supports a reproduced issue, a divergence or a `FAILS_ON_CANDIDATE` result: before recording `REPRODUCED` on a replayed baseline, the harness runs that baseline again, live. A negative conclusion that rests on a replay is listed in `execution.replay_backed`. A replayed baseline FAIL is not run again, so a stale or forged entry can leave such a result unrecorded and lower the exit code (see the damage bound). The directory must be outside the repository and the report directory and, on Unix, owner-only; otherwise the review exits 3 before any container starts. Entries are integrity-checked, not authenticated. Reviews of an updated pull request that share the directory replay the unchanged baseline experiments. See [Execution cache](docs/EXECUTION_CACHE.md).
 <!-- F7:end -->
 
 <!-- F3:begin -->

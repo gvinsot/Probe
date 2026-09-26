@@ -33,6 +33,13 @@ Each block below records measured costs of one v0.4 stage, and nothing that was 
 <!-- F6:end -->
 
 <!-- F7:begin -->
+### Execution cache
+
+Measured on 2026-09-26 on a Windows 11 Pro host (AMD Ryzen 7 9800X3D) with Docker Engine 28.4.0 and `golang:1.26-bookworm`, while other jobs shared the Docker daemon.
+
+- **Keying cost per eligible baseline run.** `go test ./internal/harness -run '^$' -bench BenchmarkCacheKey -benchmem -benchtime=2s` walks and hashes a baseline tree of 1,000 files of 4 KiB in 50 directories plus one staged test on every key: 8.5 ms/op and 1.0 MB allocated per op in the `golang:1.26-bookworm` container (2 CPUs), 36.7 to 37.9 ms/op and 1.5 MB natively on Windows (three runs). The cost grows with the size of the baseline tree, up to the snapshot limits (100,000 files, 512 MiB). The manifest of the pristine snapshot is computed once per review.
+- **Reviews with the scripted clamp fixture** (`--checks=false`, one generated experiment per review; see [validation](VALIDATION.md)): a live `generated_test_base` run recorded 16.7 to 25.2 s, a replayed one 0 ms, and `execution.budget.spent_ms` was 28,014 ms for the review whose baseline was replayed (only the candidate ran) against 36,694 ms for the preceding live one. Review wall clocks were 37.2 s (live baseline), 28.4 s (replayed baseline, `NOT_REPRODUCED`), 52.0 s (the same review after its entry was rejected) and 50.8 s (no cache). A review that records `REPRODUCED` on a replayed baseline runs the baseline again live, so it runs as many containers as without a cache (49.5 s here).
+- Single runs of the same work varied more than a replay saved on this shared host, so these numbers do not establish a speed-up. How much a cache saves depends on how often baseline experiments repeat across your reviews; measure it on them.
 <!-- F7:end -->
 
 <!-- F8:begin -->
