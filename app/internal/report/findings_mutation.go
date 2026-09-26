@@ -34,9 +34,11 @@ func mutantFindings(r *model.Report, x *exportIndex) []finding {
 				{"mutated", m.Mutated},
 				{"package", m.Package},
 				{"runs", fmt.Sprintf("control check %s PASS; mutant check %s PASS with %d passing tests", m.ControlCheckID, m.CheckID, m.TestsRun)},
-				{"patch sha256", m.PatchSHA256},
 			},
 			Artifacts: x.artifactBySHA(model.ArtifactMutantPatch, m.PatchSHA256),
+		}
+		if len(f.Artifacts) == 0 {
+			f.Details = append(f.Details, detail{"patch sha256 (no patch artifact)", m.PatchSHA256})
 		}
 		out = append(out, f)
 	}

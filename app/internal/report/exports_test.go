@@ -188,3 +188,44 @@ func TestFormatsAgreeOnReproducedIssues(t *testing.T) {
 		t.Fatalf("the unanchored finding became a result: %d", len(results(log)))
 	}
 }
+
+// allClassesFixture holds one finding of every class.
+func allClassesFixture() (*model.Report, exportVerification) {
+	r := &model.Report{Version: 1, ToolVersion: "v1.2.3", GeneratedAt: exportFixture().GeneratedAt, ExitCode: 1}
+	var v exportVerification
+	for _, fixture := range []classFixture{reproducedFixture, baseTestFixture, impactFixture, fuzzFixture, observationFixture, intentFixture, mutantFixture} {
+		part, pv := fixture()
+		merged := mergeFixtures(r, v, part, pv)
+		r, v = merged.r, merged.v
+	}
+	return r, v
+}
+
+// Every class renders together, in class order; the golden files show the
+// complete wording (regenerate with -update-exports).
+func TestAllClassesGolden(t *testing.T) {
+	r, v := allClassesFixture()
+	set := collectFindings(r, v)
+	want := []string{ClassReproduced, ClassBaseTestFailsOnCandidate, ClassImpactedTestFailsOnCandidate, ClassFuzzDivergence, ClassObservedDivergence, ClassIntentTestFailed, ClassSurvivingMutant}
+	if strings.Join(classes(set), ",") != strings.Join(want, ",") {
+		t.Fatalf("classes %v", classes(set))
+	}
+	data, err := renderSARIF(r, set)
+	if err != nil {
+		t.Fatal(err)
+	}
+	log := decodeSARIF(t, data)
+	if len(results(log)) != 6 || notificationKinds(log)["unanchored_finding"] != 1 {
+		t.Fatalf("%d results, notifications %v", len(results(log)), notificationKinds(log))
+	}
+	rules := run0(log)["tool"].(map[string]any)["driver"].(map[string]any)["rules"].([]any)
+	if len(rules) != 6 {
+		t.Fatalf("%d rules", len(rules))
+	}
+	golden(t, "all-classes.sarif", data)
+	comment := renderPRComment(r, set, "https://example.invalid/runs/1")
+	if strings.Count(string(comment), "\n### ") != 7 {
+		t.Fatalf("groups:\n%s", comment)
+	}
+	golden(t, "all-classes-pr-comment.md", comment)
+}

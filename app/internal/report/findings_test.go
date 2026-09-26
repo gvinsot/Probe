@@ -521,7 +521,7 @@ func TestCollectorDetails(t *testing.T) {
 	if f.anchor == nil || f.anchor.Path != "calc/calc.go" || f.anchor.Line != 10 || f.anchor.Source != locChangedFunction {
 		t.Fatalf("fuzz anchor %+v", f.anchor)
 	}
-	if !hasDetail(f, "input", "Percent(1, 3)") || !hasDetail(f, "baseline value", "33") || !hasDetail(f, "candidate value", "34") || !hasDetail(f, "more rows", "1 further diverging rows are in confidence-report.json") {
+	if !hasDetail(f, "input", "Percent(1, 3)") || !hasDetail(f, "baseline value", "33") || !hasDetail(f, "candidate value", "34") || !hasDetail(f, "more rows", "1 further diverging row is in confidence-report.json") {
 		t.Fatalf("fuzz details %+v", f.Details)
 	}
 	if len(f.Details) > maxDetails {
@@ -750,6 +750,10 @@ func mergeFixtures(a *model.Report, av exportVerification, b *model.Report, bv e
 	for _, h := range b.IntentTestFailures {
 		h.EvidenceIDs = []string{rename(h.EvidenceIDs[0])}
 		out.IntentTestFailures = append(out.IntentTestFailures, h)
+	}
+	for _, h := range b.ReproducedIssues {
+		h.EvidenceIDs = []string{rename(h.EvidenceIDs[0])}
+		out.ReproducedIssues = append(out.ReproducedIssues, h)
 	}
 	for _, d := range b.Divergences {
 		d.EvidenceID = rename(d.EvidenceID)

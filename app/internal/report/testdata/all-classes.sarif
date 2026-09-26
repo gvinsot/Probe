@@ -1,0 +1,705 @@
+{
+  "$schema": "https://json.schemastore.org/sarif-2.1.0.json",
+  "version": "2.1.0",
+  "runs": [
+    {
+      "tool": {
+        "driver": {
+          "name": "SwiftProof",
+          "version": "v1.2.3",
+          "semanticVersion": "1.2.3",
+          "informationUri": "https://github.com/gvinsot/SwiftProof",
+          "rules": [
+            {
+              "id": "swiftproof/reproduced",
+              "name": "Reproduced",
+              "shortDescription": {
+                "text": "A generated test passed on the baseline and failed on the candidate."
+              },
+              "fullDescription": {
+                "text": "A model-written generated test passed on a live baseline run and failed on the candidate under the same command, and SwiftProof re-derived both outcomes from the recorded named-test execution. The severity is the reviewer model's classification."
+              },
+              "help": {
+                "text": "Reproduced means only that this recorded experiment passed on the baseline and failed on the candidate. It does not confirm a defect and does not show that the test's assertion encodes the intended behavior; a human judges the assertion. Only a high or critical reproduced hypothesis produces exit code 1, which is also the only case this rule reports at level error."
+              },
+              "defaultConfiguration": {
+                "level": "warning"
+              },
+              "properties": {
+                "tags": [
+                  "swiftproof",
+                  "reproduced"
+                ]
+              }
+            },
+            {
+              "id": "swiftproof/base-test-fails-on-candidate",
+              "name": "BaseTestFailsOnCandidate",
+              "shortDescription": {
+                "text": "The baseline version of a test that the change edited passed on the baseline and failed on candidate code."
+              },
+              "fullDescription": {
+                "text": "The baseline version of a Go test function that the change modified or removed passed on a live baseline run and failed on the candidate tree with that package's test files reverted to the baseline, under the same command."
+              },
+              "help": {
+                "text": "This is a behavior change accompanied by a test edit, for a human to judge. It is not a reproduced issue: the change may intend the new behavior, the baseline assertion may not be the intended behavior, a flaky test can produce it, and it does not show that the test edit is wrong or deliberate. It never produces exit code 1."
+              },
+              "defaultConfiguration": {
+                "level": "warning"
+              },
+              "properties": {
+                "tags": [
+                  "swiftproof",
+                  "base_test_fails_on_candidate"
+                ]
+              }
+            },
+            {
+              "id": "swiftproof/fuzz-divergence",
+              "name": "FuzzDivergence",
+              "shortDescription": {
+                "text": "Identical seeded inputs gave different recorded values on the baseline and the candidate."
+              },
+              "fullDescription": {
+                "text": "Differential fuzzing ran a changed function on identical seeded inputs on both revisions, and a confirmation pair, whose baseline run was live, recorded the same difference. No model chose the inputs."
+              },
+              "help": {
+                "text": "A divergence records a difference between recorded values for recorded inputs. It does not establish which revision is correct and is not a defect report; the values are bounded, redacted serializations. It never produces exit code 1."
+              },
+              "defaultConfiguration": {
+                "level": "warning"
+              },
+              "properties": {
+                "tags": [
+                  "swiftproof",
+                  "fuzz_divergence"
+                ]
+              }
+            },
+            {
+              "id": "swiftproof/observed-divergence",
+              "name": "ObservedDivergence",
+              "shortDescription": {
+                "text": "A generated test recorded different values on the baseline and the candidate for the same inputs."
+              },
+              "fullDescription": {
+                "text": "A model-written generated test recorded values instead of asserting them, and a recorded key differed between the candidate and two baseline runs that agreed with each other, the second of them live."
+              },
+              "help": {
+                "text": "The reviewer model chose the inputs. A divergence records a difference, not which revision is correct, and is not a defect report; the values are bounded, redacted serializations. It never produces exit code 1."
+              },
+              "defaultConfiguration": {
+                "level": "warning"
+              },
+              "properties": {
+                "tags": [
+                  "swiftproof",
+                  "observed_divergence"
+                ]
+              }
+            },
+            {
+              "id": "swiftproof/intent-test-failed",
+              "name": "IntentTestFailed",
+              "shortDescription": {
+                "text": "A model-written test for an acceptance criterion failed on the candidate."
+              },
+              "fullDescription": {
+                "text": "A model-written test for one quoted acceptance criterion, which references symbols the change added or modified, failed on an assertion when it ran on the candidate only."
+              },
+              "help": {
+                "text": "There is no baseline control, and the test or its reading of the criterion may be wrong. It is not a reproduction and does not show that the change departs from the intent. It never produces exit code 1."
+              },
+              "defaultConfiguration": {
+                "level": "note"
+              },
+              "properties": {
+                "tags": [
+                  "swiftproof",
+                  "intent_test_failed"
+                ]
+              }
+            },
+            {
+              "id": "swiftproof/surviving-mutant",
+              "name": "SurvivingMutant",
+              "shortDescription": {
+                "text": "A single mutation of an added line left the package's tests passing."
+              },
+              "fullDescription": {
+                "text": "A deterministic single change to an added Go line was applied in a private copy of the candidate, and the configured package test command passed on it, as it did on the unmodified control run."
+              },
+              "help": {
+                "text": "The mutant may be semantically equivalent to the original code, and the tests of other packages were not run. It is not a defect, dead code or a missing test by itself, and no mutation score is computed. It does not request review on its own."
+              },
+              "defaultConfiguration": {
+                "level": "note"
+              },
+              "properties": {
+                "tags": [
+                  "swiftproof",
+                  "surviving_mutant"
+                ]
+              }
+            }
+          ]
+        }
+      },
+      "invocations": [
+        {
+          "executionSuccessful": true,
+          "exitCode": 1,
+          "toolExecutionNotifications": [
+            {
+              "level": "warning",
+              "message": {
+                "text": "Check \"candidate-1\" (generated_test_candidate) is FAIL; inspect its recorded output."
+              },
+              "properties": {
+                "swiftproof_kind": "check_not_passed"
+              }
+            },
+            {
+              "level": "warning",
+              "message": {
+                "text": "Check \"check-2-4\" (base_test_hybrid) is FAIL; inspect its recorded output."
+              },
+              "properties": {
+                "swiftproof_kind": "check_not_passed"
+              }
+            },
+            {
+              "level": "warning",
+              "message": {
+                "text": "Check \"check-2-7\" (impacted_test_candidate) is FAIL; inspect its recorded output."
+              },
+              "properties": {
+                "swiftproof_kind": "check_not_passed"
+              }
+            },
+            {
+              "level": "warning",
+              "message": {
+                "text": "Check \"check-1-19\" (generated_test_intent) is FAIL; inspect its recorded output."
+              },
+              "properties": {
+                "swiftproof_kind": "check_not_passed"
+              }
+            },
+            {
+              "level": "warning",
+              "message": {
+                "text": "An existing test that the change did not edit, statically linked to a changed function, passed on the baseline and failed on the candidate. No location in the changed files is recorded for this finding. Evidence: \"evidence-1-7\"; checks: \"check-1-7, check-2-7\". It is listed in PR_COMMENT.md, and its records are in confidence-report.json."
+              },
+              "properties": {
+                "swiftproof_kind": "unanchored_finding"
+              }
+            }
+          ]
+        }
+      ],
+      "originalUriBaseIds": {
+        "%SRCROOT%": {
+          "description": {
+            "text": "The repository root at the candidate commit."
+          }
+        },
+        "SWIFTPROOF_REPORT": {
+          "description": {
+            "text": "The SwiftProof report directory (--out), which holds the retained artifacts."
+          }
+        }
+      },
+      "columnKind": "utf16CodeUnits",
+      "results": [
+        {
+          "ruleId": "swiftproof/reproduced",
+          "ruleIndex": 0,
+          "level": "error",
+          "message": {
+            "text": "A generated test passed on the baseline and failed on the candidate. Severity high was assigned by the reviewer model. Reviewer-model title: \"Regression\". Generated test: \"guest_test.go (TestRegression)\". Runs: \"baseline check base-1 PASS; candidate check candidate-1 FAIL (go_test_json)\". Evidence: \"experiment-1\". Location: model-chosen location."
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "auth.go",
+                  "uriBaseId": "%SRCROOT%"
+                },
+                "region": {
+                  "startLine": 3,
+                  "endLine": 3
+                }
+              }
+            }
+          ],
+          "relatedLocations": [
+            {
+              "id": 1,
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "artifacts/0a1b2c3d-generated-test-1-guest_test.go",
+                  "uriBaseId": "SWIFTPROOF_REPORT"
+                }
+              },
+              "message": {
+                "text": "Retained generated_test artifact, sha256 aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa."
+              }
+            }
+          ],
+          "partialFingerprints": {
+            "swiftproof/v1": "6c737ddc8e7175d900389e182e8f34a8"
+          },
+          "properties": {
+            "swiftproof": {
+              "class": "reproduced",
+              "status": "REPRODUCED",
+              "severity": "high",
+              "severity_source": "reviewer model",
+              "title": "Regression",
+              "title_source": "reviewer model",
+              "location_source": "model-chosen location",
+              "location_precision": "line",
+              "evidence_ids": [
+                "experiment-1"
+              ],
+              "check_ids": [
+                "base-1",
+                "candidate-1"
+              ],
+              "hypothesis_ids": [
+                "h1"
+              ],
+              "details": [
+                {
+                  "label": "generated test",
+                  "value": "guest_test.go (TestRegression)"
+                },
+                {
+                  "label": "runs",
+                  "value": "baseline check base-1 PASS; candidate check candidate-1 FAIL (go_test_json)"
+                }
+              ],
+              "artifacts": [
+                {
+                  "kind": "generated_test",
+                  "path": "artifacts/0a1b2c3d-generated-test-1-guest_test.go",
+                  "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "ruleId": "swiftproof/base-test-fails-on-candidate",
+          "ruleIndex": 1,
+          "level": "warning",
+          "message": {
+            "text": "The baseline version of a test that the change edited passed on the baseline and failed on candidate code. Test: \"TestClampUpper\". Baseline declaration: \"clamp_test.go:10–14\". Change to the test: \"modified\". Runs: \"baseline check check-1-4 PASS; hybrid-tree check check-2-4 FAIL\". Evidence: \"evidence-1-4\". Location: candidate test range."
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "clamp_test.go",
+                  "uriBaseId": "%SRCROOT%"
+                },
+                "region": {
+                  "startLine": 10,
+                  "endLine": 13
+                }
+              }
+            }
+          ],
+          "partialFingerprints": {
+            "swiftproof/v1": "06b5190ef4e061e4b14184d653326690"
+          },
+          "properties": {
+            "swiftproof": {
+              "class": "base_test_fails_on_candidate",
+              "status": "FAILS_ON_CANDIDATE",
+              "location_source": "candidate test range",
+              "location_precision": "line",
+              "evidence_ids": [
+                "evidence-1-4"
+              ],
+              "check_ids": [
+                "check-1-4",
+                "check-2-4"
+              ],
+              "details": [
+                {
+                  "label": "test",
+                  "value": "TestClampUpper"
+                },
+                {
+                  "label": "baseline declaration",
+                  "value": "clamp_test.go:10–14"
+                },
+                {
+                  "label": "change to the test",
+                  "value": "modified"
+                },
+                {
+                  "label": "runs",
+                  "value": "baseline check check-1-4 PASS; hybrid-tree check check-2-4 FAIL"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "ruleId": "swiftproof/fuzz-divergence",
+          "ruleIndex": 2,
+          "level": "warning",
+          "message": {
+            "text": "Identical seeded inputs gave different recorded values on the baseline and the candidate. Function: \"Percent\". Input: \"Percent(1, 3)\". Baseline value: \"33\". Candidate value: \"34\". Input: \"Percent(2, 3)\". Baseline value: \"66\". Candidate value: \"67\". More rows: \"1 further diverging row is in confidence-report.json\". Evidence: \"evidence-1-10\". Location: changed function."
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "calc/calc.go",
+                  "uriBaseId": "%SRCROOT%"
+                },
+                "region": {
+                  "startLine": 10,
+                  "endLine": 10
+                }
+              }
+            }
+          ],
+          "partialFingerprints": {
+            "swiftproof/v1": "dc9914b1c85681da077a742ee2343160"
+          },
+          "properties": {
+            "swiftproof": {
+              "class": "fuzz_divergence",
+              "status": "DIVERGED",
+              "location_source": "changed function",
+              "location_precision": "line",
+              "evidence_ids": [
+                "evidence-1-10"
+              ],
+              "check_ids": [
+                "check-1-10",
+                "check-2-10",
+                "check-3-10",
+                "check-4-10"
+              ],
+              "details": [
+                {
+                  "label": "function",
+                  "value": "Percent"
+                },
+                {
+                  "label": "input",
+                  "value": "Percent(1, 3)"
+                },
+                {
+                  "label": "baseline value",
+                  "value": "33"
+                },
+                {
+                  "label": "candidate value",
+                  "value": "34"
+                },
+                {
+                  "label": "input",
+                  "value": "Percent(2, 3)"
+                },
+                {
+                  "label": "baseline value",
+                  "value": "66"
+                },
+                {
+                  "label": "candidate value",
+                  "value": "67"
+                },
+                {
+                  "label": "more rows",
+                  "value": "1 further diverging row is in confidence-report.json"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "ruleId": "swiftproof/observed-divergence",
+          "ruleIndex": 3,
+          "level": "warning",
+          "message": {
+            "text": "A generated test recorded different values on the baseline and the candidate for the same inputs. Generated test: \"discount_obs_test.go (TestObserveDiscount)\". Recorded key: \"Discount(5,33)\". Baseline value: \"4\". Candidate value: \"3\". Evidence: \"evidence-1-15\". Location: model-chosen location."
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "discount.go",
+                  "uriBaseId": "%SRCROOT%"
+                },
+                "region": {
+                  "startLine": 4,
+                  "endLine": 4
+                }
+              }
+            }
+          ],
+          "relatedLocations": [
+            {
+              "id": 1,
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "artifacts/0a1b-generated-test-2-discount_obs_test.go",
+                  "uriBaseId": "SWIFTPROOF_REPORT"
+                }
+              },
+              "message": {
+                "text": "Retained generated_test artifact, sha256 eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee."
+              }
+            }
+          ],
+          "partialFingerprints": {
+            "swiftproof/v1": "3c02423827f147b5a2228e745bed0f00"
+          },
+          "properties": {
+            "swiftproof": {
+              "class": "observed_divergence",
+              "status": "DIVERGED",
+              "location_source": "model-chosen location",
+              "location_precision": "line",
+              "evidence_ids": [
+                "evidence-1-15"
+              ],
+              "check_ids": [
+                "check-1-15",
+                "check-2-15",
+                "check-3-15"
+              ],
+              "hypothesis_ids": [
+                "h1"
+              ],
+              "details": [
+                {
+                  "label": "generated test",
+                  "value": "discount_obs_test.go (TestObserveDiscount)"
+                },
+                {
+                  "label": "recorded key",
+                  "value": "Discount(5,33)"
+                },
+                {
+                  "label": "baseline value",
+                  "value": "4"
+                },
+                {
+                  "label": "candidate value",
+                  "value": "3"
+                }
+              ],
+              "artifacts": [
+                {
+                  "kind": "generated_test",
+                  "path": "artifacts/0a1b-generated-test-2-discount_obs_test.go",
+                  "sha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "ruleId": "swiftproof/intent-test-failed",
+          "ruleIndex": 4,
+          "level": "note",
+          "message": {
+            "text": "A model-written test for AC-2 failed on the candidate; there is no baseline control, and the test or its reading of the criterion may be wrong. Reviewer-model title: \"Empty cart total\". Criterion AC-2: \"A total is never negative.\". Intent test: \"cart_intent_test.go (TestIntentNonNegative)\". Run: \"candidate check check-1-19 FAIL (candidate only; no baseline control)\". Changed symbols the test references: \"Total\". Evidence: \"evidence-1-19\". Location: model-chosen location."
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "cart.go",
+                  "uriBaseId": "%SRCROOT%"
+                },
+                "region": {
+                  "startLine": 8,
+                  "endLine": 8
+                }
+              }
+            }
+          ],
+          "relatedLocations": [
+            {
+              "id": 1,
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "artifacts/0a1b-intent-test-1-cart_intent_test.go",
+                  "uriBaseId": "SWIFTPROOF_REPORT"
+                }
+              },
+              "message": {
+                "text": "Retained intent_test artifact, sha256 ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff."
+              }
+            }
+          ],
+          "partialFingerprints": {
+            "swiftproof/v1": "93d4b4e157f2050ec371d126a7eff092"
+          },
+          "properties": {
+            "swiftproof": {
+              "class": "intent_test_failed",
+              "status": "INTENT_TEST_FAILED",
+              "title": "Empty cart total",
+              "title_source": "reviewer model",
+              "statement": "A model-written test for AC-2 failed on the candidate; there is no baseline control, and the test or its reading of the criterion may be wrong.",
+              "location_source": "model-chosen location",
+              "location_precision": "line",
+              "evidence_ids": [
+                "evidence-1-19"
+              ],
+              "check_ids": [
+                "check-1-19"
+              ],
+              "hypothesis_ids": [
+                "h1"
+              ],
+              "criterion_id": "AC-2",
+              "details": [
+                {
+                  "label": "criterion AC-2",
+                  "value": "A total is never negative."
+                },
+                {
+                  "label": "intent test",
+                  "value": "cart_intent_test.go (TestIntentNonNegative)"
+                },
+                {
+                  "label": "run",
+                  "value": "candidate check check-1-19 FAIL (candidate only; no baseline control)"
+                },
+                {
+                  "label": "changed symbols the test references",
+                  "value": "Total"
+                }
+              ],
+              "artifacts": [
+                {
+                  "kind": "intent_test",
+                  "path": "artifacts/0a1b-intent-test-1-cart_intent_test.go",
+                  "sha256": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "ruleId": "swiftproof/surviving-mutant",
+          "ruleIndex": 5,
+          "level": "note",
+          "message": {
+            "text": "A single mutation of an added line left the package's tests passing. Mutant: \"mutant-1\". Operator: \"comparison\". Original: \"if pct \u003e 50 {\". Mutated: \"if pct \u003e= 50 {\". Package: \"./\". Runs: \"control check mutation-check-1 PASS; mutant check mutation-check-2 PASS with 2 passing tests\". Location: mutated added line."
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "discount.go",
+                  "uriBaseId": "%SRCROOT%"
+                },
+                "region": {
+                  "startLine": 6,
+                  "endLine": 6
+                }
+              }
+            }
+          ],
+          "relatedLocations": [
+            {
+              "id": 1,
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "artifacts/0a1b-mutant-1.patch",
+                  "uriBaseId": "SWIFTPROOF_REPORT"
+                }
+              },
+              "message": {
+                "text": "Retained mutant_patch artifact, sha256 9999999999999999999999999999999999999999999999999999999999999999."
+              }
+            }
+          ],
+          "partialFingerprints": {
+            "swiftproof/v1": "922e58fcf5d5e131bd28d92979702023"
+          },
+          "properties": {
+            "swiftproof": {
+              "class": "surviving_mutant",
+              "status": "SURVIVED",
+              "location_source": "mutated added line",
+              "location_precision": "line",
+              "evidence_ids": [],
+              "check_ids": [
+                "mutation-check-1",
+                "mutation-check-2"
+              ],
+              "mutant_id": "mutant-1",
+              "details": [
+                {
+                  "label": "mutant",
+                  "value": "mutant-1"
+                },
+                {
+                  "label": "operator",
+                  "value": "comparison"
+                },
+                {
+                  "label": "original",
+                  "value": "if pct \u003e 50 {"
+                },
+                {
+                  "label": "mutated",
+                  "value": "if pct \u003e= 50 {"
+                },
+                {
+                  "label": "package",
+                  "value": "./"
+                },
+                {
+                  "label": "runs",
+                  "value": "control check mutation-check-1 PASS; mutant check mutation-check-2 PASS with 2 passing tests"
+                }
+              ],
+              "artifacts": [
+                {
+                  "kind": "mutant_patch",
+                  "path": "artifacts/0a1b-mutant-1.patch",
+                  "sha256": "9999999999999999999999999999999999999999999999999999999999999999"
+                }
+              ]
+            }
+          }
+        }
+      ],
+      "properties": {
+        "swiftproof": {
+          "report_version": 1,
+          "tool_version": "v1.2.3",
+          "generated_at": "2026-09-26T12:00:00Z",
+          "exit_code": 1,
+          "findings": 6,
+          "unanchored_findings": 1,
+          "omitted_findings": 0,
+          "unverified_areas": 0,
+          "unverified_hypotheses": 0,
+          "checks_not_passed": 4,
+          "stages_not_run": 0,
+          "risk_signals": 0,
+          "review_targets": 0,
+          "note": "Only evidence-backed findings are listed as results. An empty result list is not an approval and does not establish that the change is correct; GitHub's fixed state of an alert is not a SwiftProof claim. A re-rendered or fork-produced file is not authenticated."
+        }
+      }
+    }
+  ],
+  "properties": {
+    "attribution": "Generated by SwiftProof v1.2.3 (https://github.com/gvinsot/SwiftProof)."
+  }
+}

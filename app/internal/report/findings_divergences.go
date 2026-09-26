@@ -1,7 +1,6 @@
 package report
 
 import (
-	"fmt"
 	"sort"
 	"strings"
 
@@ -75,7 +74,7 @@ func divergenceFindings(r *model.Report, x *exportIndex) []finding {
 		}
 		for i, o := range rows {
 			if i == maxRowsInDetails {
-				f.Details = append(f.Details, detail{"more rows", fmt.Sprintf("%d further diverging rows are in confidence-report.json", len(rows)-maxRowsInDetails)})
+				f.Details = append(f.Details, detail{"more rows", plural(len(rows)-maxRowsInDetails, "further diverging row is", "further diverging rows are") + " in confidence-report.json"})
 				break
 			}
 			key := o.Key
