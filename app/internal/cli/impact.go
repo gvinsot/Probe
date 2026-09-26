@@ -50,21 +50,20 @@ func analyzeImpact(ctx context.Context, repo *gitrepo.Repository, change model.C
 }
 
 // runImpactedTests runs the unchanged tests that statically reach changed code
-// on baseline and candidate (--impacted-tests, F6b). It returns true on an
-// operational failure. The stub records tests_status not_run, and an Unverified
-// line so that the review request it causes under --ci has a visible reason.
+// on baseline and candidate (--impacted-tests, F6b). It selects them from the
+// impact section, which res.report also points to, and records the outcome
+// there (see runImpactedStage in impacted.go). It returns true when a run of
+// the stage was recorded as ERROR, an operational failure.
 func runImpactedTests(ctx context.Context, h *harness.Harness, r *model.Report, res impactResult, errOut io.Writer) (operational bool) {
-	if r.Impact != nil {
-		r.Impact.TestsStatus, r.Impact.TestsReason = model.ImpactTestsNotRun, "not implemented in this build"
-		r.Unverified = append(r.Unverified, "Impacted tests did not run: not implemented in this build")
-	}
-	return false
+	return runImpactedStage(ctx, h, r, errOut)
 }
 
 // recordImpactedTestsSkipped records why a requested --impacted-tests stage did
-// not run (§1.7, F6b). It is a no-op in lint, when not requested, without an
-// impact section, or when tests_status is already set. --checks=false and
-// --impact=false cannot occur: the flags reject them with exit 3.
+// not run (§1.7, F6b): not_run with the reason and the stage's Unverified
+// entry, or no_candidates without changed files. It is a no-op in lint, when
+// not requested, without an impact section, or when tests_status is already
+// set. --checks=false and --impact=false cannot occur: the flags reject them
+// with exit 3.
 func recordImpactedTestsSkipped(sc stageContext, requested bool, r *model.Report) {
 	if sc.mode != "review" || !requested || r.Impact == nil || r.Impact.TestsStatus != "" {
 		return
@@ -74,6 +73,7 @@ func recordImpactedTestsSkipped(sc stageContext, requested bool, r *model.Report
 		return
 	}
 	r.Impact.TestsStatus, r.Impact.TestsReason = model.ImpactTestsNotRun, skippedReason(sc)
+	r.Unverified = append(r.Unverified, impactedUnverifiedPrefix+r.Impact.TestsReason)
 }
 
 // impactLine is the stdout line of the impact section: counts for an indexed

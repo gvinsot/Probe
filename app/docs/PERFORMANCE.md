@@ -97,6 +97,19 @@ go test ./internal/symbols -run '^$' -bench ImpactSearchAdversarial -benchtime 3
 go test ./internal/symbols -run '^$' -bench ImplementsWideEmbedding -count 3
 go test ./internal/symbols -run '^$' -bench ImpactSearchWideEmbedding -benchtime 3x -benchmem
 ```
+
+### Impacted tests (F6b, `--impacted-tests`)
+
+The stage costs sandbox runs, not host work: two runs per package with selected tests, plus the narrowed baseline run, the retry pair and the live confirmation described in [impacted tests](IMPACT.md#impacted-tests---impacted-tests), all inside its 180 s sub-cap of the shared budget. Measured on 2026-09-26 with a Windows binary built from the branch, `golang:1.26-bookworm`, on the same host while other agents ran containers, on the shop fixture of [validation](VALIDATION.md) (one package of two selected tests, one package of one):
+
+| Run | Stage runs executed | Their recorded durations | Budget spent by the whole review |
+| --- | --- | --- | --- |
+| Default Go policy, TestTotal and TestCheckout fail on the candidate, TestTotalZero gets a pair of its own | 6 | 72.3 s in total, 11.4–13.5 s each | 110.8 s |
+| The same with a test that also fails on the baseline (narrowed baseline run) | 7 | 107.1 s, 11.6–17.8 s each | 126.7 s |
+| Policy with only `test` and `generated_test`, `--cache-dir`, first and second run | 6 each | 37.4 s and 37.2 s, 5.9–7.0 s each | 44.0 s and 43.1 s |
+| The same, third run: 3 baseline runs replayed, 2 live confirmations of `FAILS_ON_CANDIDATE` | 5 | 67.1 s, 11.1–17.5 s each | 77.5 s |
+
+Each run compiles its package in a fresh container, so its duration is mostly compilation. The third cached run executed one run fewer, yet took longer than the first two because the host load differed: these numbers show no speed-up from the cache, and a `FAILS_ON_CANDIDATE` result always costs a live baseline run.
 <!-- F6:end -->
 
 <!-- F7:begin -->
