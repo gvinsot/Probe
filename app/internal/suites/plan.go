@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"path"
 	"sort"
 	"strings"
 
@@ -39,18 +40,24 @@ const notePrefix = "Baseline versions of changed tests: "
 
 // Plan selects every runnable Go test function of a changed Go test file whose
 // baseline version the change modified or removed, and every test of a file
-// whose other declarations (helpers, types, variables, TestMain) changed:
+// that changed outside its test functions:
 //   - removed: the candidate file no longer declares it (deleted, renamed, moved
 //     or no longer runnable);
 //   - modified: its token digest differs, so comment and layout edits are
 //     ignored, or the candidate file could not be read or parsed;
 //   - shared_code_changed: a baseline declaration of the file other than a test
-//     disappeared or changed;
+//     disappeared or changed; the package clause, the build constraints, the
+//     import set or a compiler directive changed; the candidate added init,
+//     TestMain, a package-level variable with an initializer or a method of a
+//     type it did not newly declare; or a rename moved the file to another
+//     directory (another package) or changed the GOOS/GOARCH suffix of its
+//     name;
 //   - file_deleted: the file was deleted, or renamed to a non-test file.
 //
 // Added, copied and type-changed files, files Go never compiles (under
 // testdata, vendor, or a directory or name starting with _ or .) and binary
-// changes are not considered. Plan returns an error only when ctx ends.
+// changes are not considered, and a change in one file never selects the
+// tests of another. Plan returns an error only when ctx ends.
 func Plan(ctx context.Context, read Reader, change model.Change) (Selection, error) {
 	type candidate struct{ basePath, candPath string }
 	var files []candidate
@@ -84,6 +91,7 @@ func Plan(ctx context.Context, read Reader, change model.Change) (Selection, err
 		}
 		var cand testFile
 		var candErr error
+		changed := false
 		if f.candPath != "" {
 			src, err := read(ctx, change.HeadCommit, f.candPath)
 			if err != nil {
@@ -94,9 +102,10 @@ func Plan(ctx context.Context, read Reader, change model.Change) (Selection, err
 			} else {
 				cand, candErr = parseTestFile(f.candPath, src)
 			}
+			changed = candErr == nil && (fileChanged(base, cand) || renameChanged(f.basePath, f.candPath))
 		}
 		for _, t := range base.tests {
-			kind := classifyChange(f.candPath, candErr, base, cand, t)
+			kind := classifyChange(f.candPath, candErr, cand, t, changed)
 			if kind == "" {
 				continue
 			}
@@ -135,8 +144,9 @@ func readNote(p string, err error) string {
 }
 
 // classifyChange returns the change class of one baseline test, or "" when the
-// test is not selected.
-func classifyChange(candPath string, candErr error, base, cand testFile, t testFunc) string {
+// test is not selected. fileChanged says whether the file changed outside its
+// test functions (see Plan).
+func classifyChange(candPath string, candErr error, cand testFile, t testFunc, fileChanged bool) string {
 	switch {
 	case candPath == "":
 		return model.BaseTestFileDeleted
@@ -149,8 +159,45 @@ func classifyChange(candPath string, candErr error, base, cand testFile, t testF
 		return model.BaseTestRemoved
 	case c.digest != t.digest:
 		return model.BaseTestModified
-	case sharedChanged(base, cand):
+	case fileChanged:
 		return model.BaseTestSharedCodeChanged
+	}
+	return ""
+}
+
+// knownOS and knownArch are the GOOS and GOARCH values go/build matches in
+// file names (internal/syslist of Go 1.26).
+var (
+	knownOS   = map[string]bool{"aix": true, "android": true, "darwin": true, "dragonfly": true, "freebsd": true, "hurd": true, "illumos": true, "ios": true, "js": true, "linux": true, "nacl": true, "netbsd": true, "openbsd": true, "plan9": true, "solaris": true, "wasip1": true, "windows": true, "zos": true}
+	knownArch = map[string]bool{"386": true, "amd64": true, "amd64p32": true, "arm": true, "armbe": true, "arm64": true, "arm64be": true, "loong64": true, "mips": true, "mipsle": true, "mips64": true, "mips64le": true, "mips64p32": true, "mips64p32le": true, "ppc": true, "ppc64": true, "ppc64le": true, "riscv": true, "riscv64": true, "s390": true, "s390x": true, "sparc": true, "sparc64": true, "wasm": true}
+)
+
+// renameChanged reports whether renaming a test file from basePath to
+// candPath changes whether or where go test compiles it: another directory is
+// another package, and a GOOS/GOARCH suffix is an implicit build constraint.
+func renameChanged(basePath, candPath string) bool {
+	return path.Dir(basePath) != path.Dir(candPath) || fileNameTags(basePath) != fileNameTags(candPath)
+}
+
+// fileNameTags returns the implicit build constraint of a Go file name, as
+// go/build derives it: "GOOS_GOARCH", "GOOS" or "GOARCH" from the suffix
+// before _test.go, or "" when the name carries none.
+func fileNameTags(p string) string {
+	name, _, _ := strings.Cut(path.Base(p), ".")
+	i := strings.Index(name, "_")
+	if i < 0 {
+		return ""
+	}
+	l := strings.Split(name[i:], "_")
+	if n := len(l); n > 0 && l[n-1] == "test" {
+		l = l[:n-1]
+	}
+	n := len(l)
+	if n >= 2 && knownOS[l[n-2]] && knownArch[l[n-1]] {
+		return l[n-2] + "_" + l[n-1]
+	}
+	if n >= 1 && (knownOS[l[n-1]] || knownArch[l[n-1]]) {
+		return l[n-1]
 	}
 	return ""
 }

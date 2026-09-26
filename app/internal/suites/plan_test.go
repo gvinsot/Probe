@@ -65,6 +65,9 @@ func TestClampInside(t *testing.T) {
 }
 `
 
+// allShared is every test of clampTests, selected as shared_code_changed.
+const allShared = "TestClampNegative:shared_code_changed,TestClampUpper:shared_code_changed,TestClampInside:shared_code_changed"
+
 func modified(path string) model.ChangedFile {
 	return model.ChangedFile{Path: path, Status: "M"}
 }
@@ -107,6 +110,26 @@ func TestPlanSelection(t *testing.T) {
 		{"renamed_edited", strings.Replace(clampTests, "got != 3", "got > 3", 1), model.ChangedFile{OldPath: "clamp_test.go", Path: "bounds_test.go", Status: "R"}, "TestClampInside:modified"},
 		{"renamed_to_non_test", clampTests, model.ChangedFile{OldPath: "clamp_test.go", Path: "clamp_helpers.go", Status: "R"}, "TestClampNegative:file_deleted,TestClampUpper:file_deleted,TestClampInside:file_deleted"},
 		{"candidate_unparsable", clampTests + "\nfunc broken( {\n", modified("clamp_test.go"), "TestClampNegative:modified,TestClampUpper:modified,TestClampInside:modified"},
+		// File-level edits that change whether or how go test runs the
+		// unchanged tests of the file select every test of the file.
+		{"build_constraint_added", "//go:build never\n\n" + clampTests, modified("clamp_test.go"), allShared},
+		{"legacy_build_constraint_added", "// +build never\n\n" + clampTests, modified("clamp_test.go"), allShared},
+		{"goos_suffix_rename", clampTests, model.ChangedFile{OldPath: "clamp_test.go", Path: "clamp_windows_test.go", Status: "R"}, allShared},
+		{"goarch_suffix_rename", clampTests, model.ChangedFile{OldPath: "clamp_test.go", Path: "clamp_s390x_test.go", Status: "R"}, allShared},
+		{"goos_suffix_kept", clampTests, model.ChangedFile{OldPath: "clamp_windows_test.go", Path: "bounds_windows_test.go", Status: "R"}, ""},
+		// Another directory is another package, even with the same clause.
+		{"moved_to_another_directory", clampTests, model.ChangedFile{OldPath: "clamp_test.go", Path: "legacy/clamp_test.go", Status: "R"}, allShared},
+		{"moved_between_directories", clampTests, model.ChangedFile{OldPath: "a/clamp_test.go", Path: "b/clamp_test.go", Status: "R"}, allShared},
+		{"import_added", strings.Replace(clampTests, "import \"testing\"", "import (\n\t\"testing\"\n\n\t_ \"example.test/clamp/strict\"\n)", 1), modified("clamp_test.go"), allShared},
+		{"package_clause_changed", strings.Replace(clampTests, "package clamp", "package clamp_test", 1), modified("clamp_test.go"), allShared},
+		{"test_main_added", clampTests + "\nfunc TestMain(m *testing.M) {}\n", modified("clamp_test.go"), allShared},
+		{"init_added", clampTests + "\nfunc init() { limit = 20 }\n", modified("clamp_test.go"), allShared},
+		{"initialized_var_added", clampTests + "\nvar _ = setLimit(20)\n", modified("clamp_test.go"), allShared},
+		{"method_of_package_type_added", clampTests + "\nfunc (b Bounds) String() string { return \"\" }\n", modified("clamp_test.go"), allShared},
+		{"directive_added", strings.Replace(clampTests, "func assertClamp", "//go:noinline\nfunc assertClamp", 1), modified("clamp_test.go"), allShared},
+		{"plain_var_added", clampTests + "\nvar unused int\n", modified("clamp_test.go"), ""},
+		{"method_of_new_type_added", clampTests + "\ntype fake struct{}\n\nfunc (fake) String() string { return \"\" }\n", modified("clamp_test.go"), ""},
+		{"license_comment_added", "// Copyright the authors.\n\n" + clampTests, modified("clamp_test.go"), ""},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

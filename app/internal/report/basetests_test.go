@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/gvinsot/SwiftProof/app/internal/harness"
 	"github.com/gvinsot/SwiftProof/app/internal/model"
 )
 
@@ -305,7 +306,7 @@ func TestWriteBaseTestsSection(t *testing.T) {
 	}
 	for _, want := range []string{
 		"24 baseline versions of changed Go tests selected: 1 FAILS\\_ON\\_CANDIDATE, 22 PASSES\\_ON\\_CANDIDATE, 1 UNVERIFIED.",
-		"TestClampUpper — clamp\\_test.go:14–18 (modified by the change); edited version at clamp\\_test.go:14–18. It passed on the baseline tree and failed on the candidate tree with its package's test files reverted to the baseline (baseline check check-1, hybrid-tree check check-2); evidence-1. A human decides whether this behavior change is intended.",
+		"TestClampUpper — clamp\\_test.go:14–18 (modified by the change); edited version at clamp\\_test.go:14–18. It passed on the baseline tree and failed on the candidate tree with its package's test files reverted to the baseline (baseline check check-1, hybrid-tree check check-2); evidence-1. One recorded run each: possibly a behavior change accompanied by a test edit, possibly flakiness, for a human to judge.",
 		"- … 2 more PASSES\\_ON\\_CANDIDATE results in confidence-report.json",
 		inline(model.BaseTestsNote),
 		"Test\\`\\*\\[x\\]\\(y\\)&lt;b&gt;\\_\\! — a\\_\\[b\\]\\_test.go:3–9 (removed by the change): the test failed on the baseline tree \\(check-7\\) &lt;script&gt;.",
@@ -340,6 +341,56 @@ func TestWriteBaseTestsSection(t *testing.T) {
 	}
 }
 
+// Every reason text ClassifyExistingTest can return, the change texts, the
+// note and the review-target reasons render without an escaped HTML entity:
+// inline() turns an apostrophe or a quote into one.
+func TestBaseTestReasonsRenderWithoutEntities(t *testing.T) {
+	command := []string{"go", "test", ".", "-json", "-count=1", "-run", "^(TestA)$"}
+	pass := model.Check{Status: "PASS", Command: command, Output: btEvents("TestA", "pass")}
+	candidates := []model.Check{
+		pass,
+		{Status: "FAIL", ExitCode: 1, Command: command, Output: btEvents("TestA", "fail")},
+		{Status: "TIMEOUT", ExitCode: -1, Command: command},
+		{Status: "ERROR", ExitCode: 125, Command: command},
+		{Status: "PASS", Truncated: true, Command: command, Output: btEvents("TestA", "pass")},
+		{Status: "FAIL", ExitCode: 200, Command: command, Output: btEvents("TestA", "fail")},
+		{Status: "FAIL", ExitCode: 1, Command: command, Output: "FAIL example.test/clamp [build failed]"},
+		{Status: "FAIL", ExitCode: 1, Command: command, Output: btEvents("TestA", "pass")},
+		{Status: "PASS", Command: command, Output: btEvents("TestA", "skip")},
+		{Status: "PASS", Command: []string{"go", "test"}, Output: btEvents("TestA", "pass")},
+	}
+	bases := []model.Check{pass, {Status: "FAIL", ExitCode: 1, Command: command}, {Status: "PASS", Command: command, Output: btEvents("TestA", "skip")}}
+	reasons := map[string]bool{}
+	for _, base := range bases {
+		for _, candidate := range candidates {
+			_, reason := harness.ClassifyExistingTest(base, candidate, "TestA")
+			reasons[reason] = true
+		}
+	}
+	if len(reasons) < 10 {
+		t.Fatalf("only %d distinct reasons reached: %v", len(reasons), reasons)
+	}
+	r := baseTestsReport()
+	i := 0
+	for reason := range reasons {
+		i++
+		r.BaseTests.Tests = append(r.BaseTests.Tests, model.BaseTest{Name: fmt.Sprintf("TestR%02d", i), Path: "clamp_test.go", Line: i, EndLine: i, Change: []string{model.BaseTestRemoved, model.BaseTestModified, model.BaseTestSharedCodeChanged, model.BaseTestFileDeleted}[i%4], Status: model.StatusUnverified, Reason: reason})
+	}
+	r.Intent = "Clamp keeps its bounds."
+	Finalize(r, true)
+	md := string(Markdown(r))
+	for _, heading := range []string{"## Changed Baseline Tests on Candidate Code", "## Suggested Human Review"} {
+		if body := section(t, md, heading); strings.Contains(body, "&\\#") || strings.Contains(body, "&amp;") || strings.Contains(body, "&quot;") {
+			t.Errorf("%s holds an escaped entity:\n%s", heading, body)
+		}
+	}
+	for reason := range reasons {
+		if !strings.Contains(md, inline(reason)) {
+			t.Errorf("reason %q not rendered", reason)
+		}
+	}
+}
+
 func TestWriteBaseTestsStatusTexts(t *testing.T) {
 	render := func(s *model.BaseTests) string {
 		t.Helper()
@@ -351,7 +402,7 @@ func TestWriteBaseTestsStatusTexts(t *testing.T) {
 		}
 		return section(t, md, "## Changed Baseline Tests on Candidate Code")
 	}
-	if body := render(&model.BaseTests{Status: model.BaseTestsNoCandidates}); !strings.Contains(body, "The change modified or removed no Go test function, so no baseline version was re-run. This says nothing about tests the change did not touch.") {
+	if body := render(&model.BaseTests{Status: model.BaseTestsNoCandidates}); !strings.Contains(body, "No test was selected, so no baseline version was re-run. Only the tests declared in modified, deleted or renamed Go test files are considered; this says nothing about any other test.") || strings.Contains(body, "modified or removed no") {
 		t.Fatalf("no_candidates:\n%s", body)
 	}
 	if body := render(&model.BaseTests{Status: model.BaseTestsNoCandidates, Reason: "no changed files"}); !strings.Contains(body, "Reason: no changed files.") {

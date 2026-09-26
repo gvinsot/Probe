@@ -180,3 +180,69 @@ func TestA(t *testing.T) { helper(t, 1, 1) }
 		}
 	}
 }
+
+func TestFileHeaderSeesWhatCommentsHide(t *testing.T) {
+	base := mustParse(t, "// Package clamp tests.\npackage clamp\n\nimport (\n\t\"strings\"\n\t\"testing\"\n)\n\nfunc TestA(t *testing.T) { _ = strings.ToLower(\"A\") }\n")
+	same := []string{
+		// Import order, a non-directive comment and layout do not count.
+		"// Package clamp tests the bounds.\npackage clamp\n\nimport (\n\t\"testing\"\n\t\"strings\"\n)\n\n// TestA is unchanged.\nfunc TestA(t *testing.T) { _ = strings.ToLower(\"A\") }\n",
+		"package clamp\n\nimport \"strings\"\nimport \"testing\"\n\nfunc TestA(t *testing.T) {\n\t_ = strings.ToLower(\"A\")\n}\n",
+	}
+	for _, src := range same {
+		if cand := mustParse(t, src); fileChanged(base, cand) {
+			t.Errorf("reported a file change for:\n%s\nheaders %q / %q", src, base.header, cand.header)
+		}
+	}
+	different := map[string]string{
+		"go_build":      "//go:build linux\n\npackage clamp\n\nimport (\n\t\"strings\"\n\t\"testing\"\n)\n\nfunc TestA(t *testing.T) { _ = strings.ToLower(\"A\") }\n",
+		"plus_build":    "// +build ignore\n\npackage clamp\n\nimport (\n\t\"strings\"\n\t\"testing\"\n)\n\nfunc TestA(t *testing.T) { _ = strings.ToLower(\"A\") }\n",
+		"package":       "package clamp_test\n\nimport (\n\t\"strings\"\n\t\"testing\"\n)\n\nfunc TestA(t *testing.T) { _ = strings.ToLower(\"A\") }\n",
+		"import_path":   "package clamp\n\nimport (\n\tstrings \"example.test/strings\"\n\t\"testing\"\n)\n\nfunc TestA(t *testing.T) { _ = strings.ToLower(\"A\") }\n",
+		"blank_import":  "package clamp\n\nimport (\n\t\"strings\"\n\t\"testing\"\n\n\t_ \"time/tzdata\"\n)\n\nfunc TestA(t *testing.T) { _ = strings.ToLower(\"A\") }\n",
+		"dot_import":    "package clamp\n\nimport (\n\t. \"strings\"\n\t\"testing\"\n)\n\nfunc TestA(t *testing.T) { _ = ToLower(\"A\") }\n",
+		"embed":         "package clamp\n\nimport (\n\t_ \"embed\"\n\t\"strings\"\n\t\"testing\"\n)\n\n//go:embed testdata/golden.txt\nvar golden string\n\nfunc TestA(t *testing.T) { _ = strings.ToLower(\"A\") }\n",
+		"line":          "package clamp\n\nimport (\n\t\"strings\"\n\t\"testing\"\n)\n\n//line other.go:10\nfunc TestA(t *testing.T) { _ = strings.ToLower(\"A\") }\n",
+		"test_main":     "package clamp\n\nimport (\n\t\"strings\"\n\t\"testing\"\n)\n\nfunc TestMain(m *testing.M) {}\n\nfunc TestA(t *testing.T) { _ = strings.ToLower(\"A\") }\n",
+		"init":          "package clamp\n\nimport (\n\t\"strings\"\n\t\"testing\"\n)\n\nfunc init() {}\n\nfunc TestA(t *testing.T) { _ = strings.ToLower(\"A\") }\n",
+		"var_with_init": "package clamp\n\nimport (\n\t\"strings\"\n\t\"testing\"\n)\n\nvar configured = configure()\n\nfunc TestA(t *testing.T) { _ = strings.ToLower(\"A\") }\n",
+		"method":        "package clamp\n\nimport (\n\t\"strings\"\n\t\"testing\"\n)\n\nfunc (c *Config[T]) String() string { return \"\" }\n\nfunc TestA(t *testing.T) { _ = strings.ToLower(\"A\") }\n",
+	}
+	for name, src := range different {
+		if cand := mustParse(t, src); !fileChanged(base, cand) {
+			t.Errorf("%s: no file change reported\nheaders %q / %q", name, base.header, cand.header)
+		}
+	}
+	// Adding only a test, a function, a type with its methods, a constant or
+	// a variable without initializer changes nothing for the existing tests.
+	added := "package clamp\n\nimport (\n\t\"strings\"\n\t\"testing\"\n)\n\nfunc TestA(t *testing.T) { _ = strings.ToLower(\"A\") }\n\nfunc TestB(t *testing.T) {}\n\nfunc helper() {}\n\ntype fake[T any] struct{}\n\nfunc (f *fake[T]) String() string { return \"\" }\n\nconst answer = 42\n\nvar scratch []int\n"
+	if cand := mustParse(t, added); fileChanged(base, cand) {
+		t.Errorf("added declarations without effect reported a file change: %v", cand.effects)
+	}
+	// A method added to a type the baseline file declared counts.
+	withType := mustParse(t, "package clamp\n\nimport \"testing\"\n\ntype table struct{}\n\nfunc TestA(t *testing.T) { _ = table{} }\n")
+	withMethod := mustParse(t, "package clamp\n\nimport \"testing\"\n\ntype table struct{}\n\nfunc (table) String() string { return \"t\" }\n\nfunc TestA(t *testing.T) { _ = table{} }\n")
+	if !fileChanged(withType, withMethod) {
+		t.Error("a method added to a type of the baseline file was not reported")
+	}
+}
+
+func TestFileNameTags(t *testing.T) {
+	for p, want := range map[string]string{
+		"clamp_test.go":                 "",
+		"pkg/clamp_test.go":             "",
+		"windows_test.go":               "",
+		"clamp_windows_test.go":         "windows",
+		"pkg/clamp_arm64_test.go":       "arm64",
+		"clamp_linux_amd64_test.go":     "linux_amd64",
+		"clamp_linux_test_test.go":      "",
+		"clamp_notanos_test.go":         "",
+		"clamp_wasip1_wasm_test.go":     "wasip1_wasm",
+		"clamp_amd64_linux_test.go":     "linux",
+		"clamp.windows_test.go":         "",
+		"a_b_c_freebsd_riscv64_test.go": "freebsd_riscv64",
+	} {
+		if got := fileNameTags(p); got != want {
+			t.Errorf("fileNameTags(%q) = %q, want %q", p, got, want)
+		}
+	}
+}

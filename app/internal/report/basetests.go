@@ -25,6 +25,8 @@ const (
 	// baseTestNoResultText is the reason of a test recorded without a result
 	// or a reason.
 	baseTestNoResultText = "no recorded run pair gave this test a result"
+	// baseTestsNoneSelectedText is the text of a no_candidates section.
+	baseTestsNoneSelectedText = "No test was selected, so no baseline version was re-run. Only the tests declared in modified, deleted or renamed Go test files are considered; this says nothing about any other test."
 	// baseTestsIntentText is rendered when an intent was supplied.
 	baseTestsIntentText = "Intent was supplied; SwiftProof does not decide whether a behavior change matches it."
 	// maxPassesShown caps the PASSES_ON_CANDIDATE lines of the Markdown
@@ -168,7 +170,7 @@ func baseTestTargets(r *model.Report) []extraTarget {
 			continue
 		}
 		out = append(out, extraTarget{path: t.Path, side: "old", start: t.Line, end: t.EndLine, severity: "high",
-			reason: "Baseline version of test " + t.Name + " failed on candidate code (FAILS_ON_CANDIDATE: a behavior change accompanied by a test edit, not a reproduced issue)"})
+			reason: "Baseline version of test " + t.Name + " failed on candidate code (FAILS_ON_CANDIDATE, one recorded run each: possibly a behavior change accompanied by a test edit, or flakiness; not a reproduced issue)"})
 		if t.CandidatePath != "" && t.CandidateLine > 0 {
 			out = append(out, extraTarget{path: t.CandidatePath, side: "new", start: t.CandidateLine, end: t.CandidateEndLine, severity: "high",
 				reason: "Edited test " + t.Name + ": its baseline version failed on candidate code (FAILS_ON_CANDIDATE)"})
@@ -200,7 +202,7 @@ func writeBaseTests(b *bytes.Buffer, r *model.Report) {
 	}
 	switch s.Status {
 	case model.BaseTestsNoCandidates:
-		line(b, "The change modified or removed no Go test function, so no baseline version was re-run. This says nothing about tests the change did not touch.")
+		line(b, baseTestsNoneSelectedText)
 		if strings.TrimSpace(s.Reason) != "" {
 			fmt.Fprintf(b, "\nReason: %s.\n", inline(strings.TrimSuffix(strings.TrimSpace(s.Reason), ".")))
 		}
@@ -262,7 +264,7 @@ func baseTestLine(t model.BaseTest, evidence map[string]model.Evidence) string {
 	}
 	switch t.Status {
 	case model.StatusFailsOnCandidate:
-		return fmt.Sprintf("- **%s** %s. It passed on the baseline tree and failed on the candidate tree with its package's test files reverted to the baseline%s; %s. A human decides whether this behavior change is intended.",
+		return fmt.Sprintf("- **%s** %s. It passed on the baseline tree and failed on the candidate tree with its package's test files reverted to the baseline%s; %s. One recorded run each: possibly a behavior change accompanied by a test edit, possibly flakiness, for a human to judge.",
 			inline(t.Status), head, checks, inline(t.EvidenceID))
 	case model.StatusPassesOnCandidate:
 		return fmt.Sprintf("- **%s** %s. It passed on the baseline tree and on the candidate tree with its package's test files reverted to the baseline%s; %s.",

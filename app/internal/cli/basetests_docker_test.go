@@ -149,6 +149,64 @@ func TestDockerBaseTestsEndToEnd(t *testing.T) {
 		}
 	})
 
+	t.Run("G_build_tag", func(t *testing.T) {
+		dir := buildConstraintFixture(t)
+		code, r, _, console := baseTestsReview(t, dir, policy, "--ci")
+		if code != 2 {
+			t.Fatalf("exit %d, want 2: checks %+v\n%s", code, r.Checks, console)
+		}
+		if len(r.Checks) == 0 || r.Checks[0].Kind != "test" || r.Checks[0].Status != "PASS" {
+			t.Fatalf("the candidate suite should pass without test files: %+v", r.Checks)
+		}
+		b := r.BaseTests
+		if b == nil || b.Status != model.BaseTestsRan || len(b.Tests) != 3 {
+			t.Fatalf("base tests %+v\n%s", b, console)
+		}
+		for _, bt := range b.Tests {
+			if bt.Change != model.BaseTestSharedCodeChanged {
+				t.Fatalf("test %+v", bt)
+			}
+			switch {
+			case bt.Name == "TestClampUpper" && bt.Status == model.StatusFailsOnCandidate:
+			case bt.Name == "TestClampUpper":
+				t.Fatalf("TestClampUpper %+v", bt)
+			case bt.Status == model.StatusPassesOnCandidate:
+			case bt.Status == model.StatusUnverified && (strings.HasPrefix(bt.Reason, "the test passed inside a candidate-side run that failed as a whole") || strings.Contains(bt.Reason, "timed out")):
+				t.Logf("the retry pair gave no result within the sub-cap: %s", bt.Reason)
+			default:
+				t.Fatalf("test %+v", bt)
+			}
+		}
+		for _, c := range r.Checks {
+			if c.Status == "ERROR" {
+				t.Fatalf("check %s is ERROR: %s", c.ID, c.Output)
+			}
+		}
+		if !strings.Contains(console, "Changed baseline tests on candidate code: 1 FAILS_ON_CANDIDATE") {
+			t.Fatalf("stdout:\n%s", console)
+		}
+	})
+
+	t.Run("H_file_at_pkg", func(t *testing.T) {
+		dir := testOnlyPackageFixture(t)
+		code, r, _, console := baseTestsReview(t, dir, policy, "--ci")
+		if code != 2 {
+			t.Fatalf("exit %d, want 2 (a candidate layout is never operational): checks %+v\n%s", code, r.Checks, console)
+		}
+		b := r.BaseTests
+		if b == nil || b.Status != model.BaseTestsRan || len(b.Tests) != 1 {
+			t.Fatalf("base tests %+v\n%s", b, console)
+		}
+		if bt := b.Tests[0]; bt.Name != "TestUpperBound" || bt.Change != model.BaseTestFileDeleted || bt.Status != model.StatusFailsOnCandidate {
+			t.Fatalf("test %+v", bt)
+		}
+		for _, c := range r.Checks {
+			if c.Status == "ERROR" {
+				t.Fatalf("check %s is ERROR: %s", c.ID, c.Output)
+			}
+		}
+	})
+
 	t.Run("B_api_change_is_unverified_not_operational", func(t *testing.T) {
 		dir := t.TempDir()
 		git(t, dir, "init", "-b", "main")

@@ -18,14 +18,20 @@ import (
 	"github.com/gvinsot/SwiftProof/app/internal/suites"
 )
 
-// baseTestsUnverifiedPrefix starts every Unverified entry of the stage.
-const baseTestsUnverifiedPrefix = "Baseline versions of changed tests did not run: "
+// baseTestsUnverifiedPrefix starts every Unverified entry of a stage that
+// did not run; baseTestsUnverifiedLine is the entry of a stage that ran and
+// left some test without a result.
+const (
+	baseTestsUnverifiedPrefix = "Baseline versions of changed tests did not run: "
+	baseTestsUnverifiedLine   = "Some baseline versions of changed tests have no FAILS_ON_CANDIDATE or PASSES_ON_CANDIDATE result; see Changed Baseline Tests on Candidate Code."
+)
 
-// runBaseTests selects the Go test functions the change modified or removed,
-// runs their baseline versions on the baseline tree and on the hybrid tree,
-// and records the section. It returns true on an operational failure: the
-// hybrid tree could not be built. A cancelled or expired context is recorded
-// as not_run, never as an operational failure.
+// runBaseTests selects the Go test functions of the changed Go test files
+// (internal/suites), runs their baseline versions on the baseline tree and on
+// the hybrid tree, and records the section. It returns true on an operational
+// failure: the private candidate copy for the hybrid tree could not be made or
+// its manifest could not be retained. A cancelled or expired context is
+// recorded as not_run, never as an operational failure.
 func runBaseTests(ctx context.Context, repo *gitrepo.Repository, change model.Change, h *harness.Harness, r *model.Report, errOut io.Writer) (operational bool) {
 	read := func(ctx context.Context, commit, path string) ([]byte, error) {
 		b, err := repo.ReadFile(ctx, commit, path)
@@ -69,8 +75,10 @@ func runBaseTests(ctx context.Context, repo *gitrepo.Repository, change model.Ch
 		r.Unverified = append(r.Unverified, baseTestsUnverifiedPrefix+section.Reason)
 		return false
 	}
-	if unverified := countBaseTests(section.Tests, model.StatusUnverified); unverified > 0 {
-		r.Unverified = append(r.Unverified, fmt.Sprintf("%d of %d baseline versions of changed tests have no FAILS_ON_CANDIDATE or PASSES_ON_CANDIDATE result; see Changed Baseline Tests on Candidate Code.", unverified, len(section.Tests)))
+	// The line carries no count: report.Finalize may still downgrade a
+	// result, and the section holds the finalized statuses.
+	if countBaseTests(section.Tests, model.StatusUnverified) > 0 {
+		r.Unverified = append(r.Unverified, baseTestsUnverifiedLine)
 	}
 	return false
 }
@@ -107,7 +115,7 @@ func recordBaseTestsSkipped(sc stageContext, requested bool, r *model.Report) {
 
 // baseTestsLine is the stdout line of the base-tests section, printed whenever
 // the section is present. It counts the finalized statuses and never calls a
-// failure more than a behavior change for a human to judge.
+// failure more than an outcome difference for a human to judge.
 func baseTestsLine(b *model.BaseTests) string {
 	if b == nil {
 		return ""
@@ -116,7 +124,7 @@ func baseTestsLine(b *model.BaseTests) string {
 	switch b.Status {
 	case model.BaseTestsNoCandidates:
 		if reason == "" {
-			reason = "no Go test function was modified or removed"
+			reason = "only the tests declared in modified, deleted or renamed Go test files are considered"
 		}
 		return "Changed baseline tests on candidate code: none selected (" + reason + ")."
 	case model.BaseTestsNotRun:
@@ -127,5 +135,5 @@ func baseTestsLine(b *model.BaseTests) string {
 	}
 	fails := countBaseTests(b.Tests, model.StatusFailsOnCandidate)
 	passes := countBaseTests(b.Tests, model.StatusPassesOnCandidate)
-	return fmt.Sprintf("Changed baseline tests on candidate code: %d FAILS_ON_CANDIDATE, %d PASSES_ON_CANDIDATE, %d UNVERIFIED (a failure is a behavior change for a human to judge, not a reproduced issue; see base_tests).", fails, passes, len(b.Tests)-fails-passes)
+	return fmt.Sprintf("Changed baseline tests on candidate code: %d FAILS_ON_CANDIDATE, %d PASSES_ON_CANDIDATE, %d UNVERIFIED (a failure is an outcome difference for a human to judge, not a reproduced issue; see base_tests).", fails, passes, len(b.Tests)-fails-passes)
 }

@@ -98,6 +98,48 @@ func clampFixture(t *testing.T) string {
 	return dir
 }
 
+// buildConstraintFixture is scenario G: the candidate drops the upper bound
+// and turns its only test file off with a build constraint, so its own
+// go test ./... passes with no test file. No test function changed.
+func buildConstraintFixture(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	git(t, dir, "init", "-b", "main")
+	git(t, dir, "config", "core.autocrlf", "false")
+	write(t, dir, "go.mod", "module example.test/clamp\n\ngo 1.23\n")
+	write(t, dir, "clamp.go", clampGo)
+	write(t, dir, "clamp_test.go", clampTests)
+	git(t, dir, "add", ".")
+	git(t, dir, "commit", "-m", "baseline")
+	git(t, dir, "checkout", "-b", "candidate")
+	write(t, dir, "clamp.go", clampUnbounded)
+	write(t, dir, "clamp_test.go", "//go:build never\n\n"+clampTests)
+	git(t, dir, "add", ".")
+	git(t, dir, "commit", "-m", "candidate")
+	return dir
+}
+
+// testOnlyPackageFixture is scenario H: a test-only package directory is
+// replaced by a regular file of the same name while the bound is dropped.
+func testOnlyPackageFixture(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	git(t, dir, "init", "-b", "main")
+	git(t, dir, "config", "core.autocrlf", "false")
+	write(t, dir, "go.mod", "module example.test/clamp\n\ngo 1.23\n")
+	write(t, dir, "clamp.go", clampGo)
+	write(t, dir, "itest/bounds_test.go", "package itest\n\nimport (\n\t\"testing\"\n\n\t\"example.test/clamp\"\n)\n\nfunc TestUpperBound(t *testing.T) {\n\tif got := clamp.Clamp(50); got != 10 {\n\t\tt.Fatalf(\"Clamp(50) = %d\", got)\n\t}\n}\n")
+	git(t, dir, "add", ".")
+	git(t, dir, "commit", "-m", "baseline")
+	git(t, dir, "checkout", "-b", "candidate")
+	write(t, dir, "clamp.go", clampUnbounded)
+	git(t, dir, "rm", "-q", "-r", "itest")
+	write(t, dir, "itest", "integration tests moved elsewhere\n")
+	git(t, dir, "add", ".")
+	git(t, dir, "commit", "-m", "candidate")
+	return dir
+}
+
 // stageHarness builds a harness on the base and candidate snapshots of repo
 // without starting Docker (an empty image records every run as SKIPPED).
 func stageHarness(t *testing.T, repo *gitrepo.Repository, change model.Change, template []string) *harness.Harness {
@@ -169,6 +211,25 @@ func TestRunBaseTestsSelectsAndRecords(t *testing.T) {
 	}
 }
 
+// An edit that only adds a build constraint to a test file changes no test
+// function, and still selects every test of the file.
+func TestRunBaseTestsSelectsFileLevelEdits(t *testing.T) {
+	dir := buildConstraintFixture(t)
+	repo, change := openChange(t, dir, "main", "candidate")
+	h := stageHarness(t, repo, change, []string{"go", "test", "{package}"})
+	r := &model.Report{}
+	if runBaseTests(context.Background(), repo, change, h, r, &bytes.Buffer{}) {
+		t.Fatal("reported an operational failure")
+	}
+	var got []string
+	for _, bt := range r.BaseTests.Tests {
+		got = append(got, bt.Name+":"+bt.Change)
+	}
+	if strings.Join(got, ",") != "TestClampNegative:shared_code_changed,TestClampUpper:shared_code_changed,TestClampInside:shared_code_changed" {
+		t.Fatalf("selected %v (section %+v)", got, r.BaseTests)
+	}
+}
+
 func TestRunBaseTestsWithoutVerifiableTemplate(t *testing.T) {
 	dir := clampFixture(t)
 	repo, change := openChange(t, dir, "main", "candidate")
@@ -190,7 +251,7 @@ func TestRunBaseTestsNothingSelected(t *testing.T) {
 	if runBaseTests(context.Background(), repo, change, h, r, &bytes.Buffer{}) || r.BaseTests.Status != model.BaseTestsNoCandidates || len(r.Unverified) != 0 || len(h.Checks()) != 0 {
 		t.Fatalf("section %+v unverified %q", r.BaseTests, r.Unverified)
 	}
-	if line := baseTestsLine(r.BaseTests); line != "Changed baseline tests on candidate code: none selected (no Go test function was modified or removed)." {
+	if line := baseTestsLine(r.BaseTests); line != "Changed baseline tests on candidate code: none selected (only the tests declared in modified, deleted or renamed Go test files are considered)." {
 		t.Fatalf("stdout line %q", line)
 	}
 	// A changed test file that cannot be analyzed is not "nothing selected".
@@ -239,7 +300,7 @@ func TestBaseTestsLine(t *testing.T) {
 		t.Fatal("a line without a section")
 	}
 	s := &model.BaseTests{Status: model.BaseTestsRan, Tests: []model.BaseTest{{Status: model.StatusFailsOnCandidate}, {Status: model.StatusPassesOnCandidate}, {Status: model.StatusPassesOnCandidate}, {Status: model.StatusUnverified}}}
-	want := "Changed baseline tests on candidate code: 1 FAILS_ON_CANDIDATE, 2 PASSES_ON_CANDIDATE, 1 UNVERIFIED (a failure is a behavior change for a human to judge, not a reproduced issue; see base_tests)."
+	want := "Changed baseline tests on candidate code: 1 FAILS_ON_CANDIDATE, 2 PASSES_ON_CANDIDATE, 1 UNVERIFIED (a failure is an outcome difference for a human to judge, not a reproduced issue; see base_tests)."
 	if got := baseTestsLine(s); got != want {
 		t.Fatalf("line %q", got)
 	}

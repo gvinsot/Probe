@@ -62,6 +62,17 @@ const (
 	// baseTestPassedInsideFailure starts the reason of a test that passed in a
 	// hybrid run that failed as a whole and got no result from a pair of its own.
 	baseTestPassedInsideFailure = "the test passed inside a candidate-side run that failed as a whole, which supports no result on its own"
+	// baseTestCopyFailed and baseTestManifestLost are the operational
+	// failures of the stage (exit 4): host-side, never caused by the layout of
+	// the candidate tree.
+	baseTestCopyFailed   = "the private copy of the candidate snapshot for the hybrid tree could not be made"
+	baseTestManifestLost = "the manifest of the hybrid tree could not be retained"
+	// baseTestDirFailed is the reason of a test whose package directory could
+	// not be reverted in the hybrid tree. Only that unit is affected.
+	baseTestDirFailed = "not run: the baseline test files of this package directory could not be restored in the hybrid tree"
+	// baseTestTemplateReason is the section reason for a generated_test
+	// command that cannot establish which Go tests ran.
+	baseTestTemplateReason = "the generated_test command cannot establish which Go tests ran; configure it as go test {package}"
 )
 
 // baseTestNamePattern is what a selected name must look like: a Go test
@@ -72,9 +83,11 @@ var baseTestNamePattern = regexp.MustCompile(`^Test[\p{L}\p{N}_]*$`)
 // tree and on the hybrid tree and records one base_test_differential evidence
 // record per test and recorded run pair. The input is copied; the returned
 // section lists the same tests in the same order with their status, reason and
-// evidence ID. It returns an error only when the hybrid tree cannot be built or
-// its manifest cannot be retained, which is an operational failure; every test
-// is then UNVERIFIED.
+// evidence ID. It returns an error only when the private copy of the candidate
+// snapshot cannot be made or the manifest of the hybrid tree cannot be
+// retained: host-side operational failures, after which every test is
+// UNVERIFIED. A package directory that cannot be reverted in the hybrid tree
+// leaves only its own tests UNVERIFIED.
 //
 // Rules:
 //   - The generated_test template must pass VerifiableGoTemplate, or nothing
@@ -120,14 +133,14 @@ func (h *Harness) RunBaseTests(ctx context.Context, selected []model.BaseTest) (
 		h.auditBaseTests(started, map[string]any{"tests": len(tests), "reason": baseTestNothingRan}, "SKIPPED")
 		return result, nil
 	}
-	failure := "the hybrid tree could not be built"
-	hybrid, cleanup, manifest, err := h.buildBaseTestHybrid(units)
-	if err == nil {
-		if saveErr := h.saveArtifact(fmt.Sprintf("base-tests-hybrid-%d.json", h.baseTests.calls), model.ArtifactBaseTestHybridManifest, manifest); saveErr != nil {
-			cleanup()
-			failure = "the manifest of the hybrid tree could not be retained"
-			err = fmt.Errorf("%s: %w", failure, saveErr)
-		}
+	failure := baseTestCopyFailed
+	hybrid, cleanup, manifest, failedDirs, err := h.buildBaseTestHybrid(units)
+	if err != nil {
+		err = fmt.Errorf("%s: %w", failure, err)
+	} else if saveErr := h.saveArtifact(fmt.Sprintf("base-tests-hybrid-%d.json", h.baseTests.calls), model.ArtifactBaseTestHybridManifest, manifest); saveErr != nil {
+		cleanup()
+		failure = baseTestManifestLost
+		err = fmt.Errorf("%s: %w", failure, saveErr)
 	}
 	if err != nil {
 		for _, u := range units {
@@ -136,10 +149,35 @@ func (h *Harness) RunBaseTests(ctx context.Context, selected []model.BaseTest) (
 			}
 		}
 		result.Reason = failure
-		h.auditBaseTests(started, map[string]any{"tests": len(tests), "error": err.Error()}, "ERROR")
+		// The detailed error, which names host paths, goes to the caller only.
+		h.auditBaseTests(started, map[string]any{"tests": len(tests), "reason": failure}, "ERROR")
 		return result, err
 	}
 	defer cleanup()
+	if len(failedDirs) > 0 {
+		dirs := make([]string, 0, len(failedDirs))
+		for d := range failedDirs {
+			dirs = append(dirs, d)
+		}
+		sort.Strings(dirs)
+		for _, d := range dirs {
+			h.auditBaseTests(started, map[string]any{"dir": d, "reason": strings.TrimPrefix(baseTestDirFailed, "not run: "), "error": failedDirs[d]}, "ERROR")
+		}
+		var kept []baseTestUnit
+		for _, u := range units {
+			if _, failed := failedDirs[u.dir]; !failed {
+				kept = append(kept, u)
+				continue
+			}
+			for _, i := range u.items {
+				markBaseTest(tests, i, baseTestDirFailed)
+			}
+		}
+		if units = kept; len(units) == 0 {
+			result.Reason = baseTestNothingRan
+			return result, nil
+		}
+	}
 	run := &baseTestRun{h: h, ctx: ctx, hybrid: hybrid, ceiling: h.baseTestsCeiling()}
 	for n, u := range units {
 		if reason := run.stopReason(); reason != "" {
@@ -171,7 +209,7 @@ func (h *Harness) baseTestsUnavailable() string {
 	case h.base == "":
 		return "no baseline snapshot is available"
 	case !verifiableGoTemplate(h.opts.Commands["generated_test"]):
-		return `the generated_test command cannot establish which Go tests ran; configure ["go","test","{package}"]`
+		return baseTestTemplateReason
 	}
 	return ""
 }
@@ -337,15 +375,19 @@ func baseTestHasCode(root, dir string) bool {
 
 // baseTestManifest records how the hybrid tree differs from the candidate
 // tree. It is retained as a hashed base_test_hybrid_manifest artifact.
+// FailedDirs lists the directories whose revert failed: none of their tests
+// ran, and their entries record what was done before the failure.
 type baseTestManifest struct {
-	Schema    string                  `json:"schema"`
-	Dirs      []string                `json:"dirs"`
-	Entries   []baseTestManifestEntry `json:"entries"`
-	Truncated bool                    `json:"truncated"`
+	Schema     string                  `json:"schema"`
+	Dirs       []string                `json:"dirs"`
+	FailedDirs []string                `json:"failed_dirs"`
+	Entries    []baseTestManifestEntry `json:"entries"`
+	Truncated  bool                    `json:"truncated"`
 }
 
 // baseTestManifestEntry is one file removed from the candidate copy or
-// restored from the baseline.
+// restored from the baseline. SHA256 is empty only for a removed entry that
+// was neither a regular file nor a directory.
 type baseTestManifestEntry struct {
 	Path   string `json:"path"`
 	Action string `json:"action"` // removed_from_candidate | restored_from_baseline
@@ -362,13 +404,16 @@ func (m *baseTestManifest) add(p, action, sum string) {
 
 // buildBaseTestHybrid copies the candidate snapshot privately and reverts the
 // test files and testdata of every unit's directory to the baseline. It
-// returns the copy, its cleanup and the manifest. Caller holds h.mu.
-func (h *Harness) buildBaseTestHybrid(units []baseTestUnit) (string, func(), []byte, error) {
+// returns the copy, its cleanup, the manifest, and the directories whose
+// revert failed with a description of the failure in which host paths are
+// replaced by placeholders. Only a failure of the private copy or of the
+// manifest encoding is an error. Caller holds h.mu.
+func (h *Harness) buildBaseTestHybrid(units []baseTestUnit) (string, func(), []byte, map[string]string, error) {
 	dir, cleanup, err := h.privateCopy("hybrid-")
 	if err != nil {
-		return "", func() {}, nil, err
+		return "", func() {}, nil, nil, err
 	}
-	m := baseTestManifest{Schema: "swiftproof-base-tests-hybrid/v1", Dirs: []string{}, Entries: []baseTestManifestEntry{}}
+	m := baseTestManifest{Schema: "swiftproof-base-tests-hybrid/v1", Dirs: []string{}, FailedDirs: []string{}, Entries: []baseTestManifestEntry{}}
 	seen := map[string]bool{}
 	for _, u := range units {
 		if !seen[u.dir] {
@@ -377,36 +422,53 @@ func (h *Harness) buildBaseTestHybrid(units []baseTestUnit) (string, func(), []b
 		}
 	}
 	sort.Strings(m.Dirs)
+	failed := map[string]string{}
 	for _, d := range m.Dirs {
 		if err := baseTestRevertDir(h.base, dir, d, &m); err != nil {
-			cleanup()
-			return "", func() {}, nil, fmt.Errorf("revert %s: %w", d, err)
+			failed[d] = baseTestErrorText(err, [2]string{dir, "(hybrid tree)"}, [2]string{h.base, "(baseline snapshot)"}, [2]string{h.root, "(harness directory)"})
+			m.FailedDirs = append(m.FailedDirs, d)
 		}
 	}
 	data, err := json.Marshal(m)
 	if err != nil {
 		cleanup()
-		return "", func() {}, nil, err
+		return "", func() {}, nil, nil, err
 	}
-	return dir, cleanup, data, nil
+	return dir, cleanup, data, failed, nil
+}
+
+// baseTestErrorText is the text of err with each host path replaced by its
+// placeholder, in the order given (callers pass nested paths first), so that
+// an audit record names no host directory.
+func baseTestErrorText(err error, replacements ...[2]string) string {
+	text := err.Error()
+	for _, r := range replacements {
+		if r[0] == "" {
+			continue
+		}
+		for _, form := range []string{filepath.Clean(r[0]), filepath.ToSlash(filepath.Clean(r[0]))} {
+			text = strings.ReplaceAll(text, form, r[1])
+		}
+	}
+	return text
 }
 
 // baseTestRevertDir makes dir of the hybrid tree hold exactly the baseline's
-// *_test.go files and testdata: it removes every *_test.go file directly in
-// the directory and its testdata subtree, then copies the baseline's. The
-// other files of the directory (the package's code) stay the candidate's.
+// *_test.go files and testdata: it makes every component of dir a directory,
+// removes every entry named *_test.go directly in it and its testdata entry,
+// whatever their type, then copies the baseline's. The other files of the
+// directory (the package's code) stay the candidate's. Every removed file is
+// recorded in the manifest.
 func baseTestRevertDir(base, hybrid, dir string, m *baseTestManifest) error {
-	hybridDir, baseDir := hybrid, base
+	baseDir := base
 	if dir != "." {
 		var err error
-		if hybridDir, err = safePath(hybrid, dir); err != nil {
-			return err
-		}
 		if baseDir, err = safePath(base, dir); err != nil {
 			return err
 		}
 	}
-	if err := os.MkdirAll(hybridDir, 0755); err != nil {
+	hybridDir, err := baseTestEnsureDir(hybrid, dir, m)
+	if err != nil {
 		return err
 	}
 	entries, err := os.ReadDir(hybridDir)
@@ -414,30 +476,15 @@ func baseTestRevertDir(base, hybrid, dir string, m *baseTestManifest) error {
 		return err
 	}
 	for _, e := range entries {
-		if e.IsDir() || !strings.HasSuffix(e.Name(), "_test.go") {
+		if !strings.HasSuffix(e.Name(), "_test.go") {
 			continue
 		}
-		p := filepath.Join(hybridDir, e.Name())
-		sum, err := baseTestFileDigest(p)
-		if err != nil {
+		if err := baseTestRemove(filepath.Join(hybridDir, e.Name()), path.Join(dir, e.Name()), m); err != nil {
 			return err
 		}
-		if err := os.Remove(p); err != nil {
-			return err
-		}
-		m.add(path.Join(dir, e.Name()), "removed_from_candidate", sum)
 	}
 	testdata := filepath.Join(hybridDir, "testdata")
-	if info, err := os.Lstat(testdata); err == nil {
-		if info.IsDir() {
-			if err := baseTestRecordTree(testdata, path.Join(dir, "testdata"), "removed_from_candidate", m); err != nil {
-				return err
-			}
-		}
-		if err := os.RemoveAll(testdata); err != nil {
-			return err
-		}
-	} else if !os.IsNotExist(err) {
+	if err := baseTestRemove(testdata, path.Join(dir, "testdata"), m); err != nil {
 		return err
 	}
 	baseEntries, err := os.ReadDir(baseDir)
@@ -466,6 +513,69 @@ func baseTestRevertDir(base, hybrid, dir string, m *baseTestManifest) error {
 		return err
 	}
 	return nil
+}
+
+// baseTestEnsureDir makes every component of dir under the hybrid root a
+// directory and returns its host path. A candidate entry of another type at a
+// component (for example a file that replaced a test-only package directory)
+// is removed and recorded, because the baseline test files must be restored
+// below it. A non-test Go file there is candidate code of the parent package
+// and stays: the directory then fails, and only its tests go without a run.
+// Lstat never follows a link, so a link at a component would be removed like
+// a file; the hybrid tree holds none (copySnapshot skips them), and the final
+// safePath rejects one at every component. The caller has validated dir with
+// safePath against the baseline snapshot.
+func baseTestEnsureDir(hybrid, dir string, m *baseTestManifest) (string, error) {
+	if dir == "." {
+		return hybrid, nil
+	}
+	cursor, rel := hybrid, ""
+	for _, part := range strings.Split(dir, "/") {
+		cursor, rel = filepath.Join(cursor, part), path.Join(rel, part)
+		info, err := os.Lstat(cursor)
+		switch {
+		case err == nil && info.IsDir():
+			continue
+		case err == nil && strings.HasSuffix(part, ".go") && !strings.HasSuffix(part, "_test.go"):
+			return "", fmt.Errorf("the candidate Go file %s occupies a baseline test directory", rel)
+		case err == nil:
+			if err := baseTestRemove(cursor, rel, m); err != nil {
+				return "", err
+			}
+		case !os.IsNotExist(err):
+			return "", err
+		}
+		if err := os.Mkdir(cursor, 0755); err != nil {
+			return "", err
+		}
+	}
+	return safePath(hybrid, dir)
+}
+
+// baseTestRemove removes the hybrid entry at p, whatever its type, and
+// records every regular file it held as removed_from_candidate under rel. A
+// missing entry is not an error.
+func baseTestRemove(p, rel string, m *baseTestManifest) error {
+	info, err := os.Lstat(p)
+	switch {
+	case os.IsNotExist(err):
+		return nil
+	case err != nil:
+		return err
+	case info.IsDir():
+		if err := baseTestRecordTree(p, rel, "removed_from_candidate", m); err != nil {
+			return err
+		}
+	case info.Mode().IsRegular():
+		sum, err := baseTestFileDigest(p)
+		if err != nil {
+			return err
+		}
+		m.add(rel, "removed_from_candidate", sum)
+	default:
+		m.add(rel, "removed_from_candidate", "")
+	}
+	return os.RemoveAll(p)
 }
 
 // baseTestRecordTree adds every regular file under root to the manifest, in
@@ -620,7 +730,22 @@ func (r *baseTestRun) unit(u baseTestUnit, tests []model.BaseTest) {
 			retry = append(retry, n)
 		}
 	}
-	if len(retry) > 0 && len(retry) < len(verdicts) {
+	switch {
+	case len(retry) == 0:
+	case len(retry) == len(verdicts):
+		// A pair of its own would repeat the failed run: it held only this
+		// test, or every test in it passed, so the run failed for a reason
+		// outside these tests (for example the exit code of TestMain).
+		why := "no run pair of its own was attempted because the failed run held only this test"
+		if len(verdicts) > 1 {
+			why = "no run pair of its own was attempted because every test of the failed run passed in it"
+		}
+		for _, n := range retry {
+			v := verdicts[n]
+			v.reason = baseTestPassedInsideFailure + "; " + why
+			verdicts[n] = v
+		}
+	default:
 		// A retry that gives no result keeps the first pair's evidence, with a
 		// reason that says why no result was drawn.
 		again, againMarks := map[string]baseTestVerdict{}, map[string]string{}
@@ -725,6 +850,20 @@ func (r *baseTestRun) pair(u baseTestUnit, names []string, narrowBase bool, reco
 		markAll(names, func(n string) string { return baseTestBaselineReason(base, n) })
 		return verdicts, marks
 	}
+	// A test that did not pass on the baseline can only end UNVERIFIED, so a
+	// hybrid run in which no selected test can get a result is not started.
+	// A unit with at least one passing test keeps the identical command.
+	anyPassed := false
+	for _, n := range names {
+		if action, _ := GoTestOutcome(base.Output, n); action == "pass" {
+			anyPassed = true
+			break
+		}
+	}
+	if !anyPassed {
+		markAll(names, func(n string) string { return baseTestBaselineReason(base, n) })
+		return verdicts, marks
+	}
 	if reason := r.stopReason(); reason != "" {
 		markAll(names, func(string) string { return reason })
 		return verdicts, marks
@@ -806,7 +945,7 @@ func BaseTestChangeText(change string) string {
 	case model.BaseTestModified:
 		return "modified by the change"
 	case model.BaseTestSharedCodeChanged:
-		return "shared code of its file changed"
+		return "its file changed outside the test function"
 	case model.BaseTestFileDeleted:
 		return "its file was deleted or renamed to a non-test file"
 	}

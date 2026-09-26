@@ -51,7 +51,7 @@ None of the v0.4 stages produces exit 1: only a reproduced high/critical hypothe
 - The stage is a flag, not a policy key. Add `--base-tests` to a review job only after the job is re-pinned to a v0.4 binary: an older binary exits 3 on the flag.
 - It needs the base policy's `generated_test` command to be a verifiable Go template, such as `["go", "test", "{package}"]`. With any other template the `base_tests` section is `not_run`, which requests review under `--ci`.
 - Budget: the stage uses at most 180 s of the shared `sandbox.max_runtime_seconds`, typically two sandbox runs per package directory whose tests changed. Tests beyond the sub-cap stay `UNVERIFIED` with the reason. Verbose tests can exceed `sandbox.max_output_bytes`; a truncated log leaves a test `UNVERIFIED`, so raise the limit if that happens.
-- Exit codes: `FAILS_ON_CANDIDATE`, `UNVERIFIED` and `not_run` give exit 2 with `--ci` and never 1. A candidate-side compile failure is a FAIL check (exit 2), not an operational failure; only an infrastructure failure or a hybrid tree that could not be built gives exit 4.
+- Exit codes: `FAILS_ON_CANDIDATE`, `UNVERIFIED` and `not_run` give exit 2 with `--ci` and never 1. A candidate-side compile failure is a FAIL check (exit 2), not an operational failure. Only an infrastructure failure of a run, or a host-side failure to copy the candidate snapshot or keep the hybrid-tree manifest, gives exit 4; the layout of the candidate tree never does.
 - To route only `FAILS_ON_CANDIDATE` results, for example to a required reviewer, read the JSON in a following step:
 
   ```sh

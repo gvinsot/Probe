@@ -395,7 +395,9 @@ func TestBaseTestsOutcomes(t *testing.T) {
 		{"fails_on_candidate", pass, fail, model.StatusFailsOnCandidate, "", 2, "FAIL"},
 		{"passes_on_candidate", pass, pass, model.StatusPassesOnCandidate, "", 2, "PASS"},
 		{"baseline_failed", fail, pass, model.StatusUnverified, "failed on the baseline tree", 1, ""},
-		{"baseline_skipped_test", response{btEvents("TestA", "skip"), execution{}}, pass, model.StatusUnverified, reasonBaselineOutcome, 2, "PASS"},
+		// No selected test passed on the baseline: no hybrid run starts.
+		{"baseline_skipped_test", response{btEvents("TestA", "skip"), execution{}}, pass, model.StatusUnverified, "was skipped on the baseline tree (check-1), so it was not run on candidate code", 1, ""},
+		{"baseline_test_absent", response{"", execution{}}, pass, model.StatusUnverified, "does not record exactly one run and one result of this test", 1, ""},
 		{"baseline_build_failure", response{"# " + btPkg + "\nundefined: V\nFAIL\t" + btPkg + " [build failed]\n", execution{ExitCode: 1}}, pass, model.StatusUnverified, "did not build", 1, ""},
 		{"compile_failure_on_candidate_is_fail_not_error", pass, response{"# " + btPkg + "\npkg/a_test.go:6:5: undefined: V\nFAIL\t" + btPkg + " [build failed]\n", execution{ExitCode: 1}}, model.StatusUnverified, reasonCandidateBuild, 2, "FAIL"},
 		{"setup_failure_text_on_candidate", pass, response{"fork/exec /tmp/x: permission denied\n", execution{ExitCode: 1}}, model.StatusUnverified, reasonCandidateOutcome, 2, "FAIL"},
@@ -744,34 +746,376 @@ func TestBaseTestsFileTemplateGroupsByFile(t *testing.T) {
 	}
 }
 
-func TestBaseTestsHybridFailureIsOperational(t *testing.T) {
+// A candidate tree whose layout blocks a baseline test path (a directory named
+// like a baseline test file, a file where a test-only package directory or a
+// parent directory was) is reverted like any other: the blocking entries are
+// removed and recorded, and the runs happen. Candidate content never makes the
+// stage operational.
+func TestBaseTestsCandidateLayoutConflicts(t *testing.T) {
+	base, candidate := btTrees()
+	delete(candidate, "pkg/a_test.go")
+	candidate["pkg/a_test.go/x"] = "a directory where the baseline test file must be restored"
+	base["itest/x_test.go"] = "package itest\n\nimport \"testing\"\n\nfunc TestX(t *testing.T) {}\n"
+	candidate["itest"] = "a file where the test-only package directory was"
+	base["deep/er/y_test.go"] = "package er\n\nimport \"testing\"\n\nfunc TestY(t *testing.T) {}\n"
+	candidate["deep"] = "a file where a parent directory was"
+	h := btHarness(t, base, candidate, []string{"go", "test", "{package}"})
+	runs := btExec(t, h, btAll("pass", "fail"))
+	selected := append(btSelected(),
+		model.BaseTest{Name: "TestX", Path: "itest/x_test.go", Line: 5, EndLine: 5, Change: model.BaseTestFileDeleted},
+		model.BaseTest{Name: "TestY", Path: "deep/er/y_test.go", Line: 5, EndLine: 5, Change: model.BaseTestFileDeleted},
+	)
+	res, err := h.RunBaseTests(context.Background(), selected)
+	if err != nil {
+		t.Fatalf("a candidate layout made the stage operational: %v", err)
+	}
+	if res.Status != model.BaseTestsRan || len(*runs) != 6 {
+		t.Fatalf("section %+v after %d runs", res, len(*runs))
+	}
+	for _, bt := range res.Tests {
+		if bt.Status != model.StatusFailsOnCandidate {
+			t.Fatalf("test %+v", bt)
+		}
+	}
+	for _, r := range *runs {
+		if r.side != "hybrid" {
+			continue
+		}
+		for p, want := range map[string]string{"pkg/a_test.go": btBaseTest, "itest/x_test.go": base["itest/x_test.go"], "deep/er/y_test.go": base["deep/er/y_test.go"]} {
+			if r.files[p] != want {
+				t.Fatalf("hybrid %s = %q", p, r.files[p])
+			}
+		}
+		for _, p := range []string{"pkg/a_test.go/x", "itest", "deep"} {
+			if _, ok := r.files[p]; ok {
+				t.Fatalf("hybrid tree still holds the candidate entry %s", p)
+			}
+		}
+	}
+	artifact, ok := artifactByKind(h, model.ArtifactBaseTestHybridManifest)
+	if !ok {
+		t.Fatal("no hybrid manifest artifact")
+	}
+	data, err := os.ReadFile(artifact.Path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var manifest baseTestManifest
+	if err := json.Unmarshal(data, &manifest); err != nil {
+		t.Fatal(err)
+	}
+	actions := map[string]bool{}
+	for _, e := range manifest.Entries {
+		actions[e.Action+" "+e.Path] = len(e.SHA256) == 64
+	}
+	for _, key := range []string{"removed_from_candidate pkg/a_test.go/x", "removed_from_candidate itest", "removed_from_candidate deep", "restored_from_baseline itest/x_test.go", "restored_from_baseline deep/er/y_test.go", "restored_from_baseline pkg/a_test.go"} {
+		if !actions[key] {
+			t.Errorf("manifest lacks %q: %+v", key, manifest.Entries)
+		}
+	}
+	if len(manifest.FailedDirs) != 0 {
+		t.Fatalf("failed dirs %v", manifest.FailedDirs)
+	}
+}
+
+// btOversizedBaselineTestdata makes the revert of pkg fail: a baseline
+// testdata file beyond the copy limit (sparse where the file system allows).
+func btOversizedBaselineTestdata(t *testing.T, h *Harness) {
+	t.Helper()
+	f, err := os.Create(filepath.Join(h.base, "pkg", "testdata", "big.bin"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	if err := f.Truncate(baseTestFileLimit + 1); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// A package directory whose revert fails leaves only its own tests
+// UNVERIFIED; the other units run, and the audit record names no host path.
+func TestBaseTestsRevertFailureAffectsOnlyItsUnit(t *testing.T) {
 	base, candidate := btTrees()
 	h := btHarness(t, base, candidate, []string{"go", "test", "{package}"})
-	// A directory where the baseline test file must be restored.
-	if err := os.Remove(filepath.Join(h.candidate, "pkg", "a_test.go")); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.MkdirAll(filepath.Join(h.candidate, "pkg", "a_test.go", "x"), 0755); err != nil {
-		t.Fatal(err)
-	}
+	btOversizedBaselineTestdata(t, h)
 	runs := btExec(t, h, btAll("pass", "pass"))
-	res, err := h.RunBaseTests(context.Background(), btSelected())
-	if err == nil || len(*runs) != 0 || res.Status != model.BaseTestsNotRun || res.Reason != "the hybrid tree could not be built" {
-		t.Fatalf("err %v, section %+v, %d runs", err, res, len(*runs))
+	selected := append(btSelected(), model.BaseTest{Name: "TestO", Path: "other/o_test.go", Line: 1, EndLine: 1, Change: model.BaseTestModified})
+	res, err := h.RunBaseTests(context.Background(), selected)
+	if err != nil {
+		t.Fatalf("a directory revert failure is not operational: %v", err)
+	}
+	if res.Status != model.BaseTestsRan || len(*runs) != 2 || (*runs)[0].dir != h.base || strings.Join((*runs)[0].names, "|") != "TestO" {
+		t.Fatalf("section %+v after runs %+v", res, *runs)
+	}
+	for _, bt := range res.Tests[:2] {
+		if bt.Status != model.StatusUnverified || bt.Reason != baseTestDirFailed || bt.EvidenceID != "" {
+			t.Fatalf("test %+v", bt)
+		}
+	}
+	if o := res.Tests[2]; o.Status != model.StatusPassesOnCandidate {
+		t.Fatalf("TestO %+v", o)
+	}
+	var failed []model.AuditEvent
+	for _, e := range h.Audit() {
+		if e.Tool == auditRunBaseTests && e.Status == "ERROR" {
+			failed = append(failed, e)
+		}
+	}
+	if len(failed) != 1 || !strings.Contains(failed[0].Arguments, `"dir":"pkg"`) || !strings.Contains(failed[0].Arguments, "snapshot exceeds safe copy limits") {
+		t.Fatalf("audit %+v", failed)
+	}
+	for _, host := range []string{h.root, filepath.ToSlash(h.root), strings.ReplaceAll(h.root, `\`, `\\`)} {
+		if strings.Contains(failed[0].Arguments, host) {
+			t.Fatalf("the audit record names the host path %s: %s", host, failed[0].Arguments)
+		}
+	}
+	// A path error names the placeholders, never the host directories.
+	hybrid := filepath.Join(h.root, "hybrid-1")
+	pathErr := &fs.PathError{Op: "open", Path: filepath.Join(hybrid, "pkg", "a_test.go"), Err: fs.ErrExist}
+	for _, e := range []error{pathErr, fmt.Errorf("walk %s: %w", filepath.ToSlash(filepath.Join(h.base, "pkg")), pathErr)} {
+		text := baseTestErrorText(e, [2]string{hybrid, "(hybrid tree)"}, [2]string{h.base, "(baseline snapshot)"}, [2]string{h.root, "(harness directory)"})
+		if strings.Contains(text, h.root) || strings.Contains(text, filepath.ToSlash(h.root)) || !strings.Contains(text, "open (hybrid tree)") {
+			t.Fatalf("error text %q", text)
+		}
+	}
+	artifact, _ := artifactByKind(h, model.ArtifactBaseTestHybridManifest)
+	data, _ := os.ReadFile(artifact.Path)
+	var manifest baseTestManifest
+	if err := json.Unmarshal(data, &manifest); err != nil || strings.Join(manifest.FailedDirs, ",") != "pkg" {
+		t.Fatalf("manifest %s: %v", data, err)
+	}
+	// When every unit fails, nothing runs and the section is not_run.
+	h = btHarness(t, base, candidate, []string{"go", "test", "{package}"})
+	btOversizedBaselineTestdata(t, h)
+	runs = btExec(t, h, btAll("pass", "pass"))
+	res, err = h.RunBaseTests(context.Background(), btSelected())
+	if err != nil || len(*runs) != 0 || res.Status != model.BaseTestsNotRun || res.Reason != baseTestNothingRan {
+		t.Fatalf("err %v, section %+v after %d runs", err, res, len(*runs))
+	}
+}
+
+// A non-test Go file of the candidate at a component of a baseline test
+// directory is candidate code of the parent package: it stays in the hybrid
+// tree, and only the tests of that directory go without a run.
+func TestBaseTestsCandidateGoFileAtTestDirStays(t *testing.T) {
+	base, candidate := btTrees()
+	base["gen.go/g_test.go"] = "package gen\n\nimport \"testing\"\n\nfunc TestG(t *testing.T) {}\n"
+	candidate["gen.go"] = "package m\n\nfunc Gen() {}\n"
+	h := btHarness(t, base, candidate, []string{"go", "test", "{package}"})
+	runs := btExec(t, h, btAll("pass", "fail"))
+	selected := append(btSelected(), model.BaseTest{Name: "TestG", Path: "gen.go/g_test.go", Line: 5, EndLine: 5, Change: model.BaseTestFileDeleted})
+	res, err := h.RunBaseTests(context.Background(), selected)
+	if err != nil {
+		t.Fatalf("a candidate layout made the stage operational: %v", err)
+	}
+	if res.Status != model.BaseTestsRan || len(*runs) != 2 {
+		t.Fatalf("section %+v after %d runs", res, len(*runs))
+	}
+	if g := res.Tests[2]; g.Status != model.StatusUnverified || g.Reason != baseTestDirFailed || g.EvidenceID != "" {
+		t.Fatalf("TestG %+v", g)
+	}
+	for _, bt := range res.Tests[:2] {
+		if bt.Status != model.StatusFailsOnCandidate {
+			t.Fatalf("test %+v", bt)
+		}
+	}
+	for _, r := range *runs {
+		if r.side == "hybrid" && r.files["gen.go"] != candidate["gen.go"] {
+			t.Fatalf("the hybrid tree lost the candidate Go file: %q", r.files["gen.go"])
+		}
+	}
+	found := false
+	for _, e := range h.Audit() {
+		if e.Tool == auditRunBaseTests && e.Status == "ERROR" && strings.Contains(e.Arguments, "the candidate Go file gen.go occupies a baseline test directory") {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("audit %+v", h.Audit())
+	}
+}
+
+// Only host-side failures are operational: the private candidate copy, and
+// the retention of the manifest. Neither records the host error in the audit.
+func TestBaseTestsHostFailureIsOperational(t *testing.T) {
+	base, candidate := btTrees()
+	base["itest/x_test.go"] = "package itest\n"
+	selected := []model.BaseTest{{Name: "TestX", Path: "itest/x_test.go", Line: 1, EndLine: 1, Change: model.BaseTestModified}}
+	h := btHarness(t, base, candidate, []string{"go", "test", "{package}"})
+	runs := btExec(t, h, btAll("pass", "pass"))
+	if err := os.RemoveAll(h.candidate); err != nil {
+		t.Fatal(err)
+	}
+	res, err := h.RunBaseTests(context.Background(), selected)
+	if err == nil || len(*runs) != 0 || res.Status != model.BaseTestsNotRun || res.Reason != baseTestCopyFailed || res.Tests[0].Reason != "not run: "+baseTestCopyFailed {
+		t.Fatalf("private copy failure: err %v, section %+v", err, res)
+	}
+	h = btHarness(t, base, candidate, []string{"go", "test", "{package}"})
+	runs = btExec(t, h, btAll("pass", "pass"))
+	if err := os.WriteFile(filepath.Join(h.opts.ArtifactDir, h.runID+"-base-tests-hybrid-1.json"), nil, 0600); err != nil {
+		t.Fatal(err)
+	}
+	res, err = h.RunBaseTests(context.Background(), btSelected())
+	if err == nil || len(*runs) != 0 || res.Status != model.BaseTestsNotRun || res.Reason != baseTestManifestLost {
+		t.Fatalf("manifest retention failure: err %v, %+v", err, res)
 	}
 	for _, bt := range res.Tests {
 		if bt.Status != model.StatusUnverified || bt.EvidenceID != "" {
 			t.Fatalf("test %+v", bt)
 		}
 	}
-	// A manifest that cannot be retained is operational too.
-	h = btHarness(t, base, candidate, []string{"go", "test", "{package}"})
-	runs = btExec(t, h, btAll("pass", "pass"))
-	if err := os.WriteFile(filepath.Join(h.opts.ArtifactDir, h.runID+"-base-tests-hybrid-1.json"), nil, 0600); err != nil {
+	for _, e := range h.Audit() {
+		if e.Tool == auditRunBaseTests && (strings.Contains(e.Arguments, `"error"`) || !strings.Contains(e.Arguments, baseTestManifestLost)) {
+			t.Fatalf("audit %+v", e)
+		}
+	}
+}
+
+// A test that passed inside a failed hybrid run gets no pair of its own when
+// that pair would only repeat the failed run, and its reason says so.
+func TestBaseTestsNoRetryReasons(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		selected []model.BaseTest
+		why      string
+	}{
+		{"single_test", btSelected()[:1], "the failed run held only this test"},
+		{"every_test_passed", btSelected(), "every test of the failed run passed in it"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			base, candidate := btTrees()
+			h := btHarness(t, base, candidate, []string{"go", "test", "{package}"})
+			runs := btExec(t, h, func(r btRun, n int) (string, execution) {
+				output, result := btAll("pass", "pass")(r, n)
+				if r.side == "hybrid" {
+					// Every test passes, and the run fails as a whole (for
+					// example through the exit code of TestMain).
+					result.ExitCode = 1
+				}
+				return output, result
+			})
+			res, err := h.RunBaseTests(context.Background(), tc.selected)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(*runs) != 2 {
+				t.Fatalf("%d runs, want one pair and no retry", len(*runs))
+			}
+			for _, bt := range res.Tests {
+				if bt.Status != model.StatusUnverified || bt.EvidenceID == "" || bt.Reason != baseTestPassedInsideFailure+"; no run pair of its own was attempted because "+tc.why {
+					t.Fatalf("test %+v", bt)
+				}
+			}
+		})
+	}
+}
+
+// A mixed unit keeps one command for every name; a unit in which no name
+// passed on the baseline starts no hybrid run.
+func TestBaseTestsHybridOnlyWhenABaselineTestPassed(t *testing.T) {
+	base, candidate := btTrees()
+	h := btHarness(t, base, candidate, []string{"go", "test", "{package}"})
+	runs := btExec(t, h, func(r btRun, n int) (string, execution) {
+		if r.side == "base" {
+			return btEvents("TestA", "pass", "TestB", "skip"), execution{}
+		}
+		return btEvents("TestA", "fail", "TestB", "skip"), execution{ExitCode: 1}
+	})
+	res, err := h.RunBaseTests(context.Background(), btSelected())
+	if err != nil {
 		t.Fatal(err)
 	}
-	if res, err := h.RunBaseTests(context.Background(), btSelected()); err == nil || len(*runs) != 0 || res.Status != model.BaseTestsNotRun {
-		t.Fatalf("manifest retention failure: err %v, %+v", err, res)
+	if len(*runs) != 2 || strings.Join((*runs)[1].names, "|") != "TestA|TestB" {
+		t.Fatalf("runs %+v", *runs)
+	}
+	if a, b := res.Tests[0], res.Tests[1]; a.Status != model.StatusFailsOnCandidate || b.Status != model.StatusUnverified || b.EvidenceID == "" || b.Reason != reasonBaselineOutcome {
+		t.Fatalf("tests %+v %+v", a, b)
+	}
+	h = btHarness(t, base, candidate, []string{"go", "test", "{package}"})
+	runs = btExec(t, h, btAll("skip", "pass"))
+	res, _ = h.RunBaseTests(context.Background(), btSelected())
+	if len(*runs) != 1 || res.Status != model.BaseTestsRan || len(h.Evidence()) != 0 {
+		t.Fatalf("all skipped: section %+v after %d runs", res, len(*runs))
+	}
+	for _, bt := range res.Tests {
+		if bt.Status != model.StatusUnverified || bt.Reason != "the test was skipped on the baseline tree (check-1), so it was not run on candidate code" {
+			t.Fatalf("test %+v", bt)
+		}
+	}
+}
+
+// Every fixed text of the stage reaches the Markdown report through inline(),
+// which turns &, <, >, ' and " into HTML entities. None of them holds one.
+func TestBaseTestFixedTextsNeedNoEntities(t *testing.T) {
+	texts := []string{
+		reasonFailsOnCandidate, reasonPassesOnCandidate, reasonCommandMismatch, reasonBaselineNotPassed, reasonBaselineOutcome,
+		reasonCandidateTimeout, reasonCandidateIncomplete, reasonCandidateTrunc, reasonCandidateExit, reasonCandidateBuild, reasonCandidateOutcome,
+		baseTestNothingRan, baseTestPassedInsideFailure, baseTestCopyFailed, baseTestManifestLost, baseTestDirFailed, baseTestTemplateReason,
+		model.BaseTestsNote, budgetExhaustedText, budgetReservedText, deadlineText,
+	}
+	for _, change := range []string{model.BaseTestRemoved, model.BaseTestModified, model.BaseTestSharedCodeChanged, model.BaseTestFileDeleted, "other"} {
+		texts = append(texts, BaseTestChangeText(change), baseTestDescription(model.BaseTest{Name: "TestA", Path: "pkg/a_test.go", Change: change}, "pkg"))
+	}
+	for _, c := range []model.Check{
+		{ID: "check-1", Status: "SKIPPED", Output: budgetExhaustedText}, {ID: "check-1", Status: "TIMEOUT"}, {ID: "check-1", Status: "ERROR"},
+		{ID: "check-1", Status: "PASS", Truncated: true}, {ID: "check-1", Status: "FAIL", ExitCode: 1, Output: btEvents("TestA", "fail")},
+		{ID: "check-1", Status: "PASS", Output: btEvents("TestA", "skip")}, {ID: "check-1", Status: "FAIL", ExitCode: 1, Output: btEvents("TestA", "pass")},
+		{ID: "check-1", Status: "FAIL", ExitCode: 1, Output: "FAIL x [build failed]"}, {ID: "check-1", Status: "PASS"},
+	} {
+		texts = append(texts, baseTestBaselineReason(c, "TestA"))
+	}
+	cancelled, cancel := context.WithCancel(context.Background())
+	cancel()
+	expired, stop := context.WithDeadlineCause(context.Background(), time.Now().Add(-time.Second), ErrOverallDeadline)
+	defer stop()
+	for _, run := range []*baseTestRun{{ctx: cancelled}, {ctx: expired}, {ctx: context.Background(), ceiling: -1}, {ctx: context.Background(), spent: baseTestSubCap}} {
+		texts = append(texts, run.stopReason())
+	}
+	// Reasons that only a run produces: the prechecks.
+	base, candidate := btTrees()
+	base["gone/g.go"] = "package gone\n"
+	base["gone/g_test.go"] = "package gone\n"
+	base["credentials/c_test.go"] = "package credentials\n"
+	h := btHarness(t, base, candidate, []string{"go", "test", "{package}"})
+	btExec(t, h, btAll("pass", "pass"))
+	res, _ := h.RunBaseTests(context.Background(), []model.BaseTest{
+		{Name: "TestGone", Path: "gone/g_test.go", Line: 1, EndLine: 1, Change: model.BaseTestFileDeleted},
+		{Name: "TestSecret", Path: "credentials/c_test.go", Line: 1, EndLine: 1, Change: model.BaseTestModified},
+		{Name: "TestAbsent", Path: "pkg/absent_test.go", Line: 1, EndLine: 1, Change: model.BaseTestModified},
+		{Name: "Helper", Path: "pkg/a_test.go", Line: 1, EndLine: 1, Change: model.BaseTestModified},
+	})
+	texts = append(texts, res.Reason)
+	for _, bt := range res.Tests {
+		texts = append(texts, bt.Reason)
+	}
+	// Reasons composed inline in basetests.go, checked against the source so
+	// that this list cannot fall behind it.
+	src, err := os.ReadFile("basetests.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, text := range []string{
+		"not run: the limit of %d runs per review of this stage was reached",
+		"no run pair of its own was attempted because the failed run held only this test",
+		"no run pair of its own was attempted because every test of the failed run passed in it",
+		"; its own run pair gave no result (",
+		"the baseline run was replayed from the execution cache and could not be repeated live (",
+		"not run: the stage stopped before this test ran",
+		"no reason was recorded",
+		"no run started: ",
+	} {
+		if !strings.Contains(string(src), `"`+text+`"`) {
+			t.Errorf("basetests.go no longer holds %q; update this test", text)
+		}
+		texts = append(texts, text)
+	}
+	for _, text := range texts {
+		if text == "" {
+			t.Error("an empty fixed text")
+		}
+		if strings.ContainsAny(text, `&<>'"`) {
+			t.Errorf("fixed text holds a character inline() escapes as an entity: %q", text)
+		}
 	}
 }
 
