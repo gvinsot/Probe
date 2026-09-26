@@ -266,6 +266,15 @@ A stage's JSON object is present exactly when the stage was requested or configu
 <!-- F2:end -->
 
 <!-- F4:begin -->
+### Mutation of added lines
+
+With a `mutation` object in the trusted base-branch policy, `review` makes deterministic single-change mutants of the added lines of changed non-test Go files (for example `<` to `<=`, `if c` to `if !(c)`, a returned error to `nil`) and runs the policy's `go test -json` command for the file's package once per mutant, after one passing unmutated control run, in a private copy of the candidate inside the unchanged sandbox:
+
+```json
+"mutation": { "command": ["go", "test", "-json", "-count=1", "-failfast", "{package}"], "max_mutants": 20, "timeout_seconds": 60, "max_runtime_seconds": 300 }
+```
+
+A mutant that no test of its package noticed (`SURVIVED`) becomes a medium `surviving_mutant` signal with its patch retained; it may be semantically equivalent and is not a defect. Killed mutants are counted, never listed. Mutation creates no evidence, never produces exit 1 and computes no score; an `incomplete` or `not_run` section requests review under `--ci`. See [mutation of added lines](docs/MUTATION.md).
 <!-- F4:end -->
 
 <!-- F1:begin -->

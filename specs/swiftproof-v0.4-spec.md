@@ -463,6 +463,45 @@ Opt-in with `--base-tests`, review only, Go execution only. The baseline version
 Opt-in through the `mutation` policy object, review only, Go only. Deterministic single-change mutants of added lines in changed non-test Go files run the package's tests in a private copy of the candidate, after one passing control run per package, in a separate check ledger (`mutation-check-N`). Surviving mutants become medium `surviving_mutant` signals. Mutation creates no evidence record and no hypothesis, and computes no score.
 
 <!-- F4:begin -->
+### F4.1 Rules
+
+Trust and configuration:
+
+- Only the trusted policy (the tip of the base ref, or `--config`) MAY define `mutation`. A candidate policy MUST NOT add, change or enable it. `init` MUST NOT write the key (§7).
+- All four fields are required and non-zero. `command` MUST have 3 to 128 arguments of at most 16 KiB without NUL; `argv[0]` MUST be `go` by base name and `argv[1]` MUST be `test`; exactly one argument MUST be the standalone `{package}` and exactly one MUST be `-json`; no other placeholder MAY appear anywhere; every other argument MUST be a `-flag` or `-flag=value`, and `--`, `-args`, `-C`, `-exec`, `-overlay`, `-run`, `-skip`, `-list`, `-c`, `-o`, `-fuzz`, a second `-json` and `-test.*` MUST be refused in their one- or two-dash spellings. `max_mutants` MUST be 1 to 200, `timeout_seconds` 1 to `sandbox.timeout_seconds`, and `max_runtime_seconds` from `timeout_seconds` to `sandbox.max_runtime_seconds`. A violation MUST exit 3 before any container starts.
+- The stage MUST run only in `review`, only with initial checks enabled and a non-empty change, after differential fuzzing and before the reviewer. Reviewer experiments MUST NOT start, parameterize or cite it.
+
+What is mutated:
+
+- Only added (new-side) lines of changed, non-deleted, non-binary `.go` files that do not end in `_test.go` MAY be mutated, and only inside function bodies. A mutant MUST be generated only when every line of its replaced span is an added line.
+- A file MUST be skipped, with a fixed reason recorded in `mutation.files`, when a path component starts with `_` or `.` or is `testdata` or `vendor`, the path contains `...`, its name has a GOOS or GOARCH suffix, it has a `//go:build` or `// +build` constraint, it is generated, it imports `C`, it does not parse, it cannot be read from the sanitized candidate snapshot, or its directory has no `*_test.go` file.
+- Mutants MUST be found by host-side parsing only (`go/parser` over at most 1 MiB per file). Repository code MUST NOT be executed or type-checked with importers to find them. The operators are `drop_error`, `negate_condition`, `boundary`, `negate_comparison`, `swap_logical`, `increment_constant`, `flip_boolean` and `swap_arithmetic` (MUTATION.md). `drop_error` MUST NOT be generated when the dropped expression holds every use of an imported package in the file.
+- Applying a mutant MUST find its original text at the recorded offsets, keep the number of lines and re-parse; otherwise the mutant is `INCONCLUSIVE` and is not run.
+- When a coverage run passed and was measured, candidate mutants on added lines it reported as not executed SHOULD be skipped and counted in `coverage_skipped`. Coverage data MUST NOT otherwise change the stage.
+- At most `max_mutants` candidates MUST be selected, breadth-first and deterministically (the first operator of each line across files in path order, line by line, then further operators); the rest are counted in `dropped`. IDs `mutant-N` MUST follow the execution order (package, path, line, column, operator).
+
+Runs:
+
+- Each package with selected mutants MUST get one unmutated control run of the command with `{package}` expanded and nothing appended (kind `mutation_control`). Its mutants MUST run only when the control passed with exit code 0 and an uncut log, recorded at least one passing and no failing top-level test, all in one package, and no build, vet or timeout marker.
+- Every control and mutant MUST run in a private copy of the sanitized candidate snapshot, under the unchanged sandbox profile, in the mutation ledger (`mutation-check-N`, logs kept as `mutation_check_output` artifacts). The candidate and baseline snapshots MUST NOT be written. A mutant MUST overwrite one existing regular file only after its content matched the planned original, and MUST be restored and read back afterwards; any failure MUST abort the stage before another run and MUST be an operational failure.
+- Runs MUST be sequential and charged to the shared budget, MUST stop at `mutation.max_runtime_seconds` counted from recorded durations, MUST respect the pre-reviewer ceiling (§1.3), and MUST NOT exceed `timeout_seconds` each; a mutant run MUST NOT exceed three control durations plus 30 s. No verdict MAY depend on tee data.
+
+Outcomes:
+
+- Outcomes MUST be derived from the recorded control and mutant checks only, per top-level test name: `SURVIVED` (mutant PASS, exit 0, uncut log, at least one passing and no failing test in the control's package, identical command, patch retained), `KILLED` (mutant FAIL, exit 1 to 124, uncut log, at least one failing named test in that package, identical command), `INVALID` (build or vet failure), `TIMEOUT`, `INCONCLUSIVE` and `NOT_RUN` as in MUTATION.md. A run ended by the overall deadline MUST be `INCONCLUSIVE`, not `TIMEOUT`.
+- A `SURVIVED` mutant MUST keep its redacted patch as a `mutant_patch` artifact whose sha256 is `patch_sha256`, and MUST add one medium `surviving_mutant` signal on the new side of its line. If the patch cannot be kept, the mutant MUST be `INCONCLUSIVE` and add no signal.
+- Section status: `no_candidates` when nothing was selected; `ran` only when every selected mutant is `KILLED`, `SURVIVED`, `INVALID` or `TIMEOUT` and `dropped` is 0; `not_run` when the sandbox never ran a control or mutant command; `incomplete` otherwise. `incomplete` and `not_run` MUST add one Unverified sentence and request human review.
+- `report.Finalize` MUST re-derive every `KILLED` and `SURVIVED` mutant from `mutation.checks` and `artifacts` as MUTATION.md describes, without mutating the report, MUST turn every other one into `INCONCLUSIVE`, MUST recompute the counters, MUST downgrade a section that no longer satisfies `ran` to `incomplete`, and MUST be idempotent.
+- Mutation MUST NOT create an evidence record or a hypothesis, support any hypothesis status, delete a signal, lower a severity, support a dismissal or produce exit 1. Mutation checks MUST NOT count as failing checks. An infrastructure ERROR of a mutation run, or a workspace failure, MUST exit 4; log text MUST NOT make these checks ERROR.
+- Outputs MUST NOT present a surviving mutant as a bug, a missing test, dead code or an unexecuted line, a killed mutant as assurance, `ran` as exhaustive, or any mutation score or percentage (§8). Killed mutants MUST NOT be listed in Markdown, stdout or exports.
+
+### F4.2 Acceptance
+
+- On a fixture adding `Discount(total int) (int, error)` whose test asserts only `Discount(200) == 190` and an error for `Discount(-5)`, with `max_mutants: 10`: exit 0 with `--ci`; `mutation.status` `ran`; 8 generated and selected; the two `negate_condition`, the `drop_error` and the `swap_arithmetic` mutants `KILLED`; the two `boundary` and the two `increment_constant` mutants `SURVIVED`, each with a patch artifact whose hash matches and a medium signal that reaches the review targets; the Windows-only file skipped; one control and eight mutant checks in the mutation ledger, all with `./price`; `checks` holding only the initial checks; a clean checkout and no remaining container. A second run gives identical mutant IDs, operators, statuses and patches, and `swiftproof report` re-renders byte-identically.
+- `max_mutants: 3` selects the first operator of each of the first three mutated lines, and the section is `incomplete` with exit 2 under `--ci`.
+- A `-run` flag in the command exits 3; a binary before v0.4.0 exits 3 on the policy; an absent sandbox image gives `not_run`, exit 4 and no survivor; `--checks=false` gives `not_run` and exit 2 under `--ci`; `lint` writes no `mutation` object.
+- Tampering with a saved report (colliding or duplicated check IDs, a patch hash mismatch, a cut log, a forged `tests_run`, a claimed `SURVIVED` for a killed mutant) makes the mutant `INCONCLUSIVE` and the section `incomplete` on re-render.
+- A mutant inside the private copy sees the unchanged sandbox boundary (non-root, read-only source and root filesystem, loopback only, no host environment), and the candidate, baseline and restored workspace trees are byte-identical before and after.
 <!-- F4:end -->
 
 ## F5. Intent-linked candidate-only tests

@@ -27,6 +27,17 @@ Each block below records measured costs of one v0.4 stage, and nothing that was 
 <!-- F2:end -->
 
 <!-- F4:begin -->
+### Mutation of added lines
+
+Measured on 2026-09-26 on the Windows 11 host with Docker Desktop (Docker Engine 28.4.0), `golang:1.26-bookworm` (go1.26.8), sandbox limits of 1,024 MiB and 2 CPUs, while other agents' builds and tests shared the 8-CPU machine; Windows binary built from the F4 branch (commit `f395cb2`). Fixture: one stdlib-only package with two test functions; policy command `go test -json -count=1 -failfast {package}`. The figures are the `duration_ms` of the recorded mutation checks.
+
+| Run | Reviews | Control run | One mutant run | Mutation stage (sum of runs) |
+| --- | --- | --- | --- | --- |
+| 8 mutants, 1 package | 2 | 6,170 and 15,324 ms | 6,036 to 11,708 ms | 70.4 s and 80.0 s |
+| 3 mutants (`max_mutants: 3`) | 1 | 6,137 ms | 9,437 to 13,119 ms | 41.2 s |
+| 7 mutants, 1 package (the fixture variant with an inline `errors.New`), host under heavier load | 1 | 26,331 ms | 16,456 to 30,130 ms | 197.6 s |
+
+Every control and mutant run is a fresh container with an empty build cache, so one run costs about one package compile plus its tests, and the stage costs about (packages with selected mutants) control runs plus `max_mutants` mutant runs, one at a time. The whole reviews of the first row took 92 s and 110 s wall clock, of which the initial checks and coverage took about 21 s and 29 s. Load on the host roughly tripled the per-run time in the last row. These numbers come from a tiny package; packages with more dependencies compile for longer. They are not a general estimate.
 <!-- F4:end -->
 
 <!-- F6:begin -->

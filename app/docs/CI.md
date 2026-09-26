@@ -55,6 +55,13 @@ None of the v0.4 stages produces exit 1: only a reproduced high/critical hypothe
 <!-- F2:end -->
 
 <!-- F4:begin -->
+### Mutation analysis and gating
+
+- Commit a `mutation` object to the base branch only after the workflow is re-pinned to a v0.4 binary (release ordering above); older binaries exit 3 on it.
+- Surviving mutants never fail the build: they are medium review signals, with exit 0 even under `--ci`. A section that is `incomplete` (including candidates dropped by `max_mutants`) or `not_run` requests human review, which is exit 2 with `--ci`. An infrastructure failure of a mutation run, or a mutation workspace that could not be created, checked or restored, exits 4.
+- To gate on survivors, read `mutation.survived`, or the `mutation.mutants` entries whose `status` is `SURVIVED`, from `.swiftproof/confidence-report.json` in a following step, as for coverage. Do not read killed mutants as assurance, and do not compute a score from the counts.
+- Budget the stage explicitly: every mutant is a fresh container that compiles the package and runs its tests, and `mutation.max_runtime_seconds` is carved out of `sandbox.max_runtime_seconds`. Raise `sandbox.max_runtime_seconds` so that the initial checks, coverage, the other stages, the mutation sub-cap and the reviewer all fit, and keep `sandbox.max_output_bytes` large enough for one package's `go test -json` log: a cut log gives no outcome.
+- Render reports with the binary that produced them: an older `swiftproof report` silently drops the `mutation` object.
 <!-- F4:end -->
 
 <!-- F1:begin -->
