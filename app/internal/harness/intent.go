@@ -58,14 +58,14 @@ const (
 	// IntentNote accompanies every run_intent_test result.
 	IntentNote = "Candidate-only experiment with no baseline control. A failure is weaker than a reproduced issue: the test and its reading of the criterion are model-written. A pass says nothing about whether the criterion holds."
 	// Reasons appended to the description of an UNVERIFIED intent_test record.
-	reasonNoReference  = "the intent test references no symbol the change added or modified"
-	reasonNotOnAdded   = "no symbol the intent test references is named on an added line of a changed non-test file, so the report cannot re-derive the link to the change"
-	reasonNotAssertion = "the intent test did not fail on an assertion of its own file: a panic, an error thrown by the code under test, a runtime error or a failure outside the test is inconclusive"
-	reasonInconclusive = "the named intent test must start and end on the candidate with a pass or a failure that the runner output confirms; setup failures, skips, timeouts, truncated output and unrelated failures are inconclusive"
-	reasonNotRetained  = "the failing intent test could not be retained as an artifact"
-	notePassed         = "a pass says nothing about whether the criterion holds"
-	noteLexicalSymbols = "referenced symbols are matched lexically for JavaScript and TypeScript"
-	noteNoBaseline     = "no baseline control"
+	reasonNoReference       = "the intent test references no symbol the change added or modified"
+	reasonNotOnAdded        = "no symbol the intent test references is named on an added line of a changed non-test file, so the report cannot re-derive the link to the change"
+	reasonNotAssertion      = "the intent test did not fail on an assertion of its own file: a panic, an error thrown by the code under test, a runtime error or a failure outside the test is inconclusive"
+	reasonInconclusive      = "the named intent test must start and end on the candidate with a pass or a failure that the runner output confirms; setup failures, skips, timeouts, truncated output and unrelated failures are inconclusive"
+	intentReasonNotRetained = "the failing intent test could not be retained as an artifact"
+	notePassed              = "a pass says nothing about whether the criterion holds"
+	noteLexicalSymbols      = "referenced symbols are matched lexically for JavaScript and TypeScript"
+	noteNoBaseline          = "no baseline control"
 )
 
 // maxIntentTests caps intent tests at half of max_generated_tests, rounded
@@ -176,7 +176,7 @@ func (h *Harness) runIntentTest(ctx context.Context, id string) (any, error) {
 	status, reason := IntentOutcome(runner, c, t.Path, names, symbols, h.intent.words)
 	if status == model.StatusIntentTestFailed && !t.Reproduced {
 		if err := h.saveArtifact(t.ID+"-"+filepath.Base(t.Path), model.ArtifactIntentTest, []byte(t.Content)); err != nil {
-			status, reason = model.StatusUnverified, reasonNotRetained
+			status, reason = model.StatusUnverified, intentReasonNotRetained
 		} else {
 			t.Reproduced = true
 		}
