@@ -1,9 +1,9 @@
 package cli
 
-// Differential fuzzing (F2). A configured fuzz policy selects changed Go
-// functions whose signature is unchanged, runs identical seeded inputs through
-// them on both revisions in the unchanged sandbox, and records the fuzz
-// section, the fuzz checks and one differential_fuzz evidence record per
+// Differential fuzzing (F2). A configured fuzz policy selects changed Go and
+// TS/JS functions whose signature is unchanged, runs identical seeded inputs
+// through them on both revisions in the unchanged sandbox, and records the
+// fuzz section, the fuzz checks and one differential_fuzz evidence record per
 // function that ran. Nothing here sets an exit code: a divergence or an
 // inconclusive function requests review through Finalize (exit 2 with --ci,
 // never 1); a baseline-side harness failure is an ERROR check (exit 4).
@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"io"
 	"sort"
+	"strings"
 
 	"github.com/gvinsot/SwiftProof/app/internal/config"
 	"github.com/gvinsot/SwiftProof/app/internal/fuzz"
@@ -26,39 +27,43 @@ const fuzzTemplateReason = "the generated_test command cannot run a fuzz harness
 
 // runFuzz runs differential fuzzing when the policy has fuzz and --fuzz is not
 // false. Selection only parses the two snapshots on the host. A change with no
-// eligible Go function records no_candidates without running a container; the
-// changed exported TS/JS functions whose signature is unchanged are listed in
-// fuzz.skipped (no TS/JS harness runs in this build). A template that cannot
-// run a fuzz harness, or a selection failure, records not_run with an
-// Unverified line. Otherwise every planned function ends diverged,
-// not_diverged or inconclusive, and each inconclusive function and the budget
-// cuts get an Unverified line.
+// eligible Go or TS/JS function records no_candidates without running a
+// container. Eligible TS/JS functions run only with a verifiable Vitest or
+// Jest generated_test template; with any other template they are listed in
+// fuzz.skipped with the reason. Eligible Go functions with a template that
+// cannot run a Go fuzz harness, or a selection failure, record not_run with an
+// Unverified line (and any eligible TS/JS function is then listed as not
+// fuzzed). Otherwise every planned function ends diverged, not_diverged or
+// inconclusive, and each inconclusive function and the budget cuts get an
+// Unverified line.
 func runFuzz(ctx context.Context, h *harness.Harness, cfg config.Config, change model.Change, baseDir, candidateDir string, r *model.Report, enabled bool, errOut io.Writer) {
 	if cfg.Fuzz == nil || !enabled {
 		return
 	}
 	limits := fuzz.NewLimits(cfg.Fuzz.Effective(cfg.Sandbox))
-	plan, err := fuzz.Select(baseDir, candidateDir, change, r.Signals, limits)
+	template := cfg.Commands["generated_test"]
+	family := fuzz.ScriptFamily(template)
+	// The TS/JS enumeration reads candidate content on the host: besides its
+	// own size and work bounds, the fuzz sub-cap and --deadline stop it.
+	scriptCtx, cancel := context.WithTimeout(ctx, limits.MaxRuntime)
+	plan, err := fuzz.SelectAll(scriptCtx, baseDir, candidateDir, change, r.Signals, limits, family)
+	cancel()
 	if err != nil {
 		fuzzNotRun(cfg, r, nil, "the changed functions could not be selected: "+err.Error())
 		return
 	}
-	// The TS/JS enumeration reads candidate content on the host: besides its
-	// own size and work bounds, the fuzz sub-cap and --deadline stop it.
-	scriptCtx, cancel := context.WithTimeout(ctx, limits.MaxRuntime)
-	plan.Skipped = append(plan.Skipped, fuzz.SelectScripts(scriptCtx, baseDir, candidateDir, change)...)
-	cancel()
-	if plan.Targets() > 0 && !fuzz.CommandSupported(cfg.Commands["generated_test"]) {
-		fuzzNotRun(cfg, r, plan.Skipped, fuzzTemplateReason)
+	if plan.GoTargets() > 0 && !fuzz.CommandSupported(template) {
+		fuzzNotRun(cfg, r, append(plan.Skipped, plan.ScriptSkips(fuzz.ReasonScriptStageNotRun)...), fuzzTemplateReason)
 		return
 	}
-	if n := plan.Targets(); n > 0 {
-		fmt.Fprintf(errOut, "Running differential fuzzing of %s in %s in isolated Docker sandboxes...\n", fuzzCount(n, "changed Go function"), fuzzCount(len(plan.Packages), "package"))
+	if plan.Targets() > 0 {
+		fmt.Fprintf(errOut, "Running differential fuzzing of %s in isolated Docker sandboxes...\n", fuzzPlanText(plan))
 	}
 	rep := fuzz.Run(ctx, fuzzRunner{h: h}, plan, fuzz.Options{
 		Limits:           limits,
 		ObservationsPath: harness.FuzzObservationsPath,
 		PayloadLimit:     harness.PayloadLimit(cfg.Sandbox.MaxOutputBytes),
+		ScriptFamily:     family,
 	})
 	r.Fuzz = &rep
 	r.Unverified = append(r.Unverified, fuzz.Unverified(rep, plan.BudgetSkipped)...)
@@ -95,10 +100,15 @@ func boundedSkips(skipped []model.FuzzSkip) ([]model.FuzzSkip, int) {
 type fuzzRunner struct{ h *harness.Harness }
 
 func (f fuzzRunner) Observe(ctx context.Context, req fuzz.Request) (fuzz.Side, fuzz.Side, error) {
-	base, candidate, err := f.h.RunObserved(ctx, harness.ObservedRun{
+	run := harness.ObservedRun{
 		Path: req.Harness.Path, Content: req.Harness.Content, TestNames: req.Harness.TestNames(),
 		Confirm: req.Confirm, SaveSource: req.SaveSource, Deadline: req.Deadline, Normalize: req.Harness.Normalize,
-	})
+		Runner: req.Harness.EvidenceRunner(),
+	}
+	if run.Runner == harness.RunnerJest {
+		run.Started = fuzz.StartedTests
+	}
+	base, candidate, err := f.h.RunObserved(ctx, run)
 	return fuzz.Side{Check: base.Check, OverflowSHA256: base.OverflowSHA256}, fuzz.Side{Check: candidate.Check, OverflowSHA256: candidate.OverflowSHA256}, err
 }
 
@@ -169,6 +179,29 @@ func fuzzLine(f *model.FuzzReport) string {
 		}
 	}
 	return fmt.Sprintf("Differential fuzzing: %s planned, %d with recorded fuzz checks; %d diverged, %d not diverged, %d inconclusive; %d skipped.", fuzzCount(len(f.Functions), "changed function"), withChecks, diverged, notDiverged, inconclusive, f.SkippedTotal)
+}
+
+// fuzzPlanText describes what a plan runs, for example "7 changed Go
+// functions in 2 packages" or "2 changed TS/JS functions in 1 module".
+func fuzzPlanText(plan fuzz.Plan) string {
+	goFns, goPkgs, scriptFns, modules := 0, 0, 0, 0
+	for _, pkg := range plan.Packages {
+		if pkg.Script != nil {
+			scriptFns += len(pkg.Targets)
+			modules++
+		} else {
+			goFns += len(pkg.Targets)
+			goPkgs++
+		}
+	}
+	var parts []string
+	if goFns > 0 {
+		parts = append(parts, fuzzCount(goFns, "changed Go function")+" in "+fuzzCount(goPkgs, "package"))
+	}
+	if scriptFns > 0 {
+		parts = append(parts, fuzzCount(scriptFns, "changed TS/JS function")+" in "+fuzzCount(modules, "module"))
+	}
+	return strings.Join(parts, " and ")
 }
 
 // fuzzCount writes n and noun, with a plural s unless n is 1.

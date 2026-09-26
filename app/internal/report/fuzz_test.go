@@ -466,7 +466,7 @@ func TestFuzzMarkdownSection(t *testing.T) {
 	r := fuzzReport(t, divergeAt(discountCall, hostile))
 	r.Fuzz.Skipped = append(r.Fuzz.Skipped,
 		model.FuzzSkip{Path: "calc/more.go", Line: 3, Symbol: "calc.(*T).M", Reason: "methods are not fuzzed in this version"},
-		model.FuzzSkip{Path: "web/price.ts", Line: 1, Symbol: "price", Reason: fuzz.ReasonScriptNotImplemented})
+		model.FuzzSkip{Path: "web/price.ts", Line: 1, Symbol: "price", Reason: fuzz.ReasonScriptTemplate})
 	r.Fuzz.SkippedTotal = 2
 	Finalize(r, true)
 	md := string(Markdown(r))
@@ -477,7 +477,7 @@ func TestFuzzMarkdownSection(t *testing.T) {
 		"Smallest divergent input tried: Discount\\(Cents\\(1000\\)\\); baseline v:Discount\\(Cents\\(1000\\)\\); candidate \\*\\*bold\\*\\* \\[link\\]\\(https://example.invalid\\) &lt;script&gt;",
 		"- **not diverged** calc.Twice (calc/calc.go:15): 64 of 64 inputs compared",
 		"Not fuzzed (2):",
-		"- web/price.ts:1 price: TS/JS differential fuzzing is not implemented in this build",
+		"- web/price.ts:1 price: " + inline(fuzz.ReasonScriptTemplate),
 		inline(model.FuzzNote),
 	} {
 		if !strings.Contains(body, want) {
@@ -531,7 +531,8 @@ func TestFuzzWordingMakesNoBannedClaims(t *testing.T) {
 	skips := []model.FuzzSkip{}
 	for i, reason := range []string{fuzz.ReasonMethod, fuzz.ReasonGeneric, fuzz.ReasonSignature, fuzz.ReasonConstrained, fuzz.ReasonCgo, fuzz.ReasonPackageName, fuzz.ReasonPackageClause, fuzz.ReasonShadowed,
 		fuzz.ReasonSensitive, fuzz.ReasonMovedDir, fuzz.ReasonNotInSnapshot, fuzz.ReasonNoBody, fuzz.ReasonDuplicate, fuzz.ReasonNoInput, fuzz.ReasonBudgetPackages, fuzz.ReasonBudgetFunctions,
-		fuzz.ReasonScriptNotImplemented, fuzz.ReasonScriptTooLarge, fuzz.ReasonScriptScanBound, fuzz.ReasonScriptTotalBound, fuzz.ReasonScriptTimeLimit} {
+		fuzz.ReasonScriptTemplate, fuzz.ReasonScriptStageNotRun, fuzz.ReasonScriptGenerator, fuzz.ReasonScriptCommonJS, fuzz.ReasonScriptRenamed, fuzz.ReasonScriptModuleName,
+		fuzz.ReasonScriptExportName, fuzz.ReasonScriptThis, fuzz.ReasonScriptDestructured, fuzz.ReasonScriptJSDocDiffers, fuzz.ReasonScriptTooLarge, fuzz.ReasonScriptScanBound, fuzz.ReasonScriptTotalBound, fuzz.ReasonScriptTimeLimit} {
 		skips = append(skips, model.FuzzSkip{Path: "calc/other.go", Line: i + 1, Symbol: fmt.Sprintf("calc.S%d", i), Reason: reason})
 	}
 	ran := fuzzReport(t, divergeAt(discountCall, "w:"+discountCall))

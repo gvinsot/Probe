@@ -49,14 +49,17 @@ type fuzzDerived struct {
 
 // deriveFuzz evaluates every fuzz function whose evidence ID is cited by no
 // other function and resolves to one differential_fuzz record whose checks
-// resolve: the record names the function's test, runner go_test_json and a
-// harness path that report sanitizing leaves unchanged; its check_id and
-// base_check_id are the function's first pair (kinds fuzz_candidate and
-// fuzz_base); the confirmation pair is complete or absent (kinds
-// fuzz_candidate_confirm and fuzz_base_confirm); and the baseline command
-// runs the harness's package and test. The streams of one set of checks are
-// parsed once. The result is keyed by evidence ID. It is pure: it never
-// modifies the report or the ledger.
+// resolve: the record names the function's test, runner go_test_json or
+// jest_json and a harness path that report sanitizing leaves unchanged; its
+// check_id and base_check_id are the function's first pair (kinds
+// fuzz_candidate and fuzz_base); the confirmation pair is complete or absent
+// (kinds fuzz_candidate_confirm and fuzz_base_confirm); and the baseline
+// command runs the harness's package and test (go_test_json) or the harness
+// file as its target (jest_json, whose command selects no test by name). The
+// comparison then validates the named execution by the runner of the record
+// (Appendix D.13). The streams of one set of checks are parsed once. The
+// result is keyed by evidence ID. It is pure: it never modifies the report or
+// the ledger.
 func deriveFuzz(r *model.Report, l *ledger) map[string]fuzzDerived {
 	out := map[string]fuzzDerived{}
 	if r.Fuzz == nil {
@@ -68,13 +71,13 @@ func deriveFuzz(r *model.Report, l *ledger) map[string]fuzzDerived {
 			cites[fn.EvidenceID]++
 		}
 	}
-	parsed := map[[4]string]fuzz.Recorded{}
+	parsed := map[[5]string]fuzz.Recorded{}
 	for _, fn := range r.Fuzz.Functions {
 		if fn.EvidenceID == "" || cites[fn.EvidenceID] != 1 || fn.Checks == nil {
 			continue
 		}
 		e, ok := l.item(fn.EvidenceID)
-		if !ok || e.Kind != model.EvidenceDifferentialFuzz || e.Runner != harness.RunnerGo || len(e.TestNames) != 1 || !verifiableNames(e.TestNames) ||
+		if !ok || e.Kind != model.EvidenceDifferentialFuzz || e.Runner != harness.RunnerGo && e.Runner != harness.RunnerJest || len(e.TestNames) != 1 || !verifiableNames(e.TestNames) ||
 			e.Path == "" || !verifiableText(e.Path) || fn.TestName != e.TestNames[0] || fn.Checks.Base != e.BaseCheckID || fn.Checks.Candidate != e.CheckID {
 			continue
 		}
@@ -82,10 +85,13 @@ func deriveFuzz(r *model.Report, l *ledger) map[string]fuzzDerived {
 		var baseOK, candOK bool
 		d.base, baseOK = l.check(e.BaseCheckID)
 		d.candidate, candOK = l.check(e.CheckID)
-		if !baseOK || !candOK || d.base.Kind != model.CheckFuzzBase || d.candidate.Kind != model.CheckFuzzCandidate || !fuzzCommandTargets(d.base.Command, e.Path, fn.TestName) {
+		if !baseOK || !candOK || d.base.Kind != model.CheckFuzzBase || d.candidate.Kind != model.CheckFuzzCandidate {
 			continue
 		}
-		key := [4]string{e.BaseCheckID, e.CheckID}
+		if e.Runner == harness.RunnerJest && !scriptCommandTargets(d.base.Command, e.Path) || e.Runner == harness.RunnerGo && !fuzzCommandTargets(d.base.Command, e.Path, fn.TestName) {
+			continue
+		}
+		key := [5]string{e.BaseCheckID, e.CheckID, "", "", e.Runner}
 		switch {
 		case fn.Checks.BaseConfirm == "" && fn.Checks.CandidateConfirm == "":
 		case fn.Checks.BaseConfirm == "" || fn.Checks.CandidateConfirm == "":
@@ -101,7 +107,7 @@ func deriveFuzz(r *model.Report, l *ledger) map[string]fuzzDerived {
 		}
 		rec, seen := parsed[key]
 		if !seen {
-			rec = fuzz.ParseChecks(fuzz.Checks{Base: &d.base, Candidate: &d.candidate, BaseConfirm: d.baseConfirm, CandidateConfirm: d.candConfirm})
+			rec = fuzz.ParseChecks(fuzz.Checks{Base: &d.base, Candidate: &d.candidate, BaseConfirm: d.baseConfirm, CandidateConfirm: d.candConfirm, Runner: e.Runner})
 			parsed[key] = rec
 		}
 		d.ev = rec.Evaluate(fn.TestName, fn.Inputs)
@@ -129,6 +135,22 @@ func fuzzCommandTargets(command []string, p, test string) bool {
 		}
 	}
 	return target && selected
+}
+
+// scriptCommandTargets reports whether a recorded TS/JS fuzz command names
+// the harness file p as an argument (its {file} target) and selects no Go
+// test by name.
+func scriptCommandTargets(command []string, p string) bool {
+	target := false
+	for _, arg := range command {
+		if arg == "-run" {
+			return false
+		}
+		if arg == p {
+			target = true
+		}
+	}
+	return target
 }
 
 // fuzzFunctionAgrees reports whether a stored fuzz function records exactly
@@ -311,7 +333,7 @@ func writeFuzz(b *bytes.Buffer, r *model.Report) {
 	case model.FuzzRan:
 		// Planned functions, and among them those with recorded fuzz checks: a
 		// function without checks (sub-cap, deadline, harness failure) never ran.
-		fmt.Fprintf(b, "Seeded inputs (%s) were planned for %s, %d of them with recorded fuzz checks on the baseline and the candidate: %d diverged, %d not diverged, %d inconclusive.\n\n", inline(f.SeedScheme), fuzzPlural(len(f.Functions), "changed Go function"), withChecks, diverged, notDiverged, inconclusive)
+		fmt.Fprintf(b, "Seeded inputs (%s) were planned for %s, %d of them with recorded fuzz checks on the baseline and the candidate: %d diverged, %d not diverged, %d inconclusive.\n\n", inline(f.SeedScheme), fuzzPlural(len(f.Functions), fuzzFunctionNoun(f.Functions)), withChecks, diverged, notDiverged, inconclusive)
 	case model.FuzzNoCandidates:
 		fmt.Fprintf(b, "No function ran: %s.\n\n", inline(fuzzReasonText(f.Reason)))
 	case model.FuzzNotRun:
@@ -320,6 +342,9 @@ func writeFuzz(b *bytes.Buffer, r *model.Report) {
 		fmt.Fprintf(b, "Differential fuzzing was disabled for this run (%s).\n\n", inline(fuzzReasonText(f.Reason)))
 	default:
 		fmt.Fprintf(b, "Status: %s.\n\n", inline(f.Status))
+	}
+	if fuzzHasScripts(f) {
+		b.WriteString(inline(fuzzLexicalNote) + "\n\n")
 	}
 	for _, fn := range f.Functions {
 		where := inline(fn.Path)
@@ -382,6 +407,46 @@ func fuzzCheckList(c *model.FuzzChecks) string {
 		return ""
 	}
 	return " (checks " + inline(strings.Join(ids, ", ")) + ")"
+}
+
+// fuzzLexicalNote says how TS/JS functions were found; it is shown when the
+// section lists one.
+const fuzzLexicalNote = "TS/JS functions, their signatures and their parameter types were read lexically, from TypeScript annotations and JSDoc @param tags, without a type checker; a construct that was not recognized is not listed."
+
+// fuzzHasScripts reports whether the section lists a TS/JS function, planned
+// or skipped.
+func fuzzHasScripts(f *model.FuzzReport) bool {
+	for _, fn := range f.Functions {
+		if fuzz.IsScriptPath(fn.Path) {
+			return true
+		}
+	}
+	for _, s := range f.Skipped {
+		if fuzz.IsScriptPath(s.Path) {
+			return true
+		}
+	}
+	return false
+}
+
+// fuzzFunctionNoun names the planned functions by language: "changed Go
+// function", "changed TS/JS function", or "changed function" for both.
+func fuzzFunctionNoun(functions []model.FuzzFunction) string {
+	goFns, scriptFns := 0, 0
+	for _, fn := range functions {
+		if fuzz.IsScriptPath(fn.Path) {
+			scriptFns++
+		} else {
+			goFns++
+		}
+	}
+	switch {
+	case scriptFns == 0:
+		return "changed Go function"
+	case goFns == 0:
+		return "changed TS/JS function"
+	}
+	return "changed function"
 }
 
 // fuzzPlural writes n and noun, with a plural s unless n is 1.

@@ -1,14 +1,15 @@
 // Package fuzz is the host side of deterministic differential fuzzing (F2).
-// It selects changed Go functions whose signature is unchanged, derives a
-// seeded input corpus from each function's identity, renders one observation
-// harness per package, validates and normalizes the observation streams that
-// sandbox runs return, and compares baseline and candidate streams.
+// It selects changed Go and TS/JS functions whose signature is unchanged,
+// derives a seeded input corpus from each function's identity, renders one
+// observation harness per Go package or TS/JS module, validates and
+// normalizes the observation streams that sandbox runs return, and compares
+// baseline and candidate streams.
 //
 // Nothing in this package executes repository code or involves a model.
-// Selection and rendering parse and print Go source on the host (go/parser,
-// go/format, go/build.MatchFile with in-memory files). Execution goes through
-// a Runner, which the harness implements with the ordinary Docker sandbox; the
-// harness never imports this package.
+// Selection and rendering parse and print source on the host (go/parser,
+// go/format, go/build.MatchFile with in-memory files for Go; a bounded lexer
+// for TS/JS). Execution goes through a Runner, which the harness implements
+// with the ordinary Docker sandbox; the harness never imports this package.
 //
 // A divergence is a difference between bounded canonical encodings recorded
 // for the same seeded input, reproduced by a second run on each revision. It
@@ -23,6 +24,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"path"
 	"sort"
 	"time"
 
@@ -47,7 +49,7 @@ const (
 // Reasons Run records itself.
 const (
 	ReasonRuntimeBudget = "fuzz.max_runtime_seconds or the overall deadline was reached before this package ran"
-	ReasonNoCandidates  = "no changed Go function is eligible for differential fuzzing"
+	ReasonNoCandidates  = "no changed Go or TS/JS function is eligible for differential fuzzing"
 )
 
 // CounterexampleCutNote accompanies a counterexample whose displays are not
@@ -107,6 +109,10 @@ func CommandSupported(cmd []string) bool {
 // -run ^(Harness.TestNames())$ and the payload channel on the observation
 // path, pass the returned stream through Harness.Normalize into
 // Check.Results, and remove the file again.
+//
+// For a TS/JS harness (Harness.Runner jest_json) the template is the Vitest
+// or Jest generated_test template with the harness as its {file} target and
+// no test-name filter; the stream is still the only payload.
 type Request struct {
 	Harness    Harness
 	Confirm    bool // false: fuzz_base then fuzz_candidate; true: fuzz_base_confirm then fuzz_candidate_confirm
@@ -141,6 +147,7 @@ type Options struct {
 	Limits           Limits
 	ObservationsPath string // in-container path of the observation stream
 	PayloadLimit     int    // harness.PayloadLimit(sandbox.max_output_bytes)
+	ScriptFamily     string // runner family of the TS/JS template (ScriptFamily); "" without TS/JS targets
 	// NewSuffix and Now are replaceable for tests; nil means NewSuffix and
 	// time.Now.
 	NewSuffix func() (string, error)
@@ -215,7 +222,11 @@ func renderPackage(pkg PackagePlan, o Options, suffix func() (string, error)) (H
 		if err != nil {
 			return Harness{}, err
 		}
-		h, err := Render(pkg, RenderOptions{Suffix: s, ObservationsPath: o.ObservationsPath, PayloadLimit: o.PayloadLimit, CallTimeout: o.Limits.CallTimeout})
+		ro := RenderOptions{Suffix: s, ObservationsPath: o.ObservationsPath, PayloadLimit: o.PayloadLimit, CallTimeout: o.Limits.CallTimeout, Family: o.ScriptFamily}
+		if pkg.Script != nil {
+			return RenderScript(pkg, ro)
+		}
+		h, err := Render(pkg, ro)
 		if err == nil {
 			return h, nil
 		}
@@ -243,7 +254,8 @@ func runPackage(ctx context.Context, runner Runner, h Harness, deadline time.Tim
 		return out
 	}
 	differs := false
-	first := ParseChecks(Checks{Base: &b1.Check, Candidate: &c1.Check})
+	evidenceRunner := h.EvidenceRunner()
+	first := ParseChecks(Checks{Base: &b1.Check, Candidate: &c1.Check, Runner: evidenceRunner})
 	for _, t := range h.Tests {
 		if first.Evaluate(t.Name, len(t.Inputs)).Differs {
 			differs = true
@@ -257,7 +269,7 @@ func runPackage(ctx context.Context, runner Runner, h Harness, deadline time.Tim
 			b2, c2 = &base, &candidate
 		}
 	}
-	checks := Checks{Base: &b1.Check, Candidate: &c1.Check}
+	checks := Checks{Base: &b1.Check, Candidate: &c1.Check, Runner: evidenceRunner}
 	ids := model.FuzzChecks{Base: b1.Check.ID, Candidate: c1.Check.ID}
 	if b2 != nil {
 		checks.BaseConfirm, checks.CandidateConfirm = &b2.Check, &c2.Check
@@ -283,7 +295,7 @@ func runPackage(ctx context.Context, runner Runner, h Harness, deadline time.Tim
 			CheckID:     c1.Check.ID,
 			BaseCheckID: b1.Check.ID,
 			Status:      ev.EvidenceStatus(),
-			Runner:      harness.RunnerGo,
+			Runner:      evidenceRunner,
 			TestNames:   []string{t.Name},
 		}
 		stored, err := runner.AddEvidence(e)
@@ -355,6 +367,21 @@ func evidenceOutput(ev Evaluation, reason string) string {
 	return redact.TruncateUTF8(text, maxEvidenceOutput)
 }
 
+// FunctionLabel names a fuzz function in a sentence: its symbol, with its
+// module for a TS/JS function (whose symbol is the exported name only).
+func FunctionLabel(f model.FuzzFunction) string {
+	if IsScriptPath(f.Path) {
+		return f.Symbol + " (" + f.Path + ")"
+	}
+	return f.Symbol
+}
+
+// IsScriptPath reports whether a fuzz function or skip path names a TS/JS
+// module rather than a Go file.
+func IsScriptPath(p string) bool {
+	return scriptExtensions[path.Ext(p)]
+}
+
 func errorText(err error) string {
 	return redact.TruncateUTF8(redact.Redact(err.Error()), maxErrorText)
 }
@@ -383,7 +410,7 @@ func Unverified(rep model.FuzzReport, budgetSkipped int) []string {
 			lines = append(lines, fmt.Sprintf("Differential fuzzing: %d more functions are inconclusive (see fuzz.functions in confidence-report.json).", inconclusive-shown))
 			break
 		}
-		lines = append(lines, fmt.Sprintf("Differential fuzzing of %s is inconclusive: %s", f.Symbol, f.Reason))
+		lines = append(lines, fmt.Sprintf("Differential fuzzing of %s is inconclusive: %s", FunctionLabel(f), f.Reason))
 		shown++
 	}
 	if budgetSkipped > 0 {

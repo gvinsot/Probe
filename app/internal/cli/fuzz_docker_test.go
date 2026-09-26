@@ -175,7 +175,8 @@ func fuzzCheck(r model.Report, id string) *model.Check {
 // (never 1, never 4); Percent and Discount diverge, Join and Boundary do not,
 // Stamp, Halt and the function whose candidate package does not build are
 // inconclusive with FAIL (never ERROR) candidate checks; the TypeScript
-// function is listed as not fuzzed; the report re-renders identically; a
+// function is listed as not fuzzed (the template is a Go one); the report
+// re-renders identically; a
 // tampered hash makes Discount inconclusive on re-render; the checkout stays
 // clean, and nothing of the run remains in its private temporary directory or
 // as a container.
@@ -256,7 +257,7 @@ func TestDockerFuzzReviewEndToEnd(t *testing.T) {
 	if c := outcomes["calc.Discount"].Counterexample; c == nil || *c != (model.FuzzCounterexample{Index: 11, Input: "Discount(Cents(1000))", Base: "calc.Cents(900)", Candidate: "calc.Cents(1000)"}) {
 		t.Fatalf("Discount counterexample %+v", c)
 	}
-	if f.SkippedTotal != 1 || f.Skipped[0].Path != "web/price.ts" || f.Skipped[0].Symbol != "price" || f.Skipped[0].Reason != fuzz.ReasonScriptNotImplemented {
+	if f.SkippedTotal != 1 || f.Skipped[0].Path != "web/price.ts" || f.Skipped[0].Symbol != "price" || f.Skipped[0].Reason != fuzz.ReasonScriptTemplate {
 		t.Fatalf("skipped %+v", f.Skipped)
 	}
 	statuses := map[string]int{}
@@ -285,7 +286,7 @@ func TestDockerFuzzReviewEndToEnd(t *testing.T) {
 		"## Differential Fuzzing",
 		"Smallest divergent input tried: Discount\\(Cents\\(1000\\)\\); baseline calc.Cents\\(900\\); candidate calc.Cents\\(1000\\).",
 		"  - Discount\\(Cents\\(1000\\)\\): baseline calc.Cents\\(900\\); candidate calc.Cents\\(1000\\)",
-		"- web/price.ts:1 price: TS/JS differential fuzzing is not implemented in this build",
+		"- web/price.ts:1 price: TS/JS differential fuzzing needs a verifiable Vitest or Jest generated\\_test template",
 	} {
 		if !strings.Contains(string(md), want) {
 			t.Errorf("Markdown lacks %q", want)

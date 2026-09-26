@@ -149,34 +149,46 @@ func TestSelectScriptsListsChangedExportsWithSameSignature(t *testing.T) {
 	}}
 	got := SelectScripts(context.Background(), base, candidate, change)
 	var listed []string
-	for _, s := range got {
-		if s.Reason != ReasonScriptNotImplemented {
-			t.Fatalf("reason %q", s.Reason)
+	lines := map[string]int{}
+	for _, tg := range got.Targets {
+		listed = append(listed, tg.Path+":"+tg.Symbol)
+		lines[tg.Symbol] = tg.Line
+		if tg.Language != LanguageScript || tg.Dir != tg.Path || !tg.Exported || tg.Results != 1 {
+			t.Fatalf("target %+v", tg)
 		}
-		listed = append(listed, s.Path+":"+s.Symbol)
+	}
+	for _, s := range got.Skipped {
+		listed = append(listed, s.Path+":"+s.Symbol+": "+s.Reason)
+		lines[s.Symbol] = s.Line
 	}
 	// Not listed: the changed signature, the layout-only edit, the function
-	// that became async, and every ignored file.
-	want := "web/hello.tsx:Hello,web/new.js:moved,web/price.ts:discount,web/price.ts:round,web/price.ts:load,web/price.ts:default,web/price.ts:helper,web/price.ts:renamed,web/price.ts:regex,web/price.ts:tpl,web/price.ts:gen,web/price.ts:typed"
+	// that became async, and every ignored file. Planned: every changed
+	// function whose parameters are annotated number, string or boolean (or
+	// that has none); skipped with a reason: a destructured parameter, a
+	// renamed module, a generator and a parameter without an annotation.
+	want := strings.Join([]string{
+		"web/price.ts:discount", "web/price.ts:round", "web/price.ts:load", "web/price.ts:default", "web/price.ts:helper",
+		"web/price.ts:renamed", "web/price.ts:regex", "web/price.ts:tpl",
+		"web/hello.tsx:Hello: " + ReasonScriptDestructured, "web/new.js:moved: " + ReasonScriptRenamed,
+		"web/price.ts:gen: " + ReasonScriptGenerator, "web/price.ts:typed: parameter a has no type annotation",
+	}, ",")
 	if strings.Join(listed, ",") != want {
 		t.Fatalf("listed %s\nwant   %s", strings.Join(listed, ","), want)
-	}
-	lines := map[string]int{}
-	for _, s := range got {
-		lines[s.Symbol] = s.Line
 	}
 	if lines["discount"] != 4 || lines["round"] != 8 || lines["default"] != 14 || lines["helper"] != 18 || lines["renamed"] != 32 {
 		t.Fatalf("lines %v", lines)
 	}
+	sigs := map[string]string{}
+	for _, tg := range got.Targets {
+		sigs[tg.Symbol] = tg.Signature
+	}
+	if sigs["discount"] != "(total: number, pct: number): number" || sigs["load"] != "async (id: string): Promise<string>" || sigs["renamed"] != "()" {
+		t.Fatalf("signatures %q", sigs)
+	}
 	// Deterministic.
 	again := SelectScripts(context.Background(), base, candidate, change)
-	if len(again) != len(got) {
+	if fmt.Sprint(again) != fmt.Sprint(got) {
 		t.Fatal("two selections differ")
-	}
-	for i := range got {
-		if again[i] != got[i] {
-			t.Fatal("two selections differ")
-		}
 	}
 }
 
@@ -311,18 +323,21 @@ func TestSelectScriptsFileLevelBounds(t *testing.T) {
 		"web/z.ts":   "export function z() { return 2 }\n",
 	})
 	change := model.Change{Files: []model.ChangedFile{{Path: "web/a.ts", Status: "M"}, {Path: "web/big.ts", Status: "M"}, {Path: "web/cut.ts", Status: "M"}, {Path: "web/z.ts", Status: "M"}}}
-	render := func(skips []model.FuzzSkip) string {
+	render := func(sel ScriptSelection) string {
 		var parts []string
-		for _, s := range skips {
+		for _, tg := range sel.Targets {
+			parts = append(parts, fmt.Sprintf("%s:%d:%s:planned", tg.Path, tg.Line, tg.Symbol))
+		}
+		for _, s := range sel.Skipped {
 			parts = append(parts, fmt.Sprintf("%s:%d:%s:%s", s.Path, s.Line, s.Symbol, s.Reason))
 		}
 		return strings.Join(parts, "\n")
 	}
 	want := strings.Join([]string{
-		"web/a.ts:1:a:" + ReasonScriptNotImplemented,
+		"web/a.ts:1:a:planned",
+		"web/z.ts:1:z:planned",
 		"web/big.ts:0::" + ReasonScriptTooLarge,
 		"web/cut.ts:0::" + ReasonScriptScanBound,
-		"web/z.ts:1:z:" + ReasonScriptNotImplemented,
 	}, "\n")
 	if got := render(SelectScripts(context.Background(), base, candidate, change)); got != want {
 		t.Fatalf("got\n%s\nwant\n%s", got, want)
@@ -332,7 +347,7 @@ func TestSelectScriptsFileLevelBounds(t *testing.T) {
 	scriptSourceBudget = 1
 	defer func() { scriptSourceBudget = saved }()
 	want = strings.Join([]string{
-		"web/a.ts:1:a:" + ReasonScriptNotImplemented,
+		"web/a.ts:1:a:planned",
 		"web/big.ts:0::" + ReasonScriptTotalBound,
 		"web/cut.ts:0::" + ReasonScriptTotalBound,
 		"web/z.ts:0::" + ReasonScriptTotalBound,
@@ -344,7 +359,11 @@ func TestSelectScriptsFileLevelBounds(t *testing.T) {
 	// A done context (the fuzz sub-cap or --deadline) stops the enumeration.
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	for _, s := range SelectScripts(ctx, base, candidate, change) {
+	done := SelectScripts(ctx, base, candidate, change)
+	if len(done.Targets) != 0 || len(done.Skipped) != 4 {
+		t.Fatalf("selection after the context ended: %+v", done)
+	}
+	for _, s := range done.Skipped {
 		if s.Line != 0 || s.Symbol != "" || s.Reason != ReasonScriptTimeLimit {
 			t.Fatalf("entry %+v", s)
 		}

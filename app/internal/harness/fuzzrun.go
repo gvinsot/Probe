@@ -1,11 +1,17 @@
 package harness
 
 // Differential fuzzing runs (F2). The fuzz package renders one observation
-// harness per package; this file stages it on both revisions, runs it through
-// the unchanged sandbox with the reviewed generated_test template and the
-// payload channel, and records the checks and the evidence. The harness never
-// imports the fuzz package: cli orchestrates, and the stream is validated by
-// the Normalize callback the caller passes.
+// harness per Go package or TS/JS module; this file stages it on both
+// revisions, runs it through the unchanged sandbox with the reviewed
+// generated_test template and the payload channel, and records the checks and
+// the evidence. The harness never imports the fuzz package: cli orchestrates,
+// and the stream is validated by the Normalize callback the caller passes.
+//
+// A TS/JS harness (runner jest_json, F2c, Appendix D.13) runs through a
+// verifiable Vitest or Jest template with the harness as its {file} target.
+// Its only payload is the observation stream: the JSON report that the
+// template writes to {results_out} is not captured, and the framework's log
+// is never read for a verdict.
 //
 // Status rules (§1.17, Appendix D.6):
 //   - A baseline-side run (fuzz_base, fuzz_base_confirm) becomes ERROR when
@@ -15,7 +21,10 @@ package harness
 //     failures of the harness on trusted code, decided from the recorded
 //     check, never from text that candidate code wrote. A log that was cut
 //     (sandbox.max_output_bytes) never decides ERROR: the run keeps PASS or
-//     FAIL, and the comparison makes its functions inconclusive.
+//     FAIL, and the comparison makes its functions inconclusive. For a TS/JS
+//     harness the log is not read at all: a run that returned no payload did
+//     not load or start the harness, and a passing run whose stream shows a
+//     test without its head record skipped one (scriptBaselineStartFailure).
 //   - A candidate-side run (fuzz_candidate, fuzz_candidate_confirm) keeps the
 //     status run.go gave it: a compile, setup or run failure stays FAIL, and
 //     only an infrastructure cause (Docker, exit code 125 or above, a lost
@@ -60,6 +69,10 @@ const (
 	// fuzzStreamLost is the ERROR cause of a stream that could not be
 	// retained as an artifact: a host-side failure on either side.
 	fuzzStreamLost = "the observation stream could not be retained as an artifact"
+	// Baseline-side ERROR causes of a TS/JS harness, decided from its stream
+	// (the framework's log is never read).
+	fuzzScriptNotStarted  = "the TS/JS fuzz harness did not load or start on the baseline: the run wrote no observation stream"
+	fuzzScriptTestsMissed = "the TS/JS fuzz harness did not run every harness test on the baseline although the run passed: a test wrote no head record"
 	// fuzzCausePrefix introduces the ERROR cause line appended to the
 	// recorded output of a fuzz check (after its log artifact was retained).
 	fuzzCausePrefix = "\nswiftproof: "
@@ -70,9 +83,12 @@ const (
 var errFuzzSubCap = errors.New("fuzz.max_runtime_seconds reached")
 
 // fuzzState counts the RunObserved calls of one harness, so that each run's
-// artifacts get distinct names.
+// artifacts get distinct names, and remembers the runner of every fuzz check
+// it recorded, so that AddFuzzEvidence accepts only records whose runner is
+// the one their checks ran with.
 type fuzzState struct {
-	runs int
+	runs    int
+	runners map[string]string // check ID -> RunnerGo or RunnerJest
 }
 
 // ObservedRun asks RunObserved to run one rendered fuzz harness on both
@@ -98,6 +114,15 @@ type ObservedRun struct {
 	// stream that becomes Check.Results. It must return a fixed point of
 	// redaction; any error rejects the whole stream.
 	Normalize func(payload []byte) (string, error)
+	// Runner is RunnerGo (also when empty) for a Go harness and RunnerJest
+	// for a TS/JS harness: Path is then a new <name>.test.ts or .test.js file,
+	// Content declares exactly TestNames as top-level test() calls, and the
+	// template is a verifiable Vitest or Jest template.
+	Runner string
+	// Started is required for a TS/JS harness: it returns how many harness
+	// tests a normalized stream shows as started (their head record), which
+	// decides the baseline-side ERROR rules instead of the log.
+	Started func(results string) int
 }
 
 // ObservedSide is one recorded run of an ObservedRun.
@@ -153,6 +178,10 @@ func (h *Harness) RunObserved(ctx context.Context, run ObservedRun) (base, candi
 	if err != nil {
 		return ObservedSide{}, ObservedSide{}, err
 	}
+	runner := RunnerGo
+	if run.Runner == RunnerJest {
+		runner = RunnerJest
+	}
 	h.fuzz.runs++
 	if run.SaveSource {
 		if err := h.saveArtifact(fmt.Sprintf("fuzz-harness-%d-%s", h.fuzz.runs, path.Base(run.Path)), model.ArtifactFuzzHarness, []byte(run.Content)); err != nil {
@@ -194,7 +223,15 @@ func (h *Harness) RunObserved(ctx context.Context, run ObservedRun) (base, candi
 	}
 	base, baseCause := record(baseKind, h.base, true)
 	candidate, candidateCause := record(candidateKind, h.candidate, false)
-	fields := map[string]any{"path": run.Path, "tests": len(run.TestNames), "checks": []string{base.Check.ID, candidate.Check.ID}, "baseline": base.Check.Status}
+	if h.fuzz.runners == nil {
+		h.fuzz.runners = map[string]string{}
+	}
+	for _, c := range []model.Check{base.Check, candidate.Check} {
+		if c.ID != "" {
+			h.fuzz.runners[c.ID] = runner
+		}
+	}
+	fields := map[string]any{"path": run.Path, "tests": len(run.TestNames), "checks": []string{base.Check.ID, candidate.Check.ID}, "baseline": base.Check.Status, "runner": runner}
 	// The ERROR causes are also kept here: the retained check-N.log artifact
 	// holds the sandbox log as it was recorded, before the cause line.
 	if baseCause != "" {
@@ -220,6 +257,10 @@ func (h *Harness) fuzzPrecheck(run ObservedRun) ([]string, error) {
 		return nil, errors.New("no observation stream validator was given")
 	case run.Deadline.IsZero():
 		return nil, errors.New("no stage deadline was given")
+	case run.Runner == RunnerJest:
+		return h.scriptFuzzPrecheck(run)
+	case run.Runner != "" && run.Runner != RunnerGo:
+		return nil, errors.New("unknown fuzz harness runner")
 	case !fuzzTemplate(h.opts.Commands["generated_test"]):
 		return nil, errors.New("the generated_test command cannot run a fuzz harness; configure it as a single-package go test {package} template")
 	case !strings.HasSuffix(run.Path, "_test.go") || filepath.ToSlash(filepath.Clean(filepath.FromSlash(run.Path))) != run.Path:
@@ -289,7 +330,11 @@ func (h *Harness) fuzzSide(c model.Check, payload []byte, truncated bool, run Ob
 	case baseline && c.Status == "PASS":
 		cause = fuzzBaseNoStream
 	}
-	if baseline && cause == "" && h.completeLog(c) {
+	switch {
+	case !baseline || cause != "":
+	case run.Runner == RunnerJest:
+		cause = scriptBaselineStartFailure(c, payload, side.OverflowSHA256 != "", run)
+	case h.completeLog(c):
 		cause = fuzzBaselineStartFailure(c, run.TestNames)
 	}
 	if cause != "" {
@@ -372,10 +417,11 @@ func (h *Harness) rejectFuzzPayload(checkID string, payload []byte) {
 // AddFuzzEvidence records one differential_fuzz evidence record and returns
 // it as stored, with its evidence-N ID. It refuses a record of another kind, a
 // status other than DIVERGED, NOT_DIVERGED or UNVERIFIED, a runner other than
-// go_test_json, anything but exactly one test name, an empty path, fields
-// other kinds use (repeat check, criterion, referenced symbols), and check IDs
-// that do not name exactly one recorded fuzz_candidate (CheckID) and fuzz_base
-// (BaseCheckID) check. Only host code calls it: no reviewer tool reaches it.
+// go_test_json and jest_json, anything but exactly one test name, an empty
+// path, fields other kinds use (repeat check, criterion, referenced symbols),
+// check IDs that do not name exactly one recorded fuzz_candidate (CheckID)
+// and fuzz_base (BaseCheckID) check, and a runner other than the one both
+// checks ran with. Only host code calls it: no reviewer tool reaches it.
 // report.Finalize re-derives the status from the recorded checks.
 func (h *Harness) AddFuzzEvidence(e model.Evidence) (model.Evidence, error) {
 	h.mu.Lock()
@@ -387,8 +433,8 @@ func (h *Harness) AddFuzzEvidence(e model.Evidence) (model.Evidence, error) {
 		return model.Evidence{}, fmt.Errorf("fuzz evidence must have kind %s", model.EvidenceDifferentialFuzz)
 	case e.Status != model.StatusDiverged && e.Status != model.StatusNotDiverged && e.Status != model.StatusUnverified:
 		return model.Evidence{}, errors.New("fuzz evidence status must be DIVERGED, NOT_DIVERGED or UNVERIFIED")
-	case e.Runner != RunnerGo:
-		return model.Evidence{}, fmt.Errorf("fuzz evidence runner must be %s", RunnerGo)
+	case e.Runner != RunnerGo && e.Runner != RunnerJest:
+		return model.Evidence{}, fmt.Errorf("fuzz evidence runner must be %s or %s", RunnerGo, RunnerJest)
 	case len(e.TestNames) != 1 || e.TestNames[0] == "":
 		return model.Evidence{}, errors.New("fuzz evidence must name exactly one test")
 	case e.Path == "":
@@ -398,6 +444,9 @@ func (h *Harness) AddFuzzEvidence(e model.Evidence) (model.Evidence, error) {
 	}
 	if !h.recordedKind(e.CheckID, model.CheckFuzzCandidate) || !h.recordedKind(e.BaseCheckID, model.CheckFuzzBase) {
 		return model.Evidence{}, errors.New("fuzz evidence must cite a recorded fuzz_candidate check and a recorded fuzz_base check")
+	}
+	if h.fuzz.runners[e.CheckID] != e.Runner || h.fuzz.runners[e.BaseCheckID] != e.Runner {
+		return model.Evidence{}, errors.New("fuzz evidence must name the runner its checks ran with")
 	}
 	e.Description, e.Output = Redact(e.Description), Redact(e.Output)
 	return h.appendEvidence(e), nil
@@ -417,4 +466,80 @@ func (h *Harness) recordedKind(id, kind string) bool {
 		found++
 	}
 	return id != "" && found == 1
+}
+
+// VerifiableJSTemplate reports whether a generated_test template can establish
+// which generated JavaScript/TypeScript file ran: exactly one standalone
+// {file} target, the runner's JSON report written to {results_out}, no
+// {package}, and no package-manager script or shell as the command.
+func VerifiableJSTemplate(cmd []string) bool { return verifiableJSTemplate(cmd) }
+
+// scriptFuzzPrecheck is fuzzPrecheck for a TS/JS harness (runner jest_json).
+// The template must be verifiable, the path a clean new <name>.test.ts or
+// .test.js path in both snapshots, and the content must declare exactly
+// run.TestNames, in order, as top-level test() or it() calls with static
+// titles (the rules of generated JavaScript/TypeScript tests). The command
+// is the template with the harness as its {file} target; no test-name filter
+// is added, since the file declares only the harness tests. Caller holds
+// h.mu.
+func (h *Harness) scriptFuzzPrecheck(run ObservedRun) ([]string, error) {
+	clean := filepath.ToSlash(filepath.Clean(filepath.FromSlash(run.Path)))
+	switch {
+	case run.Started == nil:
+		return nil, errors.New("no started-test counter was given for a TS/JS fuzz harness")
+	case !verifiableJSTemplate(h.opts.Commands["generated_test"]):
+		return nil, errors.New("the generated_test command cannot run a TS/JS fuzz harness; configure a verifiable Vitest or Jest template with {file} and {results_out}")
+	case !isJSTestPath(run.Path) || clean != run.Path || strings.HasPrefix(run.Path, "/") || strings.HasPrefix(run.Path, "../"):
+		return nil, errors.New("the TS/JS fuzz harness path must be a clean .test.ts or .test.js path")
+	case len(run.Content) == 0 || len(run.Content) > maxFileBytes || strings.ContainsRune(run.Content, 0):
+		return nil, errors.New("the fuzz harness must contain 1 byte to 1 MiB of text")
+	}
+	names, err := generatedJSTests(run.Content)
+	if err != nil {
+		return nil, err
+	}
+	if !equalStrings(names, run.TestNames) {
+		return nil, errors.New("the fuzz harness does not declare exactly the expected tests")
+	}
+	for _, root := range []string{h.base, h.candidate} {
+		p, err := safePath(root, run.Path)
+		if err != nil {
+			return nil, err
+		}
+		if _, err := os.Lstat(p); !os.IsNotExist(err) {
+			return nil, errors.New("the fuzz harness path already exists in a snapshot")
+		}
+	}
+	command := h.testCommand(run.Path)
+	if len(command) == 0 {
+		return nil, errors.New("the generated_test command has no {file} target")
+	}
+	return command, nil
+}
+
+// scriptBaselineStartFailure returns why a baseline-side PASS or FAIL run of a
+// TS/JS harness shows that the harness did not load or start, or "". It is
+// decided from the payload and the normalized stream, never from the
+// framework's log: a run that returned no payload at all did not start the
+// harness (the module or the harness could not be loaded, or the runner found
+// no test to run), and a passing run whose stream shows fewer started tests
+// than the harness declares skipped some. A failing run that started the
+// harness is left FAIL: the baseline process ended while it evaluated inputs.
+// A rejected stream of a failing run, and a stream kept only as an artifact
+// (the results budget), decide nothing here.
+func scriptBaselineStartFailure(c model.Check, payload []byte, overflow bool, run ObservedRun) string {
+	switch {
+	case len(payload) == 0:
+		return fuzzScriptNotStarted
+	case overflow || c.Results == "":
+		return ""
+	}
+	started := run.Started(c.Results)
+	switch {
+	case started == 0:
+		return fuzzScriptNotStarted
+	case c.Status == "PASS" && started != len(run.TestNames):
+		return fuzzScriptTestsMissed
+	}
+	return ""
 }

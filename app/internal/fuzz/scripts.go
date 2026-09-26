@@ -1,11 +1,12 @@
 package fuzz
 
-// TS/JS enumeration (F2b, Appendix D.13). No TS/JS harness runs in this build:
-// changed exported TS/JS functions whose signature is unchanged are listed in
-// fuzz.skipped with a fixed reason, so the report says which changed functions
-// differential fuzzing did not cover. The enumeration is lexical and
-// best-effort: it reads the two snapshots on the host, never executes
-// anything, and a construct it does not recognize is simply not listed.
+// TS/JS selection (F2b enumeration, F2c eligibility; Appendix D.13). Changed
+// exported TS/JS functions whose signature is unchanged are found lexically
+// on the host from the two snapshots; nothing is executed. Each one is either
+// a planned target (ts_select.go decides whether its parameters can be
+// generated) or an entry of fuzz.skipped with a specific reason. The
+// enumeration and the parameter types are lexical and best-effort: a
+// construct it does not recognize is simply not listed.
 //
 // Cost: the files are candidate content, so every bound is linear in their
 // size whatever they contain. Tokenizing visits each byte a bounded number of
@@ -28,10 +29,6 @@ import (
 	"github.com/gvinsot/SwiftProof/app/internal/harness"
 	"github.com/gvinsot/SwiftProof/app/internal/model"
 )
-
-// ReasonScriptNotImplemented is the skip reason of a changed exported TS/JS
-// function whose signature is unchanged (Appendix D.13).
-const ReasonScriptNotImplemented = "TS/JS differential fuzzing is not implemented in this build"
 
 // Bounds of the TS/JS enumeration.
 const (
@@ -62,21 +59,30 @@ const (
 
 var scriptExtensions = map[string]bool{".ts": true, ".tsx": true, ".mts": true, ".cts": true, ".js": true, ".jsx": true, ".mjs": true, ".cjs": true}
 
-// SelectScripts lists the changed exported TS/JS functions whose body changed
+// ScriptSelection is the outcome of SelectScripts: the eligible TS/JS
+// functions and the changed ones that are not planned, with their reasons.
+type ScriptSelection struct {
+	Targets []Target
+	Skipped []model.FuzzSkip
+}
+
+// SelectScripts finds the changed exported TS/JS functions whose body changed
 // and whose signature text (type parameters, parameters and return type,
-// compared token by token) is identical on both revisions, each with
-// ReasonScriptNotImplemented. Only modified or renamed non-test source files
-// are read, at most 2 MiB each and 32 MiB in total, from the two snapshots;
-// declaration files, test files, hidden directories, node_modules, vendor,
-// testdata and paths the sandbox excludes are ignored. Functions are
-// recognized lexically: function declarations (async, generator, default) and
-// const, let or var bindings of function expressions and arrow functions at
-// the top level of the module, exported directly or through an export list
-// without "from". A file that is too large, whose scan reaches a bound, or
-// that comes after the total bound or after ctx is done gets one file-level
-// entry with the reason instead. The result is sorted by path and line.
-func SelectScripts(ctx context.Context, baseDir, candidateDir string, change model.Change) []model.FuzzSkip {
-	var out []model.FuzzSkip
+// async and generator markers, compared token by token) is identical on both
+// revisions. Each one becomes a target when its parameters can be generated
+// (scriptTarget), and an entry of Skipped with a specific reason otherwise.
+// Only modified or renamed non-test source files are read, at most 2 MiB each
+// and 32 MiB in total, from the two snapshots; declaration files, test files,
+// hidden directories, node_modules, vendor, testdata and paths the sandbox
+// excludes are ignored. Functions are recognized lexically: function
+// declarations (async, generator, default) and const, let or var bindings of
+// function expressions and arrow functions at the top level of the module,
+// exported directly or through an export list without "from". A file that is
+// too large, whose scan reaches a bound, or that comes after the total bound
+// or after ctx is done gets one file-level entry with the reason instead. Both
+// lists are sorted by path and line.
+func SelectScripts(ctx context.Context, baseDir, candidateDir string, change model.Change) ScriptSelection {
+	var out ScriptSelection
 	seen := map[string]bool{}
 	read := 0
 	for _, f := range change.Files {
@@ -92,7 +98,7 @@ func SelectScripts(ctx context.Context, baseDir, candidateDir string, change mod
 			}
 		}
 		fileSkip := func(reason string) {
-			out = append(out, model.FuzzSkip{Path: f.Path, Reason: reason})
+			out.Skipped = append(out.Skipped, model.FuzzSkip{Path: f.Path, Reason: reason})
 		}
 		switch {
 		case ctx.Err() != nil:
@@ -128,14 +134,28 @@ func SelectScripts(ctx context.Context, baseDir, candidateDir string, change mod
 			if !ok || b.signature != fn.signature || b.body == fn.body {
 				continue
 			}
-			out = append(out, model.FuzzSkip{Path: f.Path, Line: fn.line, Symbol: shortText(fn.name, 128), Reason: ReasonScriptNotImplemented})
+			t, reason := scriptTarget(f, old, fn, b)
+			if reason == "" && len(scriptCorpus(t, 1)) == 0 {
+				reason = ReasonNoInput
+			}
+			if reason != "" {
+				out.Skipped = append(out.Skipped, model.FuzzSkip{Path: f.Path, Line: fn.line, Symbol: shortText(fn.name, 128), Reason: reason})
+				continue
+			}
+			out.Targets = append(out.Targets, t)
 		}
 	}
-	sort.SliceStable(out, func(i, j int) bool {
-		if out[i].Path != out[j].Path {
-			return out[i].Path < out[j].Path
+	sort.SliceStable(out.Skipped, func(i, j int) bool {
+		if out.Skipped[i].Path != out.Skipped[j].Path {
+			return out.Skipped[i].Path < out.Skipped[j].Path
 		}
-		return out[i].Line < out[j].Line
+		return out.Skipped[i].Line < out.Skipped[j].Line
+	})
+	sort.SliceStable(out.Targets, func(i, j int) bool {
+		if out.Targets[i].Path != out.Targets[j].Path {
+			return out.Targets[i].Path < out.Targets[j].Path
+		}
+		return out.Targets[i].Line < out.Targets[j].Line
 	})
 	return out
 }
@@ -203,8 +223,18 @@ func readSnapshotFile(root, rel string) ([]byte, error) {
 type scriptFunction struct {
 	name      string // exported name ("default" for a default export)
 	line      int    // line of the declaration's first token
+	endLine   int    // line of the body's last token
 	signature string // tokens of type parameters, parameters and return type
 	body      string // tokens of the body
+	// sig holds the signature tokens (without the async and generator
+	// markers), params the tokens between the parameter parentheses, or the
+	// single parameter of "x => ...", which bare marks.
+	sig, params []scriptToken
+	bare        bool
+	typeParams  bool
+	async       bool
+	generator   bool
+	doc         string // the /** ... */ comment right before the declaration, if any
 }
 
 func sortedScriptFunctions(m map[string]scriptFunction) []scriptFunction {
@@ -232,14 +262,36 @@ type scriptToken struct {
 // regexKeywords may precede a regular expression literal.
 var regexKeywords = map[string]bool{"return": true, "typeof": true, "instanceof": true, "in": true, "of": true, "new": true, "delete": true, "void": true, "throw": true, "case": true, "do": true, "else": true, "yield": true, "await": true}
 
-// scriptTokens splits a TS/JS module into tokens. It is lexical and never
+// scriptTokens splits a TS/JS module into tokens (scriptTokenize without the
+// doc comments).
+func scriptTokens(src string) (toks []scriptToken, cut bool) {
+	toks, _, cut = scriptTokenize(src)
+	return toks, cut
+}
+
+// maxScriptDocBytes bounds the doc comment kept for one declaration.
+const maxScriptDocBytes = 16 << 10
+
+// scriptTokenize splits a TS/JS module into tokens. It is lexical and never
 // fails: an unterminated string ends at the line end, and an unterminated
 // comment or template literal at the end of the input. Only "=>", "..." and
 // "?." are multi-character punctuation, which keeps nested generic brackets
-// apart. cut reports that a bound stopped it: maxScriptTokens tokens, or
-// template literals nested deeper than maxScriptTemplateDepth.
-func scriptTokens(src string) (toks []scriptToken, cut bool) {
+// apart. docs maps the index of a token to the last /** ... */ comment (at
+// most maxScriptDocBytes) that precedes it with only comments and whitespace
+// in between; the text is a slice of src. cut reports that a bound stopped
+// it: maxScriptTokens tokens, or template literals nested deeper than
+// maxScriptTemplateDepth.
+func scriptTokenize(src string) (toks []scriptToken, docs map[int]string, cut bool) {
+	docs = map[int]string{}
+	pending := ""
 	line := 1
+	add := func(toks []scriptToken, t scriptToken) []scriptToken {
+		if pending != "" {
+			docs[len(toks)] = pending
+			pending = ""
+		}
+		return append(toks, t)
+	}
 	regexAllowed := func() bool {
 		if len(toks) == 0 {
 			return true
@@ -259,7 +311,7 @@ func scriptTokens(src string) (toks []scriptToken, cut bool) {
 	}
 	for i := 0; i < len(src); {
 		if len(toks) == maxScriptTokens {
-			return toks, true
+			return toks, docs, true
 		}
 		c := src[i]
 		switch {
@@ -277,6 +329,9 @@ func scriptTokens(src string) (toks []scriptToken, cut bool) {
 			if end < 0 {
 				end = len(src) - i - 2
 			}
+			if comment := src[i : i+2+end]; strings.HasPrefix(comment, "/**") && len(comment) <= maxScriptDocBytes {
+				pending = comment
+			}
 			line += strings.Count(src[i:i+2+end], "\n")
 			i += end + 4
 		case c == '"' || c == '\'':
@@ -291,15 +346,15 @@ func scriptTokens(src string) (toks []scriptToken, cut bool) {
 			if i < len(src) && src[i] == c {
 				i++
 			}
-			toks = append(toks, scriptToken{src[start:i], line})
+			toks = add(toks, scriptToken{src[start:i], line})
 		case c == '`':
 			start, startLine := i, line
 			i = skipTemplate(src, i, 1, &cut)
 			if cut {
-				return toks, true
+				return toks, docs, true
 			}
 			line += strings.Count(src[start:i], "\n")
-			toks = append(toks, scriptToken{src[start:i], startLine})
+			toks = add(toks, scriptToken{src[start:i], startLine})
 		case c == '/' && regexAllowed():
 			start := i
 			i++
@@ -322,19 +377,19 @@ func scriptTokens(src string) (toks []scriptToken, cut bool) {
 			for i < len(src) && isScriptIdentPart(src[i]) {
 				i++
 			}
-			toks = append(toks, scriptToken{src[start:i], line})
+			toks = add(toks, scriptToken{src[start:i], line})
 		case isScriptIdentStart(c):
 			start := i
 			for i < len(src) && isScriptIdentPart(src[i]) {
 				i++
 			}
-			toks = append(toks, scriptToken{src[start:i], line})
+			toks = add(toks, scriptToken{src[start:i], line})
 		case c >= '0' && c <= '9':
 			start := i
 			for i < len(src) && (isScriptIdentPart(src[i]) || src[i] == '.') {
 				i++
 			}
-			toks = append(toks, scriptToken{src[start:i], line})
+			toks = add(toks, scriptToken{src[start:i], line})
 		default:
 			n := 1
 			for _, op := range []string{"=>", "...", "?."} {
@@ -343,11 +398,11 @@ func scriptTokens(src string) (toks []scriptToken, cut bool) {
 					break
 				}
 			}
-			toks = append(toks, scriptToken{src[i : i+n], line})
+			toks = add(toks, scriptToken{src[i : i+n], line})
 			i += n
 		}
 	}
-	return toks, false
+	return toks, docs, false
 }
 
 func isScriptIdentStart(c byte) bool {
@@ -436,6 +491,7 @@ func skipSubstitution(src string, i, depth int, cut *bool) int {
 // failed attempt that scans far ahead is paid from the same budget.
 type scriptParser struct {
 	toks  []scriptToken
+	docs  map[int]string
 	steps int
 }
 
@@ -465,8 +521,9 @@ func (p *scriptParser) spend() bool {
 // reports that a bound stopped the tokenizer or the parse, so the result may
 // miss functions.
 func scriptFunctions(src []byte) (map[string]scriptFunction, bool) {
-	toks, cut := scriptTokens(string(src))
+	toks, docs, cut := scriptTokenize(string(src))
 	p := newScriptParser(toks)
+	p.docs = docs
 	exported := map[string]scriptFunction{}
 	locals := map[string]scriptFunction{}
 	var lists [][2]string // local name, exported name
@@ -524,6 +581,7 @@ func scriptFunctions(src []byte) (map[string]scriptFunction, bool) {
 			continue
 		}
 		fn.line = toks[start].line
+		fn.doc = p.docs[start]
 		switch {
 		case byDefault:
 			fn.name = "default"
@@ -580,6 +638,7 @@ func (p *scriptParser) function(i int, anonymous bool) (scriptFunction, int, boo
 	// returns.
 	asyncPrefix := func(fn scriptFunction, next int, ok bool) (scriptFunction, int, bool) {
 		fn.signature = "async " + fn.signature
+		fn.async = true
 		return fn, next, ok
 	}
 	var fn scriptFunction
@@ -645,12 +704,18 @@ func (p *scriptParser) declaration(i int) (scriptFunction, int, bool) {
 	}
 	sigStart := k
 	if p.at(k) == "<" {
+		fn.typeParams = true
 		k = p.matchAngle(k)
 	}
 	if p.at(k) != "(" {
 		return fn, 0, false
 	}
+	open := k
 	k = p.matchClose(k)
+	if k > len(p.toks) {
+		return fn, 0, false
+	}
+	fn.params = p.toks[open+1 : max(open+1, k-1)]
 	if p.at(k) == ":" {
 		k = p.returnTypeEnd(k + 1)
 	}
@@ -661,11 +726,14 @@ func (p *scriptParser) declaration(i int) (scriptFunction, int, bool) {
 	if end > len(p.toks) {
 		return fn, 0, false
 	}
-	fn.signature = joinTokens(p.toks[sigStart:k])
+	fn.sig = p.toks[sigStart:k]
+	fn.signature = joinTokens(fn.sig)
+	fn.generator = generator
 	if generator {
 		fn.signature = "* " + fn.signature
 	}
 	fn.body = joinTokens(p.toks[k:end])
+	fn.endLine = p.toks[end-1].line
 	return fn, end, true
 }
 
@@ -680,16 +748,23 @@ func (p *scriptParser) arrow(i int, name string) (scriptFunction, int, bool) {
 	switch {
 	case p.at(k) == "<" || p.at(k) == "(":
 		if p.at(k) == "<" {
+			fn.typeParams = true
 			k = p.matchAngle(k)
 		}
 		if p.at(k) != "(" {
 			return fn, 0, false
 		}
+		open := k
 		k = p.matchClose(k)
+		if k > len(p.toks) {
+			return fn, 0, false
+		}
+		fn.params = p.toks[open+1 : max(open+1, k-1)]
 		if p.at(k) == ":" {
 			k = p.scanUntil(k+1, "=>")
 		}
 	case isScriptName(p.at(k)):
+		fn.params, fn.bare = p.toks[k:k+1], true
 		k++
 	default:
 		return fn, 0, false
@@ -697,7 +772,8 @@ func (p *scriptParser) arrow(i int, name string) (scriptFunction, int, bool) {
 	if p.at(k) != "=>" {
 		return fn, 0, false
 	}
-	fn.signature = joinTokens(p.toks[sigStart:k])
+	fn.sig = p.toks[sigStart:k]
+	fn.signature = joinTokens(fn.sig)
 	k++
 	if p.at(k) == "{" {
 		end := p.matchClose(k)
@@ -705,6 +781,7 @@ func (p *scriptParser) arrow(i int, name string) (scriptFunction, int, bool) {
 			return fn, 0, false
 		}
 		fn.body = joinTokens(p.toks[k:end])
+		fn.endLine = p.toks[end-1].line
 		return fn, end, true
 	}
 	start, depth := k, 0
@@ -725,12 +802,18 @@ func (p *scriptParser) arrow(i int, name string) (scriptFunction, int, bool) {
 		case "}", ")", "]":
 			if depth == 0 {
 				fn.body = joinTokens(p.toks[start:k])
+				if k > start {
+					fn.endLine = p.toks[k-1].line
+				}
 				return fn, k, k > start
 			}
 			depth--
 		}
 	}
 	fn.body = joinTokens(p.toks[start:k])
+	if k > start {
+		fn.endLine = p.toks[k-1].line
+	}
 	return fn, k, k > start
 }
 

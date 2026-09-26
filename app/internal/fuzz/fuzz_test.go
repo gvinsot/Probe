@@ -509,7 +509,7 @@ func TestTextsMakeNoClaims(t *testing.T) {
 		{Kind: model.CheckFuzzCandidate, Cache: &model.CheckCache{Status: model.CacheHit, LiveRuns: 5}},
 		{Kind: model.CheckFuzzBase, Cache: &model.CheckCache{Status: model.CacheHit, LiveRuns: 1}},
 	} {
-		texts = append(texts, view(c, nil, "candidate", c.Kind, testName, 3, c.Kind == model.CheckFuzzBase).reason())
+		texts = append(texts, view(c, nil, "candidate", c.Kind, testName, 3, c.Kind == model.CheckFuzzBase, "").reason())
 	}
 	texts = append(texts, Unverified(model.FuzzReport{Functions: []model.FuzzFunction{{Symbol: "p.F", Outcome: model.FuzzInconclusive, Reason: "x"}}}, 2)...)
 	s := side{name: "candidate", stream: &FunctionStream{At: 1, AtCall: "F(1)"}}

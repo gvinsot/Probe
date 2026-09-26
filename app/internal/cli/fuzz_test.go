@@ -32,9 +32,10 @@ func snapshots(t *testing.T, base, candidate map[string]string) (string, string)
 	return b, c
 }
 
-// A change without an eligible Go function records no_candidates and lists
-// the changed exported TS/JS functions, without a harness and without any
-// progress line or Unverified entry.
+// A change without an eligible function records no_candidates, without a
+// harness and without any progress line or Unverified entry. With a Go
+// template, an eligible changed exported TS/JS function is listed as not
+// fuzzed with the template reason.
 func TestRunFuzzWithoutEligibleGoFunction(t *testing.T) {
 	base, candidate := snapshots(t,
 		map[string]string{"web/price.ts": "export function price(n: number): number {\n  return n;\n}\n", "go.mod": "module example.test/m\n\ngo 1.23\n", "a.go": "package m\n\nfunc (T) M() int { return 1 }\n\ntype T struct{}\n"},
@@ -47,13 +48,13 @@ func TestRunFuzzWithoutEligibleGoFunction(t *testing.T) {
 	if f == nil || f.Status != model.FuzzNoCandidates || f.Reason != fuzz.ReasonNoCandidates || len(f.Functions) != 0 || f.SkippedTotal != 2 {
 		t.Fatalf("fuzz %+v", f)
 	}
-	if f.Skipped[0].Path != "a.go" || f.Skipped[0].Reason != fuzz.ReasonMethod || f.Skipped[1].Path != "web/price.ts" || f.Skipped[1].Symbol != "price" || f.Skipped[1].Reason != fuzz.ReasonScriptNotImplemented {
+	if f.Skipped[0].Path != "a.go" || f.Skipped[0].Reason != fuzz.ReasonMethod || f.Skipped[1].Path != "web/price.ts" || f.Skipped[1].Symbol != "price" || f.Skipped[1].Reason != fuzz.ReasonScriptTemplate {
 		t.Fatalf("skipped %+v", f.Skipped)
 	}
 	if errOut.Len() != 0 || len(r.Unverified) != 0 {
 		t.Fatalf("stderr %q, unverified %q", errOut.String(), r.Unverified)
 	}
-	if line := fuzzLine(f); line != "Differential fuzzing: no function ran (no changed Go function is eligible for differential fuzzing; 2 skipped)." {
+	if line := fuzzLine(f); line != "Differential fuzzing: no function ran (no changed Go or TS/JS function is eligible for differential fuzzing; 2 skipped)." {
 		t.Fatalf("line %q", line)
 	}
 }
@@ -108,12 +109,12 @@ func TestFuzzLine(t *testing.T) {
 	checks := &model.FuzzChecks{Base: "check-1", Candidate: "check-2"}
 	for want, f := range map[string]*model.FuzzReport{
 		"": nil,
-		"Differential fuzzing: disabled for this run (--fuzz=false).":                                                     {Status: model.FuzzDisabled, Reason: "--fuzz=false"},
-		"Differential fuzzing: disabled for this run (--checks=false).":                                                   {Status: model.FuzzDisabled, Reason: "--checks=false"},
-		"Differential fuzzing did not run: dependency preparation did not produce an image.":                              {Status: model.FuzzNotRun, Reason: reasonPrepareFailed},
-		"Differential fuzzing did not run: no reason was recorded.":                                                       {Status: model.FuzzNotRun},
-		"Differential fuzzing: no function ran (no changed files; 0 skipped).":                                            {Status: model.FuzzNoCandidates, Reason: "no changed files"},
-		"Differential fuzzing: no function ran (no changed Go function is eligible for differential fuzzing; 2 skipped).": {Status: model.FuzzNoCandidates, Reason: fuzz.ReasonNoCandidates, SkippedTotal: 2},
+		"Differential fuzzing: disabled for this run (--fuzz=false).":                                                              {Status: model.FuzzDisabled, Reason: "--fuzz=false"},
+		"Differential fuzzing: disabled for this run (--checks=false).":                                                            {Status: model.FuzzDisabled, Reason: "--checks=false"},
+		"Differential fuzzing did not run: dependency preparation did not produce an image.":                                       {Status: model.FuzzNotRun, Reason: reasonPrepareFailed},
+		"Differential fuzzing did not run: no reason was recorded.":                                                                {Status: model.FuzzNotRun},
+		"Differential fuzzing: no function ran (no changed files; 0 skipped).":                                                     {Status: model.FuzzNoCandidates, Reason: "no changed files"},
+		"Differential fuzzing: no function ran (no changed Go or TS/JS function is eligible for differential fuzzing; 2 skipped).": {Status: model.FuzzNoCandidates, Reason: fuzz.ReasonNoCandidates, SkippedTotal: 2},
 		"Differential fuzzing: 3 changed functions planned, 2 with recorded fuzz checks; 1 diverged, 1 not diverged, 1 inconclusive; 4 skipped.": {Status: model.FuzzRan, SkippedTotal: 4, Functions: []model.FuzzFunction{
 			{Outcome: model.FuzzDiverged, Checks: checks}, {Outcome: model.FuzzNotDiverged, Checks: checks}, {Outcome: model.FuzzInconclusive, Reason: fuzz.ReasonRuntimeBudget},
 		}},
