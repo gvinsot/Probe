@@ -21,7 +21,7 @@ type SymbolIndex interface {
 // Notes added to a lexical answer of a symbol tool.
 const (
 	indexMissNote = "The symbol does not name a Go function or method in the static Go index; this answer is lexical."
-	noIndexNote   = "No static Go index exists for this run (no changed Go file, the index is unavailable, or --impact=false); this answer is lexical."
+	noIndexNote   = "No static Go index exists for this run (no indexable Go file changed, the index is unavailable, or --impact=false); this answer is lexical."
 )
 
 // symbolTool serves find_references, inspect_symbol and find_callers. depth is
