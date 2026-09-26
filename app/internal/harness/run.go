@@ -398,13 +398,16 @@ func (h *Harness) cacheKey(kind, dir string, command []string, script string, ti
 
 // servable reports whether an entry may be replayed for a run whose effective
 // per-run timeout is timeout: two agreeing live runs, never contradicted, a
-// completed result, a recorded duration below the timeout, and a payload that
-// is a Redact fixed point.
+// baseline PASS, a recorded duration below the timeout, and a payload that is
+// a Redact fixed point. A FAIL entry is stored (so that a later disagreeing
+// live run contradicts it) but never served: a replayed baseline FAIL supports
+// no positive status, so replaying it could only leave undecided an experiment
+// that a live baseline would have decided, and nothing would run it again.
 func servable(e CacheEntry, timeout time.Duration) bool {
 	if e.LiveRuns < 2 || e.Contradicted {
 		return false
 	}
-	if e.Status != "PASS" && e.Status != "FAIL" || e.ExitCode < 0 || e.ExitCode > 124 || (e.Status == "PASS") != (e.ExitCode == 0) {
+	if e.Status != "PASS" || e.ExitCode != 0 {
 		return false
 	}
 	if e.DurationMS < 0 || time.Duration(e.DurationMS)*time.Millisecond >= timeout {

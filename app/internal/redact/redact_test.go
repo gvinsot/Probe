@@ -40,6 +40,29 @@ func TestRedactMasksKnownCredentialShapes(t *testing.T) {
 	}
 }
 
+// An authorization header whose value is a bearer token: the key/value rule
+// alone stops at the space after "Bearer" and would keep the token, so the
+// bearer rule runs first and the header is masked as a whole.
+func TestAuthorizationBearerHeader(t *testing.T) {
+	for in, want := range map[string]string{
+		"Authorization: Bearer abc.def.ghi":       Marker,
+		"authorization=Bearer abc.def.ghi":        Marker,
+		`{"Authorization":"Bearer abc.def.ghi"}`:  `{"` + Marker + `"}`,
+		"curl -H 'Authorization: bearer tok3n.x'": "curl -H '" + Marker + "'",
+	} {
+		out := Redact(in)
+		if out != want {
+			t.Errorf("Redact(%q) = %q, want %q", in, out, want)
+		}
+		if strings.Contains(out, "abc.def.ghi") || strings.Contains(out, "tok3n.x") {
+			t.Errorf("Redact(%q) leaked the token: %q", in, out)
+		}
+		if !IsFixedPoint(out) {
+			t.Errorf("Redact(%q) = %q is not a fixed point", in, out)
+		}
+	}
+}
+
 func TestRedactLeavesOrdinaryTextAlone(t *testing.T) {
 	for _, in := range []string{
 		"",

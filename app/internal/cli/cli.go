@@ -32,7 +32,7 @@ Usage:
   swiftproof lint [--base main] [--head HEAD] [--ci]
   swiftproof review [--base main] [--reviewer=false] [--ci]
   swiftproof review [flags] BASE..HEAD
-  swiftproof report [--input .swiftproof/confidence-report.json] [--out DIR]
+  swiftproof report [--input .swiftproof/confidence-report.json] [--out DIR] [--format LIST] [--report-url URL]
   swiftproof version
 
 Analysis compares the merge base by default; BASE..HEAD compares exact commits.
@@ -55,7 +55,7 @@ are opt-in and need a v0.4 binary):
   --parallel N             run the initial checks N at a time (1..4)
   --allow-prepare-network  permit network for policy "prepare" only if it enables it too
   --deadline D             overall time limit from 1m to 24h (30s are kept for the report)
-  --format LIST            report formats: markdown,json (lint, review and report)
+  --format LIST            report formats: markdown,json,sarif,pr-comment (lint, review and report)
   --report-url URL         link to the full report cited by the pr-comment format
 Use 'swiftproof <command> --help' for options.
 `
@@ -133,7 +133,7 @@ func analyze(ctx context.Context, mode string, args []string, out, errOut io.Wri
 	exact := f.Bool("exact", false, "compare exact base instead of merge base")
 	policyPath := f.String("config", "", "explicit trusted local configuration (default: policy at the tip of --base)")
 	outDir := f.String("out", ".swiftproof", "report directory, relative to repository")
-	format := f.String("format", "markdown,json", "comma-separated output formats: markdown,json")
+	format := f.String("format", "markdown,json", "comma-separated output formats: markdown,json,sarif,pr-comment")
 	ci := f.Bool("ci", false, "return 2 when human review is required")
 	checks := f.Bool("checks", mode == "review", "run configured checks in the Docker sandbox")
 	useReviewer := f.Bool("reviewer", false, "use LLM investigation (default: enabled for review when a model is configured in policy or the environment); --reviewer=false disables provider calls")
@@ -327,7 +327,7 @@ func analyze(ctx context.Context, mode string, args []string, out, errOut io.Wri
 		}
 		diffJSON, _ := json.Marshal(change)
 		executionStarted()
-		h, err := harness.New(harness.Options{
+		h, err := harness.NewContext(work, harness.Options{
 			CandidateDir: candidateDir, BaseDir: baseDir, ArtifactDir: filepath.Join(output, "artifacts"),
 			Commands: cfg.Commands, Image: image, Network: cfg.Sandbox.Network && *allowNetwork && !*noNetwork,
 			Timeout: time.Duration(cfg.Sandbox.TimeoutSeconds) * time.Second, MaxRuntime: time.Duration(cfg.Sandbox.MaxRuntimeSeconds) * time.Second,
@@ -506,7 +506,7 @@ func render(args []string, out, errOut io.Writer) int {
 	f.SetOutput(errOut)
 	input := f.String("input", ".swiftproof/confidence-report.json", "saved JSON report")
 	dir := f.String("out", ".swiftproof", "output directory")
-	format := f.String("format", "markdown,json", "comma-separated output formats: markdown,json")
+	format := f.String("format", "markdown,json", "comma-separated output formats: markdown,json,sarif,pr-comment")
 	reportURL := f.String("report-url", "", "https link to the full report, cited by the pr-comment format")
 	if err := f.Parse(args); err != nil {
 		return flagCode(err)

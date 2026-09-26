@@ -217,7 +217,7 @@ func TestDockerTSFuzzReviewEndToEnd(t *testing.T) {
 		"## Differential Fuzzing",
 		"Seeded inputs (swiftproof-fuzz/v1) were planned for 7 changed TS/JS functions, 7 of them with recorded fuzz checks",
 		"Smallest divergent input tried: sorted\\(\\[1, 0\\]\\); baseline \\[0, 1\\]; arg 1 after call: \\[1, 0\\]; candidate \\[0, 1\\]; arg 1 after call: \\[0, 1\\].",
-		"Smallest divergent input tried: lookup\\(&\\#34;&\\#34;\\); baseline rejected\\(error\\(&\\#34;Error&\\#34;, &\\#34;empty id&\\#34;\\)\\); candidate resolved\\(&\\#34;&\\#34;\\).",
+		`Smallest divergent input tried: lookup\(""\); baseline rejected\(error\("Error", "empty id"\)\); candidate resolved\(""\).`,
 		"- **not diverged** joinParts (web/util.js:6): 64 of 64 inputs compared",
 	} {
 		if !strings.Contains(string(md), want) {

@@ -40,6 +40,10 @@ func verifyImpactedTests(r *model.Report, l *ledger) map[string]string {
 const (
 	maxImpactFunctionsShown = 20
 	maxImpactEntriesShown   = 5
+	// impactTestUnsupportedText replaces the reason of an impacted test whose
+	// stored FAILS_ON_CANDIDATE or PASSES_ON_CANDIDATE is not supported by
+	// verified evidence (the same text as for changed baseline tests).
+	impactTestUnsupportedText = "the recorded evidence does not support this result"
 )
 
 // finalizeImpact sets each impacted test's status from the verified ledger and
@@ -64,7 +68,13 @@ func finalizeImpact(r *model.Report, l *ledger) bool {
 		f := &im.ChangedFunctions[i]
 		for j := range f.Tests {
 			t := &f.Tests[j]
+			stored := t.Status
 			t.Status = impactTestStatus(*t, l)
+			if t.Status == model.StatusUnverified && (stored == model.StatusFailsOnCandidate || stored == model.StatusPassesOnCandidate) {
+				// A stored result the evidence does not support keeps no
+				// reason of its own (the result it explained is gone).
+				t.Reason = impactTestUnsupportedText
+			}
 			if t.Status == model.StatusFailsOnCandidate || t.Status == model.StatusUnverified {
 				needsHuman = true
 			}
@@ -188,6 +198,11 @@ func writeImpact(b *bytes.Buffer, r *model.Report) {
 				if t.EvidenceID != "" {
 					extra += " (" + inline(t.EvidenceID) + ")"
 				}
+			}
+			if t.Reason != "" && t.Status != model.StatusFailsOnCandidate && t.Status != model.StatusPassesOnCandidate {
+				// Why a selected test got no result (only --impacted-tests
+				// records reasons).
+				extra += "; " + inline(t.Reason)
 			}
 			fmt.Fprintf(b, "  - test %s at %s:%d (depth %d, %s%s)\n", inline(t.Name), inline(t.Path), t.Line, t.Depth, inline(t.Resolution), extra)
 		}

@@ -104,7 +104,15 @@ type Harness struct {
 	mutation  mutationState // mutation.go (F4)
 }
 
-func New(opts Options) (*Harness, error) {
+// New is NewContext without a caller context.
+func New(opts Options) (*Harness, error) { return NewContext(context.Background(), opts) }
+
+// NewContext creates a harness. ctx bounds only the execution-cache image
+// probe (--deadline and cancellation); no Docker call is made without a cache.
+// With a probed image ID, every run of the review executes that ID, so the
+// initial checks and coverage run the image that execution.cache.image_id
+// names.
+func NewContext(ctx context.Context, opts Options) (*Harness, error) {
 	if opts.CandidateDir == "" {
 		return nil, errors.New("candidate snapshot is required")
 	}
@@ -143,9 +151,12 @@ func New(opts Options) (*Harness, error) {
 	}
 	opts.Commands = commands
 	opts.IntentCriteria = append([]model.IntentCriterion(nil), opts.IntentCriteria...)
-	state, err := newExecState(opts)
+	state, err := newExecStateContext(ctx, opts)
 	if err != nil {
 		return nil, err
+	}
+	if state.imageID != "" {
+		opts.Image = state.imageID
 	}
 	root, err := os.MkdirTemp("", "swiftproof-harness-")
 	if err != nil {
@@ -1080,9 +1091,9 @@ func ToolDefinitions() []map[string]any {
 		{"read_file", "Read a bounded, redacted candidate file; paths are repository-relative.", map[string]any{"path": str("File path"), "start": map[string]any{"type": "integer", "minimum": 1}, "end": map[string]any{"type": "integer", "minimum": 1}}, []string{"path"}},
 		{"get_diff", "Read the change diff, optionally for one path.", map[string]any{"path": str("Optional file path")}, nil},
 		{"search_code", "Search a literal string in candidate source files.", map[string]any{"query": str("Literal query")}, []string{"query"}},
-		{"find_references", "Find references to a symbol. Uses a static, syntactic Go index when one is available; its answers are approximate, interface edges are possible dispatch only, and an empty result is not proof of absence. Otherwise falls back to lexical occurrences, which are not semantic resolution.", map[string]any{"symbol": str("Symbol")}, []string{"symbol"}},
-		{"inspect_symbol", "Inspect a symbol's declaration and uses. Uses a static, syntactic Go index when one is available; its answers are approximate, interface edges are possible dispatch only, and an empty result is not proof of absence. Otherwise falls back to lexical occurrences, which are not semantic resolution.", map[string]any{"symbol": str("Symbol")}, []string{"symbol"}},
-		{"find_callers", "Find functions that may call a Go symbol, following calls up to depth 3. Uses a static, syntactic Go index when one is available; its answers are approximate, interface edges are possible dispatch only, and an empty result is not proof of absence. Otherwise falls back to lexical occurrences, which are not semantic resolution.", map[string]any{"symbol": str("Symbol"), "depth": map[string]any{"type": "integer", "minimum": 1, "maximum": 3, "description": "Call depth to follow (default 1)"}}, []string{"symbol"}},
+		{"find_references", "Find references to a symbol. Uses a static Go index (parsed and type-checked from committed source; imports from outside the repository are not loaded) when one is available; its answers are approximate, interface edges are possible dispatch only, and an empty result is not proof of absence. Otherwise falls back to lexical occurrences, which are not semantic resolution.", map[string]any{"symbol": str("Symbol")}, []string{"symbol"}},
+		{"inspect_symbol", "Inspect a symbol's declaration and uses. Uses a static Go index (parsed and type-checked from committed source; imports from outside the repository are not loaded) when one is available; its answers are approximate, interface edges are possible dispatch only, and an empty result is not proof of absence. Otherwise falls back to lexical occurrences, which are not semantic resolution.", map[string]any{"symbol": str("Symbol")}, []string{"symbol"}},
+		{"find_callers", "Find functions that may call a Go symbol, following calls up to depth 3. Uses a static Go index (parsed and type-checked from committed source; imports from outside the repository are not loaded) when one is available; its answers are approximate, interface edges are possible dispatch only, and an empty result is not proof of absence. Otherwise falls back to lexical occurrences, which are not semantic resolution.", map[string]any{"symbol": str("Symbol"), "depth": map[string]any{"type": "integer", "minimum": 1, "maximum": 3, "description": "Call depth to follow (default 1)"}}, []string{"symbol"}},
 		{"run_tests", "Run the configured existing test command in an isolated container.", map[string]any{}, nil},
 		{"run_test", "Run an existing test file using the configured test template; Go execution selects its named tests.", map[string]any{"path": str("Existing test file path")}, []string{"path"}},
 		{"run_typecheck", "Run the configured typecheck command in an isolated container.", map[string]any{}, nil},

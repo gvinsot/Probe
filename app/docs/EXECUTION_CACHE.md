@@ -2,7 +2,9 @@
 
 The execution cache lets `swiftproof review` replay the recorded result of a baseline-side sandbox run instead of executing it again, when the same inputs were already run live and two live runs agreed. It is **opt-in**: nothing is cached, read or written unless `--cache-dir DIR` is passed. Candidate-side runs are never cached; they always execute.
 
-A replay is not a fresh execution. It never supports a reproduced issue, a divergence or a `FAILS_ON_CANDIDATE` result, and the report marks every replayed check. It can, however, keep such a result from being recorded: a replayed baseline FAIL decides nothing, and nothing runs that baseline again (see the damage bound under [Trust and privacy](#trust-and-privacy)). The binding rules are §3.3, §3.4 and §F7 of the [v0.4 specification](../../specs/swiftproof-v0.4-spec.md).
+A replay is not a fresh execution. It never supports a reproduced issue, a divergence or a `FAILS_ON_CANDIDATE` result, and the report marks every replayed check. Only a baseline PASS is replayed. The binding rules are §3.3, §3.4 and §F7 of the [v0.4 specification](../../specs/swiftproof-v0.4-spec.md).
+
+This page also describes `--parallel`, which runs the initial checks concurrently and is independent of the cache ([Parallel initial checks](#parallel-initial-checks)).
 
 ## Enabling it
 
@@ -33,7 +35,7 @@ The re-run kinds `generated_test_base_repeat`, `fuzz_base_confirm` and `fuzz_can
 
 A live result is **stored** only when it completed: status PASS or FAIL, exit code 0 to 124, no timeout, no Docker error, and its log was retained. A payload (a Jest-compatible report or a fuzz observation stream) must be complete and unchanged by redaction. Nothing else is written, so a transient infrastructure failure is never kept.
 
-An entry is **served** only when it is not a live-only run, passes every integrity check (below), was recorded by **at least two live runs that agreed** on status, exit code and truncation, was never contradicted, and its recorded duration is below the run's current per-run timeout. In this build a FAIL entry is served like a PASS entry. Every conclusion an experiment can reach needs a baseline PASS, so a replayed FAIL supports none: the experiment stays `UNVERIFIED` (or inconclusive), and its baseline is not run again. The Markdown says so under the replayed check.
+An entry is **served** only when it is not a live-only run, passes every integrity check (below), was recorded by **at least two live runs that agreed** on status, exit code and truncation, was never contradicted, and its recorded duration is below the run's current per-run timeout. Only a **PASS** entry is served. A FAIL entry is stored, so that a later live run that disagrees removes it, but it is never replayed: a replayed baseline FAIL supports no positive result, so replaying it could only leave undecided an experiment that a live baseline would decide.
 
 ## The key
 
@@ -55,9 +57,9 @@ The key is the SHA-256 of a canonical JSON preimage (schema `swiftproof-execcach
 
 `docker_server` is recorded in addition to the fields the integration contract lists, so that a Docker engine upgrade starts new entries. The kernel version and runtime internals beyond the server version are **not** part of the key.
 
-**Image pinning.** With a cache, SwiftProof resolves the policy's image reference once, when the review's sandbox is set up (`docker image inspect`, `docker info`; it never pulls). From the first eligible baseline run on, every run of the review, baseline and candidate, executes that image ID rather than the tag, so a tag re-pointed during the review cannot change what a key describes. In this build, runs that happen before the first eligible run (the initial checks, coverage) still use the configured reference, and if the tag is re-pointed between the probe and those runs, they execute another image than the `execution.cache.image_id` the report records. With `prepare`, the image is already an image ID.
+**Image pinning.** With a cache, SwiftProof resolves the policy's image reference once, when the review's sandbox is set up (`docker image inspect`, `docker info`; it never pulls). Every run of the review, baseline and candidate, the initial checks and coverage included, then executes that image ID rather than the tag, so a tag re-pointed during the review cannot change what a key describes or what `execution.cache.image_id` names. With `prepare`, the image is already an image ID.
 
-**Probe time.** The two probe commands share a limit of 15 seconds, and a probe that does not finish disables the cache for the run. In this build the probe is not interrupted by `--deadline` or by an interrupt: with `--cache-dir` and a slow or unresponsive Docker daemon, a review can run up to 15 seconds longer than the `--deadline` bound of [CI](CI.md) states. Without `--cache-dir` there is no probe.
+**Probe time.** The two probe commands share a limit of 15 seconds, and a probe that does not finish disables the cache for the run. The probe also ends at `--deadline` and on an interrupt. Without `--cache-dir` there is no probe.
 
 ## What a replay records
 
@@ -85,7 +87,7 @@ A **negative** status (`NOT_REPRODUCED`, `NOT_DIVERGED`, `PASSES_ON_CANDIDATE`) 
 - `checks[].cache` on stored and replayed baseline-side checks only (the schema refuses it on any kind that does not end in `_base`).
 - `execution`, present whenever a sandbox harness was created:
   - `cache`: `status` (`enabled` or `disabled`), `reason` when disabled, `scope` (`baseline_only`), `image_id`, `policy_sha256`, `runtime` (the Docker server identity), the counters `hits`, `stored`, `misses`, `uncacheable`, `rejected`, `write_failures`, `evicted`, `contradicted`, and a fixed `note`;
-  - `parallelism`: requested and effective concurrency of the initial checks;
+  - `parallelism`: requested and effective concurrency of the initial checks, with a fixed note (see [Parallel initial checks](#parallel-initial-checks));
   - `budget`: `max_runtime_ms`, `spent_ms`, `reviewer_reserve_ms`, `deadline_reached`;
   - `replay_backed`: evidence IDs, always an array.
 - The Markdown notes each stored or replayed check under **Automated Checks** and ends that section with the execution summary and the replay-backed evidence IDs.
@@ -111,9 +113,7 @@ The payoff depends on how often baseline experiments repeat. Model-written gener
 ## Trust and privacy
 
 - The cache directory is a **trusted input**, at the level of the SwiftProof binary and the report directory. The integrity checks detect corruption, torn writes and misplaced files; they do **not** authenticate an entry. Anyone who can write the directory can forge entries.
-- **Damage bound.** A forged or stale entry cannot produce `REPRODUCED`, a divergence, a `FAILS_ON_CANDIDATE` result or exit 1: the harness re-runs a replayed baseline PASS live before recording `REPRODUCED`, and `Finalize` refuses a replayed baseline for every positive status. It can move a conclusion towards less review in two ways:
-  - A replayed baseline **PASS** can support a negative conclusion (`NOT_REPRODUCED`, `NOT_DIVERGED`, `PASSES_ON_CANDIDATE`) where a live baseline would have given `UNVERIFIED`. Such conclusions are listed in `execution.replay_backed`.
-  - A replayed baseline **FAIL** (a stale entry after two failing runs of a flaky baseline, or a forged one) is served too, and nothing runs that baseline again. An experiment whose live baseline would have passed is then `UNVERIFIED` (or inconclusive) instead of `REPRODUCED`, a divergence or `FAILS_ON_CANDIDATE`. For a high or critical hypothesis this lowers the exit code from 1 to 0 without `--ci`, and from 1 to 2 with `--ci`, and the reproduction is missing from `reproduced_issues`. The replayed check is marked (`cache.status: "hit"`, with its recorded provenance and a Markdown note), but the experiment is not listed in `execution.replay_backed`, because `UNVERIFIED` is not a negative conclusion. A forged FAIL entry whose log does not show the named test failing becomes an ERROR check when it is replayed, which is exit 4.
+- **Damage bound.** A forged or stale entry cannot produce `REPRODUCED`, a divergence, a `FAILS_ON_CANDIDATE` result or exit 1: the harness re-runs a replayed baseline PASS live before recording `REPRODUCED`, and `Finalize` refuses a replayed baseline for every positive status. Its largest effect: a replayed baseline **PASS** can support a negative conclusion (`NOT_REPRODUCED`, `NOT_DIVERGED`, `PASSES_ON_CANDIDATE`) where a live baseline would have given `UNVERIFIED`. Such conclusions are listed in `execution.replay_backed`. A FAIL entry, stale or forged, is never replayed.
 - Containers never see the cache directory: the sandbox keeps its one read-only mount of the snapshot, and no volume or writable host path is added.
 - A nondeterministic baseline can be replayed for up to 30 days. `recorded_at`, `recorded_run` and `recorded_check` tell a reviewer where a result came from; a run without `--cache-dir` executes everything.
 - Entries hold only redacted recorded logs, but they are logs of baseline code: keep the directory private, and never upload it or share it across trust boundaries. SwiftProof never uploads it.
@@ -125,7 +125,7 @@ The payoff depends on how often baseline experiments repeat. Model-written gener
 | Cache hit, miss, rejection, contradiction, write failure or runtime disable | no exit code of its own | no exit code of its own |
 | Invalid `--cache-dir` (syntax, location, ownership, link, unresolvable reparse point) | 3 | 3 |
 
-A replay never produces exit 1 by itself, and a replay-backed negative conclusion requests no review by itself. A replayed baseline FAIL can prevent an exit 1 that a live baseline would have produced (see the damage bound above).
+A replay never produces exit 1 by itself, and a replay-backed negative conclusion requests no review by itself.
 
 ## What the cache does not claim
 
@@ -134,3 +134,23 @@ A replay never produces exit 1 by itself, and a replay-backed negative conclusio
 - The key does not capture kernel or runtime internals beyond the recorded Docker server identity.
 - A replayed baseline says nothing about the candidate.
 - No speed-up is claimed without a measurement of the workload and environment.
+
+## Parallel initial checks
+
+```sh
+swiftproof review --base main --parallel 3
+```
+
+`--parallel N` (review only, 1 to 4, default 1; on `lint` it exits 3) lets the initial checks, test, typecheck and build, run up to N at a time. Nothing else runs concurrently: coverage, changed baseline tests, impacted tests, fuzzing, mutation, reviewer experiments and every baseline-side run stay one at a time. With `--checks=false` the flag is accepted and has no effect. It is independent of the cache: initial checks are candidate-side runs and are never cached.
+
+**The limit.** The effective concurrency is the smallest of N, the number of configured initial checks, and the number of sandboxes the Docker server can hold at once: its CPUs divided by `sandbox.cpus` and its memory divided by `sandbox.memory_mb`, whichever is lower. SwiftProof reads them with one `docker info` call (at most 15 seconds, bounded by `--deadline`), made only when more than one check could run at a time and a container can start: not with a single configured check, without an image, after the deadline or a cancellation, or when the runtime budget left does not cover two full per-run timeouts (the checks then run one at a time under the budget rule below). If the call fails, the checks run one at a time and the note says why. With the default `sandbox.cpus: 2`, a Docker server with 2 CPUs runs them one at a time. A server without room for a single sandbox of the configured size is reported as such, and the checks run one at a time, as with `--parallel 1`.
+
+**The budget rule.** The checks run in groups. A group of n checks starts together only while the runtime budget left under `sandbox.max_runtime_seconds` covers n full per-run timeouts (`sandbox.timeout_seconds` each); otherwise the group is smaller, down to a single check, which reserves what remains and is skipped when nothing does, exactly as without `--parallel`. So every check that runs beside others reserves the policy's full per-run timeout, the timeouts reserved at the same time never exceed what remains of the budget, and each check is charged its own run time, as it is one at a time. Parallelism does not change the rules for a check's gates, timeout, classification, redaction, output bound or log retention.
+
+**The deadline.** `--deadline` still ends every run. Every check of a group passes the deadline gate when the group starts, so if the deadline passes while a group runs, each check still running ends `TIMEOUT`, where one at a time the later ones would have been `SKIPPED` with "Overall deadline reached; the run was not started." Both are incomplete checks, with the same exit code.
+
+**Order.** The checks of a group are planned in configured order (their check IDs are fixed then), and they are recorded, with their log artifacts and their `run_<kind>` audit events, in that order once every check of the group has ended. The audit events of a group carry the group's start time. Nothing else runs, and nothing reads the recorded checks, while a group runs.
+
+**What the report says.** `execution.parallelism` records `requested`, `effective` (the most initial checks that ran at the same time) and a `note` built from fixed sentences: that no initial check started a sandbox, when none did (no image, a closed harness, an expired or cancelled review, a used-up budget); why `effective` is below `requested` (fewer checks, the Docker server's capacity as the probe found it, an unreadable capacity, the budget rule, checks of a group that were recorded without starting a sandbox); and, when checks ran at the same time, the rules above. A review whose initial checks did not run records that `--parallel` had no effect. With `--parallel` above 1, standard output gets `Initial checks: up to E at a time (requested R).`, and the Markdown ends **Automated Checks** with the same values and the note.
+
+**What it does not claim.** Concurrent sandboxes share the Docker host's CPUs, memory and disk, within each sandbox's own limits, so a check can take longer than it would alone, reach its timeout and be charged more of `sandbox.max_runtime_seconds`, which leaves less of it for later stages. No speed-up is claimed without a measurement ([measured costs](PERFORMANCE.md#parallel-initial-checks)); run your checks with `--parallel 1` and with a higher value and compare.

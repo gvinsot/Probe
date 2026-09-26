@@ -169,12 +169,12 @@ func TestCacheProbesAndPinsTheImage(t *testing.T) {
 		t.Fatalf("probe made %d docker calls, want 2", docker.calls)
 	}
 	seen := argsExec(h)
-	// A candidate-side run before the first keyed run still uses the
-	// configured reference; the first keyed run pins every later run.
+	// The image is pinned when the harness is created: every run, the
+	// initial checks included, executes the probed image ID.
 	h.Run(context.Background(), "test")
 	first := runBase(h, runOptions{})
 	h.Run(context.Background(), "test")
-	if got := []string{imageOf((*seen)[0]), imageOf((*seen)[1]), imageOf((*seen)[2])}; got[0] != "golang:1.26-bookworm" || got[1] != pinnedImage || got[2] != pinnedImage {
+	if got := []string{imageOf((*seen)[0]), imageOf((*seen)[1]), imageOf((*seen)[2])}; got[0] != pinnedImage || got[1] != pinnedImage || got[2] != pinnedImage {
 		t.Fatalf("images %q", got)
 	}
 	if first.Cache == nil || first.Cache.Status != model.CacheStored {
@@ -621,6 +621,23 @@ func TestNotReproducedMayRestOnAReplay(t *testing.T) {
 	}
 	if strings.Contains(e.Description, "replayed from the execution cache") {
 		t.Fatalf("a negative conclusion got a confirmation note: %q", e.Description)
+	}
+}
+
+// A baseline FAIL recorded by two agreeing live runs is never replayed: the
+// third baseline runs live, and when it now passes the experiment reproduces
+// (a replayed FAIL would have left it UNVERIFIED without any live run).
+func TestReplayedBaselineFailIsNeverServed(t *testing.T) {
+	h := fixture(t)
+	m := useMemoryCache(h)
+	baseCalls, _ := baseExec(h, []string{"fail", "fail", "pass"}, "fail")
+	call(t, h, "create_test", map[string]any{"path": "pkg/regression_test.go", "content": generatedSource})
+	runExperiment(t, h)
+	runExperiment(t, h)
+	e := runExperiment(t, h)
+	base := checkByID(t, h, e.BaseCheckID)
+	if e.Status != model.StatusReproduced || base.Replayed() || base.Status != "PASS" || *baseCalls != 3 || len(replayedChecks(h)) != 0 || len(m.keys()) != 0 {
+		t.Fatalf("evidence %+v base %+v calls %d keys %v", e, base, *baseCalls, m.keys())
 	}
 }
 

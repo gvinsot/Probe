@@ -59,7 +59,7 @@ type execState struct {
 
 	requested  bool   // Options.Cache was set
 	reason     string // why no cache is used; "" while one is
-	imageID    string // the probed image ID; keyed runs, and every run after the first keyed one, use it
+	imageID    string // the probed image ID; NewContext pins every run of the harness to it
 	server     string // Docker server version, OS type and architecture
 	policy     string // policy_sha256: the execution settings of the trusted policy
 	tool       string // tool_version of every key (the store's tool identity)
@@ -70,9 +70,10 @@ type execState struct {
 	pristineSHA256 string
 	pristineErr    error
 
-	// parallel summarizes the initial checks' concurrency. RunChecks (F7b)
-	// records the effective value and its note when it runs checks
-	// concurrently; until then the initial checks run one at a time.
+	// parallel summarizes the initial checks' concurrency. RunChecks (F7b,
+	// batch.go) records the effective value and its note. Until it does, the
+	// note is sequentialNote's: with --parallel above 1 it says that the
+	// initial checks did not run and --parallel had no effect.
 	parallel model.ExecutionParallelism
 }
 
@@ -154,13 +155,14 @@ func newExecStateContext(ctx context.Context, opts Options) (execState, error) {
 	return s, nil
 }
 
-// sequentialNote is the parallelism note of a harness whose initial checks run
-// one at a time.
+// sequentialNote is the parallelism note of a harness before RunChecks
+// records its own (batch.go): a review that never runs its initial checks
+// (--checks=false, or no test, typecheck or build command) keeps it.
 func sequentialNote(requested int) string {
 	if requested > 1 {
-		return "Initial checks run one at a time: this build does not run them concurrently."
+		return "The initial checks did not run in this review, so --parallel had no effect: every sandbox run ran one at a time."
 	}
-	return "Initial checks run one at a time."
+	return parallelOneNote
 }
 
 // policyDigest is the policy_sha256 of the keys: the SHA-256 of the execution
@@ -204,8 +206,9 @@ func baseCommitOf(diff string) string {
 // built with fixed placeholders, the argv digest, the capture path, the
 // per-run timeout and the output limit. Caller holds h.mu.
 //
-// The first keyed run pins h.opts.Image to the probed image ID, so that every
-// keyed run (and every run after it) executes exactly the keyed image. A
+// NewContext already pins h.opts.Image to the probed image ID, so that every
+// run of the harness executes exactly the keyed image; keyFor pins it again
+// only for a harness whose state was installed after creation (tests). A
 // cache installed on a harness without newExecState (tests only) has no
 // probed identity: its keys use the configured image reference.
 func (s *execState) keyFor(h *Harness, kind, dir string, argv []string, script string, timeout time.Duration) (key, uncacheableReason string) {

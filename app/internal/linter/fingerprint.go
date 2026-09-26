@@ -9,9 +9,10 @@ import (
 
 // TokenDigest returns the hex SHA-256 of the Go token stream of src. Comments
 // and formatting are ignored, literal values and operators are kept, and
-// semicolons (explicit or automatically inserted) carry no literal, so two
-// sources that differ only in layout or comments share a digest. It is a
-// syntactic fingerprint, not a statement about behavior.
+// semicolons (explicit or automatically inserted) carry no literal, so
+// sources that differ only in comments or in spacing within lines share a
+// digest; joining or splitting lines can change it where Go inserts
+// semicolons. It is a syntactic fingerprint, not a statement about behavior.
 func TokenDigest(src []byte) string {
 	sum := sha256.Sum256([]byte(bodyTokens(string(src))))
 	return hex.EncodeToString(sum[:])
