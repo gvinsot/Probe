@@ -59,6 +59,10 @@ type Target struct {
 	Inputs    int     `json:"inputs"` // planned number of seeded inputs
 	Exported  bool    `json:"exported"`
 	Priority  int     `json:"priority"` // highest severity rank (0..4) of signals overlapping the function
+	// Language is "" for a Go function and LanguageScript for a TS/JS
+	// function. A TS/JS target's Dir is its module path, so that each module
+	// is planned, budgeted and run like one package.
+	Language string `json:"language,omitempty"`
 }
 
 // PackagePlan is the set of targets of one package, rendered into one harness
@@ -71,6 +75,15 @@ type PackagePlan struct {
 	// every file of the package on either revision. Rendering refuses a harness
 	// identifier that appears here.
 	Idents map[string]bool `json:"-"`
+	// Script is set for a TS/JS module (F2c); Name and Idents are then empty.
+	Script *ScriptModule `json:"script,omitempty"`
+}
+
+// ScriptModule is the TS/JS module whose changed functions one harness runs.
+type ScriptModule struct {
+	Path   string `json:"path"`   // module file, the same path on both revisions
+	Import string `json:"import"` // import specifier from the harness, "./name" or "./name.mjs"
+	Ext    string `json:"ext"`    // extension of the harness file: "ts" or "js"
 }
 
 // Plan is the outcome of selection. Packages are in priority order; Skipped
@@ -80,6 +93,9 @@ type Plan struct {
 	Packages      []PackagePlan    `json:"packages"`
 	Skipped       []model.FuzzSkip `json:"skipped"`
 	BudgetSkipped int              `json:"budget_skipped"` // entries of Skipped cut by max_functions or max_packages
+	// GoTemplateSkipped counts the entries of Skipped that are eligible Go
+	// functions a Vitest or Jest template cannot run (ReasonGoTemplate).
+	GoTemplateSkipped int `json:"go_template_skipped"`
 }
 
 // Targets returns the number of planned functions.
@@ -87,6 +103,17 @@ func (p Plan) Targets() int {
 	n := 0
 	for _, pkg := range p.Packages {
 		n += len(pkg.Targets)
+	}
+	return n
+}
+
+// GoTargets returns the number of planned Go functions.
+func (p Plan) GoTargets() int {
+	n := 0
+	for _, pkg := range p.Packages {
+		if pkg.Script == nil {
+			n += len(pkg.Targets)
+		}
 	}
 	return n
 }

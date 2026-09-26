@@ -466,7 +466,7 @@ func TestFuzzMarkdownSection(t *testing.T) {
 	r := fuzzReport(t, divergeAt(discountCall, hostile))
 	r.Fuzz.Skipped = append(r.Fuzz.Skipped,
 		model.FuzzSkip{Path: "calc/more.go", Line: 3, Symbol: "calc.(*T).M", Reason: "methods are not fuzzed in this version"},
-		model.FuzzSkip{Path: "web/price.ts", Line: 1, Symbol: "price", Reason: fuzz.ReasonScriptNotImplemented})
+		model.FuzzSkip{Path: "web/price.ts", Line: 1, Symbol: "price", Reason: fuzz.ReasonScriptTemplate})
 	r.Fuzz.SkippedTotal = 2
 	Finalize(r, true)
 	md := string(Markdown(r))
@@ -477,7 +477,7 @@ func TestFuzzMarkdownSection(t *testing.T) {
 		"Smallest divergent input tried: Discount\\(Cents\\(1000\\)\\); baseline v:Discount\\(Cents\\(1000\\)\\); candidate \\*\\*bold\\*\\* \\[link\\]\\(https://example.invalid\\) &lt;script&gt;",
 		"- **not diverged** calc.Twice (calc/calc.go:15): 64 of 64 inputs compared",
 		"Not fuzzed (2):",
-		"- web/price.ts:1 price: TS/JS differential fuzzing is not implemented in this build",
+		"- web/price.ts:1 price: " + inline(fuzz.ReasonScriptTemplate),
 		inline(model.FuzzNote),
 	} {
 		if !strings.Contains(body, want) {
@@ -531,7 +531,8 @@ func TestFuzzWordingMakesNoBannedClaims(t *testing.T) {
 	skips := []model.FuzzSkip{}
 	for i, reason := range []string{fuzz.ReasonMethod, fuzz.ReasonGeneric, fuzz.ReasonSignature, fuzz.ReasonConstrained, fuzz.ReasonCgo, fuzz.ReasonPackageName, fuzz.ReasonPackageClause, fuzz.ReasonShadowed,
 		fuzz.ReasonSensitive, fuzz.ReasonMovedDir, fuzz.ReasonNotInSnapshot, fuzz.ReasonNoBody, fuzz.ReasonDuplicate, fuzz.ReasonNoInput, fuzz.ReasonBudgetPackages, fuzz.ReasonBudgetFunctions,
-		fuzz.ReasonScriptNotImplemented, fuzz.ReasonScriptTooLarge, fuzz.ReasonScriptScanBound, fuzz.ReasonScriptTotalBound, fuzz.ReasonScriptTimeLimit} {
+		fuzz.ReasonScriptTemplate, fuzz.ReasonGoTemplate, fuzz.ReasonScriptJestPath, fuzz.ReasonScriptVitestExcluded, fuzz.ReasonScriptGenerator, fuzz.ReasonScriptCommonJS, fuzz.ReasonScriptRenamed, fuzz.ReasonScriptModuleName,
+		fuzz.ReasonScriptExportName, fuzz.ReasonScriptThis, fuzz.ReasonScriptDestructured, fuzz.ReasonScriptJSDocDiffers, fuzz.ReasonScriptTooLarge, fuzz.ReasonScriptScanBound, fuzz.ReasonScriptTotalBound, fuzz.ReasonScriptTimeLimit} {
 		skips = append(skips, model.FuzzSkip{Path: "calc/other.go", Line: i + 1, Symbol: fmt.Sprintf("calc.S%d", i), Reason: reason})
 	}
 	ran := fuzzReport(t, divergeAt(discountCall, "w:"+discountCall))
@@ -540,8 +541,8 @@ func TestFuzzWordingMakesNoBannedClaims(t *testing.T) {
 	}
 	ran.Fuzz.Skipped, ran.Fuzz.SkippedTotal = skips, len(skips)
 	reports := map[string]*model.Report{model.FuzzRan: ran}
-	for status, reason := range map[string]string{model.FuzzNoCandidates: fuzz.ReasonNoCandidates, model.FuzzNotRun: "dependency preparation did not produce an image", model.FuzzDisabled: "--fuzz=false"} {
-		reports[status] = &model.Report{Change: model.Change{Files: []model.ChangedFile{{Path: "calc/calc.go", Status: "M"}}}, Fuzz: &model.FuzzReport{Status: status, Reason: reason, Skipped: skips, SkippedTotal: len(skips)}}
+	for _, s := range [][2]string{{model.FuzzNoCandidates, fuzz.ReasonNoCandidates}, {model.FuzzNoCandidates, fuzz.ReasonNoRunnable}, {model.FuzzNotRun, "dependency preparation did not produce an image"}, {model.FuzzDisabled, "--fuzz=false"}} {
+		reports[s[0]+": "+s[1]] = &model.Report{Change: model.Change{Files: []model.ChangedFile{{Path: "calc/calc.go", Status: "M"}}}, Fuzz: &model.FuzzReport{Status: s[0], Reason: s[1], Skipped: skips, SkippedTotal: len(skips)}}
 	}
 	for status, r := range reports {
 		Finalize(r, true)
@@ -557,12 +558,12 @@ func TestFuzzWordingMakesNoBannedClaims(t *testing.T) {
 				t.Errorf("%s: a review target uses %q: %s", status, word, target.reason)
 			}
 		}
-		for _, line := range fuzz.Unverified(*r.Fuzz, 3) {
+		for _, line := range fuzz.Unverified(*r.Fuzz, 3, 2) {
 			if word := fuzzBannedWord(line); word != "" {
 				t.Errorf("%s: an Unverified line uses %q: %s", status, word, line)
 			}
 		}
-		if status != model.FuzzRan {
+		if r.Fuzz.Status != model.FuzzRan {
 			claim := strings.ReplaceAll(body, "No function ran", "")
 			if regexp.MustCompile(`\bran\b|\band compared\b|\bwere planned\b`).MatchString(claim) {
 				t.Errorf("%s: a section that did not run claims execution:\n%s", status, body)

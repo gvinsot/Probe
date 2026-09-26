@@ -12,6 +12,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/gvinsot/SwiftProof/app/internal/harness"
 )
 
 // Rendering bounds.
@@ -63,6 +65,7 @@ type RenderOptions struct {
 	ObservationsPath string        // absolute in-container path of the observation stream
 	PayloadLimit     int           // bytes one run may return on the payload channel
 	CallTimeout      time.Duration // bound of one evaluation of one input
+	Family           string        // TS/JS only: FamilyVitest or FamilyJest
 }
 
 // HarnessTest is one rendered fuzz test: one target and its planned inputs.
@@ -75,11 +78,22 @@ type HarnessTest struct {
 // Harness is one rendered observation harness: a single internal _test.go file
 // that runs identically on both revisions.
 type Harness struct {
-	Path    string // <dir>/swiftproof_fuzz_<suffix>_test.go
+	Path    string // <dir>/swiftproof_fuzz_<suffix>_test.go, or <dir>/swiftproof-fuzz-<suffix>.test.ts|js
 	Content string
 	Suffix  string
 	Display int // bound of a display value in the stream, in bytes
 	Tests   []HarnessTest
+	// Runner is the runner of the harness's evidence: go_test_json for a Go
+	// harness (also when empty), jest_json for a TS/JS harness.
+	Runner string
+}
+
+// EvidenceRunner returns the runner recorded on the harness's evidence.
+func (h Harness) EvidenceRunner() string {
+	if h.Runner == "" {
+		return harness.RunnerGo
+	}
+	return h.Runner
 }
 
 // TestNames returns the harness's test names in execution order.
@@ -194,7 +208,7 @@ var ErrNoInput = errors.New("no seeded input has a call text that redaction leav
 var ErrCollision = errors.New("harness identifier collides with a package identifier")
 
 func renderOnce(p PackagePlan, o RenderOptions, prefix, file string, budgets []int) (Harness, error) {
-	h := Harness{Path: file, Suffix: o.Suffix}
+	h := Harness{Path: file, Suffix: o.Suffix, Runner: harness.RunnerGo}
 	records := 0
 	for i, t := range p.Targets {
 		inputs := Corpus(t, budgets[i])

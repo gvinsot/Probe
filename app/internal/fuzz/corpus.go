@@ -325,11 +325,35 @@ func randomValue(r *splitmix64, p Param, e []Scalar) Value {
 // credential; selection skips such a function. Corpus(t, m) is a prefix of
 // Corpus(t, n) for m <= n.
 func Corpus(t Target, n int) []Input {
+	return corpusWith(goScheme, t, n)
+}
+
+// corpusScheme holds the value tables and renderings of one language. The
+// order of the corpus and the use of the generator are the same for every
+// language (corpusWith).
+type corpusScheme struct {
+	edgeValues func(Param) []Value
+	edges      func(basic string) []Scalar
+	random     func(r *splitmix64, p Param, e []Scalar) Value
+	call       func(t Target, args []Value) string
+}
+
+var goScheme = corpusScheme{edgeValues: edgeValues, edges: edges, random: randomValue, call: callText}
+
+// corpusOf returns the corpus of a target of either language.
+func corpusOf(t Target, n int) []Input {
+	if t.Language == LanguageScript {
+		return scriptCorpus(t, n)
+	}
+	return Corpus(t, n)
+}
+
+func corpusWith(scheme corpusScheme, t Target, n int) []Input {
 	if n < 1 {
 		return nil
 	}
 	if len(t.Params) == 0 {
-		call := t.Name + "()"
+		call := scheme.call(t, nil)
 		if !streamSafe(call) {
 			return nil
 		}
@@ -338,13 +362,13 @@ func Corpus(t Target, n int) []Input {
 	sets := make([][]Value, len(t.Params))
 	scalars := make([][]Scalar, len(t.Params))
 	for j, p := range t.Params {
-		sets[j] = edgeValues(p)
-		scalars[j] = edges(p.Basic)
+		sets[j] = scheme.edgeValues(p)
+		scalars[j] = scheme.edges(p.Basic)
 	}
 	var out []Input
 	seen := map[string]bool{}
 	add := func(args []Value) bool {
-		call := callText(t, args)
+		call := scheme.call(t, args)
 		if !seen[call] && streamSafe(call) {
 			seen[call] = true
 			out = append(out, Input{Args: append([]Value(nil), args...), Call: call})
@@ -374,7 +398,7 @@ func Corpus(t Target, n int) []Input {
 			if r.next()&1 == 0 {
 				args[j] = sets[j][r.intn(len(sets[j]))]
 			} else {
-				args[j] = randomValue(r, p, scalars[j])
+				args[j] = scheme.random(r, p, scalars[j])
 			}
 		}
 		if add(args) {

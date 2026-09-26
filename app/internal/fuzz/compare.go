@@ -13,9 +13,12 @@ import (
 const MaxDivergenceRows = 32
 
 // Checks are the recorded checks of one package run in their roles. The
-// confirmation pair is nil when it did not run.
+// confirmation pair is nil when it did not run. Runner is the runner of the
+// evidence: go_test_json (also when empty) or jest_json (a TS/JS harness),
+// which decides how the named execution of a fuzz test is validated.
 type Checks struct {
 	Base, Candidate, BaseConfirm, CandidateConfirm *model.Check
+	Runner                                         string
 }
 
 // Evaluation is the outcome of one fuzz test, derived only from recorded
@@ -127,7 +130,15 @@ func ParseChecks(c Checks) Recorded {
 // one package, and its normalized stream parses and plans the same number of
 // inputs. A FAIL check can still be usable for the tests that passed before
 // its process ended.
-func view(c *model.Check, stream *Stream, name, kind, test string, planned int, allowAgreedReplay bool) side {
+//
+// For a TS/JS harness (runner jest_json, Appendix D.13) the log is never
+// read: the check must be PASS with exit code 0, its stream must be a TS/JS
+// stream, and the test must have written its head and done records (state
+// complete or stopped). A failing run supports no test.
+func view(c *model.Check, stream *Stream, name, kind, test string, planned int, allowAgreedReplay bool, runner string) side {
+	if runner == harness.RunnerJest {
+		return scriptView(c, stream, name, kind, test, planned, allowAgreedReplay)
+	}
 	s := side{name: name, present: c != nil}
 	switch {
 	case c == nil:
@@ -160,6 +171,10 @@ func view(c *model.Check, stream *Stream, name, kind, test string, planned int, 
 	}
 	if stream == nil {
 		s.problem = "observation stream was rejected"
+		return s
+	}
+	if stream.Runner != "" {
+		s.problem = "observation stream is not the stream of a Go harness"
 		return s
 	}
 	fn, ok := stream.Function(test)
@@ -255,13 +270,17 @@ func (r Recorded) Evaluate(test string, planned int) Evaluation {
 		ev.Reason = "no input was planned"
 		return ev
 	}
-	b1 := view(c.Base, r.streams[0], "baseline", model.CheckFuzzBase, test, planned, true)
-	c1 := view(c.Candidate, r.streams[1], "candidate", model.CheckFuzzCandidate, test, planned, false)
+	if c.Runner != "" && c.Runner != harness.RunnerGo && c.Runner != harness.RunnerJest {
+		ev.Reason = "the evidence names an unknown runner"
+		return ev
+	}
+	b1 := view(c.Base, r.streams[0], "baseline", model.CheckFuzzBase, test, planned, true, c.Runner)
+	c1 := view(c.Candidate, r.streams[1], "candidate", model.CheckFuzzCandidate, test, planned, false, c.Runner)
 	confirm := c.BaseConfirm != nil || c.CandidateConfirm != nil
 	var b2, c2 side
 	if confirm {
-		b2 = view(c.BaseConfirm, r.streams[2], "baseline confirmation", model.CheckFuzzBaseConfirm, test, planned, false)
-		c2 = view(c.CandidateConfirm, r.streams[3], "candidate confirmation", model.CheckFuzzCandidateConfirm, test, planned, false)
+		b2 = view(c.BaseConfirm, r.streams[2], "baseline confirmation", model.CheckFuzzBaseConfirm, test, planned, false, c.Runner)
+		c2 = view(c.CandidateConfirm, r.streams[3], "candidate confirmation", model.CheckFuzzCandidateConfirm, test, planned, false, c.Runner)
 	}
 	if reason := consistent(c, []side{b1, c1, b2, c2}); reason != "" {
 		ev.Reason = reason

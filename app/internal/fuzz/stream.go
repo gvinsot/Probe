@@ -11,6 +11,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
+	"github.com/gvinsot/SwiftProof/app/internal/harness"
 	"github.com/gvinsot/SwiftProof/app/internal/model"
 	"github.com/gvinsot/SwiftProof/app/internal/redact"
 )
@@ -69,9 +70,13 @@ type FunctionStream struct {
 // of a fuzz check. It is canonical JSON in the layout of encodeStream and a
 // fixed point of redaction.
 type Stream struct {
-	Version   int              `json:"v"`
-	Scheme    string           `json:"scheme"`
-	Display   int              `json:"display"`
+	Version int    `json:"v"`
+	Scheme  string `json:"scheme"`
+	Display int    `json:"display"`
+	// Runner is "" for the stream of a Go harness and jest_json for the
+	// stream of a TS/JS harness, whose complete and stopped functions wrote
+	// their head and done records (normalizeScript).
+	Runner    string           `json:"runner,omitempty"`
 	Functions []FunctionStream `json:"functions"`
 }
 
@@ -120,6 +125,9 @@ type rawRecord struct {
 // so redacting a display never changes a comparison. The result must be a
 // fixed point of redaction, or it is rejected too.
 func (h Harness) Normalize(payload []byte) (string, error) {
+	if h.Runner == harness.RunnerJest {
+		return h.normalizeScript(payload)
+	}
 	if len(h.Tests) == 0 || len(h.Tests) > maxHarnessTests {
 		return "", errors.New("the harness has no fuzz test")
 	}
@@ -414,6 +422,9 @@ func (s Stream) validate() error {
 	if s.Version != StreamVersion || s.Scheme != model.FuzzSeedScheme {
 		return errors.New("unknown observation stream version")
 	}
+	if s.Runner != "" && s.Runner != harness.RunnerJest {
+		return errors.New("unknown observation stream runner")
+	}
 	if s.Display < minDisplayBytes || s.Display > MaxDisplayBytes {
 		return errors.New("invalid display bound")
 	}
@@ -457,6 +468,10 @@ func (s Stream) validate() error {
 			case StopTimeout, StopGoexit, StopAbort:
 				if timedOut {
 					return fmt.Errorf("%s: stop after a timeout", f.Test)
+				}
+				// A TS/JS harness has no goexit stop (normalizeScript refuses it).
+				if f.Stop == StopGoexit && s.Runner == harness.RunnerJest {
+					return fmt.Errorf("%s: goexit stop in a TS/JS stream", f.Test)
 				}
 			default:
 				return fmt.Errorf("%s: unknown stop reason", f.Test)

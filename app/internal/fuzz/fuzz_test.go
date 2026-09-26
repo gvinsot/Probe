@@ -200,7 +200,7 @@ func TestRunConfirmsADivergenceOnce(t *testing.T) {
 	if ev := Evaluate(a.TestName, a.Inputs, checks); ev.Outcome != a.Outcome || *ev.Counterexample != *a.Counterexample || ev.Diverged != a.Diverged {
 		t.Fatalf("re-derived %+v", ev)
 	}
-	if lines := Unverified(rep, 0); len(lines) != 0 {
+	if lines := Unverified(rep, 0, 0); len(lines) != 0 {
 		t.Fatalf("unverified %v", lines)
 	}
 }
@@ -248,7 +248,7 @@ func TestRunRecordsInconclusiveOutcomes(t *testing.T) {
 	if len(f.requests) != 1 {
 		t.Fatal("no difference: no confirmation")
 	}
-	lines := Unverified(rep, 0)
+	lines := Unverified(rep, 0, 0)
 	want := []string{
 		"Differential fuzzing of obs.Stamp is inconclusive: all 3 inputs gave different observations on repeated evaluation",
 		"Differential fuzzing of obs.Halt is inconclusive: the candidate process ended while evaluating input 2: Halt(-1)",
@@ -385,6 +385,14 @@ func TestRunWithoutCandidatesAndSkips(t *testing.T) {
 		rep.Skipped[0].Path != "p/f000.go" || len(rep.Functions) != 0 || rep.Functions == nil || len(f.requests) != 0 {
 		t.Fatalf("report %+v", rep)
 	}
+	// A function that meets the eligibility rules but that the template
+	// cannot run changes the reason: it was not ineligible.
+	for _, reason := range []string{ReasonScriptTemplate, ReasonGoTemplate, ReasonScriptJestPath, ReasonScriptVitestExcluded} {
+		plan := Plan{Skipped: append(append([]model.FuzzSkip(nil), skipped[:3]...), model.FuzzSkip{Path: "web/m.ts", Line: 1, Symbol: "m", Reason: reason})}
+		if rep := Run(context.Background(), f, plan, options()); rep.Status != model.FuzzNoCandidates || rep.Reason != ReasonNoRunnable || rep.SkippedTotal != 4 {
+			t.Fatalf("%s: report %+v", reason, rep)
+		}
+	}
 }
 
 func TestRunRenderFailuresAndSuffixRetry(t *testing.T) {
@@ -413,7 +421,7 @@ func TestRunRenderFailuresAndSuffixRetry(t *testing.T) {
 	if rep.Functions[1].Outcome != model.FuzzNotDiverged || len(f.requests) != 1 || f.requests[0].Harness.Suffix != "89abcdef" {
 		t.Fatalf("functions %+v", rep.Functions)
 	}
-	if lines := Unverified(rep, 0); len(lines) != 1 || !strings.HasPrefix(lines[0], "Differential fuzzing of obs.A is inconclusive: the fuzz harness could not be rendered: ") {
+	if lines := Unverified(rep, 0, 0); len(lines) != 1 || !strings.HasPrefix(lines[0], "Differential fuzzing of obs.A is inconclusive: the fuzz harness could not be rendered: ") {
 		t.Fatalf("unverified %v", lines)
 	}
 	o.NewSuffix = func() (string, error) { return "", errors.New("no entropy") }
@@ -436,7 +444,7 @@ func TestUnverifiedIsBounded(t *testing.T) {
 		rep.Functions = append(rep.Functions, model.FuzzFunction{Symbol: "p.F" + strconv.Itoa(i), Outcome: model.FuzzInconclusive, Reason: "no input was compared"})
 	}
 	rep.Functions = append(rep.Functions, model.FuzzFunction{Symbol: "p.G", Outcome: model.FuzzDiverged})
-	lines := Unverified(rep, 3)
+	lines := Unverified(rep, 3, 0)
 	if len(lines) != maxUnverified {
 		t.Fatalf("%d lines", len(lines))
 	}
@@ -445,11 +453,21 @@ func TestUnverifiedIsBounded(t *testing.T) {
 		lines[19] != "Differential fuzzing did not run on 3 changed functions because fuzz.max_functions or fuzz.max_packages was reached (see fuzz.skipped)." {
 		t.Fatalf("lines:\n%s", strings.Join(lines, "\n"))
 	}
-	if got := Unverified(model.FuzzReport{}, 0); len(got) != 0 {
+	if got := Unverified(model.FuzzReport{}, 0, 0); len(got) != 0 {
 		t.Fatalf("empty: %v", got)
 	}
+	// The line of the Go functions a Vitest or Jest template could not run
+	// takes one more place; the bound holds.
+	lines = Unverified(rep, 3, 2)
+	if len(lines) != maxUnverified || lines[17] != "Differential fuzzing: 8 more functions are inconclusive (see fuzz.functions in confidence-report.json)." ||
+		lines[19] != GoTemplateUnverified(2) || !strings.HasPrefix(lines[18], "Differential fuzzing did not run on 3 changed functions") {
+		t.Fatalf("lines:\n%s", strings.Join(lines, "\n"))
+	}
+	if got := Unverified(model.FuzzReport{}, 0, 1); len(got) != 1 || got[0] != GoTemplateUnverified(1) {
+		t.Fatalf("Go template only: %v", got)
+	}
 	rep.Functions = rep.Functions[:19]
-	if got := Unverified(rep, 0); len(got) != 19 {
+	if got := Unverified(rep, 0, 0); len(got) != 19 {
 		t.Fatalf("19 fit: %d", len(got))
 	}
 }
@@ -509,9 +527,9 @@ func TestTextsMakeNoClaims(t *testing.T) {
 		{Kind: model.CheckFuzzCandidate, Cache: &model.CheckCache{Status: model.CacheHit, LiveRuns: 5}},
 		{Kind: model.CheckFuzzBase, Cache: &model.CheckCache{Status: model.CacheHit, LiveRuns: 1}},
 	} {
-		texts = append(texts, view(c, nil, "candidate", c.Kind, testName, 3, c.Kind == model.CheckFuzzBase).reason())
+		texts = append(texts, view(c, nil, "candidate", c.Kind, testName, 3, c.Kind == model.CheckFuzzBase, "").reason())
 	}
-	texts = append(texts, Unverified(model.FuzzReport{Functions: []model.FuzzFunction{{Symbol: "p.F", Outcome: model.FuzzInconclusive, Reason: "x"}}}, 2)...)
+	texts = append(texts, Unverified(model.FuzzReport{Functions: []model.FuzzFunction{{Symbol: "p.F", Outcome: model.FuzzInconclusive, Reason: "x"}}}, 2, 1)...)
 	s := side{name: "candidate", stream: &FunctionStream{At: 1, AtCall: "F(1)"}}
 	for _, stop := range []string{StopTimeout, StopGoexit, StopAbort, StopPoisoned} {
 		s.stream.Stop = stop

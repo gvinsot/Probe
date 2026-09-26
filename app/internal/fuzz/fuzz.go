@@ -1,14 +1,15 @@
 // Package fuzz is the host side of deterministic differential fuzzing (F2).
-// It selects changed Go functions whose signature is unchanged, derives a
-// seeded input corpus from each function's identity, renders one observation
-// harness per package, validates and normalizes the observation streams that
-// sandbox runs return, and compares baseline and candidate streams.
+// It selects changed Go and TS/JS functions whose signature is unchanged,
+// derives a seeded input corpus from each function's identity, renders one
+// observation harness per Go package or TS/JS module, validates and
+// normalizes the observation streams that sandbox runs return, and compares
+// baseline and candidate streams.
 //
 // Nothing in this package executes repository code or involves a model.
-// Selection and rendering parse and print Go source on the host (go/parser,
-// go/format, go/build.MatchFile with in-memory files). Execution goes through
-// a Runner, which the harness implements with the ordinary Docker sandbox; the
-// harness never imports this package.
+// Selection and rendering parse and print source on the host (go/parser,
+// go/format, go/build.MatchFile with in-memory files for Go; a bounded lexer
+// for TS/JS). Execution goes through a Runner, which the harness implements
+// with the ordinary Docker sandbox; the harness never imports this package.
 //
 // A divergence is a difference between bounded canonical encodings recorded
 // for the same seeded input, reproduced by a second run on each revision. It
@@ -23,6 +24,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"path"
 	"sort"
 	"time"
 
@@ -47,8 +49,18 @@ const (
 // Reasons Run records itself.
 const (
 	ReasonRuntimeBudget = "fuzz.max_runtime_seconds or the overall deadline was reached before this package ran"
-	ReasonNoCandidates  = "no changed Go function is eligible for differential fuzzing"
+	ReasonNoCandidates  = "no changed Go or TS/JS function is eligible for differential fuzzing"
+	// ReasonNoRunnable replaces ReasonNoCandidates when nothing was planned
+	// and at least one function meets the eligibility rules but was skipped
+	// because the generated_test template cannot run it (templateReasons).
+	ReasonNoRunnable = "no changed function can run with this generated_test template"
 )
+
+// templateReasons are the skip reasons of functions that meet the
+// eligibility rules but that the generated_test template cannot run.
+var templateReasons = map[string]bool{
+	ReasonScriptTemplate: true, ReasonGoTemplate: true, ReasonScriptJestPath: true, ReasonScriptVitestExcluded: true,
+}
 
 // CounterexampleCutNote accompanies a counterexample whose displays are not
 // the whole recorded encodings (Evaluation.CounterexampleCut).
@@ -107,6 +119,10 @@ func CommandSupported(cmd []string) bool {
 // -run ^(Harness.TestNames())$ and the payload channel on the observation
 // path, pass the returned stream through Harness.Normalize into
 // Check.Results, and remove the file again.
+//
+// For a TS/JS harness (Harness.Runner jest_json) the template is the Vitest
+// or Jest generated_test template with the harness as its {file} target and
+// no test-name filter; the stream is still the only payload.
 type Request struct {
 	Harness    Harness
 	Confirm    bool // false: fuzz_base then fuzz_candidate; true: fuzz_base_confirm then fuzz_candidate_confirm
@@ -141,6 +157,7 @@ type Options struct {
 	Limits           Limits
 	ObservationsPath string // in-container path of the observation stream
 	PayloadLimit     int    // harness.PayloadLimit(sandbox.max_output_bytes)
+	ScriptFamily     string // runner family of the TS/JS template (ScriptFamily); "" without TS/JS targets
 	// NewSuffix and Now are replaceable for tests; nil means NewSuffix and
 	// time.Now.
 	NewSuffix func() (string, error)
@@ -172,6 +189,12 @@ func Run(ctx context.Context, runner Runner, plan Plan, o Options) model.FuzzRep
 	skipped := append([]model.FuzzSkip(nil), plan.Skipped...)
 	if plan.Targets() == 0 {
 		rep.Status, rep.Reason = model.FuzzNoCandidates, ReasonNoCandidates
+		for _, s := range skipped {
+			if templateReasons[s.Reason] {
+				rep.Reason = ReasonNoRunnable
+				break
+			}
+		}
 	}
 	deadline := now().Add(o.Limits.MaxRuntime)
 	for _, pkg := range plan.Packages {
@@ -215,7 +238,11 @@ func renderPackage(pkg PackagePlan, o Options, suffix func() (string, error)) (H
 		if err != nil {
 			return Harness{}, err
 		}
-		h, err := Render(pkg, RenderOptions{Suffix: s, ObservationsPath: o.ObservationsPath, PayloadLimit: o.PayloadLimit, CallTimeout: o.Limits.CallTimeout})
+		ro := RenderOptions{Suffix: s, ObservationsPath: o.ObservationsPath, PayloadLimit: o.PayloadLimit, CallTimeout: o.Limits.CallTimeout, Family: o.ScriptFamily}
+		if pkg.Script != nil {
+			return RenderScript(pkg, ro)
+		}
+		h, err := Render(pkg, ro)
 		if err == nil {
 			return h, nil
 		}
@@ -243,7 +270,8 @@ func runPackage(ctx context.Context, runner Runner, h Harness, deadline time.Tim
 		return out
 	}
 	differs := false
-	first := ParseChecks(Checks{Base: &b1.Check, Candidate: &c1.Check})
+	evidenceRunner := h.EvidenceRunner()
+	first := ParseChecks(Checks{Base: &b1.Check, Candidate: &c1.Check, Runner: evidenceRunner})
 	for _, t := range h.Tests {
 		if first.Evaluate(t.Name, len(t.Inputs)).Differs {
 			differs = true
@@ -257,7 +285,7 @@ func runPackage(ctx context.Context, runner Runner, h Harness, deadline time.Tim
 			b2, c2 = &base, &candidate
 		}
 	}
-	checks := Checks{Base: &b1.Check, Candidate: &c1.Check}
+	checks := Checks{Base: &b1.Check, Candidate: &c1.Check, Runner: evidenceRunner}
 	ids := model.FuzzChecks{Base: b1.Check.ID, Candidate: c1.Check.ID}
 	if b2 != nil {
 		checks.BaseConfirm, checks.CandidateConfirm = &b2.Check, &c2.Check
@@ -283,7 +311,7 @@ func runPackage(ctx context.Context, runner Runner, h Harness, deadline time.Tim
 			CheckID:     c1.Check.ID,
 			BaseCheckID: b1.Check.ID,
 			Status:      ev.EvidenceStatus(),
-			Runner:      harness.RunnerGo,
+			Runner:      evidenceRunner,
 			TestNames:   []string{t.Name},
 		}
 		stored, err := runner.AddEvidence(e)
@@ -355,14 +383,36 @@ func evidenceOutput(ev Evaluation, reason string) string {
 	return redact.TruncateUTF8(text, maxEvidenceOutput)
 }
 
+// FunctionLabel names a fuzz function in a sentence: its symbol, with its
+// module for a TS/JS function (whose symbol is the exported name only).
+func FunctionLabel(f model.FuzzFunction) string {
+	if IsScriptPath(f.Path) {
+		return f.Symbol + " (" + f.Path + ")"
+	}
+	return f.Symbol
+}
+
+// IsScriptPath reports whether a fuzz function or skip path names a TS/JS
+// module rather than a Go file.
+func IsScriptPath(p string) bool {
+	return scriptExtensions[path.Ext(p)]
+}
+
 func errorText(err error) string {
 	return redact.TruncateUTF8(redact.Redact(err.Error()), maxErrorText)
 }
 
+// GoTemplateUnverified is the Unverified line of the eligible Go functions
+// that a Vitest or Jest template could not run while it ran TS/JS functions.
+func GoTemplateUnverified(n int) string {
+	return fmt.Sprintf("Differential fuzzing did not run on %d changed Go functions: the generated_test template is a Vitest or Jest template, which cannot run a Go fuzz harness (see fuzz.skipped).", n)
+}
+
 // Unverified returns the Unverified lines of a fuzz stage: one per
-// inconclusive function and one for the functions cut by max_functions or
-// max_packages, at most 20 lines in total.
-func Unverified(rep model.FuzzReport, budgetSkipped int) []string {
+// inconclusive function, one for the functions cut by max_functions or
+// max_packages, and one for the eligible Go functions that a Vitest or Jest
+// template could not run (goTemplateSkipped), at most 20 lines in total.
+func Unverified(rep model.FuzzReport, budgetSkipped, goTemplateSkipped int) []string {
 	var lines []string
 	inconclusive := 0
 	for _, f := range rep.Functions {
@@ -374,6 +424,9 @@ func Unverified(rep model.FuzzReport, budgetSkipped int) []string {
 	if budgetSkipped > 0 {
 		room--
 	}
+	if goTemplateSkipped > 0 {
+		room--
+	}
 	shown := 0
 	for _, f := range rep.Functions {
 		if f.Outcome != model.FuzzInconclusive {
@@ -383,11 +436,14 @@ func Unverified(rep model.FuzzReport, budgetSkipped int) []string {
 			lines = append(lines, fmt.Sprintf("Differential fuzzing: %d more functions are inconclusive (see fuzz.functions in confidence-report.json).", inconclusive-shown))
 			break
 		}
-		lines = append(lines, fmt.Sprintf("Differential fuzzing of %s is inconclusive: %s", f.Symbol, f.Reason))
+		lines = append(lines, fmt.Sprintf("Differential fuzzing of %s is inconclusive: %s", FunctionLabel(f), f.Reason))
 		shown++
 	}
 	if budgetSkipped > 0 {
 		lines = append(lines, fmt.Sprintf("Differential fuzzing did not run on %d changed functions because fuzz.max_functions or fuzz.max_packages was reached (see fuzz.skipped).", budgetSkipped))
+	}
+	if goTemplateSkipped > 0 {
+		lines = append(lines, GoTemplateUnverified(goTemplateSkipped))
 	}
 	return lines
 }

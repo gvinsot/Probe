@@ -2,6 +2,7 @@ package fuzz
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"go/ast"
@@ -116,11 +117,68 @@ var predeclared = map[string]bool{
 // max_functions; the rest are budget skips. Two calls with the same arguments
 // return identical plans.
 func Select(baseDir, candidateDir string, change model.Change, signals []model.Signal, limits Limits) (Plan, error) {
+	eligible, skipped, s, err := selectGo(baseDir, candidateDir, change, signals, limits)
+	if err != nil {
+		return Plan{}, err
+	}
+	return finishPlan(eligible, skipped, limits, s), nil
+}
+
+// SelectAll plans the changed Go functions (Select) and the changed TS/JS
+// functions (SelectScripts) of change that the generated_test template can
+// run, with the budget and priority rules of Select (a TS/JS function is
+// exported, and its module counts as a package). family is the runner family
+// of the template (ScriptFamily), which decides the language:
+//   - "": no TS/JS harness can run. Every eligible TS/JS function is skipped
+//     with ReasonScriptTemplate, and the Go functions are planned (the
+//     caller decides whether the template runs them).
+//   - vitest or jest: the template cannot be a Go fuzz template. Every
+//     eligible Go function is skipped with ReasonGoTemplate and counted in
+//     Plan.GoTemplateSkipped before the budget, so it takes no share of it,
+//     and an eligible TS/JS function whose module the runner cannot target
+//     is skipped with that reason (scriptRunnerProblem).
+//
+// ctx bounds the TS/JS enumeration (the fuzz sub-cap and --deadline).
+// Nothing is executed.
+func SelectAll(ctx context.Context, baseDir, candidateDir string, change model.Change, signals []model.Signal, limits Limits, family string) (Plan, error) {
+	eligible, skipped, s, err := selectGo(baseDir, candidateDir, change, signals, limits)
+	if err != nil {
+		return Plan{}, err
+	}
+	goTemplateSkipped := 0
+	if family != "" {
+		for _, t := range eligible {
+			skipped = append(skipped, model.FuzzSkip{Path: t.Path, Line: t.Line, Symbol: t.Symbol, Reason: ReasonGoTemplate})
+		}
+		goTemplateSkipped, eligible = len(eligible), nil
+	}
+	scripts := SelectScripts(ctx, baseDir, candidateDir, change)
+	skipped = append(skipped, scripts.Skipped...)
+	for _, t := range scripts.Targets {
+		reason := ReasonScriptTemplate
+		if family != "" {
+			reason = scriptRunnerProblem(family, t.Path)
+		}
+		if reason != "" {
+			skipped = append(skipped, model.FuzzSkip{Path: t.Path, Line: t.Line, Symbol: t.Symbol, Reason: reason})
+			continue
+		}
+		t.Priority = priority(t, signals)
+		eligible = append(eligible, t)
+	}
+	plan := finishPlan(eligible, skipped, limits, s)
+	plan.GoTemplateSkipped = goTemplateSkipped
+	return plan, nil
+}
+
+// selectGo examines the changed Go functions: the eligible targets, with
+// their priority, and the skipped ones.
+func selectGo(baseDir, candidateDir string, change model.Change, signals []model.Signal, limits Limits) ([]Target, []model.FuzzSkip, *selection, error) {
 	if baseDir == "" || candidateDir == "" {
-		return Plan{}, errors.New("differential fuzzing needs both the baseline and the candidate snapshot")
+		return nil, nil, nil, errors.New("differential fuzzing needs both the baseline and the candidate snapshot")
 	}
 	if limits.MaxFunctions < 1 || limits.MaxPackages < 1 || limits.MaxInputs < 1 {
-		return Plan{}, errors.New("differential fuzzing limits must be positive")
+		return nil, nil, nil, errors.New("differential fuzzing limits must be positive")
 	}
 	s := &selection{base: baseDir, candidate: candidateDir, packages: map[string]*packagePair{}}
 	var eligible []Target
@@ -180,6 +238,11 @@ func Select(baseDir, candidateDir string, change model.Change, signals []model.S
 			eligible = append(eligible, target)
 		}
 	}
+	return eligible, skipped, s, nil
+}
+
+// finishPlan applies the budget and orders the skipped functions.
+func finishPlan(eligible []Target, skipped []model.FuzzSkip, limits Limits, s *selection) Plan {
 	plan := budget(eligible, limits, s)
 	skipped = append(skipped, plan.Skipped...)
 	sort.SliceStable(skipped, func(i, j int) bool {
@@ -199,7 +262,7 @@ func Select(baseDir, candidateDir string, change model.Change, signals []model.S
 	if plan.Skipped == nil {
 		plan.Skipped = []model.FuzzSkip{}
 	}
-	return plan, nil
+	return plan
 }
 
 // goSourceCandidate reports whether f is a changed, non-test Go source file in
@@ -644,7 +707,15 @@ func budget(eligible []Target, limits Limits, s *selection) Plan {
 		// a function without parameters, two for func(bool), and so on.
 		share := max(1, MaxPackageInputs/len(targets))
 		for i := range targets {
-			targets[i].Inputs = len(Corpus(targets[i], min(limits.MaxInputs, share)))
+			targets[i].Inputs = len(corpusOf(targets[i], min(limits.MaxInputs, share)))
+		}
+		if targets[0].Language == LanguageScript {
+			module, ok := scriptModule(dir)
+			if !ok {
+				continue // scriptTarget refuses such a module
+			}
+			plan.Packages = append(plan.Packages, PackagePlan{Dir: dir, Targets: targets, Script: &module})
+			continue
 		}
 		pair := s.packages[dir]
 		idents := map[string]bool{}
