@@ -179,9 +179,12 @@ func TestToolDefinitionsAddFindCallers(t *testing.T) {
 			}
 		}
 	}
+	intentTools := 0
 	for name := range names {
 		if IsIntentTool(name) {
-			t.Errorf("the stub offers intent tool %s", name)
+			// F5: the harness publishes both intent tools; the reviewer
+			// offers them only when the run has acceptance criteria.
+			intentTools++
 		}
 		if strings.Contains(name, ":") {
 			t.Errorf("tool name %q contains ':'", name)
@@ -189,6 +192,9 @@ func TestToolDefinitionsAddFindCallers(t *testing.T) {
 		if !knownTools[name] {
 			t.Errorf("published tool %q is not dispatched by Call", name)
 		}
+	}
+	if intentTools != 2 {
+		t.Errorf("%d intent tools published, want %s and %s", intentTools, IntentCreateTool, IntentRunTool)
 	}
 	if !IsIntentTool(IntentCreateTool) || !IsIntentTool(IntentRunTool) || IsIntentTool("create_test") {
 		t.Fatal("IsIntentTool")
