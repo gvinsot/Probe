@@ -26,8 +26,11 @@ var ErrInvalid = errors.New("invalid or expired value")
 // Keyring derives the subkeys used by the hub.
 type Keyring struct {
 	storage []byte
-	session []byte
-	csrf    []byte
+	// previous holds the storage subkeys of rotated-out deployment keys, which
+	// can still open a value but never seal one.
+	previous [][]byte
+	session  []byte
+	csrf     []byte
 }
 
 // New expands a 32-byte deployment key.
@@ -62,24 +65,61 @@ func (k *Keyring) Seal(plaintext string) (string, error) {
 	return base64.RawURLEncoding.EncodeToString(sealed), nil
 }
 
-// Open decrypts a value produced by Seal.
-func (k *Keyring) Open(sealed string) (string, error) {
-	if sealed == "" {
-		return "", nil
+// WithPrevious lets the keyring open values sealed under deployment keys that
+// were rotated out. Sessions and CSRF tokens are never accepted from them: a
+// rotation signs every browser out, but keeps the stored forge tokens and
+// webhook secrets readable until Reseal moves them to the current key.
+func (k *Keyring) WithPrevious(keys [][]byte) error {
+	for _, key := range keys {
+		if len(key) != 32 {
+			return fmt.Errorf("previous deployment key must be 32 bytes, got %d", len(key))
+		}
+		k.previous = append(k.previous, derive(key, "swiftproof-hub/storage/v1"))
 	}
-	gcm, err := aead(k.storage)
+	return nil
+}
+
+// Open decrypts a value produced by Seal, under the current or a previous key.
+func (k *Keyring) Open(sealed string) (string, error) {
+	plaintext, _, err := k.open(sealed)
+	return plaintext, err
+}
+
+// Reseal re-encrypts under the current key a value that only a previous key
+// opens. It reports whether the value changed.
+func (k *Keyring) Reseal(sealed string) (string, bool, error) {
+	plaintext, current, err := k.open(sealed)
+	if err != nil || current {
+		return sealed, false, err
+	}
+	fresh, err := k.Seal(plaintext)
 	if err != nil {
-		return "", err
+		return sealed, false, err
+	}
+	return fresh, true, nil
+}
+
+func (k *Keyring) open(sealed string) (string, bool, error) {
+	if sealed == "" {
+		return "", true, nil
 	}
 	raw, err := base64.RawURLEncoding.DecodeString(sealed)
-	if err != nil || len(raw) < gcm.NonceSize() {
-		return "", ErrInvalid
-	}
-	plaintext, err := gcm.Open(nil, raw[:gcm.NonceSize()], raw[gcm.NonceSize():], nil)
 	if err != nil {
-		return "", ErrInvalid
+		return "", false, ErrInvalid
 	}
-	return string(plaintext), nil
+	for i, key := range append([][]byte{k.storage}, k.previous...) {
+		gcm, err := aead(key)
+		if err != nil {
+			return "", false, err
+		}
+		if len(raw) < gcm.NonceSize() {
+			return "", false, ErrInvalid
+		}
+		if plaintext, err := gcm.Open(nil, raw[:gcm.NonceSize()], raw[gcm.NonceSize():], nil); err == nil {
+			return string(plaintext), i == 0, nil
+		}
+	}
+	return "", false, ErrInvalid
 }
 
 func aead(key []byte) (cipher.AEAD, error) {

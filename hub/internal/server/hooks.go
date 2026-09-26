@@ -1,6 +1,7 @@
 package server
 
 import (
+	"crypto/subtle"
 	"errors"
 	"io"
 	"net/http"
@@ -16,31 +17,34 @@ const maxHookBytes = 5 << 20
 
 // handleWebhook receives a push delivery and schedules the analysis.
 //
-// The request is authenticated by the per-repository secret, never by a
-// session: the forge is the caller. The routing key in the URL is random, so
-// the endpoint cannot be enumerated, and the payload only decides which commit
-// of that repository is analyzed.
+// The forge is the caller, so there is no browser session. What stands for it
+// is the installation token: a random secret issued to the signed-in owner
+// when they switched monitoring on, sealed at rest, and carried only in the
+// webhook URL registered on the forge. A delivery must present that token
+// and the forge signature; the routing key alone, which is what an attacker
+// could guess or scrape, authorizes nothing. Every refusal looks the same.
 func (s *Server) handleWebhook(w http.ResponseWriter, r *http.Request) {
-	route, err := s.store.Hook(r.PathValue("hook"))
-	if err != nil {
-		// An unknown key and a wrong signature look the same from outside.
-		http.Error(w, "unknown webhook", http.StatusNotFound)
+	hookKey := r.PathValue("hook")
+	// Bounded before any lookup, so a flood costs neither disk nor crypto.
+	if !s.hookLimit.Allow(hookKey) {
+		w.Header().Set("Retry-After", "60")
+		writeError(w, http.StatusTooManyRequests, "too many deliveries")
 		return
 	}
-	repo, err := s.store.Repo(route.UserKey, route.RepoKey)
-	if err != nil || !repo.Monitored {
-		http.Error(w, "unknown webhook", http.StatusNotFound)
+	route, repo, ok := s.hookInstallation(hookKey, r.URL.Query().Get(hookTokenParam))
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "unauthorized webhook")
 		return
 	}
 	provider, err := s.accounts.Provider(repo.Provider)
 	if err != nil {
-		http.Error(w, "forge not configured", http.StatusNotFound)
+		writeError(w, http.StatusUnauthorized, "unauthorized webhook")
 		return
 	}
 	secret, err := s.keys.Open(repo.HookSecret)
 	if err != nil || secret == "" {
 		s.log.Error("webhook secret unreadable", "repo", repo.FullName)
-		http.Error(w, "webhook is not usable", http.StatusInternalServerError)
+		writeError(w, http.StatusUnauthorized, "unauthorized webhook")
 		return
 	}
 	body, err := io.ReadAll(io.LimitReader(r.Body, maxHookBytes))
@@ -50,7 +54,7 @@ func (s *Server) handleWebhook(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := provider.VerifyWebhook(r, body, secret); err != nil {
 		s.log.Warn("webhook rejected", "repo", repo.FullName, "reason", err)
-		http.Error(w, "invalid signature", http.StatusUnauthorized)
+		writeError(w, http.StatusUnauthorized, "unauthorized webhook")
 		return
 	}
 	if ping(r) {
@@ -87,15 +91,52 @@ func (s *Server) handleWebhook(w http.ResponseWriter, r *http.Request) {
 		Ref: push.Ref, Message: push.Message, Author: push.Author, Trigger: analysis.TriggerPush,
 	}
 	if err := s.runner.Enqueue(job); err != nil {
-		if errors.Is(err, analysis.ErrBusy) {
-			// Forges retry a 503, which is exactly the behavior wanted here.
-			http.Error(w, "busy", http.StatusServiceUnavailable)
-			return
-		}
-		http.Error(w, "invalid push", http.StatusBadRequest)
+		s.writeEnqueueError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusAccepted, map[string]string{"status": "queued", "commit": push.After})
+}
+
+// hookTokenParam names the installation token in the webhook URL.
+const hookTokenParam = "token"
+
+// hookInstallation resolves a routing key and checks the installation token
+// against the one sealed on a monitored repository whose owner still exists.
+func (s *Server) hookInstallation(hookKey, token string) (store.HookRoute, *store.Repo, bool) {
+	if token == "" || !store.ValidKey(hookKey) {
+		return store.HookRoute{}, nil, false
+	}
+	route, err := s.store.Hook(hookKey)
+	if err != nil {
+		return store.HookRoute{}, nil, false
+	}
+	repo, err := s.store.Repo(route.UserKey, route.RepoKey)
+	if err != nil || !repo.Monitored || repo.HookKey != hookKey || repo.HookToken == "" {
+		return store.HookRoute{}, nil, false
+	}
+	want, err := s.keys.Open(repo.HookToken)
+	if err != nil || want == "" || subtle.ConstantTimeCompare([]byte(token), []byte(want)) != 1 {
+		return store.HookRoute{}, nil, false
+	}
+	// The installation belongs to an account: once it is gone, so is the hook.
+	if _, err := s.store.User(route.UserKey); err != nil {
+		return store.HookRoute{}, nil, false
+	}
+	return route, repo, true
+}
+
+// writeEnqueueError maps a refused analysis onto the status a caller acts on:
+// a forge retries a 503, and a 429 tells a user they are at their quota.
+func (s *Server) writeEnqueueError(w http.ResponseWriter, err error) {
+	switch {
+	case errors.Is(err, analysis.ErrQuota):
+		w.Header().Set("Retry-After", "60")
+		writeError(w, http.StatusTooManyRequests, err.Error())
+	case errors.Is(err, analysis.ErrBusy):
+		writeError(w, http.StatusServiceUnavailable, err.Error())
+	default:
+		writeError(w, http.StatusBadRequest, err.Error())
+	}
 }
 
 func ping(r *http.Request) bool {
@@ -108,17 +149,4 @@ func isPush(r *http.Request) bool {
 	}
 	event := r.Header.Get("X-Gitlab-Event")
 	return event == "Push Hook" || event == "Tag Push Hook"
-}
-
-// hookRepo resolves a routing key to its repository, for the badge endpoint.
-func (s *Server) hookRepo(hookKey string) (*store.Repo, bool) {
-	route, err := s.store.Hook(hookKey)
-	if err != nil {
-		return nil, false
-	}
-	repo, err := s.store.Repo(route.UserKey, route.RepoKey)
-	if err != nil {
-		return nil, false
-	}
-	return repo, true
 }

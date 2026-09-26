@@ -11,20 +11,45 @@ import (
 )
 
 // handleBadge renders the latest verdict of a monitored repository as an SVG,
-// for a README. It is addressed by the unguessable webhook routing key, so a
-// private repository is not exposed by name, and it reports what the last run
-// recorded — never an approval.
+// for a README. It is addressed by its own random badge key, never by the
+// webhook routing key, so publishing a badge hands out nothing that reaches
+// the webhook, and a private repository is not exposed by name. It reports
+// what the last run recorded — never an approval.
+//
+// An unknown key gets the plain 404 of any missing resource: no placeholder
+// badge, so a key cannot be probed and a stale key is not mistaken for a
+// verdict.
 func (s *Server) handleBadge(w http.ResponseWriter, r *http.Request) {
-	key := strings.TrimSuffix(r.PathValue("hook"), ".svg")
-	label, value, color := "swiftproof", "unknown", "#9aa6b5"
-	if repo, ok := s.hookRepo(key); ok {
-		value, color = badgeState(repo)
+	key := strings.TrimSuffix(r.PathValue("badge"), ".svg")
+	repo, ok := s.badgeRepo(key)
+	if !ok {
+		w.Header().Set("Cache-Control", "no-store")
+		http.NotFound(w, r)
+		return
 	}
+	label := "swiftproof"
+	value, color := badgeState(repo)
 	w.Header().Set("Content-Type", "image/svg+xml; charset=utf-8")
 	// A badge must never be cached across a new report.
 	w.Header().Set("Cache-Control", "no-cache, max-age=0")
 	w.WriteHeader(http.StatusOK)
 	fmt.Fprint(w, badgeSVG(label, value, color))
+}
+
+// badgeRepo resolves a badge key to its monitored repository.
+func (s *Server) badgeRepo(key string) (*store.Repo, bool) {
+	if !store.ValidKey(key) {
+		return nil, false
+	}
+	route, err := s.store.Badge(key)
+	if err != nil {
+		return nil, false
+	}
+	repo, err := s.store.Repo(route.UserKey, route.RepoKey)
+	if err != nil || !repo.Monitored || repo.BadgeKey != key {
+		return nil, false
+	}
+	return repo, true
 }
 
 func badgeState(repo *store.Repo) (string, string) {

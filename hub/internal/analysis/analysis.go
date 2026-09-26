@@ -10,6 +10,8 @@ package analysis
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -62,6 +64,10 @@ type Job struct {
 // ErrBusy is returned when the queue is saturated; the caller should retry.
 var ErrBusy = errors.New("analysis queue is full")
 
+// ErrQuota is returned when one account already has as many analyses queued
+// or running as the deployment allows, so it cannot starve the others.
+var ErrQuota = errors.New("too many analyses in progress for this account")
+
 // Runner owns the worker pool and the analysis pipeline.
 type Runner struct {
 	cfg      config.Config
@@ -72,14 +78,16 @@ type Runner struct {
 	queue    chan Job
 	mu       sync.Mutex
 	active   map[string]struct{}
+	perUser  map[string]int
 }
 
 // New builds a runner. Start must be called to process jobs.
 func New(cfg config.Config, s *store.Store, a *accounts.Manager, b *events.Broker, log *slog.Logger) *Runner {
 	return &Runner{
 		cfg: cfg, store: s, accounts: a, events: b, log: log,
-		queue:  make(chan Job, cfg.QueueSize),
-		active: map[string]struct{}{},
+		queue:   make(chan Job, cfg.QueueSize),
+		active:  map[string]struct{}{},
+		perUser: map[string]int{},
 	}
 }
 
@@ -103,6 +111,8 @@ func (r *Runner) Start(ctx context.Context) {
 func jobKey(j Job) string { return j.UserKey + "/" + j.RepoKey + "/" + j.Commit }
 
 // Enqueue schedules an analysis, ignoring a commit already queued or running.
+// It returns ErrQuota when the account is at its quota and ErrBusy when the
+// shared queue is full.
 func (r *Runner) Enqueue(j Job) error {
 	if !commitPattern.MatchString(j.Commit) {
 		return fmt.Errorf("invalid commit %q", j.Commit)
@@ -112,7 +122,12 @@ func (r *Runner) Enqueue(j Job) error {
 		r.mu.Unlock()
 		return nil
 	}
+	if r.cfg.UserQuota > 0 && r.perUser[j.UserKey] >= r.cfg.UserQuota {
+		r.mu.Unlock()
+		return ErrQuota
+	}
 	r.active[jobKey(j)] = struct{}{}
+	r.perUser[j.UserKey]++
 	r.mu.Unlock()
 	select {
 	case r.queue <- j:
@@ -126,7 +141,12 @@ func (r *Runner) Enqueue(j Job) error {
 
 func (r *Runner) release(j Job) {
 	r.mu.Lock()
-	delete(r.active, jobKey(j))
+	if _, ok := r.active[jobKey(j)]; ok {
+		delete(r.active, jobKey(j))
+		if r.perUser[j.UserKey]--; r.perUser[j.UserKey] <= 0 {
+			delete(r.perUser, j.UserKey)
+		}
+	}
 	r.mu.Unlock()
 }
 
@@ -236,12 +256,14 @@ func (r *Runner) analyze(ctx context.Context, j Job, run *store.Run) (*store.Rec
 	}
 	base := g.resolveBase(ctx, j.Before, j.Commit, r.cfg.CloneDepth)
 	run.BaseCommit = base
+	mode := r.modeFor(ctx, g, repo, base)
+	run.Mode = mode
 
-	output, exitCode, runErr := r.runCLI(ctx, work, base, j.Commit)
+	output, exitCode, runErr := r.runCLI(ctx, work, mode, base, j.Commit)
 	data, readErr := readBounded(filepath.Join(work, reportPath), maxReportBytes)
 	if readErr != nil {
 		if runErr != nil {
-			return nil, fmt.Errorf("swiftproof %s exited %d: %s", r.cfg.Mode, exitCode, tail(output))
+			return nil, fmt.Errorf("swiftproof %s exited %d: %s", mode, exitCode, tail(output))
 		}
 		return nil, fmt.Errorf("no confidence report was produced: %w", readErr)
 	}
@@ -257,17 +279,42 @@ func (r *Runner) analyze(ctx context.Context, j Job, run *store.Run) (*store.Rec
 	if exitCode >= 3 {
 		return &store.Record{
 			UserKey: j.UserKey, RepoKey: j.RepoKey, RepoName: repo.FullName, Raw: json.RawMessage(data),
-		}, fmt.Errorf("swiftproof %s could not complete (exit %d): %s", r.cfg.Mode, exitCode, tail(output))
+		}, fmt.Errorf("swiftproof %s could not complete (exit %d): %s", mode, exitCode, tail(output))
 	}
 	return &store.Record{
 		UserKey: j.UserKey, RepoKey: j.RepoKey, RepoName: repo.FullName, Raw: json.RawMessage(data),
 	}, nil
 }
 
+// modeFor picks the mode of one analysis. Review executes the checks of the
+// policy committed on the base commit, which is exactly what the CLI reads, so
+// it is only used when the operator validated that repository with that
+// policy digest. Everything else is linted, which never runs repository code.
+func (r *Runner) modeFor(ctx context.Context, g *gitRunner, repo *store.Repo, base string) string {
+	if r.cfg.Mode != config.ModeReview {
+		return config.ModeLint
+	}
+	policy, err := g.blob(ctx, base, forge.PolicyPath)
+	if err != nil {
+		r.log.Info("no base policy, analyzing in lint mode", "repo", repo.FullName)
+		return config.ModeLint
+	}
+	sum := sha256.Sum256(policy)
+	digest := hex.EncodeToString(sum[:])
+	if !r.cfg.ReviewAllowed(repo.Provider, repo.FullName, digest) {
+		r.log.Info("policy not validated for review, analyzing in lint mode", "repo", repo.FullName, "policy_sha256", digest)
+		return config.ModeLint
+	}
+	return config.ModeReview
+}
+
 // runCLI executes the trusted binary on the prepared checkout.
-func (r *Runner) runCLI(ctx context.Context, work, base, head string) (string, int, error) {
+func (r *Runner) runCLI(ctx context.Context, work, mode, base, head string) (string, int, error) {
+	if mode != config.ModeReview {
+		mode = config.ModeLint
+	}
 	args := []string{
-		r.cfg.Mode,
+		mode,
 		"--repo", work,
 		"--base", base,
 		"--head", head,
@@ -276,7 +323,7 @@ func (r *Runner) runCLI(ctx context.Context, work, base, head string) (string, i
 		"--out", ".swiftproof",
 		"--ci",
 	}
-	if r.cfg.Mode == config.ModeReview {
+	if mode == config.ModeReview {
 		// The hub holds no provider credential of its own: LLM investigation
 		// stays a deployment decision made through the CLI's own environment.
 		if os.Getenv(config.EndpointEnvName) == "" {

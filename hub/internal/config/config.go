@@ -13,6 +13,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -24,6 +25,15 @@ import (
 const (
 	ModeLint   = "lint"
 	ModeReview = "review"
+)
+
+// Instance kinds. A public instance lets anybody sign in and subscribe a
+// repository, so it is locked to lint: nothing it analyzes is ever executed.
+// Only a private instance, whose users the operator knows, may run review, and
+// then only for the repositories whose policy the operator validated.
+const (
+	InstancePublic  = "public"
+	InstancePrivate = "private"
 )
 
 // Forge identifiers.
@@ -58,11 +68,26 @@ type Config struct {
 	DataDir string
 	// SessionKey seals session cookies and forge tokens at rest.
 	SessionKey []byte
+	// PreviousSessionKeys still open values sealed before a key rotation; the
+	// hub reseals them under SessionKey at start-up.
+	PreviousSessionKeys [][]byte
 	// Binary is the SwiftProof CLI the analysis runner executes.
-	Binary          string
-	Mode            string
-	Workers         int
-	QueueSize       int
+	Binary string
+	// Instance is public or private; it decides which modes are allowed.
+	Instance string
+	// Mode is the most the instance may run. Review applies only to the
+	// repositories listed in ReviewPolicies; every other one is linted.
+	Mode string
+	// ReviewPolicies maps "<forge>:<owner/repo>" (lower case) onto the SHA-256
+	// digests of the base-branch policies the operator validated for review.
+	ReviewPolicies map[string]map[string]bool
+	Workers        int
+	QueueSize      int
+	// UserQuota bounds the analyses one account may have queued or running.
+	UserQuota int
+	// HookRate bounds the webhook deliveries accepted per routing key and
+	// minute, before any lookup or signature check.
+	HookRate        int
 	AnalysisTimeout time.Duration
 	CloneDepth      int
 	MaxRepos        int
@@ -82,6 +107,8 @@ const (
 	defaultBinary    = "swiftproof"
 	defaultWorkers   = 2
 	defaultQueue     = 256
+	defaultUserQuota = 8
+	defaultHookRate  = 30
 	defaultTimeout   = 10 * time.Minute
 	defaultDepth     = 50
 	defaultMaxRepos  = 500
@@ -95,7 +122,10 @@ func Load(getenv func(string) string) (Config, error) {
 		Addr:              env(getenv, "SWIFTPROOF_HUB_ADDR", defaultAddr),
 		DataDir:           env(getenv, "SWIFTPROOF_HUB_DATA_DIR", defaultDataDir),
 		Binary:            env(getenv, "SWIFTPROOF_HUB_BINARY", defaultBinary),
+		Instance:          strings.ToLower(env(getenv, "SWIFTPROOF_HUB_INSTANCE", InstancePublic)),
 		Mode:              strings.ToLower(env(getenv, "SWIFTPROOF_HUB_MODE", ModeLint)),
+		UserQuota:         envInt(getenv, "SWIFTPROOF_HUB_USER_QUOTA", defaultUserQuota),
+		HookRate:          envInt(getenv, "SWIFTPROOF_HUB_HOOK_RATE", defaultHookRate),
 		Workers:           envInt(getenv, "SWIFTPROOF_HUB_WORKERS", defaultWorkers),
 		QueueSize:         envInt(getenv, "SWIFTPROOF_HUB_QUEUE_SIZE", defaultQueue),
 		AnalysisTimeout:   envDuration(getenv, "SWIFTPROOF_HUB_ANALYSIS_TIMEOUT", defaultTimeout),
@@ -117,6 +147,30 @@ func Load(getenv func(string) string) (Config, error) {
 	c.BaseURL = base
 	if c.Mode != ModeLint && c.Mode != ModeReview {
 		return c, fmt.Errorf("SWIFTPROOF_HUB_MODE must be %q or %q, got %q", ModeLint, ModeReview, c.Mode)
+	}
+	if c.Instance != InstancePublic && c.Instance != InstancePrivate {
+		return c, fmt.Errorf("SWIFTPROOF_HUB_INSTANCE must be %q or %q, got %q", InstancePublic, InstancePrivate, c.Instance)
+	}
+	c.ReviewPolicies, err = reviewPolicies(secret(getenv, "SWIFTPROOF_HUB_REVIEW_POLICIES"))
+	if err != nil {
+		return c, err
+	}
+	if c.Mode == ModeReview {
+		// Review executes the checks of a policy that lives in the analyzed
+		// repository. On a public instance anybody chooses that repository,
+		// so the mode is refused outright rather than trusted to an env var.
+		if c.Instance == InstancePublic {
+			return c, fmt.Errorf("SWIFTPROOF_HUB_MODE=review is refused on a public instance: set SWIFTPROOF_HUB_INSTANCE=private for a deployment whose users you control")
+		}
+		if len(c.ReviewPolicies) == 0 {
+			return c, fmt.Errorf("SWIFTPROOF_HUB_MODE=review needs SWIFTPROOF_HUB_REVIEW_POLICIES: list the repositories and policy digests you validated")
+		}
+	}
+	if c.UserQuota < 1 || c.UserQuota > 10000 {
+		return c, fmt.Errorf("SWIFTPROOF_HUB_USER_QUOTA must be between 1 and 10000")
+	}
+	if c.HookRate < 1 || c.HookRate > 100000 {
+		return c, fmt.Errorf("SWIFTPROOF_HUB_HOOK_RATE must be between 1 and 100000")
 	}
 	if c.Workers < 1 || c.Workers > 64 {
 		return c, fmt.Errorf("SWIFTPROOF_HUB_WORKERS must be between 1 and 64")
@@ -182,7 +236,56 @@ func Load(getenv func(string) string) (Config, error) {
 	if err != nil {
 		return c, err
 	}
+	c.PreviousSessionKeys, err = previousKeys(secret(getenv, "SWIFTPROOF_HUB_SESSION_KEY_PREVIOUS"))
+	if err != nil {
+		return c, err
+	}
 	return c, nil
+}
+
+// ReviewAllowed reports whether a repository may run in review mode with the
+// base-branch policy of the given SHA-256 digest. Any other repository, and
+// any other version of the policy, is analyzed in lint mode.
+func (c Config) ReviewAllowed(forge, fullName, policyDigest string) bool {
+	if c.Mode != ModeReview || c.Instance != InstancePrivate {
+		return false
+	}
+	return c.ReviewPolicies[strings.ToLower(forge+":"+fullName)][strings.ToLower(policyDigest)]
+}
+
+var reviewEntry = regexp.MustCompile(`^([a-z]+):([A-Za-z0-9._/-]+)@sha256:([0-9a-f]{64})$`)
+
+// reviewPolicies parses the operator's allowlist: entries separated by commas
+// or white space, each "<forge>:<owner/repo>@sha256:<digest of .swiftproof.json>".
+func reviewPolicies(raw string) (map[string]map[string]bool, error) {
+	out := map[string]map[string]bool{}
+	for _, entry := range strings.FieldsFunc(raw, func(r rune) bool {
+		return r == ',' || r == ' ' || r == '\n' || r == '\t' || r == '\r'
+	}) {
+		m := reviewEntry.FindStringSubmatch(strings.ToLower(entry))
+		if m == nil || (m[1] != GitHub && m[1] != GitLab) {
+			return nil, fmt.Errorf("SWIFTPROOF_HUB_REVIEW_POLICIES entry %q must read <github|gitlab>:<owner/repo>@sha256:<64 hex>", entry)
+		}
+		repo := m[1] + ":" + m[2]
+		if out[repo] == nil {
+			out[repo] = map[string]bool{}
+		}
+		out[repo][m[3]] = true
+	}
+	return out, nil
+}
+
+// previousKeys parses the keys retired by a rotation.
+func previousKeys(raw string) ([][]byte, error) {
+	var keys [][]byte
+	for _, item := range strings.FieldsFunc(raw, func(r rune) bool { return r == ',' || r == ' ' || r == '\n' }) {
+		key, err := hex.DecodeString(item)
+		if err != nil || len(key) != 32 {
+			return nil, fmt.Errorf("SWIFTPROOF_HUB_SESSION_KEY_PREVIOUS must list 64-hex-character keys")
+		}
+		keys = append(keys, key)
+	}
+	return keys, nil
 }
 
 // CallbackURL is the OAuth redirect registered in the forge application.
@@ -191,15 +294,16 @@ func (c Config) CallbackURL(kind string) string {
 }
 
 // WebhookURL is the push endpoint a repository hook posts to. The routing key
-// is random per repository, so the URL is not enumerable.
-func (c Config) WebhookURL(hookKey string) string {
-	return c.BaseURL + "/hooks/" + hookKey
+// is random per repository; the installation token authorizes the delivery
+// and is only ever known to the forge the hook is registered on.
+func (c Config) WebhookURL(hookKey, token string) string {
+	return c.BaseURL + "/hooks/" + hookKey + "?token=" + url.QueryEscape(token)
 }
 
 // sessionKey prefers an operator-provided key so that several replicas share
 // sessions; otherwise it persists a generated one next to the data.
 func sessionKey(getenv func(string) string, dir string) ([]byte, error) {
-	if raw := strings.TrimSpace(getenv("SWIFTPROOF_HUB_SESSION_KEY")); raw != "" {
+	if raw := secret(getenv, "SWIFTPROOF_HUB_SESSION_KEY"); raw != "" {
 		key, err := hex.DecodeString(raw)
 		if err != nil || len(key) != 32 {
 			return nil, fmt.Errorf("SWIFTPROOF_HUB_SESSION_KEY must be 64 hex characters (32 bytes)")
@@ -226,8 +330,10 @@ func sessionKey(getenv func(string) string, dir string) ([]byte, error) {
 	return key, nil
 }
 
-// secret reads a value directly or, following the Docker secret convention the
-// CLI already uses, from the file named by <NAME>_FILE.
+// secret reads a value from the file named by <NAME>_FILE (the Docker secret
+// convention the CLI already uses), then from /run/secrets/<NAME>, and only
+// then from the variable itself, which a container exposes to anything that
+// can read its environment.
 func secret(getenv func(string) string, name string) string {
 	if path := strings.TrimSpace(getenv(name + "_FILE")); path != "" {
 		data, err := os.ReadFile(path)

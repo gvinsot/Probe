@@ -14,10 +14,11 @@ COPY go.work ./
 COPY app/ app/
 COPY hub/ hub/
 ARG VERSION=dev
-RUN go build -ldflags "-s -w" -o /out/swiftproof ./app/cmd/swiftproof \
+# Both binaries carry the build version: the UI reports the hub's and the CLI's.
+RUN go build -ldflags "-s -w -X main.version=${VERSION}" -o /out/swiftproof ./app/cmd/swiftproof \
  && go build -ldflags "-s -w -X main.version=${VERSION}" -o /out/swiftproof-hub ./hub/cmd/swiftproof-hub
 # The binaries must run in the final image, which has no Go toolchain.
-RUN go vet ./hub/... && /out/swiftproof-hub version
+RUN go vet ./hub/... && /out/swiftproof-hub version && /out/swiftproof version
 
 FROM debian:bookworm-slim
 # git fetches the analyzed commits; ca-certificates lets the hub reach the
@@ -35,6 +36,7 @@ COPY --from=build /out/swiftproof-hub /usr/local/bin/swiftproof-hub
 ENV SWIFTPROOF_HUB_ADDR=:8080 \
     SWIFTPROOF_HUB_DATA_DIR=/var/lib/swiftproof-hub \
     SWIFTPROOF_HUB_BINARY=/usr/local/bin/swiftproof \
+    SWIFTPROOF_HUB_INSTANCE=public \
     SWIFTPROOF_HUB_MODE=lint
 
 USER swiftproof

@@ -12,7 +12,9 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -145,12 +147,21 @@ type harness struct {
 
 func newHarness(t *testing.T) *harness {
 	t.Helper()
+	return newHarnessWith(t, nil)
+}
+
+// newHarnessWith lets a test adjust the configuration before anything is built.
+func newHarnessWith(t *testing.T, adjust func(*config.Config)) *harness {
+	t.Helper()
 	dir := t.TempDir()
 	cfg := config.Config{
 		Addr: ":0", BaseURL: "https://hub.example", DataDir: dir, Mode: config.ModeLint,
 		Binary: "/bin/true", Workers: 1, QueueSize: 8, AnalysisTimeout: time.Minute,
 		CloneDepth: 5, MaxRepos: 100, SessionTTL: time.Hour, CommitStatus: false,
 		Forges: map[string]config.Forge{config.GitHub: {Kind: config.GitHub, ClientID: "id", ClientSecret: "s"}},
+	}
+	if adjust != nil {
+		adjust(&cfg)
 	}
 	keys, err := secrets.New(bytes.Repeat([]byte{3}, 32))
 	if err != nil {
@@ -485,8 +496,21 @@ func TestMonitoringLifecycle(t *testing.T) {
 	if !stored.Monitored || stored.HookID != "hook-1" || stored.HookKey == "" {
 		t.Fatalf("monitoring state = %+v", stored)
 	}
-	if !strings.HasPrefix(h.provider.hookTarget, "https://hub.example/hooks/") {
+	if !strings.HasPrefix(h.provider.hookTarget, "https://hub.example/hooks/"+stored.HookKey+"?token=") {
 		t.Errorf("hook target = %q", h.provider.hookTarget)
+	}
+	hookToken := tokenOf(t, h.provider.hookTarget)
+	if len(hookToken) < 20 {
+		t.Errorf("the installation token must be unguessable, got %q", hookToken)
+	}
+	if opened, err := h.keys.Open(stored.HookToken); err != nil || opened != hookToken {
+		t.Errorf("the installation token must be sealed at rest, got %q, %v", opened, err)
+	}
+	if stored.BadgeKey == "" || stored.BadgeKey == stored.HookKey {
+		t.Errorf("the badge needs its own key, distinct from the webhook's: %q / %q", stored.BadgeKey, stored.HookKey)
+	}
+	if route, err := h.store.Badge(stored.BadgeKey); err != nil || route.RepoKey != repo.Key {
+		t.Errorf("the badge key must resolve to the repository, got %+v, %v", route, err)
 	}
 	if len(h.provider.hookSecret) < 20 {
 		t.Errorf("the webhook secret must be unguessable, got %q", h.provider.hookSecret)
@@ -500,7 +524,8 @@ func TestMonitoringLifecycle(t *testing.T) {
 	}
 	// The public projection must never carry the hook credentials.
 	payload := h.decode(on)
-	if strings.Contains(on.Body.String(), stored.HookKey) || strings.Contains(on.Body.String(), stored.HookSecret) {
+	if strings.Contains(on.Body.String(), stored.HookKey) || strings.Contains(on.Body.String(), stored.HookSecret) ||
+		strings.Contains(on.Body.String(), hookToken) || strings.Contains(on.Body.String(), stored.HookToken) {
 		t.Errorf("the response leaks the webhook credentials: %v", payload)
 	}
 
@@ -518,28 +543,71 @@ func TestMonitoringLifecycle(t *testing.T) {
 	if _, err := h.store.Hook(stored.HookKey); err == nil {
 		t.Error("the routing key must be forgotten")
 	}
+	if _, err := h.store.Badge(stored.BadgeKey); err == nil {
+		t.Error("the badge must stop serving once monitoring stops")
+	}
+	if stopped.HookToken != "" {
+		t.Error("the installation token must be revoked")
+	}
+
+	// Re-enabling keeps the README badge but issues a new installation token.
+	if again := h.do(http.MethodPost, "/api/repos/"+repo.Key+"/monitor", nil); again.Code != http.StatusOK {
+		t.Fatalf("monitor again = %d", again.Code)
+	}
+	renewed, _ := h.store.Repo(h.userKey, repo.Key)
+	if renewed.BadgeKey != stored.BadgeKey {
+		t.Error("the badge key must survive a reinstall")
+	}
+	if tokenOf(t, h.provider.hookTarget) == hookToken {
+		t.Error("a reinstall must issue a fresh installation token")
+	}
+}
+
+// tokenOf extracts the installation token from a registered webhook URL.
+func tokenOf(t *testing.T, target string) string {
+	t.Helper()
+	u, err := url.Parse(target)
+	if err != nil {
+		t.Fatalf("hook target %q: %v", target, err)
+	}
+	return u.Query().Get(hookTokenParam)
+}
+
+// monitored switches monitoring on and returns what the forge was given.
+func (h *harness) monitored(repo *store.Repo) (hookKey, token, secret string) {
+	h.t.Helper()
+	if got := h.do(http.MethodPost, "/api/repos/"+repo.Key+"/monitor", nil); got.Code != http.StatusOK {
+		h.t.Fatalf("monitor = %d: %s", got.Code, got.Body)
+	}
+	stored, _ := h.store.Repo(h.userKey, repo.Key)
+	return stored.HookKey, tokenOf(h.t, h.provider.hookTarget), h.provider.hookSecret
+}
+
+// deliver posts a signed push the way a forge does, with no browser session.
+func (h *harness) deliver(key, token, secret string, payload forge.Push) *httptest.ResponseRecorder {
+	h.t.Helper()
+	body, _ := json.Marshal(payload)
+	mac := hmac.New(sha256.New, []byte(secret))
+	mac.Write(body)
+	target := "/hooks/" + key
+	if token != "" {
+		target += "?token=" + url.QueryEscape(token)
+	}
+	r := httptest.NewRequest(http.MethodPost, target, bytes.NewReader(body))
+	r.Header.Set("X-Test-Signature", hex.EncodeToString(mac.Sum(nil)))
+	r.Header.Set("X-GitHub-Event", "push")
+	w := httptest.NewRecorder()
+	h.handler.ServeHTTP(w, r)
+	return w
 }
 
 func TestWebhookDelivery(t *testing.T) {
 	h := newHarness(t)
 	h.signIn()
 	repo := h.addRepo(func(r *store.Repo) { r.HasPolicy = true; r.Admin = true })
-	if got := h.do(http.MethodPost, "/api/repos/"+repo.Key+"/monitor", nil); got.Code != http.StatusOK {
-		t.Fatalf("monitor = %d: %s", got.Code, got.Body)
-	}
-	stored, _ := h.store.Repo(h.userKey, repo.Key)
-	hookKey, secret := stored.HookKey, h.provider.hookSecret
-
+	hookKey, token, secret := h.monitored(repo)
 	post := func(key, secret string, payload forge.Push) *httptest.ResponseRecorder {
-		body, _ := json.Marshal(payload)
-		mac := hmac.New(sha256.New, []byte(secret))
-		mac.Write(body)
-		r := httptest.NewRequest(http.MethodPost, "/hooks/"+key, bytes.NewReader(body))
-		r.Header.Set("X-Test-Signature", hex.EncodeToString(mac.Sum(nil)))
-		r.Header.Set("X-GitHub-Event", "push")
-		w := httptest.NewRecorder()
-		h.handler.ServeHTTP(w, r)
-		return w
+		return h.deliver(key, token, secret, payload)
 	}
 
 	push := forge.Push{RepoID: "10", Ref: "refs/heads/main", Before: strings.Repeat("1", 40), After: strings.Repeat("2", 40)}
@@ -548,9 +616,6 @@ func TestWebhookDelivery(t *testing.T) {
 	}
 	if got := post(hookKey, "wrong-secret", push); got.Code != http.StatusUnauthorized {
 		t.Errorf("a wrong signature = %d, want 401", got.Code)
-	}
-	if got := post("unknown-routing-key", secret, push); got.Code != http.StatusNotFound {
-		t.Errorf("an unknown routing key = %d, want 404", got.Code)
 	}
 
 	deletion := push
@@ -576,6 +641,90 @@ func TestWebhookDelivery(t *testing.T) {
 	feature.Ref = "refs/heads/feature"
 	if got := post(hookKey, secret, feature); !strings.Contains(got.Body.String(), "ignored") {
 		t.Errorf("a non-default branch must be ignored, got %s", got.Body)
+	}
+}
+
+// TestWebhookWithoutInstallationIsRefused covers the public-instance attack: a
+// caller who read a routing key somewhere must not be able to schedule work.
+func TestWebhookWithoutInstallationIsRefused(t *testing.T) {
+	h := newHarness(t)
+	h.signIn()
+	repo := h.addRepo(func(r *store.Repo) { r.HasPolicy = true; r.Admin = true })
+	hookKey, token, secret := h.monitored(repo)
+	push := forge.Push{RepoID: "10", Ref: "refs/heads/main", Before: strings.Repeat("1", 40), After: strings.Repeat("3", 40)}
+
+	refusals := map[string]*httptest.ResponseRecorder{
+		// Even a correctly signed delivery is refused without the token.
+		"no installation token":    h.deliver(hookKey, "", secret, push),
+		"a forged token":           h.deliver(hookKey, "guessed-token", secret, push),
+		"an unknown routing key":   h.deliver("unknown-routing-key", token, secret, push),
+		"a traversing key":         h.deliver("..%2f..%2fsession.key", token, secret, push),
+		"another repository's key": h.deliver(hookKey+"x", token, secret, push),
+	}
+	var first string
+	for name, got := range refusals {
+		if got.Code != http.StatusUnauthorized && got.Code != http.StatusNotFound {
+			t.Errorf("%s = %d, want 401", name, got.Code)
+			continue
+		}
+		if name != "a traversing key" && got.Code != http.StatusUnauthorized {
+			t.Errorf("%s = %d, want 401", name, got.Code)
+		}
+		if got.Code == http.StatusUnauthorized {
+			if first == "" {
+				first = got.Body.String()
+			} else if got.Body.String() != first {
+				t.Errorf("%s must be indistinguishable from any other refusal: %q vs %q", name, got.Body, first)
+			}
+		}
+	}
+	stored, _ := h.store.Repo(h.userKey, repo.Key)
+	if stored.Latest != nil && stored.Latest.Commit == push.After {
+		t.Fatal("a refused delivery must not schedule anything")
+	}
+
+	// Once the owning account is gone, its installation stops working too.
+	if err := os.Remove(filepath.Join(h.cfg.DataDir, "users", h.userKey+".json")); err != nil {
+		t.Fatalf("remove user: %v", err)
+	}
+	if got := h.deliver(hookKey, token, secret, push); got.Code != http.StatusUnauthorized {
+		t.Errorf("a delivery for a deleted account = %d, want 401", got.Code)
+	}
+}
+
+func TestWebhookIsRateLimitedAndQuotaBound(t *testing.T) {
+	h := newHarnessWith(t, func(c *config.Config) { c.UserQuota = 2; c.HookRate = 4 })
+	h.signIn()
+	repo := h.addRepo(func(r *store.Repo) { r.HasPolicy = true; r.Admin = true })
+	// Monitoring enqueues the current tip: one slot of the quota is taken.
+	hookKey, token, secret := h.monitored(repo)
+	push := func(n int) forge.Push {
+		return forge.Push{RepoID: "10", Ref: "refs/heads/main", Before: strings.Repeat("1", 40), After: strings.Repeat(fmt.Sprint(n), 40)}
+	}
+	if got := h.deliver(hookKey, token, secret, push(4)); got.Code != http.StatusAccepted {
+		t.Fatalf("a push within the quota = %d: %s", got.Code, got.Body)
+	}
+	over := h.deliver(hookKey, token, secret, push(5))
+	if over.Code != http.StatusTooManyRequests {
+		t.Fatalf("a push over the account quota = %d, want 429: %s", over.Code, over.Body)
+	}
+	if over.Header().Get("Retry-After") == "" {
+		t.Error("a 429 must tell the caller when to retry")
+	}
+	manual := h.do(http.MethodPost, "/api/repos/"+repo.Key+"/analyze", map[string]string{"commit": strings.Repeat("6", 40)})
+	if manual.Code != http.StatusTooManyRequests {
+		t.Errorf("a manual analysis over the quota = %d, want 429", manual.Code)
+	}
+
+	// Two deliveries already counted; the limit of 4 per minute is reached
+	// with two more, whatever they carry, and unknown keys have their own.
+	h.deliver(hookKey, "", secret, push(7))
+	h.deliver(hookKey, "", secret, push(7))
+	if got := h.deliver(hookKey, token, secret, push(7)); got.Code != http.StatusTooManyRequests {
+		t.Errorf("a flooded routing key = %d, want 429", got.Code)
+	}
+	if got := h.deliver("another-key", "", secret, push(7)); got.Code != http.StatusUnauthorized {
+		t.Errorf("another routing key has its own budget, got %d", got.Code)
 	}
 }
 
@@ -683,16 +832,23 @@ func TestBadgeReflectsTheLatestRun(t *testing.T) {
 	h := newHarness(t)
 	h.signIn()
 	repo := h.addRepo(func(r *store.Repo) {
-		r.HasPolicy, r.Monitored, r.HookKey = true, true, "badge-key"
+		r.HasPolicy, r.Monitored, r.HookKey, r.BadgeKey = true, true, "hook-key", "badge-key"
 		r.Latest = &store.Run{Commit: "abc", Status: store.StatusDone}
 		r.Latest.Summary.Verdict = "blocked"
 	})
-	if err := h.store.PutHook("badge-key", store.HookRoute{UserKey: h.userKey, RepoKey: repo.Key, Provider: config.GitHub}); err != nil {
+	route := store.HookRoute{UserKey: h.userKey, RepoKey: repo.Key, Provider: config.GitHub}
+	if err := h.store.PutHook("hook-key", route); err != nil {
 		t.Fatalf("PutHook: %v", err)
 	}
-	r := httptest.NewRequest(http.MethodGet, "/badge/badge-key.svg", nil)
-	w := httptest.NewRecorder()
-	h.handler.ServeHTTP(w, r)
+	if err := h.store.PutBadge("badge-key", route); err != nil {
+		t.Fatalf("PutBadge: %v", err)
+	}
+	get := func(path string) *httptest.ResponseRecorder {
+		w := httptest.NewRecorder()
+		h.handler.ServeHTTP(w, httptest.NewRequest(http.MethodGet, path, nil))
+		return w
+	}
+	w := get("/badge/badge-key.svg")
 	if w.Code != http.StatusOK {
 		t.Fatalf("badge = %d", w.Code)
 	}
@@ -702,11 +858,44 @@ func TestBadgeReflectsTheLatestRun(t *testing.T) {
 	if !strings.Contains(w.Body.String(), "reproduced issue") {
 		t.Errorf("badge = %s", w.Body)
 	}
-	unknown := httptest.NewRequest(http.MethodGet, "/badge/nope.svg", nil)
-	uw := httptest.NewRecorder()
-	h.handler.ServeHTTP(uw, unknown)
-	if uw.Code != http.StatusOK || !strings.Contains(uw.Body.String(), "unknown") {
-		t.Errorf("an unknown badge must stay renderable, got %d %s", uw.Code, uw.Body)
+}
+
+// TestUnknownBadgeIsIndistinguishable makes sure a badge never serves as an
+// oracle: an unknown key, the webhook routing key and an unmonitored
+// repository all get the same plain 404, and no placeholder SVG.
+func TestUnknownBadgeIsIndistinguishable(t *testing.T) {
+	h := newHarness(t)
+	h.signIn()
+	repo := h.addRepo(func(r *store.Repo) { r.HasPolicy = true; r.Admin = true })
+	hookKey, _, _ := h.monitored(repo)
+	stored, _ := h.store.Repo(h.userKey, repo.Key)
+	get := func(key string) *httptest.ResponseRecorder {
+		w := httptest.NewRecorder()
+		h.handler.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/badge/"+key+".svg", nil))
+		return w
+	}
+	if got := get(stored.BadgeKey); got.Code != http.StatusOK {
+		t.Fatalf("the published badge = %d", got.Code)
+	}
+	unknown := get("nope")
+	for name, got := range map[string]*httptest.ResponseRecorder{
+		"unknown key":     unknown,
+		"another unknown": get("zzzzzzzzzzzzzzzzzzzzzzzz"),
+		"webhook key":     get(hookKey),
+	} {
+		if got.Code != http.StatusNotFound {
+			t.Errorf("%s = %d, want 404", name, got.Code)
+		}
+		if strings.Contains(got.Header().Get("Content-Type"), "svg") || strings.Contains(got.Body.String(), "<svg") {
+			t.Errorf("%s must not render a badge: %s", name, got.Body)
+		}
+		if got.Body.String() != unknown.Body.String() {
+			t.Errorf("%s must look like any other unknown key: %q vs %q", name, got.Body, unknown.Body)
+		}
+	}
+	h.do(http.MethodDelete, "/api/repos/"+repo.Key+"/monitor", nil)
+	if got := get(stored.BadgeKey); got.Code != http.StatusNotFound || got.Body.String() != unknown.Body.String() {
+		t.Errorf("an unmonitored repository's badge = %d %q, want the unknown-key 404", got.Code, got.Body)
 	}
 }
 
@@ -765,11 +954,21 @@ func TestSafeNext(t *testing.T) {
 	}
 }
 
-func TestHealth(t *testing.T) {
+func TestHealthDisclosesNothing(t *testing.T) {
 	h := newHarness(t)
-	body := h.decode(h.do(http.MethodGet, "/healthz", nil))
-	if body["status"] != "ok" || body["mode"] != config.ModeLint {
-		t.Errorf("/healthz = %v", body)
+	got := h.do(http.MethodGet, "/healthz", nil)
+	if got.Code != http.StatusOK {
+		t.Fatalf("/healthz = %d", got.Code)
+	}
+	body := h.decode(got)
+	if len(body) != 1 || body["status"] != "ok" {
+		t.Errorf("the public probe must only say it is up, got %v", body)
+	}
+	// The build and mode remain visible to a signed-in user.
+	h.signIn()
+	me := h.decode(h.do(http.MethodGet, "/api/me", nil))
+	if me["mode"] != config.ModeLint || me["version"] != "test" {
+		t.Errorf("/api/me = %v", me)
 	}
 }
 

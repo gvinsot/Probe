@@ -161,3 +161,43 @@ func TestRandomIsUnguessable(t *testing.T) {
 		seen[v] = true
 	}
 }
+
+func TestRotationKeepsStoredValuesReadable(t *testing.T) {
+	oldKey, newKey := make([]byte, 32), make([]byte, 32)
+	newKey[0] = 1
+	old, err := New(oldKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sealed, err := old.Seal("gho_token")
+	if err != nil {
+		t.Fatal(err)
+	}
+	rotated, err := New(newKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := rotated.Open(sealed); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("without the previous key the value must not open, got %v", err)
+	}
+	if err := rotated.WithPrevious([][]byte{oldKey}); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := rotated.Open(sealed); err != nil || got != "gho_token" {
+		t.Fatalf("Open = %q, %v", got, err)
+	}
+	fresh, changed, err := rotated.Reseal(sealed)
+	if err != nil || !changed {
+		t.Fatalf("Reseal = %v, %v", changed, err)
+	}
+	if _, changed, _ := rotated.Reseal(fresh); changed {
+		t.Error("a value already under the current key must be left alone")
+	}
+	current, _ := New(newKey)
+	if got, err := current.Open(fresh); err != nil || got != "gho_token" {
+		t.Fatalf("the resealed value must open under the new key alone: %q, %v", got, err)
+	}
+	if err := rotated.WithPrevious([][]byte{{1, 2}}); err == nil {
+		t.Error("a short previous key must be refused")
+	}
+}

@@ -2,6 +2,8 @@ package analysis
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"io"
 	"log/slog"
@@ -177,7 +179,7 @@ exit 2
 `)
 	r, _ := testRunner(t, binary)
 	work := t.TempDir()
-	output, code, err := r.runCLI(context.Background(), work, "base-sha", "head-sha")
+	output, code, err := r.runCLI(context.Background(), work, config.ModeLint, "base-sha", "head-sha")
 	if code != 2 {
 		t.Fatalf("exit code = %d (%v), want 2: %s", code, err, output)
 	}
@@ -294,6 +296,87 @@ func TestEnqueueValidatesRejectsDuplicatesAndReportsSaturation(t *testing.T) {
 	stored, err := st.Repo(userKey, repoKey)
 	if err != nil || stored.Latest == nil || stored.Latest.Status != store.StatusQueued {
 		t.Fatalf("latest run = %+v, %v", stored.Latest, err)
+	}
+}
+
+func TestEnqueueEnforcesAPerAccountQuota(t *testing.T) {
+	r, st := testRunner(t, "/bin/true")
+	r.cfg.UserQuota = 2
+	greedy, other := store.Key("github", "1"), store.Key("github", "2")
+	repoKey := store.Key("github", "10")
+	for _, user := range []string{greedy, other} {
+		if err := st.PutRepo(user, &store.Repo{Key: repoKey, FullName: "acme/shop"}); err != nil {
+			t.Fatalf("PutRepo: %v", err)
+		}
+	}
+	job := func(user, commit string) Job {
+		return Job{UserKey: user, RepoKey: repoKey, Commit: commit, Trigger: TriggerPush}
+	}
+	for _, commit := range []string{"aaaaaaa", "bbbbbbb"} {
+		if err := r.Enqueue(job(greedy, commit)); err != nil {
+			t.Fatalf("Enqueue %s: %v", commit, err)
+		}
+	}
+	if err := r.Enqueue(job(greedy, "ccccccc")); !errors.Is(err, ErrQuota) {
+		t.Fatalf("an account over its quota must get ErrQuota, got %v", err)
+	}
+	// A redelivery of a queued commit is still accepted silently.
+	if err := r.Enqueue(job(greedy, "aaaaaaa")); err != nil {
+		t.Errorf("a duplicate must not count against the quota, got %v", err)
+	}
+	// Another account still has room in the shared queue.
+	if err := r.Enqueue(job(other, "ddddddd")); err != nil {
+		t.Fatalf("the quota of one account must not block another: %v", err)
+	}
+	// Finishing a job frees a slot of its own account.
+	r.release(job(greedy, "aaaaaaa"))
+	if err := r.Enqueue(job(greedy, "ccccccc")); err != nil {
+		t.Errorf("a released slot must be reusable, got %v", err)
+	}
+}
+
+func TestReviewOnlyRunsForAValidatedPolicy(t *testing.T) {
+	g, _ := repoWithCommits(t, 1)
+	ctx := context.Background()
+	policy := []byte(`{"version":1,"language":"go","commands":{}}` + "\n")
+	if err := os.WriteFile(filepath.Join(g.dir, ".swiftproof.json"), policy, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := g.run(ctx, "add", ".swiftproof.json"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := g.run(ctx, "commit", "--quiet", "-m", "policy"); err != nil {
+		t.Fatal(err)
+	}
+	base, _ := g.run(ctx, "rev-parse", "HEAD")
+	sum := sha256.Sum256(policy)
+	digest := hex.EncodeToString(sum[:])
+
+	r, _ := testRunner(t, "/bin/true")
+	repo := &store.Repo{Provider: "github", FullName: "acme/shop"}
+	if got := r.modeFor(ctx, g, repo, base); got != config.ModeLint {
+		t.Errorf("a lint instance must lint, got %s", got)
+	}
+	r.cfg.Mode, r.cfg.Instance = config.ModeReview, config.InstancePrivate
+	r.cfg.ReviewPolicies = map[string]map[string]bool{"github:acme/shop": {digest: true}}
+	if got := r.modeFor(ctx, g, repo, base); got != config.ModeReview {
+		t.Errorf("a validated repository and policy must be reviewed, got %s", got)
+	}
+	if got := r.modeFor(ctx, g, &store.Repo{Provider: "github", FullName: "acme/other"}, base); got != config.ModeLint {
+		t.Errorf("an unlisted repository must be linted, got %s", got)
+	}
+	// Any edit of the policy invalidates the operator's validation.
+	if err := os.WriteFile(filepath.Join(g.dir, ".swiftproof.json"), []byte(`{"version":1,"commands":{"test":["sh","-c","curl evil"]}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	g.run(ctx, "commit", "--quiet", "-am", "tamper")
+	tampered, _ := g.run(ctx, "rev-parse", "HEAD")
+	if got := r.modeFor(ctx, g, repo, tampered); got != config.ModeLint {
+		t.Errorf("a changed policy must be linted, got %s", got)
+	}
+	r.cfg.Instance = config.InstancePublic
+	if got := r.modeFor(ctx, g, repo, base); got != config.ModeLint {
+		t.Errorf("a public instance must never review, got %s", got)
 	}
 }
 

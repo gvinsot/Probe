@@ -55,6 +55,26 @@ func (g *gitRunner) run(ctx context.Context, args ...string) (string, error) {
 	return strings.TrimSpace(stdout.String()), nil
 }
 
+// blob returns the exact bytes of a file at a commit, without trimming, so
+// its digest matches the committed file. It is bounded like a report.
+func (g *gitRunner) blob(ctx context.Context, commit, path string) ([]byte, error) {
+	cmd := exec.CommandContext(ctx, "git", "cat-file", "blob", commit+":"+path)
+	cmd.Dir = g.dir
+	cmd.Env = g.env
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout, cmd.Stderr = &stdout, &stderr
+	if err := cmd.Run(); err != nil {
+		return nil, fmt.Errorf("git cat-file: %w: %s", err, tail(stderr.String()))
+	}
+	if stdout.Len() > maxPolicyBytes {
+		return nil, fmt.Errorf("%s exceeds %d bytes", path, maxPolicyBytes)
+	}
+	return stdout.Bytes(), nil
+}
+
+// maxPolicyBytes bounds a policy read from a commit.
+const maxPolicyBytes = 1 << 20
+
 // prepare initializes an empty repository pointed at the remote.
 func (g *gitRunner) prepare(ctx context.Context, cloneURL string) error {
 	if cloneURL == "" {

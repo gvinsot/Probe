@@ -39,8 +39,8 @@ func TestLoadDefaults(t *testing.T) {
 	if c.CallbackURL(GitHub) != "https://swiftproof.example.com/auth/github/callback" {
 		t.Errorf("CallbackURL = %q", c.CallbackURL(GitHub))
 	}
-	if c.WebhookURL("abc") != "https://swiftproof.example.com/hooks/abc" {
-		t.Errorf("WebhookURL = %q", c.WebhookURL("abc"))
+	if c.WebhookURL("abc", "t0k") != "https://swiftproof.example.com/hooks/abc?token=t0k" {
+		t.Errorf("WebhookURL = %q", c.WebhookURL("abc", "t0k"))
 	}
 	gh := c.Forges[GitHub]
 	if gh.APIURL != "https://api.github.com" || gh.BaseURL != "https://github.com" {
@@ -170,6 +170,8 @@ func TestSelfManagedHosts(t *testing.T) {
 		"SWIFTPROOF_HUB_GITLAB_CLIENT_SECRET": "gs",
 		"SWIFTPROOF_HUB_GITLAB_URL":           "https://gitlab.internal",
 		"SWIFTPROOF_HUB_MODE":                 "review",
+		"SWIFTPROOF_HUB_INSTANCE":             "private",
+		"SWIFTPROOF_HUB_REVIEW_POLICIES":      "github:acme/shop@sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
 		"SWIFTPROOF_HUB_DEFAULT_BRANCH_ONLY":  "true",
 		"SWIFTPROOF_HUB_ANALYSIS_TIMEOUT":     "30m",
 	}
@@ -206,5 +208,95 @@ func TestSecretCanComeFromAFile(t *testing.T) {
 	}
 	if c.Forges[GitHub].ClientSecret != "file-secret" {
 		t.Errorf("secret = %q, want the trimmed file content", c.Forges[GitHub].ClientSecret)
+	}
+}
+
+func TestReviewModeIsRefusedOnAPublicInstance(t *testing.T) {
+	values := baseEnv(t.TempDir())
+	values["SWIFTPROOF_HUB_MODE"] = "review"
+	values["SWIFTPROOF_HUB_REVIEW_POLICIES"] = "github:acme/shop@sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+	// The instance defaults to public: forgetting the variable must not open
+	// review to whoever signs in.
+	if _, err := Load(envOf(values)); err == nil || !strings.Contains(err.Error(), "public instance") {
+		t.Fatalf("review on a default (public) instance must be refused, got %v", err)
+	}
+	values["SWIFTPROOF_HUB_INSTANCE"] = "public"
+	if _, err := Load(envOf(values)); err == nil {
+		t.Fatal("review on an explicitly public instance must be refused")
+	}
+	values["SWIFTPROOF_HUB_INSTANCE"] = "shared"
+	if _, err := Load(envOf(values)); err == nil {
+		t.Fatal("an unknown instance kind must be refused")
+	}
+}
+
+func TestReviewModeNeedsValidatedPolicies(t *testing.T) {
+	values := baseEnv(t.TempDir())
+	values["SWIFTPROOF_HUB_MODE"] = "review"
+	values["SWIFTPROOF_HUB_INSTANCE"] = "private"
+	if _, err := Load(envOf(values)); err == nil {
+		t.Fatal("review without any validated policy must be refused")
+	}
+	values["SWIFTPROOF_HUB_REVIEW_POLICIES"] = "acme/shop"
+	if _, err := Load(envOf(values)); err == nil {
+		t.Fatal("a malformed allowlist entry must be refused")
+	}
+	values["SWIFTPROOF_HUB_REVIEW_POLICIES"] = "github:Acme/Shop@sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef, gitlab:team/api@sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+	c, err := Load(envOf(values))
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if !c.ReviewAllowed("github", "acme/shop", "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef") {
+		t.Error("a validated repository and policy must run in review mode")
+	}
+	if c.ReviewAllowed("github", "acme/shop", "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee") {
+		t.Error("another version of the policy must fall back to lint")
+	}
+	if c.ReviewAllowed("github", "acme/other", "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef") {
+		t.Error("an unlisted repository must fall back to lint")
+	}
+	c.Mode = ModeLint
+	if c.ReviewAllowed("github", "acme/shop", "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef") {
+		t.Error("a lint instance never reviews")
+	}
+}
+
+func TestLintIsAllowedOnAPublicInstanceWithQuotas(t *testing.T) {
+	c, err := Load(envOf(baseEnv(t.TempDir())))
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if c.Instance != InstancePublic || c.Mode != ModeLint {
+		t.Errorf("defaults = %s/%s, want public/lint", c.Instance, c.Mode)
+	}
+	if c.UserQuota < 1 || c.HookRate < 1 {
+		t.Errorf("quotas must be on by default, got %d/%d", c.UserQuota, c.HookRate)
+	}
+}
+
+func TestSessionKeyAndPreviousKeysCanComeFromFiles(t *testing.T) {
+	dir := t.TempDir()
+	current, previous := strings.Repeat("ab", 32), strings.Repeat("cd", 32)
+	keyPath, prevPath := filepath.Join(dir, "key"), filepath.Join(dir, "prev")
+	if err := os.WriteFile(keyPath, []byte(current+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(prevPath, []byte(previous+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	values := baseEnv(dir)
+	values["SWIFTPROOF_HUB_SESSION_KEY_FILE"] = keyPath
+	values["SWIFTPROOF_HUB_SESSION_KEY_PREVIOUS_FILE"] = prevPath
+	c, err := Load(envOf(values))
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if c.SessionKey[0] != 0xab || len(c.PreviousSessionKeys) != 1 || c.PreviousSessionKeys[0][0] != 0xcd {
+		t.Errorf("keys = %x / %x", c.SessionKey, c.PreviousSessionKeys)
+	}
+	values["SWIFTPROOF_HUB_SESSION_KEY_PREVIOUS_FILE"] = ""
+	values["SWIFTPROOF_HUB_SESSION_KEY_PREVIOUS"] = "short"
+	if _, err := Load(envOf(values)); err == nil {
+		t.Error("a malformed previous key must be refused")
 	}
 }

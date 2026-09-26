@@ -154,7 +154,9 @@ func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) {
 		"authenticated": true,
 		"forges":        forges,
 		"version":       s.version,
+		"cli":           s.cliVersion(r),
 		"mode":          s.cfg.Mode,
+		"instance":      s.cfg.Instance,
 		"csrf":          s.keys.CSRF(sess),
 		"expires":       sess.Expires,
 		"user": map[string]string{

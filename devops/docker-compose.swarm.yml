@@ -47,8 +47,9 @@ services:
 
   # The web application. One replica, because its state — sealed forge tokens,
   # tracked repositories and a bounded report history — lives in one volume.
-  # Back that volume up: losing it makes every user sign in again and reinstall
-  # their webhooks.
+  # Back that volume up, together with the session key (generated inside it
+  # when SWIFTPROOF_HUB_SESSION_KEY is unset): losing either makes every user
+  # sign in again and reinstall their webhooks.
   swiftproof-app:
     image: registry.methodinfo.fr/swiftproof-hub:latest
     build:
@@ -56,15 +57,23 @@ services:
       context: ..
       dockerfile: hub/Dockerfile
       args:
-        # The build stage exports VERSION; without it /healthz and the UI would
-        # report the deployed application as "dev".
+        # The build stage stamps VERSION on both the hub and the embedded CLI;
+        # without it the UI would report them as "dev".
         VERSION: "${VERSION:-dev}"
     environment:
       SWIFTPROOF_HUB_BASE_URL: "https://${SWIFTPROOF_APP_DOMAIN:-app.swiftproof.net}"
       SWIFTPROOF_HUB_DATA_DIR: /var/lib/swiftproof-hub
-      # lint never executes repository code; review needs a Docker socket.
-      SWIFTPROOF_HUB_MODE: "${SWIFTPROOF_HUB_MODE:-lint}"
+      # app.swiftproof.net is open to anybody who signs in, so it is a public
+      # instance, pinned to lint: nothing it analyzes is ever executed. Both are
+      # fixed here on purpose, not taken from the deployment environment; the
+      # hub refuses to start in review mode on a public instance anyway.
+      SWIFTPROOF_HUB_INSTANCE: public
+      SWIFTPROOF_HUB_MODE: lint
       SWIFTPROOF_HUB_WORKERS: "${SWIFTPROOF_HUB_WORKERS:-2}"
+      # One account cannot hold more than this many queued or running analyses,
+      # and one webhook routing key is accepted this many times per minute.
+      SWIFTPROOF_HUB_USER_QUOTA: "${SWIFTPROOF_HUB_USER_QUOTA:-8}"
+      SWIFTPROOF_HUB_HOOK_RATE: "${SWIFTPROOF_HUB_HOOK_RATE:-30}"
       SWIFTPROOF_HUB_DEFAULT_BRANCH_ONLY: "${SWIFTPROOF_HUB_DEFAULT_BRANCH_ONLY:-false}"
       # Serve the application even before an OAuth app exists: the sign-in page
       # then states that no forge is configured, instead of the task crash
@@ -75,12 +84,24 @@ services:
       SWIFTPROOF_HUB_GITHUB_API_URL: "${SWIFTPROOF_HUB_GITHUB_API_URL:-https://api.github.com}"
       SWIFTPROOF_HUB_GITLAB_CLIENT_ID: "${SWIFTPROOF_HUB_GITLAB_CLIENT_ID:-}"
       SWIFTPROOF_HUB_GITLAB_URL: "${SWIFTPROOF_HUB_GITLAB_URL:-https://gitlab.com}"
-      # The client secrets and the session key follow the cluster convention:
-      # a variable whose name ends in _SECRET or _KEY becomes a Docker secret
-      # mounted at /run/secrets/<NAME>, which the hub reads on its own.
+      # As written, this file passes the client secrets and the session key as
+      # plain environment variables: they are visible to `docker service
+      # inspect` and to anything reading the container environment. This file
+      # declares no Docker secret. The hub reads /run/secrets/<NAME> (and
+      # <NAME>_FILE) before the variable, so mounting a Docker secret under
+      # that name — by the deployment tool or an override stack file, as
+      # devops/docker-compose.hub.yml does — takes precedence without any
+      # change here. Leave a variable empty once its secret is mounted.
+      #
+      # The session key seals every user's forge token at rest. Losing it
+      # signs everybody out and breaks every installed webhook: back it up
+      # with the volume. To rotate, move the current value to
+      # SWIFTPROOF_HUB_SESSION_KEY_PREVIOUS, set a new key and redeploy; the
+      # hub reseals the stored credentials at start-up (see hub/README.md).
       SWIFTPROOF_HUB_GITHUB_CLIENT_SECRET: "${SWIFTPROOF_HUB_GITHUB_CLIENT_SECRET:-}"
       SWIFTPROOF_HUB_GITLAB_CLIENT_SECRET: "${SWIFTPROOF_HUB_GITLAB_CLIENT_SECRET:-}"
       SWIFTPROOF_HUB_SESSION_KEY: "${SWIFTPROOF_HUB_SESSION_KEY:-}"
+      SWIFTPROOF_HUB_SESSION_KEY_PREVIOUS: "${SWIFTPROOF_HUB_SESSION_KEY_PREVIOUS:-}"
     volumes:
       - swiftproof-hub-data:/var/lib/swiftproof-hub
     networks:

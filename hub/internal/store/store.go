@@ -61,14 +61,17 @@ type User struct {
 // Run is the state of one analysis, kept both on the repository (as the latest
 // run) and in the report history.
 type Run struct {
-	Commit      string         `json:"commit"`
-	BaseCommit  string         `json:"base_commit,omitempty"`
-	Ref         string         `json:"ref,omitempty"`
-	Message     string         `json:"message,omitempty"`
-	Author      string         `json:"author,omitempty"`
-	Status      string         `json:"status"`
-	Error       string         `json:"error,omitempty"`
-	Trigger     string         `json:"trigger,omitempty"`
+	Commit     string `json:"commit"`
+	BaseCommit string `json:"base_commit,omitempty"`
+	Ref        string `json:"ref,omitempty"`
+	Message    string `json:"message,omitempty"`
+	Author     string `json:"author,omitempty"`
+	Status     string `json:"status"`
+	Error      string `json:"error,omitempty"`
+	Trigger    string `json:"trigger,omitempty"`
+	// Mode is the analysis mode actually used: lint unless the operator
+	// validated this repository's policy for review.
+	Mode        string         `json:"mode,omitempty"`
 	QueuedAt    time.Time      `json:"queued_at"`
 	StartedAt   time.Time      `json:"started_at,omitempty"`
 	FinishedAt  time.Time      `json:"finished_at,omitempty"`
@@ -94,12 +97,20 @@ type Repo struct {
 	HookID        string    `json:"hook_id,omitempty"`
 	HookKey       string    `json:"hook_key,omitempty"`
 	HookSecret    string    `json:"hook_secret,omitempty"`
-	Latest        *Run      `json:"latest,omitempty"`
-	UpdatedAt     time.Time `json:"updated_at"`
+	// HookToken is the sealed installation secret carried in the webhook URL.
+	// It is issued to the signed-in owner when monitoring is switched on and
+	// is required on top of the forge signature.
+	HookToken string `json:"hook_token,omitempty"`
+	// BadgeKey addresses the public badge. It is distinct from HookKey so a
+	// badge embedded in a README reveals nothing about the webhook.
+	BadgeKey  string    `json:"badge_key,omitempty"`
+	Latest    *Run      `json:"latest,omitempty"`
+	UpdatedAt time.Time `json:"updated_at"`
 }
 
 // PublicRepo is the repository projection sent to a browser. It deliberately
-// omits the webhook secret and the routing key, which are credentials.
+// omits the webhook secret, token and routing key, which are credentials. The
+// badge key is not one: it only reads the verdict the owner chose to publish.
 type PublicRepo struct {
 	Key           string    `json:"key"`
 	Provider      string    `json:"provider"`
@@ -110,17 +121,22 @@ type PublicRepo struct {
 	Admin         bool      `json:"admin"`
 	HasPolicy     bool      `json:"has_policy"`
 	Monitored     bool      `json:"monitored"`
+	BadgeKey      string    `json:"badge_key,omitempty"`
 	Latest        *Run      `json:"latest,omitempty"`
 	UpdatedAt     time.Time `json:"updated_at"`
 }
 
 // Public projects a repository for the API.
 func (r *Repo) Public() PublicRepo {
-	return PublicRepo{
+	p := PublicRepo{
 		Key: r.Key, Provider: r.Provider, FullName: r.FullName, WebURL: r.WebURL,
 		DefaultBranch: r.DefaultBranch, Private: r.Private, Admin: r.Admin,
 		HasPolicy: r.HasPolicy, Monitored: r.Monitored, Latest: r.Latest, UpdatedAt: r.UpdatedAt,
 	}
+	if r.Monitored {
+		p.BadgeKey = r.BadgeKey
+	}
+	return p
 }
 
 // Record is a stored report: its run metadata plus the raw confidence report.
@@ -147,7 +163,7 @@ type Store struct {
 
 // Open prepares the data directory.
 func Open(dir string) (*Store, error) {
-	for _, sub := range []string{"users", "repos", "reports", "hooks"} {
+	for _, sub := range []string{"users", "repos", "reports", "hooks", "badges"} {
 		if err := os.MkdirAll(filepath.Join(dir, sub), 0o700); err != nil {
 			return nil, fmt.Errorf("data directory: %w", err)
 		}
@@ -365,20 +381,48 @@ func (s *Store) Repos(userKey string) ([]*Repo, error) {
 
 // PutHook registers the routing key of a repository webhook.
 func (s *Store) PutHook(hookKey string, route HookRoute) error {
+	return s.putRoute("hooks", hookKey, route)
+}
+
+// Hook resolves a webhook routing key.
+func (s *Store) Hook(hookKey string) (HookRoute, error) {
+	return s.route("hooks", hookKey)
+}
+
+// DeleteHook forgets a webhook routing key.
+func (s *Store) DeleteHook(hookKey string) error {
+	return s.deleteRoute("hooks", hookKey)
+}
+
+// PutBadge registers the public key of a repository badge.
+func (s *Store) PutBadge(badgeKey string, route HookRoute) error {
+	return s.putRoute("badges", badgeKey, route)
+}
+
+// Badge resolves a badge key.
+func (s *Store) Badge(badgeKey string) (HookRoute, error) {
+	return s.route("badges", badgeKey)
+}
+
+// DeleteBadge forgets a badge key.
+func (s *Store) DeleteBadge(badgeKey string) error {
+	return s.deleteRoute("badges", badgeKey)
+}
+
+func (s *Store) putRoute(kind, key string, route HookRoute) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	path, err := s.path("hooks", hookKey+".json")
+	path, err := s.path(kind, key+".json")
 	if err != nil {
 		return err
 	}
 	return writeJSON(path, route)
 }
 
-// Hook resolves a webhook routing key.
-func (s *Store) Hook(hookKey string) (HookRoute, error) {
+func (s *Store) route(kind, key string) (HookRoute, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	path, err := s.path("hooks", hookKey+".json")
+	path, err := s.path(kind, key+".json")
 	if err != nil {
 		return HookRoute{}, err
 	}
@@ -389,11 +433,10 @@ func (s *Store) Hook(hookKey string) (HookRoute, error) {
 	return route, nil
 }
 
-// DeleteHook forgets a webhook routing key.
-func (s *Store) DeleteHook(hookKey string) error {
+func (s *Store) deleteRoute(kind, key string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	path, err := s.path("hooks", hookKey+".json")
+	path, err := s.path(kind, key+".json")
 	if err != nil {
 		return err
 	}
@@ -401,6 +444,45 @@ func (s *Store) DeleteHook(hookKey string) error {
 		return err
 	}
 	return nil
+}
+
+// UserKeys lists every stored account, for maintenance such as a key rewrap.
+func (s *Store) UserKeys() ([]string, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	entries, err := os.ReadDir(filepath.Join(s.dir, "users"))
+	if err != nil {
+		return nil, err
+	}
+	keys := make([]string, 0, len(entries))
+	for _, e := range entries {
+		name := strings.TrimSuffix(e.Name(), ".json")
+		if e.IsDir() || name == e.Name() || !ValidKey(name) {
+			continue
+		}
+		keys = append(keys, name)
+	}
+	sort.Strings(keys)
+	return keys, nil
+}
+
+// UpdateUser applies mutate to a stored account under the store lock.
+func (s *Store) UpdateUser(key string, mutate func(*User) error) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	path, err := s.path("users", key+".json")
+	if err != nil {
+		return err
+	}
+	var u User
+	if err := readJSON(path, &u); err != nil {
+		return err
+	}
+	if err := mutate(&u); err != nil {
+		return err
+	}
+	u.UpdatedAt = time.Now().UTC()
+	return writeJSON(path, &u)
 }
 
 // PutRecord stores a report and trims the history to MaxHistory entries.

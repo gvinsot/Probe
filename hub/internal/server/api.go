@@ -256,12 +256,20 @@ func (s *Server) handleMonitorOn(w http.ResponseWriter, r *http.Request) {
 	if err == nil && repo.HookKey != "" {
 		hookKey = repo.HookKey
 	}
+	badgeKey, badgeErr := secrets.Random(18)
+	if badgeErr == nil && repo.BadgeKey != "" {
+		// A badge already embedded in a README keeps working across reinstalls.
+		badgeKey = repo.BadgeKey
+	}
 	hookSecret, secretErr := secrets.Random(32)
-	if err != nil || secretErr != nil {
+	// The installation token is issued to this session's account and is the
+	// only thing, besides the forge signature, a delivery is accepted on.
+	hookToken, tokenErr := secrets.Random(32)
+	if err != nil || badgeErr != nil || secretErr != nil || tokenErr != nil {
 		writeError(w, http.StatusInternalServerError, "could not prepare the webhook")
 		return
 	}
-	hookID, err := provider.CreateHook(r.Context(), token, item, s.cfg.WebhookURL(hookKey), hookSecret)
+	hookID, err := provider.CreateHook(r.Context(), token, item, s.cfg.WebhookURL(hookKey, hookToken), hookSecret)
 	if err != nil {
 		status := http.StatusBadGateway
 		if code := forge.StatusOf(err); code == http.StatusForbidden || code == http.StatusUnauthorized {
@@ -272,12 +280,14 @@ func (s *Server) handleMonitorOn(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	sealed, err := s.keys.Seal(hookSecret)
-	if err != nil {
+	sealedToken, tokenErr := s.keys.Seal(hookToken)
+	if err != nil || tokenErr != nil {
 		writeError(w, http.StatusInternalServerError, "could not store the webhook secret")
 		return
 	}
 	updated, err := s.store.UpdateRepo(sess.UserKey, repo.Key, func(repo *store.Repo) error {
 		repo.Monitored, repo.HookID, repo.HookKey, repo.HookSecret = true, hookID, hookKey, sealed
+		repo.HookToken, repo.BadgeKey = sealedToken, badgeKey
 		return nil
 	})
 	if err != nil {
@@ -285,8 +295,12 @@ func (s *Server) handleMonitorOn(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "could not save the monitoring state")
 		return
 	}
-	if err := s.store.PutHook(hookKey, store.HookRoute{UserKey: sess.UserKey, RepoKey: repo.Key, Provider: repo.Provider}); err != nil {
+	route := store.HookRoute{UserKey: sess.UserKey, RepoKey: repo.Key, Provider: repo.Provider}
+	if err := s.store.PutHook(hookKey, route); err != nil {
 		s.log.Error("store hook route", "error", err)
+	}
+	if err := s.store.PutBadge(badgeKey, route); err != nil {
+		s.log.Error("store badge route", "error", err)
 	}
 	s.events.Publish(sess.UserKey, map[string]any{"type": "repo", "repo": updated.Public()})
 	// A first report right away makes the dashboard useful before the next push.
@@ -320,8 +334,15 @@ func (s *Server) handleMonitorOff(w http.ResponseWriter, r *http.Request) {
 			s.log.Warn("delete hook route", "error", err)
 		}
 	}
+	if repo.BadgeKey != "" {
+		if err := s.store.DeleteBadge(repo.BadgeKey); err != nil {
+			s.log.Warn("delete badge route", "error", err)
+		}
+	}
+	// The badge key is kept so that re-enabling monitoring revives the same
+	// README badge; without its route it serves nothing meanwhile.
 	updated, err := s.store.UpdateRepo(sess.UserKey, repo.Key, func(repo *store.Repo) error {
-		repo.Monitored, repo.HookID, repo.HookKey, repo.HookSecret = false, "", "", ""
+		repo.Monitored, repo.HookID, repo.HookKey, repo.HookSecret, repo.HookToken = false, "", "", "", ""
 		return nil
 	})
 	if err != nil {
@@ -361,13 +382,17 @@ func (s *Server) handleAnalyze(w http.ResponseWriter, r *http.Request) {
 			Ref: body.Ref, Trigger: analysis.TriggerManual,
 		}
 		if err := s.runner.Enqueue(job); err != nil {
-			writeError(w, http.StatusServiceUnavailable, err.Error())
+			s.writeEnqueueError(w, err)
 			return
 		}
 		writeJSON(w, http.StatusAccepted, map[string]string{"status": "queued", "commit": body.Commit})
 		return
 	}
 	if err := s.enqueueHead(r.Context(), user, repo, provider, token); err != nil {
+		if errors.Is(err, analysis.ErrQuota) || errors.Is(err, analysis.ErrBusy) {
+			s.writeEnqueueError(w, err)
+			return
+		}
 		writeError(w, http.StatusBadGateway, err.Error())
 		return
 	}

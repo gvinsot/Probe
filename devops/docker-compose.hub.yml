@@ -10,8 +10,20 @@ version: "3.9"
 # alone.
 #
 # The hub keeps its state in one volume: sealed forge tokens, the tracked
-# repositories and a bounded report history. Back that volume up; losing it
-# means every user signs in again and reinstalls their webhooks.
+# repositories and a bounded report history. Back that volume up together with
+# the session key secret; losing either means every user signs in again and
+# reinstalls their webhooks.
+#
+# Credentials are Docker secrets, never environment variables. Create them
+# before the first deployment:
+#
+#   openssl rand -hex 32 | docker secret create swiftproof_hub_session_key -
+#   printf %s "$CLIENT_SECRET" | docker secret create swiftproof_hub_github_client_secret -
+#
+# For GitLab, create swiftproof_hub_gitlab_client_secret instead and swap the
+# secret entries below. To rotate the session key, create a new secret, mount
+# the old one as SWIFTPROOF_HUB_SESSION_KEY_PREVIOUS and redeploy: the hub
+# reseals the stored credentials at start-up (see hub/README.md).
 #
 # A company deploying this internally only has to change the domain, the OAuth
 # application variables and, when GitHub Enterprise or a self-managed GitLab is
@@ -23,11 +35,20 @@ services:
     build:
       context: ..
       dockerfile: hub/Dockerfile
+      args:
+        VERSION: "${VERSION:-dev}"
     environment:
       SWIFTPROOF_HUB_BASE_URL: "https://${SWIFTPROOF_HUB_DOMAIN:-hub.swiftproof.net}"
       SWIFTPROOF_HUB_DATA_DIR: /var/lib/swiftproof-hub
-      # lint never executes repository code; review needs a Docker socket.
+      # A public instance only ever lints. An internal deployment whose users
+      # are known may set private and review, which then also needs a Docker
+      # socket and SWIFTPROOF_HUB_REVIEW_POLICIES listing the validated
+      # repositories and policy digests; every other repository is linted.
+      SWIFTPROOF_HUB_INSTANCE: "${SWIFTPROOF_HUB_INSTANCE:-public}"
       SWIFTPROOF_HUB_MODE: "${SWIFTPROOF_HUB_MODE:-lint}"
+      SWIFTPROOF_HUB_REVIEW_POLICIES: "${SWIFTPROOF_HUB_REVIEW_POLICIES:-}"
+      SWIFTPROOF_HUB_USER_QUOTA: "${SWIFTPROOF_HUB_USER_QUOTA:-8}"
+      SWIFTPROOF_HUB_HOOK_RATE: "${SWIFTPROOF_HUB_HOOK_RATE:-30}"
       SWIFTPROOF_HUB_WORKERS: "${SWIFTPROOF_HUB_WORKERS:-2}"
       SWIFTPROOF_HUB_DEFAULT_BRANCH_ONLY: "${SWIFTPROOF_HUB_DEFAULT_BRANCH_ONLY:-false}"
       SWIFTPROOF_HUB_GITHUB_CLIENT_ID: "${SWIFTPROOF_HUB_GITHUB_CLIENT_ID:-}"
@@ -35,12 +56,19 @@ services:
       SWIFTPROOF_HUB_GITHUB_API_URL: "${SWIFTPROOF_HUB_GITHUB_API_URL:-https://api.github.com}"
       SWIFTPROOF_HUB_GITLAB_CLIENT_ID: "${SWIFTPROOF_HUB_GITLAB_CLIENT_ID:-}"
       SWIFTPROOF_HUB_GITLAB_URL: "${SWIFTPROOF_HUB_GITLAB_URL:-https://gitlab.com}"
-      # The client secrets and the session key follow the cluster convention:
-      # a variable whose name ends in _SECRET or _KEY becomes a Docker secret
-      # mounted at /run/secrets/<NAME>, which the hub reads on its own.
-      SWIFTPROOF_HUB_GITHUB_CLIENT_SECRET: "${SWIFTPROOF_HUB_GITHUB_CLIENT_SECRET:-}"
-      SWIFTPROOF_HUB_GITLAB_CLIENT_SECRET: "${SWIFTPROOF_HUB_GITLAB_CLIENT_SECRET:-}"
-      SWIFTPROOF_HUB_SESSION_KEY: "${SWIFTPROOF_HUB_SESSION_KEY:-}"
+      # The secrets below are mounted at /run/secrets/<NAME>; the _FILE
+      # variables make the hub read them from there.
+      SWIFTPROOF_HUB_SESSION_KEY_FILE: /run/secrets/SWIFTPROOF_HUB_SESSION_KEY
+      SWIFTPROOF_HUB_GITHUB_CLIENT_SECRET_FILE: /run/secrets/SWIFTPROOF_HUB_GITHUB_CLIENT_SECRET
+    secrets:
+      - source: swiftproof_hub_session_key
+        target: SWIFTPROOF_HUB_SESSION_KEY
+        uid: "10001"
+        mode: 0400
+      - source: swiftproof_hub_github_client_secret
+        target: SWIFTPROOF_HUB_GITHUB_CLIENT_SECRET
+        uid: "10001"
+        mode: 0400
     volumes:
       - swiftproof-hub-data:/var/lib/swiftproof-hub
     networks:
@@ -73,6 +101,12 @@ services:
         - "traefik.http.routers.swiftproof-hub-http.entrypoints=web"
         - "traefik.http.routers.swiftproof-hub-http.middlewares=redirect-to-https@file"
         - "traefik.http.routers.swiftproof-hub-http.service=noop@internal"
+
+secrets:
+  swiftproof_hub_session_key:
+    external: true
+  swiftproof_hub_github_client_secret:
+    external: true
 
 volumes:
   swiftproof-hub-data:

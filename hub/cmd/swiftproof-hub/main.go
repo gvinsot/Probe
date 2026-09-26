@@ -66,8 +66,21 @@ The service is configured through the environment:
   SWIFTPROOF_HUB_ADDR                listen address (default :8080)
   SWIFTPROOF_HUB_DATA_DIR            state directory (default /var/lib/swiftproof-hub)
   SWIFTPROOF_HUB_SESSION_KEY         64 hex characters; generated and persisted when unset
-  SWIFTPROOF_HUB_MODE                lint (default, never runs repository code) or review
+  SWIFTPROOF_HUB_SESSION_KEY_PREVIOUS keys retired by a rotation, still able to open
+                                     stored credentials, which are resealed at start-up
+  SWIFTPROOF_HUB_INSTANCE            public (default) or private; a public instance
+                                     only ever lints
+  SWIFTPROOF_HUB_MODE                lint (default, never runs repository code) or review,
+                                     accepted only on a private instance
+  SWIFTPROOF_HUB_REVIEW_POLICIES     review allowlist, entries
+                                     <github|gitlab>:<owner/repo>@sha256:<policy digest>;
+                                     every other repository is linted
   SWIFTPROOF_HUB_WORKERS             concurrent analyses (default 2)
+  SWIFTPROOF_HUB_USER_QUOTA          analyses one account may have queued or running (default 8)
+  SWIFTPROOF_HUB_HOOK_RATE           webhook deliveries per routing key and minute (default 30)
+
+Any *_SECRET, *_KEY, *_KEY_PREVIOUS or *_POLICIES value can be read from the
+file named by <NAME>_FILE, or from /run/secrets/<NAME>.
   SWIFTPROOF_HUB_DEFAULT_BRANCH_ONLY analyze only the default branch (default false)
   SWIFTPROOF_HUB_COMMIT_STATUS       publish the verdict on the commit (default true)
 
@@ -95,9 +108,21 @@ func run() error {
 	if err != nil {
 		return err
 	}
+	if err := keys.WithPrevious(cfg.PreviousSessionKeys); err != nil {
+		return err
+	}
 	st, err := store.Open(cfg.DataDir)
 	if err != nil {
 		return err
+	}
+	if len(cfg.PreviousSessionKeys) > 0 {
+		// After a rotation, move every stored credential to the new key so
+		// the previous one can be dropped at the next restart.
+		moved, err := accounts.Rewrap(st, keys)
+		if err != nil {
+			return fmt.Errorf("reseal stored credentials: %w", err)
+		}
+		log.Info("session key rotation", "resealed", moved)
 	}
 	providers := map[string]forge.Provider{}
 	for kind, f := range cfg.Forges {
@@ -137,7 +162,7 @@ func run() error {
 			"SWIFTPROOF_HUB_GITHUB_CLIENT_ID/_SECRET or the GitLab pair is set")
 	}
 	log.Info("starting", "version", version, "addr", cfg.Addr, "base_url", cfg.BaseURL,
-		"mode", cfg.Mode, "workers", cfg.Workers, "forges", forges, "cli", runner.Version(ctx))
+		"instance", cfg.Instance, "mode", cfg.Mode, "review_policies", len(cfg.ReviewPolicies), "workers", cfg.Workers, "forges", forges, "cli", runner.Version(ctx))
 
 	errs := make(chan error, 1)
 	go func() {

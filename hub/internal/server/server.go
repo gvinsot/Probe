@@ -2,9 +2,10 @@
 // dashboard API, the webhook receiver and the static web UI.
 //
 // Every state-changing endpoint is authenticated by a sealed session cookie
-// and a double-submitted CSRF token; the webhook receiver authenticates the
-// forge instead, with the per-repository secret. No endpoint ever returns a
-// credential, and no repository data is served across accounts.
+// and a double-submitted CSRF token; the webhook receiver requires the
+// installation token issued to the owning account plus the forge signature.
+// The only anonymous surface is the badge and a bare health probe. No endpoint
+// ever returns a credential, and no repository data is served across accounts.
 package server
 
 import (
@@ -17,6 +18,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/gvinsot/SwiftProof/hub/internal/accounts"
@@ -47,6 +49,10 @@ type Server struct {
 	secure   bool
 	version  string
 	static   fs.FS
+	// hookLimit bounds webhook deliveries per routing key and minute.
+	hookLimit *windowLimiter
+	cliOnce   sync.Once
+	cli       string
 }
 
 // New builds the server.
@@ -55,9 +61,14 @@ func New(cfg config.Config, s *store.Store, a *accounts.Manager, r *analysis.Run
 	if err != nil {
 		return nil, err
 	}
+	rate := cfg.HookRate
+	if rate < 1 {
+		rate = 30
+	}
 	return &Server{
 		cfg: cfg, store: s, accounts: a, runner: r, events: b, keys: keys, log: log,
 		secure: strings.HasPrefix(cfg.BaseURL, "https://"), version: version, static: static,
+		hookLimit: newWindowLimiter(rate, time.Minute),
 	}, nil
 }
 
@@ -84,7 +95,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/events", s.handleEvents)
 
 	mux.HandleFunc("POST /hooks/{hook}", s.handleWebhook)
-	mux.HandleFunc("GET /badge/{hook}", s.handleBadge)
+	mux.HandleFunc("GET /badge/{badge}", s.handleBadge)
 
 	mux.HandleFunc("GET /", s.handleStatic)
 
@@ -149,15 +160,19 @@ func (r *statusRecorder) Flush() {
 	}
 }
 
+// handleHealth is public, so it says only that the process serves requests:
+// no version, mode, queue depth or subscriber count. The build and mode are
+// shown to signed-in users through /api/me.
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]any{
-		"status":      "ok",
-		"version":     s.version,
-		"cli":         s.runner.Version(r.Context()),
-		"mode":        s.cfg.Mode,
-		"queue":       s.runner.Pending(),
-		"subscribers": s.events.Subscribers(),
-	})
+	w.Header().Set("Cache-Control", "no-store")
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
+// cliVersion reports the embedded CLI build, probed once: the binary ships in
+// the image and cannot change while the process runs.
+func (s *Server) cliVersion(r *http.Request) string {
+	s.cliOnce.Do(func() { s.cli = s.runner.Version(r.Context()) })
+	return s.cli
 }
 
 // handleStatic serves the embedded UI. Unknown paths fall back to the entry

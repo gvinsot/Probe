@@ -71,10 +71,15 @@ webhooks there.
 | `SWIFTPROOF_HUB_BASE_URL` | — | **Required.** Public URL of this deployment. |
 | `SWIFTPROOF_HUB_ADDR` | `:8080` | Listen address. |
 | `SWIFTPROOF_HUB_DATA_DIR` | `/var/lib/swiftproof-hub` | State directory; back it up. |
-| `SWIFTPROOF_HUB_SESSION_KEY` | generated | 64 hex characters. Seals sessions and stored tokens; set it explicitly to run several replicas. |
-| `SWIFTPROOF_HUB_MODE` | `lint` | `lint` or `review`. |
+| `SWIFTPROOF_HUB_SESSION_KEY` | generated | 64 hex characters. Seals sessions and stored tokens; set it explicitly to run several replicas. See [Session key](#session-key-backup-and-rotation). |
+| `SWIFTPROOF_HUB_SESSION_KEY_PREVIOUS` | — | Keys retired by a rotation (comma separated). They still open stored credentials, which are resealed under the current key at start-up. |
+| `SWIFTPROOF_HUB_INSTANCE` | `public` | `public` or `private`. A public instance, where anybody can sign in and subscribe a repository, only ever lints. |
+| `SWIFTPROOF_HUB_MODE` | `lint` | `lint`, or `review` on a private instance only; the hub refuses to start otherwise. |
+| `SWIFTPROOF_HUB_REVIEW_POLICIES` | — | Required with `review`. Entries `<github\|gitlab>:<owner/repo>@sha256:<digest>`, separated by commas or white space: the repositories and base-branch `.swiftproof.json` digests (`sha256sum .swiftproof.json`) the operator validated. Every other repository, and any other version of a listed policy, is analyzed in lint mode. |
 | `SWIFTPROOF_HUB_WORKERS` | `2` | Concurrent analyses. |
 | `SWIFTPROOF_HUB_QUEUE_SIZE` | `256` | Pending analyses before webhooks are asked to retry. |
+| `SWIFTPROOF_HUB_USER_QUOTA` | `8` | Analyses one account may have queued or running; beyond it the hub answers `429`, so one account cannot fill the shared queue. |
+| `SWIFTPROOF_HUB_HOOK_RATE` | `30` | Webhook deliveries accepted per routing key and minute, checked before any lookup; beyond it `429`. |
 | `SWIFTPROOF_HUB_ANALYSIS_TIMEOUT` | `10m` | Hard limit per analysis. |
 | `SWIFTPROOF_HUB_CLONE_DEPTH` | `50` | Shallow fetch depth. |
 | `SWIFTPROOF_HUB_MAX_REPOS` | `500` | Repositories listed per account. |
@@ -88,8 +93,28 @@ webhooks there.
 | `SWIFTPROOF_HUB_GITLAB_URL` | gitlab.com | Self-managed GitLab base URL. |
 | `SWIFTPROOF_HUB_ALLOW_NO_FORGE` | `false` | Start and serve the UI while no forge is configured, instead of refusing to start. Sign-in stays unavailable and the sign-in page says so; used so a public deployment answers on its domain before its OAuth application exists. |
 
-Any `*_SECRET` may also be supplied as `<NAME>_FILE` or through
-`/run/secrets/<NAME>`, following the Docker secret convention the CLI uses.
+Every `*_SECRET`, `SWIFTPROOF_HUB_SESSION_KEY`, `SWIFTPROOF_HUB_SESSION_KEY_PREVIOUS`
+and `SWIFTPROOF_HUB_REVIEW_POLICIES` may also be supplied as a file named by
+`<NAME>_FILE`, or as `/run/secrets/<NAME>`, following the Docker secret
+convention the CLI uses. Prefer that to a plain variable: the environment of a
+container is readable by anyone who can inspect it. The stacks in `devops/`
+declare these as Docker secrets.
+
+### Session key: backup and rotation
+
+The session key seals, at rest, the forge tokens of every user and the webhook
+secrets and installation tokens of every monitored repository. When it is
+generated, it lives in `session.key` inside the data volume.
+
+* **Back up the data volume and the key together.** Losing the key — a
+  recreated volume, a changed secret — makes every stored credential
+  unreadable: every user has to sign in again and switch monitoring off and on
+  to reinstall their webhooks.
+* **Rotate** by moving the current key to `SWIFTPROOF_HUB_SESSION_KEY_PREVIOUS`
+  and setting a new `SWIFTPROOF_HUB_SESSION_KEY`, then restarting. At
+  start-up the hub reseals every stored credential under the new key and logs
+  how many moved; browser sessions are signed out. Once that restart is done,
+  drop the previous key at the next deployment.
 
 ## Publishing the image
 
@@ -122,10 +147,23 @@ builds and smoke-tests the image, it just does not publish.
   HTTPS) that carry no credential — the sealed token stays server-side.
 * **CSRF**: every state-changing call needs a session-bound token in the
   `X-SwiftProof-CSRF` header, and a same-origin check.
-* **Webhooks** are authenticated with a per-repository secret — HMAC-SHA256 for
-  GitHub, a constant-time token comparison for GitLab — on an unguessable
-  routing URL, and the payload's repository identity is matched before anything
-  is queued.
+* **Webhooks** need two things: the *installation token* issued to the
+  signed-in owner when they switched monitoring on (random, sealed at rest,
+  carried only in the webhook URL registered on the forge), and the
+  per-repository signature — HMAC-SHA256 for GitHub, a constant-time token
+  comparison for GitLab. The routing key alone authorizes nothing, and every
+  refusal is the same `401`. The installation dies with the account and when
+  monitoring is switched off. The payload's repository identity is matched
+  before anything is queued. Deliveries are rate limited per routing key, and
+  analyses are bounded per account (`429`).
+* **Public surface**: only the badge and a bare `/healthz` (`{"status":"ok"}`)
+  are anonymous. A badge has its own random key, distinct from the webhook's,
+  and an unknown or unpublished badge key gets the same plain `404` as any
+  missing resource.
+* **Execution**: a public instance only lints. Review runs the checks of the
+  base-branch policy in the CLI's sandbox, so it is limited to a private
+  instance and, there, to repositories whose policy digest the operator
+  listed.
 * **Git credentials** are passed to `git` through scoped `GIT_CONFIG_*`
   variables, never on a command line and never to another host.
 * **Isolation between accounts**: every read and write is scoped to the session
@@ -134,13 +172,18 @@ builds and smoke-tests the image, it just does not publish.
   `Content-Security-Policy` without `unsafe-inline`.
 * **The analyzed code is never executed in `lint` mode.**
 
+Upgrading from a hub that predates installation tokens: existing webhooks carry
+no token and are refused, and badges addressed by the webhook key stop
+rendering. Switch monitoring off and on for each repository to reinstall the
+hook and obtain the new badge URL.
+
 ## Endpoints
 
 | Method | Path | Purpose |
 | --- | --- | --- |
-| `GET` | `/healthz` | Liveness, CLI version, queue depth. |
+| `GET` | `/healthz` | Liveness only; nothing else is disclosed. |
 | `GET` | `/auth/{github,gitlab}/start` · `/callback` | OAuth flow. |
-| `GET` | `/api/me` | Session, configured forges, CSRF token. |
+| `GET` | `/api/me` | Session, configured forges, CSRF token; build, CLI version and mode once signed in. |
 | `GET` `POST` | `/api/repos` · `/api/repos/sync` | List and refresh repositories. |
 | `POST` | `/api/repos/{repo}/policy` | Preview (`{"preview":true}`) or commit `.swiftproof.json`. |
 | `POST` `DELETE` | `/api/repos/{repo}/monitor` | Install or remove the push webhook. |
@@ -148,8 +191,8 @@ builds and smoke-tests the image, it just does not publish.
 | `GET` | `/api/repos/{repo}/runs` | Report history. |
 | `GET` | `/api/repos/{repo}/reports/{commit}` · `/raw` | Rendered view, or the stored JSON report. |
 | `GET` | `/api/events` | Server-sent analysis updates of the signed-in account. |
-| `POST` | `/hooks/{key}` | Webhook receiver. |
-| `GET` | `/badge/{key}.svg` | Latest verdict as a badge. |
+| `POST` | `/hooks/{key}?token=…` | Webhook receiver; needs the installation token and the forge signature. |
+| `GET` | `/badge/{badge_key}.svg` | Latest verdict as a badge; `badge_key` is returned with a monitored repository. |
 
 ## Development
 
