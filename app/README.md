@@ -281,6 +281,9 @@ Selection is static (Go syntax; comment and layout edits select nothing unless t
 <!-- F3:end -->
 
 <!-- F6:begin -->
+### Impact analysis
+
+`lint` and `review` build a static index of the repository's own Go packages from committed Git objects, on the host, without running repository code or loading imports from outside the repository; `--impact=false` disables it. For each changed Go function or method, the report lists its callers in unchanged, non-test code (resolution `static`, or `interface` for possible dispatch) and the existing Go tests that reach it within 3 references. Callers become low `impacted_caller` review targets, at most 10 per function and 100 per run, and one medium `analysis_limited` signal states what was left out or why the index is limited. The reviewer's `find_references`, `inspect_symbol` and `find_callers` answer from the index and fall back to lexical search. Everything here is approximate: an absent caller is not proof that none exists, and a reaching test is not evidence that it asserts the changed behavior. See [impact analysis](docs/IMPACT.md).
 <!-- F6:end -->
 
 <!-- F2:begin -->
