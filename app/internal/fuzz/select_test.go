@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -531,7 +532,15 @@ func TestSelectReasonsCarryNoHostPath(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(plan.Skipped) != 1 || plan.Skipped[0].Reason != reasonUnreadable("directory . could not be read") {
+	// A real candidate snapshot root is always a directory. Reading a regular
+	// file as one fails with ENOTDIR on Linux, while on Windows the error
+	// reports the directory as missing, so the package counts as absent.
+	// Either reason carries no host path, which is what this test asserts.
+	wantFirst := reasonUnreadable("directory . could not be read")
+	if runtime.GOOS == "windows" && len(plan.Skipped) == 1 && plan.Skipped[0].Reason == ReasonNotInSnapshot {
+		wantFirst = ReasonNotInSnapshot
+	}
+	if len(plan.Skipped) != 1 || plan.Skipped[0].Reason != wantFirst || strings.Contains(plan.Skipped[0].Reason, root) {
 		t.Fatalf("skipped %+v", plan.Skipped)
 	}
 	// A symlinked package directory and a symlinked source file.

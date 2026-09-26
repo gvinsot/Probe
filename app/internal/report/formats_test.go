@@ -11,7 +11,6 @@ import (
 func TestValidFormat(t *testing.T) {
 	for format, want := range map[string]bool{
 		FormatMarkdown: true, FormatJSON: true, FormatSARIF: true, FormatPRComment: true,
-
 		"": false, "Markdown": false, "JSON": false, " json": false, "html": false,
 		"SARIF": false, "pr_comment": false, "prcomment": false, "sarif ": false,
 	} {

@@ -314,7 +314,7 @@
         "time": {"type": "string", "format": "date-time"},
         "tool": {"type": "string", "minLength": 1},
         "arguments": {"type": "string", "description": "Bounded, redacted arguments or operation metadata."},
-        "status": {"type": "string", "enum": ["OK", "ERROR", "PASS", "FAIL", "SKIPPED", "TIMEOUT"]},
+        "status": {"type": "string", "enum": ["OK", "ERROR", "PASS", "FAIL", "SKIPPED", "TIMEOUT", "HIT"], "description": "HIT marks the stage:execution_cache event of a run replayed from the execution cache; a replay is not a fresh execution."},
         "duration_ms": {"$ref": "#/$defs/count"}
       }
     },
