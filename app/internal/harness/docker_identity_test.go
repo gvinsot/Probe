@@ -41,6 +41,48 @@ func TestProbeDockerIdentity(t *testing.T) {
 		return nil, nil, ctx.Err()
 	}
 	probeDocker(context.Background(), slow, "golang:1.26-bookworm")
+
+	// Both commands share one probeTimeout: the second one never gets a later
+	// deadline than the first.
+	var deadlines []time.Time
+	shared := func(ctx context.Context, args []string, limit int) ([]byte, []byte, error) {
+		deadline, _ := ctx.Deadline()
+		deadlines = append(deadlines, deadline)
+		return goodDocker().run(ctx, args, limit)
+	}
+	if _, err := probeDocker(context.Background(), shared, "golang:1.26-bookworm"); err != nil || len(deadlines) != 2 || !deadlines[0].Equal(deadlines[1]) {
+		t.Fatalf("the probe commands have separate deadlines %v (%v)", deadlines, err)
+	}
+	// The caller's context bounds the probe too: a cancelled context (the
+	// review's --deadline or an interrupt) stops it at once.
+	ended, cancel := context.WithCancel(context.Background())
+	cancel()
+	calls := 0
+	stopped := func(ctx context.Context, _ []string, _ int) ([]byte, []byte, error) {
+		calls++
+		return nil, nil, ctx.Err()
+	}
+	if _, err := probeDocker(ended, stopped, "golang:1.26-bookworm"); err == nil || calls > 1 {
+		t.Fatalf("a cancelled context did not stop the probe: %v (calls %d)", err, calls)
+	}
+}
+
+// With a context, the probe of newExecStateContext is bounded by it: an ended
+// context disables only the cache, with a reason.
+func TestExecStateProbeHonoursTheCallerContext(t *testing.T) {
+	var seen context.Context
+	previous := dockerRunner
+	dockerRunner = func(ctx context.Context, _ []string, _ int) ([]byte, []byte, error) {
+		seen = ctx
+		return nil, nil, ctx.Err()
+	}
+	t.Cleanup(func() { dockerRunner = previous })
+	ended, cancel := context.WithCancel(context.Background())
+	cancel()
+	s, err := newExecStateContext(ended, Options{Image: "golang:1.26-bookworm", Cache: newMemoryCache()})
+	if err != nil || s.cache != nil || !strings.Contains(s.reason, "could not be pinned") || seen == nil || seen.Err() == nil {
+		t.Fatalf("state %+v, err %v", s, err)
+	}
 }
 
 // With a real Docker daemon: the cache pins the preloaded image to its ID,

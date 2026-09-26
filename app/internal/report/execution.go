@@ -83,8 +83,14 @@ func cacheNote(c model.Check) string {
 	}
 	switch c.Cache.Status {
 	case model.CacheHit:
-		return fmt.Sprintf("Replayed from the execution cache, not executed in this run: the recorded result of check %s of run %s (recorded %s, %d ms; %d agreeing live runs).",
+		note := fmt.Sprintf("Replayed from the execution cache, not executed in this run: the recorded result of check %s of run %s (recorded %s, %d ms; %d agreeing live runs).",
 			c.Cache.RecordedCheck, c.Cache.RecordedRun, c.Cache.RecordedAt.UTC().Format(time.RFC3339), c.Cache.RecordedDurationMS, c.Cache.LiveRuns)
+		if c.Status != "PASS" {
+			// Every conclusion needs a baseline PASS, and nothing runs a
+			// replayed non-PASS baseline again.
+			note += " A replayed baseline that did not pass supports no conclusion, and the baseline was not run again: a live run might now pass and decide the experiment."
+		}
+		return note
 	case model.CacheStored:
 		return fmt.Sprintf("Executed live in this run and recorded in the execution cache (%d agreeing live runs of this key).", c.Cache.LiveRuns)
 	}
@@ -113,9 +119,16 @@ func writeExecution(b *bytes.Buffer, r *model.Report) {
 		if strings.TrimSpace(reason) == "" {
 			reason = "no reason was recorded"
 		}
-		fmt.Fprintf(b, "Execution cache: disabled (%s).\n\n", inline(reason))
+		if counted(c) {
+			// The store disabled itself during the run, after it had served or
+			// recorded results: the counters of the whole run still show.
+			fmt.Fprintf(b, "Execution cache: disabled (%s). In this run: %d replayed (not executed in this run), %d recorded, %d misses, %d uncacheable, %d rejected, %d write failures, %d evicted, %d contradicted.\n\n",
+				inline(reason), c.Hits, c.Stored, c.Misses, c.Uncacheable, c.Rejected, c.WriteFailures, c.Evicted, c.Contradicted)
+		} else {
+			fmt.Fprintf(b, "Execution cache: disabled (%s).\n\n", inline(reason))
+		}
 	}
-	if c.Status == model.CacheEnabled || c.Hits+c.Stored+c.Rejected+c.Contradicted > 0 {
+	if c.Status == model.CacheEnabled || counted(c) {
 		line(b, inline(c.Note)+"\n")
 	}
 	fmt.Fprintf(b, "Initial checks: up to %d at a time (requested %d). %s\n\n", e.Parallelism.Effective, e.Parallelism.Requested, inline(e.Parallelism.Note))
@@ -127,4 +140,11 @@ func writeExecution(b *bytes.Buffer, r *model.Report) {
 	if len(e.ReplayBacked) > 0 {
 		fmt.Fprintf(b, "\nNegative conclusions resting on a replayed baseline (recorded by two agreeing live runs; not executed in this run): %s.\n", inline(strings.Join(e.ReplayBacked, ", ")))
 	}
+}
+
+// counted reports whether the cache served, recorded or judged anything in
+// this run, whatever its final status: a store that disabled itself during
+// the run keeps the counts of what it did before.
+func counted(c model.ExecutionCache) bool {
+	return c.Hits+c.Stored+c.Misses+c.Uncacheable+c.Rejected+c.WriteFailures+c.Evicted+c.Contradicted > 0
 }

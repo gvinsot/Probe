@@ -21,27 +21,26 @@ type dockerIdentity struct {
 // dockerRunner runs the two probe commands; tests replace it.
 var dockerRunner dockerutil.Runner = dockerutil.DefaultRunner
 
-// probeTimeout bounds each probe command.
+// probeTimeout bounds the whole probe: both commands share it.
 const probeTimeout = 15 * time.Second
 
 // probeDocker resolves ref to its local image ID and reads the server
-// identity, with two bounded docker calls (`image inspect`, `info`). It never
-// pulls. An image that is not present locally, an unreadable answer, or an
-// image whose OS differs from the server's is an error: the cache is then
-// disabled, and execution itself is unchanged.
+// identity, with two docker calls (`image inspect`, `info`) that share one
+// probeTimeout and never outlive ctx. It never pulls. An image that is not
+// present locally, an unreadable answer, or an image whose OS differs from the
+// server's is an error: the cache is then disabled, and execution itself is
+// unchanged.
 func probeDocker(ctx context.Context, run dockerutil.Runner, ref string) (dockerIdentity, error) {
-	inspectCtx, cancel := context.WithTimeout(ctx, probeTimeout)
-	image, found, err := dockerutil.InspectImage(inspectCtx, run, ref)
-	cancel()
+	ctx, cancel := context.WithTimeout(ctx, probeTimeout)
+	defer cancel()
+	image, found, err := dockerutil.InspectImage(ctx, run, ref)
 	if err != nil {
 		return dockerIdentity{}, err
 	}
 	if !found {
 		return dockerIdentity{}, fmt.Errorf("the image %s is not present locally", ref)
 	}
-	infoCtx, cancel := context.WithTimeout(ctx, probeTimeout)
-	info, err := dockerutil.ServerInfo(infoCtx, run)
-	cancel()
+	info, err := dockerutil.ServerInfo(ctx, run)
 	if err != nil {
 		return dockerIdentity{}, err
 	}

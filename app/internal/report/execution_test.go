@@ -146,6 +146,29 @@ func TestCacheNotes(t *testing.T) {
 	if cacheNote(model.Check{Cache: &model.CheckCache{Status: "HIT"}}) != "" {
 		t.Error("an unknown cache status got a note")
 	}
+	// A replayed baseline that did not pass says that it decides nothing and
+	// was not run again; a replayed PASS does not get that sentence.
+	if !strings.Contains(cacheNote(model.Check{Status: "FAIL", Cache: cacheRecord(model.CacheHit, 2)}), "supports no conclusion, and the baseline was not run again") ||
+		strings.Contains(cacheNote(model.Check{Status: "PASS", Cache: cacheRecord(model.CacheHit, 2)}), "supports no conclusion") {
+		t.Error("the replayed FAIL sentence is missing or misplaced")
+	}
+}
+
+// A store that disabled itself during the run keeps its counters visible: the
+// replays it served before must not read as fresh executions.
+func TestDisabledDuringTheRunKeepsItsCounters(t *testing.T) {
+	r := &model.Report{Execution: &model.Execution{Cache: model.ExecutionCache{Status: model.CacheDisabled, Reason: "the cache directory became unusable during the run: disk full",
+		Hits: 2, Stored: 1, WriteFailures: 3}}}
+	Finalize(r, false)
+	md := string(Markdown(r))
+	for _, want := range []string{
+		"Execution cache: disabled (the cache directory became unusable during the run: disk full). In this run: 2 replayed (not executed in this run), 1 recorded, 0 misses, 0 uncacheable, 0 rejected, 3 write failures, 0 evicted, 0 contradicted.",
+		"not a fresh execution",
+	} {
+		if !strings.Contains(md, want) {
+			t.Errorf("Markdown lacks %q:\n%s", want, md)
+		}
+	}
 }
 
 // v0.4 wording rules (§5): the cache texts never present a replay as a fresh

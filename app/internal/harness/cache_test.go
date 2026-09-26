@@ -531,8 +531,47 @@ func TestReplayContradictedByValidation(t *testing.T) {
 	if e.Status != model.StatusUnverified || live.Status != "ERROR" || len(m.keys()) != 0 {
 		t.Fatalf("evidence %+v base %+v keys %v", e, live, m.keys())
 	}
-	if c := h.Execution().Cache; c.Contradicted != 1 || c.Evicted != 1 {
+	// The write-through had recorded the live run as agreeing before the
+	// validation failed; its entry is gone, so the check carries no cache
+	// provenance any more and the evidence says the entry was removed.
+	if live.Cache != nil || !strings.Contains(e.Description, "ended ERROR instead of PASS, so no reproduction is recorded and the cache entry was removed") {
+		t.Fatalf("live check cache %+v, description %q", live.Cache, e.Description)
+	}
+	if c := h.Execution().Cache; c.Contradicted != 1 || c.Evicted != 1 || c.WriteFailures != 0 {
 		t.Fatalf("counters %+v", c)
+	}
+}
+
+// When the contradicted entry cannot be removed, the evidence says so and the
+// live check keeps the provenance of the entry that is still recorded.
+func TestContradictedEntryThatCannotBeRemoved(t *testing.T) {
+	for name, action := range map[string]string{"validation": "garbled", "status": "fail"} {
+		t.Run(name, func(t *testing.T) {
+			h := fixture(t)
+			m := useMemoryCache(h)
+			baseExec(h, []string{"pass", "pass", action}, "fail")
+			call(t, h, "create_test", map[string]any{"path": "pkg/regression_test.go", "content": generatedSource})
+			runExperiment(t, h)
+			runExperiment(t, h)
+			m.mu.Lock()
+			m.deleteErr = errors.New("read-only cache directory")
+			m.mu.Unlock()
+			e := runExperiment(t, h)
+			live := checkByID(t, h, e.BaseCheckID)
+			if e.Status != model.StatusUnverified || !strings.Contains(e.Description, "and the cache entry could not be removed") || len(m.keys()) != 1 {
+				t.Fatalf("evidence %+v keys %v", e, m.keys())
+			}
+			c := h.Execution().Cache
+			if c.Contradicted != 1 || c.Evicted != 0 || c.WriteFailures == 0 {
+				t.Fatalf("counters %+v", c)
+			}
+			if name == "validation" && (live.Cache == nil || live.Cache.Status != model.CacheStored || live.Cache.LiveRuns != 3) {
+				t.Fatalf("the provenance of the entry that is still recorded was dropped: %+v", live.Cache)
+			}
+			if name == "status" && live.Cache != nil {
+				t.Fatalf("a disagreeing live run carries provenance: %+v", live.Cache)
+			}
+		})
 	}
 }
 

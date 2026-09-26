@@ -3,6 +3,7 @@ package execcache
 import (
 	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -113,6 +114,161 @@ func TestValidateDirRejectsFilesAndLinks(t *testing.T) {
 	}
 	if _, err := ValidateDir(filepath.Join(intoRepo, "cache"), repo, ""); !errors.Is(err, ErrLocation) {
 		t.Fatalf("a path resolving into the repository was accepted: %v", err)
+	}
+}
+
+// junction creates a Windows directory junction (mount point) at link that
+// points to target, or skips the test.
+func junction(t *testing.T, link, target string) {
+	t.Helper()
+	if runtime.GOOS != "windows" {
+		t.Skip("directory junctions exist on Windows only")
+	}
+	if out, err := exec.Command("cmd", "/c", "mklink", "/J", link, target).CombinedOutput(); err != nil {
+		t.Skipf("mklink /J unavailable: %v %s", err, out)
+	}
+	if info, err := os.Lstat(link); err != nil || info.Mode()&(os.ModeSymlink|os.ModeIrregular) == 0 {
+		t.Skipf("mklink /J did not create a reparse point: %v", err)
+	}
+}
+
+// Junctions are not followed by filepath.EvalSymlinks since Go 1.23: the
+// location rule must still see through a junction ancestor, and a cache below
+// a junction to an external directory must stay usable on every later run.
+func TestValidateDirResolvesJunctionAncestors(t *testing.T) {
+	root := t.TempDir()
+	repo, outside, output := filepath.Join(root, "repo"), filepath.Join(root, "outside"), filepath.Join(root, "repo", ".swiftproof")
+	for _, dir := range []string{filepath.Join(repo, "sub"), filepath.Join(outside, "a", "report")} {
+		if err := os.MkdirAll(dir, 0700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	intoRepo, external := filepath.Join(root, "j"), filepath.Join(root, "k")
+	junction(t, intoRepo, repo)
+	junction(t, external, outside)
+
+	// (a) Into the repository through a junction: refused before anything is
+	// created, whether or not the path continues below the junction.
+	for _, dir := range []string{filepath.Join(intoRepo, "newcache"), filepath.Join(intoRepo, "sub", "cache"), filepath.Join(intoRepo, "x", "y")} {
+		if _, err := ValidateDir(dir, repo, output); !errors.Is(err, ErrLocation) || !strings.Contains(err.Error(), "must be outside the repository") {
+			t.Errorf("%s was accepted or refused for another reason: %v", dir, err)
+		}
+	}
+	for _, created := range []string{filepath.Join(repo, "newcache"), filepath.Join(repo, "sub", "cache"), filepath.Join(repo, "x")} {
+		if _, err := os.Lstat(created); !errors.Is(err, os.ErrNotExist) {
+			t.Errorf("a refused directory was created inside the repository: %s (%v)", created, err)
+		}
+	}
+	// A repository reached through a junction is compared by what it resolves to.
+	if _, err := ValidateDir(filepath.Join(repo, "cache"), intoRepo, ""); !errors.Is(err, ErrLocation) {
+		t.Errorf("a cache inside a repository named through a junction was accepted: %v", err)
+	}
+
+	// (b) Below a junction to an external directory: accepted on first use
+	// and again once the directory exists, with the resolved path.
+	for _, dir := range []string{filepath.Join(external, "cache"), filepath.Join(external, "a", "b", "cache")} {
+		first, err := ValidateDir(dir, repo, output)
+		if err != nil {
+			t.Fatalf("first use of %s: %v", dir, err)
+		}
+		second, err := ValidateDir(dir, repo, output)
+		if err != nil {
+			t.Fatalf("second use of %s: %v", dir, err)
+		}
+		if first != second || !within(normalize(outside), first) {
+			t.Fatalf("canonical paths %s and %s, want under %s", first, second, outside)
+		}
+		if s, err := Open(dir, Options{RepoRoot: repo, OutputDir: output}); err != nil || s.DisabledReason() != "" || s.Dir() != first {
+			t.Fatalf("open %s: %v", dir, err)
+		}
+	}
+
+	// (c) An output directory below a junction is resolved as well: a cache
+	// inside what it resolves to is refused, one elsewhere is accepted.
+	report := filepath.Join(external, "a", "report")
+	if _, err := ValidateDir(filepath.Join(root, "elsewhere"), repo, report); err != nil {
+		t.Fatalf("an output directory below a junction broke validation: %v", err)
+	}
+	if _, err := ValidateDir(filepath.Join(outside, "a", "report", "cache"), repo, report); !errors.Is(err, ErrLocation) {
+		t.Fatalf("a cache inside the resolved output directory was accepted: %v", err)
+	}
+
+	// (d) The directory itself must not be a junction.
+	if _, err := ValidateDir(external, repo, output); !errors.Is(err, ErrLocation) || !strings.Contains(err.Error(), "link or reparse point") {
+		t.Fatalf("a junction as the cache directory was accepted: %v", err)
+	}
+}
+
+// Symlinked ancestors, relative link targets, chains and cycles.
+func TestValidateDirResolvesSymlinkAncestors(t *testing.T) {
+	root := t.TempDir()
+	repo, outside := filepath.Join(root, "repo"), filepath.Join(root, "outside")
+	os.MkdirAll(repo, 0700)
+	os.MkdirAll(outside, 0700)
+	external := filepath.Join(root, "ext")
+	if err := os.Symlink(outside, external); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+	for i := 0; i < 2; i++ { // first use, then reuse of the existing directory
+		got, err := ValidateDir(filepath.Join(external, "cache"), repo, "")
+		if err != nil {
+			t.Fatalf("use %d of a cache below an external symlink: %v", i+1, err)
+		}
+		if !within(normalize(outside), got) {
+			t.Fatalf("canonical path %s is not under %s", got, outside)
+		}
+	}
+	relative := filepath.Join(root, "rel")
+	if err := os.Symlink("repo", relative); err != nil {
+		t.Skipf("relative symlinks unavailable: %v", err)
+	}
+	chain := filepath.Join(root, "chain")
+	os.Symlink(relative, chain)
+	for _, dir := range []string{filepath.Join(relative, "cache"), filepath.Join(chain, "c", "d")} {
+		if _, err := ValidateDir(dir, repo, ""); !errors.Is(err, ErrLocation) {
+			t.Errorf("%s resolves into the repository but was accepted: %v", dir, err)
+		}
+	}
+	loopA, loopB := filepath.Join(root, "loopA"), filepath.Join(root, "loopB")
+	os.Symlink(loopB, loopA)
+	os.Symlink(loopA, loopB)
+	if _, err := ValidateDir(filepath.Join(loopA, "cache"), repo, ""); !errors.Is(err, ErrLocation) {
+		t.Fatalf("a link cycle was accepted: %v", err)
+	}
+}
+
+// File identity catches a spelling the path resolution leaves as is.
+func TestSameOrInside(t *testing.T) {
+	root := t.TempDir()
+	repo := filepath.Join(root, "repo")
+	os.MkdirAll(filepath.Join(repo, "a", "b"), 0700)
+	os.MkdirAll(filepath.Join(root, "other"), 0700)
+	for path, want := range map[string]bool{
+		repo:                                   true,
+		filepath.Join(repo, "a", "b"):          true,
+		filepath.Join(repo, "a", "missing"):    true,
+		filepath.Join(root, "other"):           false,
+		filepath.Join(root, "other", "x", "y"): false,
+		root:                                   false,
+	} {
+		if got := sameOrInside(repo, path); got != want {
+			t.Errorf("sameOrInside(repo, %s) = %v", path, got)
+		}
+	}
+	if sameOrInside(filepath.Join(root, "missing"), filepath.Join(root, "missing", "x")) {
+		t.Error("a missing parent matched")
+	}
+	// Another spelling of the same directory (on Windows, an 8.3 short name
+	// in the temporary directory's path) is recognized both ways.
+	if long := normalize(repo); !strings.EqualFold(long, repo) {
+		if !sameOrInside(long, filepath.Join(repo, "a")) || !sameOrInside(repo, filepath.Join(long, "a")) {
+			t.Errorf("the spellings %s and %s were not recognized as one directory", repo, long)
+		}
+		if _, err := ValidateDir(filepath.Join(repo, "cache"), long, ""); !errors.Is(err, ErrLocation) {
+			t.Errorf("a cache under another spelling of the repository was accepted: %v", err)
+		}
+	} else {
+		t.Logf("the temporary directory has one spelling (%s); the short-name case did not run", repo)
 	}
 }
 

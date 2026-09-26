@@ -2,7 +2,7 @@
 
 The execution cache lets `swiftproof review` replay the recorded result of a baseline-side sandbox run instead of executing it again, when the same inputs were already run live and two live runs agreed. It is **opt-in**: nothing is cached, read or written unless `--cache-dir DIR` is passed. Candidate-side runs are never cached; they always execute.
 
-A replay is not a fresh execution. It never supports a reproduced issue, a divergence or a `FAILS_ON_CANDIDATE` result, and the report marks every replayed check. The binding rules are §3.3, §3.4 and §F7 of the [v0.4 specification](../../specs/swiftproof-v0.4-spec.md).
+A replay is not a fresh execution. It never supports a reproduced issue, a divergence or a `FAILS_ON_CANDIDATE` result, and the report marks every replayed check. It can, however, keep such a result from being recorded: a replayed baseline FAIL decides nothing, and nothing runs that baseline again (see the damage bound under [Trust and privacy](#trust-and-privacy)). The binding rules are §3.3, §3.4 and §F7 of the [v0.4 specification](../../specs/swiftproof-v0.4-spec.md).
 
 ## Enabling it
 
@@ -12,13 +12,13 @@ swiftproof review --base main --cache-dir "$HOME/.cache/swiftproof-exec"
 
 `--cache-dir` applies to `review` only; on `lint` it exits 3. The directory is checked before dependency preparation and before any container starts, and every violation exits 3:
 
-- After the symlinks of its nearest existing ancestor are resolved, the directory must not be the repository root or the report directory (`--out`), must not be inside either, and must not contain either. A checkout or a report could otherwise plant entries.
+- After the links of its nearest existing ancestor are resolved (symlinks, and on Windows directory junctions and other reparse points that name another directory), the directory must not be the repository root or the report directory (`--out`), must not be inside either, and must not contain either. A checkout or a report could otherwise plant entries. The repository and report paths are resolved the same way, and existing directories are also compared by file identity, so another spelling of the same directory (an 8.3 short name, a substituted drive, a bind mount) does not pass either. A reparse point on the path that cannot be resolved exits 3.
 - The directory itself must not be a symlink, a junction or another reparse point, and must be a directory. A missing directory is created with mode 0700.
 - On Unix, it must be owned by the effective user and grant no group or other permission (`chmod 700`). **On Windows, ownership and ACLs are not checked**: use a directory that only the account running SwiftProof can write, such as one under `$env:LOCALAPPDATA`.
 
 Problems found later never change the exit code; they disable the cache for the run with a recorded reason (`execution.cache.status: disabled`): the sandbox image cannot be resolved to a local image ID, sandbox networking is enabled for the run, the running executable cannot be hashed, or the directory stops being usable (three consecutive I/O failures).
 
-Several reviews may share one directory, including at the same time: entries are published by renaming complete temporary files, and a conflict counts as a write failure.
+Several reviews may share one directory. Entries are published by renaming complete temporary files, so a reader never sees a partial entry, and a rename that fails counts as a write failure. Reviews that run **at the same time** are not coordinated by a lock: each review reads an entry again right after its live run and then updates it, but when two reviews record the same key within the same few milliseconds, one can overwrite what the other just wrote. A contradiction observed by one of them can then be lost, and the entry can reach two agreeing live runs although a disagreeing run happened in between. Where that matters, let one review at a time use a directory (for example one directory per concurrent CI job).
 
 ## What can be replayed
 
@@ -33,7 +33,7 @@ The re-run kinds `generated_test_base_repeat`, `fuzz_base_confirm` and `fuzz_can
 
 A live result is **stored** only when it completed: status PASS or FAIL, exit code 0 to 124, no timeout, no Docker error, and its log was retained. A payload (a Jest-compatible report or a fuzz observation stream) must be complete and unchanged by redaction. Nothing else is written, so a transient infrastructure failure is never kept.
 
-An entry is **served** only when it is not a live-only run, passes every integrity check (below), was recorded by **at least two live runs that agreed** on status, exit code and truncation, was never contradicted, and its recorded duration is below the run's current per-run timeout.
+An entry is **served** only when it is not a live-only run, passes every integrity check (below), was recorded by **at least two live runs that agreed** on status, exit code and truncation, was never contradicted, and its recorded duration is below the run's current per-run timeout. In this build a FAIL entry is served like a PASS entry. Every conclusion an experiment can reach needs a baseline PASS, so a replayed FAIL supports none: the experiment stays `UNVERIFIED` (or inconclusive), and its baseline is not run again. The Markdown says so under the replayed check.
 
 ## The key
 
@@ -55,7 +55,9 @@ The key is the SHA-256 of a canonical JSON preimage (schema `swiftproof-execcach
 
 `docker_server` is recorded in addition to the fields the integration contract lists, so that a Docker engine upgrade starts new entries. The kernel version and runtime internals beyond the server version are **not** part of the key.
 
-**Image pinning.** With a cache, SwiftProof resolves the policy's image reference once, when the review's sandbox is set up (`docker image inspect`, `docker info`; it never pulls). From the first eligible baseline run on, every run of the review, baseline and candidate, executes that image ID rather than the tag, so a tag re-pointed during the review cannot change what a key describes. In this build, runs that happen before the first eligible run (the initial checks, coverage) still use the configured reference. With `prepare`, the image is already an image ID.
+**Image pinning.** With a cache, SwiftProof resolves the policy's image reference once, when the review's sandbox is set up (`docker image inspect`, `docker info`; it never pulls). From the first eligible baseline run on, every run of the review, baseline and candidate, executes that image ID rather than the tag, so a tag re-pointed during the review cannot change what a key describes. In this build, runs that happen before the first eligible run (the initial checks, coverage) still use the configured reference, and if the tag is re-pointed between the probe and those runs, they execute another image than the `execution.cache.image_id` the report records. With `prepare`, the image is already an image ID.
+
+**Probe time.** The two probe commands share a limit of 15 seconds, and a probe that does not finish disables the cache for the run. In this build the probe is not interrupted by `--deadline` or by an interrupt: with `--cache-dir` and a slow or unresponsive Docker daemon, a review can run up to 15 seconds longer than the `--deadline` bound of [CI](CI.md) states. Without `--cache-dir` there is no probe.
 
 ## What a replay records
 
@@ -71,7 +73,7 @@ A replay charges nothing to the runtime budget. A live eligible run that was wri
 
 A positive status never rests on a replay:
 
-- **Generated tests.** When a replayed baseline PASS and a live candidate FAIL would record `REPRODUCED`, the harness runs the baseline again, live, with the same kind, staged file and command. The evidence then cites the live check as `base_check_id`, and its description says that the baseline was replayed and run again. If the live run passes, the result is `REPRODUCED`; if it completes without passing (including a named-test validation that the replay passed and the live run fails), the result is `UNVERIFIED` and the entry is removed as contradicted; if it does not complete (SKIPPED, TIMEOUT, ERROR), the result is `UNVERIFIED` and the entry stays.
+- **Generated tests.** When a replayed baseline PASS and a live candidate FAIL would record `REPRODUCED`, the harness runs the baseline again, live, with the same kind, staged file and command. The evidence then cites the live check as `base_check_id`, and its description says that the baseline was replayed and run again. If the live run passes, the result is `REPRODUCED`; if it completes without passing (including a named-test validation that the replay passed and the live run fails), the result is `UNVERIFIED` and the entry is removed as contradicted, and the evidence description says whether the removal succeeded (a live check whose entry was removed carries no `cache` provenance); if it does not complete (SKIPPED, TIMEOUT, ERROR), the result is `UNVERIFIED` and the entry stays.
 - `report.Finalize` independently refuses `REPRODUCED` when the cited baseline is a replay, including when `swiftproof report` re-renders a saved report. The observation repeat, the fuzz confirmation pair and the live re-runs of changed or impacted tests follow the same rule (§3.4 of the specification).
 
 A **negative** status (`NOT_REPRODUCED`, `NOT_DIVERGED`, `PASSES_ON_CANDIDATE`) may rest on a replayed baseline, because a served entry needs two agreeing live runs. `Finalize` lists every such evidence ID, sorted, in `execution.replay_backed`, and the Markdown names them. Such a conclusion does not by itself request human review (refinement R3 of the specification).
@@ -87,7 +89,7 @@ A **negative** status (`NOT_REPRODUCED`, `NOT_DIVERGED`, `PASSES_ON_CANDIDATE`) 
   - `budget`: `max_runtime_ms`, `spent_ms`, `reviewer_reserve_ms`, `deadline_reached`;
   - `replay_backed`: evidence IDs, always an array.
 - The Markdown notes each stored or replayed check under **Automated Checks** and ends that section with the execution summary and the replay-backed evidence IDs.
-- Standard output gets one line when the cache was requested, for example `Execution cache: 1 baseline results replayed (not executed in this run), 0 recorded; candidate-side runs always execute.`
+- Standard output gets one line when the cache was requested, for example `Execution cache: 1 baseline results replayed (not executed in this run), 0 recorded; candidate-side runs always execute.` When the directory became unusable during the run (three consecutive I/O failures), the status is `disabled`, and both the line and the Markdown summary still give what was replayed and recorded before that.
 
 A review without `--cache-dir` records `execution.cache.status: disabled` with the reason `not requested (the execution cache is opt-in with --cache-dir)` and prints no cache line.
 
@@ -109,7 +111,9 @@ The payoff depends on how often baseline experiments repeat. Model-written gener
 ## Trust and privacy
 
 - The cache directory is a **trusted input**, at the level of the SwiftProof binary and the report directory. The integrity checks detect corruption, torn writes and misplaced files; they do **not** authenticate an entry. Anyone who can write the directory can forge entries.
-- **Damage bound.** A forged or stale entry cannot produce `REPRODUCED`, a divergence, a `FAILS_ON_CANDIDATE` result or exit 1: the harness re-runs the baseline live, and `Finalize` refuses a replayed baseline for every positive status. Its largest effect is a negative conclusion (`NOT_REPRODUCED`, `NOT_DIVERGED`, `PASSES_ON_CANDIDATE`) where a live baseline would have given `UNVERIFIED`, and such conclusions are listed in `execution.replay_backed`.
+- **Damage bound.** A forged or stale entry cannot produce `REPRODUCED`, a divergence, a `FAILS_ON_CANDIDATE` result or exit 1: the harness re-runs a replayed baseline PASS live before recording `REPRODUCED`, and `Finalize` refuses a replayed baseline for every positive status. It can move a conclusion towards less review in two ways:
+  - A replayed baseline **PASS** can support a negative conclusion (`NOT_REPRODUCED`, `NOT_DIVERGED`, `PASSES_ON_CANDIDATE`) where a live baseline would have given `UNVERIFIED`. Such conclusions are listed in `execution.replay_backed`.
+  - A replayed baseline **FAIL** (a stale entry after two failing runs of a flaky baseline, or a forged one) is served too, and nothing runs that baseline again. An experiment whose live baseline would have passed is then `UNVERIFIED` (or inconclusive) instead of `REPRODUCED`, a divergence or `FAILS_ON_CANDIDATE`. For a high or critical hypothesis this lowers the exit code from 1 to 0 without `--ci`, and from 1 to 2 with `--ci`, and the reproduction is missing from `reproduced_issues`. The replayed check is marked (`cache.status: "hit"`, with its recorded provenance and a Markdown note), but the experiment is not listed in `execution.replay_backed`, because `UNVERIFIED` is not a negative conclusion. A forged FAIL entry whose log does not show the named test failing becomes an ERROR check when it is replayed, which is exit 4.
 - Containers never see the cache directory: the sandbox keeps its one read-only mount of the snapshot, and no volume or writable host path is added.
 - A nondeterministic baseline can be replayed for up to 30 days. `recorded_at`, `recorded_run` and `recorded_check` tell a reviewer where a result came from; a run without `--cache-dir` executes everything.
 - Entries hold only redacted recorded logs, but they are logs of baseline code: keep the directory private, and never upload it or share it across trust boundaries. SwiftProof never uploads it.
@@ -118,10 +122,10 @@ The payoff depends on how often baseline experiments repeat. Model-written gener
 
 | Situation | Without `--ci` | With `--ci` |
 | --- | --- | --- |
-| Cache hit, miss, rejection, contradiction, write failure or runtime disable | 0 | 0 (no effect of its own) |
-| Invalid `--cache-dir` (syntax, location, ownership, link) | 3 | 3 |
+| Cache hit, miss, rejection, contradiction, write failure or runtime disable | no exit code of its own | no exit code of its own |
+| Invalid `--cache-dir` (syntax, location, ownership, link, unresolvable reparse point) | 3 | 3 |
 
-A replay never produces exit 1 by itself, and a replay-backed negative conclusion requests no review by itself.
+A replay never produces exit 1 by itself, and a replay-backed negative conclusion requests no review by itself. A replayed baseline FAIL can prevent an exit 1 that a live baseline would have produced (see the damage bound above).
 
 ## What the cache does not claim
 

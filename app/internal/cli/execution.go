@@ -83,14 +83,19 @@ func executionLine(e *model.Execution) string {
 	if e.Parallelism.Requested > 1 {
 		parallel = fmt.Sprintf(" Initial checks: up to %d at a time (requested %d).", e.Parallelism.Effective, e.Parallelism.Requested)
 	}
+	c := e.Cache
 	switch {
-	case e.Cache.Status == model.CacheEnabled:
-		return fmt.Sprintf("Execution cache: %d baseline results replayed (not executed in this run), %d recorded; candidate-side runs always execute.%s", e.Cache.Hits, e.Cache.Stored, parallel)
-	case e.Cache.Reason == harness.CacheReasonNotRequested:
+	case c.Status == model.CacheEnabled:
+		return fmt.Sprintf("Execution cache: %d baseline results replayed (not executed in this run), %d recorded; candidate-side runs always execute.%s", c.Hits, c.Stored, parallel)
+	case c.Hits+c.Stored+c.Misses+c.Uncacheable+c.Rejected+c.WriteFailures+c.Evicted+c.Contradicted > 0:
+		// The store disabled itself during the run: what it replayed before
+		// must still show.
+		return fmt.Sprintf("Execution cache: disabled during the run (%s) after %d baseline results replayed (not executed in this run), %d recorded; candidate-side runs always execute.%s", c.Reason, c.Hits, c.Stored, parallel)
+	case c.Reason == harness.CacheReasonNotRequested:
 		if parallel == "" {
 			return ""
 		}
 		return parallel[1:]
 	}
-	return fmt.Sprintf("Execution cache: disabled (%s).%s", e.Cache.Reason, parallel)
+	return fmt.Sprintf("Execution cache: disabled (%s).%s", c.Reason, parallel)
 }

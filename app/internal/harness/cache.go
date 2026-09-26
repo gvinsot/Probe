@@ -96,12 +96,22 @@ func (e treeEntry) tuple(path string) []string {
 type toolIdentity interface{ ToolVersion() string }
 type disabledCache interface{ DisabledReason() string }
 
-// newExecState stores opts.Cache and validates opts.Parallel (0 means 1). It
-// makes no Docker call without a cache. With one, it probes the sandbox image
-// and the Docker server (probeDocker); any failure to probe or pin the image,
-// a store that reports itself unusable, or sandbox networking disables the
-// cache with a recorded reason. It never fails New for a cache reason.
+// newExecState is newExecStateContext without a caller context: the probe is
+// bounded by probeTimeout alone. New calls it; see newExecStateContext.
 func newExecState(opts Options) (execState, error) {
+	return newExecStateContext(context.Background(), opts)
+}
+
+// newExecStateContext stores opts.Cache and validates opts.Parallel (0 means
+// 1). It makes no Docker call without a cache. With one, it probes the sandbox
+// image and the Docker server (probeDocker, at most probeTimeout in total and
+// never beyond ctx); any failure to probe or pin the image, a store that
+// reports itself unusable, or sandbox networking disables the cache with a
+// recorded reason. It never fails for a cache reason.
+//
+// A harness constructor that has the review's work context (--deadline and
+// cancellation) passes it here, so that the probe is bounded by it as well.
+func newExecStateContext(ctx context.Context, opts Options) (execState, error) {
 	if opts.Parallel < 0 || opts.Parallel > 4 {
 		return execState{}, fmt.Errorf("parallel must be between 1 and 4, got %d", opts.Parallel)
 	}
@@ -135,7 +145,7 @@ func newExecState(opts Options) (execState, error) {
 		s.cache = opts.Cache
 		return s, nil
 	}
-	identity, err := probeDocker(context.Background(), dockerRunner, opts.Image)
+	identity, err := probeDocker(ctx, dockerRunner, opts.Image)
 	if err != nil {
 		s.reason = truncateUTF8("the sandbox image could not be pinned to an image ID: "+Redact(err.Error()), 512)
 		return s, nil
@@ -461,7 +471,10 @@ func sortedPaths(manifest map[string]treeEntry) []string {
 // status and a note for the evidence description:
 //   - live PASS (validated): REPRODUCED;
 //   - live run completed but did not pass (validated): UNVERIFIED, and the
-//     entry that was replayed is removed as contradicted;
+//     entry that was replayed is removed as contradicted. When the removal
+//     succeeds, the live check loses the cache provenance the write-through
+//     gave it (it no longer describes a recorded entry), and the note says
+//     whether the entry was removed;
 //   - live run did not complete (SKIPPED, TIMEOUT, ERROR): UNVERIFIED.
 //
 // Caller holds h.mu.
@@ -472,7 +485,8 @@ func (h *Harness) confirmBaseline(ctx context.Context, runner, path string, name
 	} else {
 		live, _, _ = h.runWithOptions(ctx, model.CheckGeneratedBase, h.base, command, runOptions{live: true})
 	}
-	completed := live.Status == "PASS" || live.Status == "FAIL"
+	executed := live // as run.go recorded and wrote it through, before the named-test validation
+	completed := executed.Status == "PASS" || executed.Status == "FAIL"
 	if runner != "" {
 		live, _ = ValidateExecution(runner, live, path, names)
 		h.replaceCheck(live)
@@ -481,30 +495,43 @@ func (h *Harness) confirmBaseline(ctx context.Context, runner, path string, name
 		return live, model.StatusReproduced, fmt.Sprintf(" (the baseline result %s was replayed from the execution cache, so the baseline was run again live as %s before this reproduction was recorded)", base.ID, live.ID)
 	}
 	if completed && base.Cache != nil {
-		h.evictContradicted(base.Cache.Key)
-		return live, model.StatusUnverified, fmt.Sprintf(" (the baseline result %s was replayed from the execution cache; its live re-run %s ended %s instead of PASS, so no reproduction is recorded and the cache entry was removed)", base.ID, live.ID, live.Status)
+		outcome := "the cache entry could not be removed"
+		if h.evictContradicted(base.Cache.Key, executed) {
+			outcome = "the cache entry was removed"
+			if live.Cache != nil {
+				live.Cache = nil
+				h.replaceCheck(live)
+			}
+		}
+		return live, model.StatusUnverified, fmt.Sprintf(" (the baseline result %s was replayed from the execution cache; its live re-run %s ended %s instead of PASS, so no reproduction is recorded and %s)", base.ID, live.ID, live.Status, outcome)
 	}
 	return live, model.StatusUnverified, fmt.Sprintf(" (the baseline result %s was replayed from the execution cache; its live re-run %s ended %s, so no reproduction is recorded)", base.ID, live.ID, live.Status)
 }
 
-// evictContradicted removes the entry a live re-run disagreed with, counting
-// it contradicted and evicted. run.go's write-through already removes an entry
-// whose status, exit code or truncation differs; this also covers a live run
-// that agreed on those but failed the named-test validation the replay
-// passed. Caller holds h.mu.
-func (h *Harness) evictContradicted(key string) {
-	if h.exec.cache == nil || key == "" {
-		return
+// evictContradicted removes the entry stored under key after a completed live
+// re-run (executed, before validation) disagreed with the replay, and reports
+// whether no entry remains. run.go's write-through already removed and
+// counted an entry whose status, exit code or truncation differed from
+// executed; an entry that still agrees with executed was extended by that
+// write-through although the live run then failed the named-test validation
+// the replay passed, which is a contradiction counted here. A removal that
+// fails counts as a write failure and leaves the entry. Caller holds h.mu.
+func (h *Harness) evictContradicted(key string, executed model.Check) bool {
+	if h.exec.cache == nil || !cacheKeyPattern.MatchString(key) {
+		return false
 	}
-	if _, found := h.exec.cache.Get(key); !found {
-		return
+	prior, found := h.exec.cache.Get(key)
+	if found && prior.Key == key && prior.Status == executed.Status && prior.ExitCode == executed.ExitCode && prior.Truncated == executed.Truncated {
+		h.cacheCounts.Contradicted++
 	}
-	h.cacheCounts.Contradicted++
 	if err := h.exec.cache.Delete(key); err != nil {
 		h.cacheCounts.WriteFailures++
-		return
+		return false
 	}
-	h.cacheCounts.Evicted++
+	if found {
+		h.cacheCounts.Evicted++
+	}
+	return true
 }
 
 // Execution summarizes the cache, the initial checks' parallelism and the

@@ -136,6 +136,11 @@ func TestExecutionSummaryAndLine(t *testing.T) {
 	if got := executionLine(e); got != "Execution cache: 2 baseline results replayed (not executed in this run), 1 recorded; candidate-side runs always execute." {
 		t.Fatalf("line %q", got)
 	}
+	// A store that disabled itself after serving replays still shows them.
+	e.Cache = model.ExecutionCache{Status: model.CacheDisabled, Reason: "the cache directory became unusable during the run: disk full", Hits: 2, Stored: 1, WriteFailures: 3}
+	if got := executionLine(e); got != "Execution cache: disabled during the run (the cache directory became unusable during the run: disk full) after 2 baseline results replayed (not executed in this run), 1 recorded; candidate-side runs always execute." {
+		t.Fatalf("line %q", got)
+	}
 
 	// Only the overall --deadline (its cancellation cause) counts as reached.
 	expired, cancel := context.WithDeadlineCause(context.Background(), time.Now().Add(-time.Second), harness.ErrOverallDeadline)
