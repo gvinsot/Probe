@@ -64,6 +64,111 @@ None of the v0.4 stages produces exit 1: only a reproduced high/critical hypothe
 <!-- F5:end -->
 
 <!-- F9:begin -->
+### Publishing evidence-backed findings (SARIF and PR comment)
+
+`--format sarif,pr-comment` writes `confidence-report.sarif` and `PR_COMMENT.md`, which list only findings backed by recorded sandbox evidence ([exports](EXPORTS.md)). SwiftProof itself never contacts GitHub; a workflow may post the rendered files with its own token. The formats and `--report-url` make an older binary exit 3, so pass them only after the re-pin described above; the included `review.yml` and `pr-review.yml` do not pass them.
+
+- **Upload SARIF only when the exit code is 0, 1 or 2 and `executionSuccessful` is true** (`.runs[0].invocations[0]` in the SARIF file). An empty or partial upload after an operational failure, a SKIPPED, TIMEOUT or ERROR check, or a reached deadline would close earlier alerts as "fixed". That state is GitHub's, never a SwiftProof claim, and "no new alerts" or an empty comment is not an approval: keep branch protection with human review.
+- **Post `PR_COMMENT.md` as a comment, never into the pull-request description.** The description is the usual `--intent-file` source.
+- **Treat artifacts from fork runs as attacker-controlled.** A `pull_request` workflow runs the pull request's own workflow definition, so its JSON, `PR_COMMENT.md` and SARIF may be forged. Publish from a separate workflow triggered by `workflow_run` that:
+  - never checks out or executes pull-request code;
+  - downloads only `confidence-report.json`, uploaded by the review job as an artifact of its own, and refuses one larger than 64 MiB;
+  - re-renders it with **its own pinned binary** (`swiftproof report --format sarif,pr-comment`) and never posts artifact Markdown or SARIF verbatim;
+  - has only `actions: read` (to download the artifact), `pull-requests: write` (the comment) and `security-events: write` (the SARIF upload);
+  - posts only to the pull request that triggered the run, after matching the head SHA recorded in the JSON (`change.head_commit`) with the run's head SHA and the pull request's current head.
+- Re-rendering makes the exports consistent with the JSON; it does not authenticate it. Exports from fork runs may be forged.
+- Without a checkout, `upload-sarif` cannot compute its own line fingerprints; the results carry `partialFingerprints` `swiftproof/v1`.
+
+The review job uploads the JSON on its own, whatever the exit code:
+
+```yaml
+      - if: always()
+        uses: actions/upload-artifact@<pinned-sha>
+        with:
+          name: swiftproof-json
+          path: .swiftproof/confidence-report.json
+          if-no-files-found: ignore
+```
+
+A publisher sketch (pin every action by commit SHA and the binary by URL and sha256; this repository's validation did not run it against GitHub):
+
+```yaml
+name: swiftproof-publish
+on:
+  workflow_run:
+    workflows: ["swiftproof-review"]
+    types: [completed]
+permissions: {}
+jobs:
+  publish:
+    if: github.event.workflow_run.event == 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      pull-requests: write
+      security-events: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      REPO: ${{ github.repository }}
+      RUN_ID: ${{ github.event.workflow_run.id }}
+      HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+      HEAD_OWNER: ${{ github.event.workflow_run.head_repository.owner.login }}
+      HEAD_BRANCH: ${{ github.event.workflow_run.head_branch }}
+      RUN_URL: ${{ github.event.workflow_run.html_url }}
+    steps:
+      - name: Install the publisher's pinned SwiftProof
+        run: |
+          curl --fail --location --retry 3 -o swiftproof.tar.gz "$SWIFTPROOF_URL"
+          echo "$SWIFTPROOF_SHA256  swiftproof.tar.gz" | sha256sum --check
+          tar -xzf swiftproof.tar.gz
+        env:
+          SWIFTPROOF_URL: https://github.com/gvinsot/SwiftProof/releases/download/v0.4.0/swiftproof-v0.4.0-linux-amd64.tar.gz
+          SWIFTPROOF_SHA256: <pinned sha256>
+      - name: Download only the review JSON (at most 64 MiB)
+        run: |
+          size=$(gh api "repos/$REPO/actions/runs/$RUN_ID/artifacts" --jq '.artifacts[] | select(.name == "swiftproof-json") | .size_in_bytes')
+          test -n "$size"
+          test "$size" -le 67108864
+          gh run download "$RUN_ID" --repo "$REPO" --name swiftproof-json --dir untrusted
+          test "$(stat -c %s untrusted/confidence-report.json)" -le 67108864
+      - name: Re-render with the pinned binary
+        run: ./swiftproof-v0.4.0-linux-amd64/swiftproof report --input untrusted/confidence-report.json --out rendered --format sarif,pr-comment --report-url "$RUN_URL"
+      - name: Match the pull request and the recorded head
+        id: pr
+        run: |
+          test "$(jq -r .change.head_commit untrusted/confidence-report.json)" = "$HEAD_SHA"
+          number=$(gh api -X GET "repos/$REPO/pulls" -f state=open -f head="$HEAD_OWNER:$HEAD_BRANCH" \
+            --jq "[.[] | select(.head.sha == \"$HEAD_SHA\")][0].number")
+          test -n "$number"
+          test "$number" != null
+          echo "number=$number" >> "$GITHUB_OUTPUT"
+          jq -e '.runs[0].invocations[0] | .executionSuccessful and .exitCode <= 2' rendered/confidence-report.sarif \
+            && echo "upload=true" >> "$GITHUB_OUTPUT" || echo "upload=false" >> "$GITHUB_OUTPUT"
+      - name: Upload SARIF for a successful execution only
+        if: steps.pr.outputs.upload == 'true'
+        uses: github/codeql-action/upload-sarif@<pinned-sha>
+        with:
+          sarif_file: rendered/confidence-report.sarif
+          category: swiftproof
+          ref: refs/pull/${{ steps.pr.outputs.number }}/head
+          sha: ${{ github.event.workflow_run.head_sha }}
+      - name: Post or update the comment
+        env:
+          PR: ${{ steps.pr.outputs.number }}
+        run: |
+          body=rendered/PR_COMMENT.md
+          test "$(wc -c < "$body")" -le 65000
+          test "$(head -n 1 "$body")" = '<!-- swiftproof:pr-comment:begin v1 -->'
+          id=$(gh api "repos/$REPO/issues/$PR/comments" --paginate \
+            --jq '[.[] | select(.user.login == "github-actions[bot]" and (.body | startswith("<!-- swiftproof:pr-comment:begin v1 -->")))][0].id')
+          if [ -n "$id" ] && [ "$id" != null ]; then
+            gh api -X PATCH "repos/$REPO/issues/comments/$id" -F body=@"$body"
+          else
+            gh pr comment "$PR" --repo "$REPO" --body-file "$body"
+          fi
+```
+
+Every value taken from the triggering run (branch, owner, SHA, URL) reaches the scripts through environment variables, never through `${{ }}` inside a script. The comment step updates SwiftProof's own earlier comment, identified by the begin marker and the bot account, instead of adding one per run.
 <!-- F9:end -->
 
 ## Runtime bounds, deadline and report size
