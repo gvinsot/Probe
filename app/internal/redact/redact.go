@@ -16,8 +16,8 @@ const Marker = "[REDACTED]"
 
 var rules = []*regexp.Regexp{
 	regexp.MustCompile(`(?is)-----BEGIN [A-Z ]*PRIVATE KEY-----.*?(?:-----END [A-Z ]*PRIVATE KEY-----|$)`),
-	regexp.MustCompile(`(?i)(?:api[_-]?key|access[_-]?token|auth[_-]?token|client[_-]?secret|secret|password|passwd|authorization)["']?\s*[=:]\s*["']?[^\s,"'}]+`),
 	regexp.MustCompile(`(?i)Bearer\s+[A-Za-z0-9._~+/=-]+`),
+	regexp.MustCompile(`(?i)(?:api[_-]?key|access[_-]?token|auth[_-]?token|client[_-]?secret|secret|password|passwd|authorization)["']?\s*[=:]\s*["']?[^\s,"'}]+`),
 	regexp.MustCompile(`(?:sk-[A-Za-z0-9_-]{8,}|gh[pousr]_[A-Za-z0-9_]{8,}|github_pat_[A-Za-z0-9_]{8,}|AKIA[A-Z0-9]{16})`),
 	regexp.MustCompile(`eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}`),
 	regexp.MustCompile(`://[^\s/@:]+:[^\s/@]+@`),
