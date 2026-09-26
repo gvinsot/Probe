@@ -85,6 +85,9 @@ func (h *Harness) runWith(ctx context.Context, kind, dir string, command []strin
 // returns it with the raw payload (nil without o.capture) and whether the
 // payload was cut short. Caller holds h.mu.
 //
+// It is plan, executePlan and record in sequence; RunChecks (batch.go) is the
+// only caller that runs several plans' executions at the same time.
+//
 // Budget (§1.7.1): the run reserves min(policy timeout, o.timeout, what the
 // limit leaves after spent and reserved time) before launch, and releases the
 // reservation and charges the elapsed time afterwards. The limit is MaxRuntime,
@@ -96,9 +99,61 @@ func (h *Harness) runWith(ctx context.Context, kind, dir string, command []strin
 // through, which updates the entry's agreement count or evicts a contradicted
 // entry.
 func (h *Harness) runWithOptions(ctx context.Context, kind, dir string, command []string, o runOptions) (model.Check, []byte, bool) {
-	started := time.Now()
+	p := h.plan(ctx, kind, dir, command, o, 0)
+	executePlan(ctx, p)
+	return h.record(p)
+}
+
+// runPlan is one run between plan and record. plan fills everything up to the
+// launch while holding h.mu; executePlan touches only the launch fields and
+// the result, never the harness; record completes the check under h.mu.
+type runPlan struct {
+	kind         string
+	dir          string
+	command      []string
+	o            runOptions
+	ledger       *[]model.Check
+	artifactKind string
+	started      time.Time
+	check        model.Check // ID, kind, redacted command; Status and Output when decided without a launch
+
+	// replay is the servable cache entry that record replays instead of an
+	// execution; key is the run's cache key ("" when not eligible or skipped).
+	replay *CacheEntry
+	key    string
+
+	// Launch inputs, fixed by plan when it reserved the budget for a
+	// container: launched is then true and timeout is the reserved timeout.
+	launched       bool
+	timeout        time.Duration
+	name           string
+	args           []string
+	out            *boundedWriter
+	log            io.Writer
+	payload        *boundedWriter
+	execute        executor
+	executeCapture captureExecutor
+
+	// Set by executePlan; plan sets finished for a run it decided or
+	// replays without a launch.
+	result   execution
+	finished time.Time
+}
+
+// launches reports whether executePlan starts a container for p.
+func (p *runPlan) launches() bool { return p.launched }
+
+// plan decides everything about one run up to its launch: the check ID (the
+// ledger's next ID plus pending, the number of earlier plans of the same
+// ledger that are not recorded yet), the gates that record a run without
+// executing it, the cache consultation (a servable entry is replayed by
+// record), and the budget reservation, in the order runWithOptions has always
+// applied them. Caller holds h.mu.
+func (h *Harness) plan(ctx context.Context, kind, dir string, command []string, o runOptions, pending int) *runPlan {
+	p := &runPlan{kind: kind, dir: dir, command: command, o: o, started: time.Now()}
 	ledger, prefix, artifactKind, ledgerOK := h.ledgerFor(o.ledger)
-	c := model.Check{ID: fmt.Sprintf("%s%d", prefix, len(*ledger)+1), Kind: kind, Command: append([]string(nil), command...), ExitCode: -1}
+	p.ledger, p.artifactKind = ledger, artifactKind
+	c := model.Check{ID: fmt.Sprintf("%s%d", prefix, len(*ledger)+1+pending), Kind: kind, Command: append([]string(nil), command...), ExitCode: -1}
 	for i, arg := range c.Command {
 		c.Command[i] = Redact(arg)
 	}
@@ -110,8 +165,6 @@ func (h *Harness) runWithOptions(ctx context.Context, kind, dir string, command 
 	if o.capture != "" {
 		script = captureScript(o.capture)
 	}
-	var payload *boundedWriter
-	key := ""
 	switch {
 	case !ledgerOK:
 		c.Status, c.Output = "ERROR", "unknown check ledger"
@@ -126,36 +179,70 @@ func (h *Harness) runWithOptions(ctx context.Context, kind, dir string, command 
 	case errors.Is(ctx.Err(), context.DeadlineExceeded):
 		c.Status, c.Output = "SKIPPED", expiredText(ctx)
 	default:
-		key = h.cacheKey(kind, dir, command, script, effective)
+		key := h.cacheKey(kind, dir, command, script, effective)
 		if key != "" && !o.live {
 			if e, found := h.exec.cache.Get(key); found && e.Key == key && servable(e, effective) {
-				return h.replay(kind, command, key, e, o)
+				p.replay, p.key, p.finished = &e, key, time.Now()
+				return p
 			}
 			h.cacheCounts.Misses++
 		}
 		timeout, skipped := h.reserveRun(effective, o.ceiling)
 		if skipped != "" {
 			c.Status, c.Output = "SKIPPED", skipped
-			key = ""
 			break
 		}
-		runCtx, cancel := context.WithTimeout(ctx, timeout)
-		name := "swiftproof-" + randomID()
-		out := &boundedWriter{limit: h.opts.MaxOutputBytes}
-		var log io.Writer = out
+		p.launched, p.key, p.timeout = true, key, timeout
+		p.name = "swiftproof-" + randomID()
+		p.out = &boundedWriter{limit: h.opts.MaxOutputBytes}
+		p.log = p.out
 		if o.tee != nil {
-			log = &teeLog{log: out, tee: &cappedWriter{w: o.tee, remaining: teeLimit, overflow: o.teeOverflow}}
+			p.log = &teeLog{log: p.out, tee: &cappedWriter{w: o.tee, remaining: teeLimit, overflow: o.teeOverflow}}
 		}
-		var result execution
-		args := h.dockerArgsScript(name, dir, script, command)
+		p.args = h.dockerArgsScript(p.name, dir, script, command)
 		if o.capture != "" {
-			payload = &boundedWriter{limit: PayloadLimit(h.opts.MaxOutputBytes)}
-			result = h.executeCapture(runCtx, name, args, log, payload)
-		} else {
-			result = h.execute(runCtx, name, args, log)
+			p.payload = &boundedWriter{limit: PayloadLimit(h.opts.MaxOutputBytes)}
 		}
-		cancel()
-		c.ExitCode, c.Truncated, c.Output = result.ExitCode, out.truncated, Redact(string(out.data))
+		p.execute, p.executeCapture = h.execute, h.executeCapture
+	}
+	p.check = c
+	if !p.launches() {
+		p.finished = time.Now()
+	}
+	return p
+}
+
+// executePlan runs p's container, if plan launched one, under its reserved
+// timeout and ctx. It is not a Harness method: it reads and writes only p (the
+// executor was copied into it by plan), so RunChecks may run it for several
+// plans at the same time while it holds h.mu.
+func executePlan(ctx context.Context, p *runPlan) {
+	if !p.launches() {
+		return
+	}
+	runCtx, cancel := context.WithTimeout(ctx, p.timeout)
+	if p.payload != nil {
+		p.result = p.executeCapture(runCtx, p.name, p.args, p.log, p.payload)
+	} else {
+		p.result = p.execute(runCtx, p.name, p.args, p.log)
+	}
+	cancel()
+	p.finished = time.Now()
+}
+
+// record completes p's check: a replay, or the classification of the
+// execution, the budget release and charge, the duration, the log artifact,
+// the cache write-through, and the append to the ledger. It returns the check
+// with the raw payload and whether the payload was cut short, as
+// runWithOptions does. Caller holds h.mu.
+func (h *Harness) record(p *runPlan) (model.Check, []byte, bool) {
+	if p.replay != nil {
+		return h.replay(p.kind, p.command, p.key, *p.replay, p.o)
+	}
+	c := p.check
+	if p.launches() {
+		result := p.result
+		c.ExitCode, c.Truncated, c.Output = result.ExitCode, p.out.truncated, Redact(string(p.out.data))
 		switch {
 		case result.TimedOut:
 			c.Status = "TIMEOUT"
@@ -167,38 +254,38 @@ func (h *Harness) runWithOptions(ctx context.Context, kind, dir string, command 
 			c.Status = "PASS"
 		case result.ExitCode >= 125:
 			c.Status = "ERROR"
-		case logDecidesError(kind) && strings.HasPrefix(kind, "generated_test_") && generatedSetupFailure(c.Output):
+		case logDecidesError(p.kind) && strings.HasPrefix(p.kind, "generated_test_") && generatedSetupFailure(c.Output):
 			c.Status = "ERROR"
-		case logDecidesError(kind) && strings.Contains(c.Output, "fork/exec ") && (strings.Contains(c.Output, "permission denied") || strings.Contains(c.Output, "exec format error") || strings.Contains(c.Output, "no such file or directory")):
+		case logDecidesError(p.kind) && strings.Contains(c.Output, "fork/exec ") && (strings.Contains(c.Output, "permission denied") || strings.Contains(c.Output, "exec format error") || strings.Contains(c.Output, "no such file or directory")):
 			c.Status = "ERROR"
 		default:
 			c.Status = "FAIL"
 		}
-		h.releaseRun(timeout, time.Since(started))
+		h.releaseRun(p.timeout, p.finished.Sub(p.started))
 	}
-	c.DurationMS = time.Since(started).Milliseconds()
+	c.DurationMS = p.finished.Sub(p.started).Milliseconds()
 	c.Output = truncateUTF8(c.Output, h.opts.MaxOutputBytes)
 	if c.Output != "" {
-		if err := h.saveArtifact(c.ID+".log", artifactKind, []byte(c.Output)); err != nil {
+		if err := h.saveArtifact(c.ID+".log", p.artifactKind, []byte(c.Output)); err != nil {
 			c.Status = "ERROR"
 			c.Output = truncateUTF8(Redact("Unable to retain check output: "+err.Error()+"\n"+c.Output), h.opts.MaxOutputBytes)
 		}
 	}
 	var data []byte
 	truncated := false
-	if payload != nil {
-		data, truncated = payload.data, payload.truncated
+	if p.payload != nil {
+		data, truncated = p.payload.data, p.payload.truncated
 	}
-	if key != "" {
+	if p.key != "" {
 		if storable(c, data, truncated) {
-			h.recordCacheWrite(key, &c, data, truncated)
+			h.recordCacheWrite(p.key, &c, data, truncated)
 		} else {
 			h.cacheCounts.Uncacheable++
 		}
 	}
-	*ledger = append(*ledger, c)
+	*p.ledger = append(*p.ledger, c)
 	h.resultsBytes += len(c.Results)
-	if payload == nil {
+	if p.payload == nil {
 		return c, nil, false
 	}
 	return c, data, truncated

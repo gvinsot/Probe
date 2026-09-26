@@ -60,6 +60,15 @@ None of the v0.4 stages produces exit 1: only a reproduced high/critical hypothe
 - Entries are tied to the exact SwiftProof executable, so re-pinning the release starts a new set of entries. A cache hit, rejection or contradiction has no exit code of its own; a replayed baseline FAIL can still lower one, as above.
 - Give each concurrent job its own directory, or run them one after another: reviews that share a directory at the same time are not coordinated by a lock and can lose a contradiction.
 - With `--cache-dir`, the image probe at sandbox setup (at most 15 s) is not interrupted by `--deadline` in this build, so the wall-clock bound of `--deadline` (see [Runtime bounds, deadline and report size](#runtime-bounds-deadline-and-report-size)) grows by up to 15 s.
+
+### Parallel initial checks in CI
+
+- `--parallel N` needs a binary that has the flag (release ordering above). The timeout, budget and exit-code rules are the same as with `--parallel 1`. The outcomes are not always the same: under contention, checks can take longer, reach their timeout and be charged more in total (see [measured costs](PERFORMANCE.md#parallel-initial-checks)), which leaves less of `sandbox.max_runtime_seconds` for coverage, the v0.4 stages and reviewer experiments, and can shorten the timeout a later check gets from what remains.
+- With `--deadline`, every check of a group passes the deadline gate when the group starts. If the deadline passes while they run, each check still running ends `TIMEOUT`, where one at a time the later ones would have been `SKIPPED` as not started. Both are incomplete checks: exit 2 under `--ci`, as with `--parallel 1`.
+- The effective value is capped by the Docker daemon's CPUs and memory divided by `sandbox.cpus` and `sandbox.memory_mb`. With the default `sandbox.cpus: 2`, a daemon with 2 CPUs runs the checks one at a time and says so in `execution.parallelism.note`; a hosted GitHub Linux runner reports the CPUs of its VM. Lowering `sandbox.cpus` in the base-branch policy makes room for more sandboxes but gives each one less CPU.
+- Concurrent checks share the runner. A check that ran close to `sandbox.timeout_seconds` alone can reach it when others run beside it; keep `--parallel 1` for such suites, or raise the timeout in the policy.
+- A group of checks starts together only while the remaining budget covers each one's full per-run timeout, so a small `sandbox.max_runtime_seconds` (below twice `sandbox.timeout_seconds`) makes `--parallel` run them one at a time.
+- `--parallel` adds one `docker info` call (at most 15 s, bounded by `--deadline`) before the initial checks when more than one could run at a time.
 <!-- F7:end -->
 
 <!-- F3:begin -->
