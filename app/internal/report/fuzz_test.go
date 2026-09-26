@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -471,7 +472,7 @@ func TestFuzzMarkdownSection(t *testing.T) {
 	md := string(Markdown(r))
 	body := section(t, md, "## Differential Fuzzing")
 	for _, want := range []string{
-		"Seeded inputs (swiftproof-fuzz/v1) ran through 2 changed Go functions on the baseline and the candidate: 1 diverged, 1 not diverged, 0 inconclusive.",
+		"Seeded inputs (swiftproof-fuzz/v1) were planned for 2 changed Go functions, 2 of them with recorded fuzz checks on the baseline and the candidate: 1 diverged, 1 not diverged, 0 inconclusive.",
 		"- **diverged** calc.Discount (calc/calc.go:7): 1 of 64 compared inputs recorded different values",
 		"Smallest divergent input tried: Discount\\(Cents\\(1000\\)\\); baseline v:Discount\\(Cents\\(1000\\)\\); candidate \\*\\*bold\\*\\* \\[link\\]\\(https://example.invalid\\) &lt;script&gt;",
 		"- **not diverged** calc.Twice (calc/calc.go:15): 64 of 64 inputs compared",
@@ -486,10 +487,8 @@ func TestFuzzMarkdownSection(t *testing.T) {
 	if strings.Contains(body, "%") || strings.Contains(body, "<script>") || strings.Count(body, "; baseline ") != 1 {
 		t.Fatalf("section shows a percentage, raw HTML, or more than one value pair:\n%s", body)
 	}
-	for _, word := range []string{"tested", "verified", "safe", "regression", "bug"} {
-		if strings.Contains(strings.ToLower(strings.ReplaceAll(body, inline(model.FuzzNote), "")), word) {
-			t.Errorf("section uses %q:\n%s", word, body)
-		}
+	if word := fuzzBannedWord(body); word != "" {
+		t.Errorf("section uses %q:\n%s", word, body)
 	}
 	// The section comes after Changed-line Execution and before Recorded Evidence.
 	if i, j, k := strings.Index(md, "## Changed-line Execution"), strings.Index(md, "## Differential Fuzzing"), strings.Index(md, "## Recorded Evidence"); !(i < j && j < k) {
@@ -497,6 +496,82 @@ func TestFuzzMarkdownSection(t *testing.T) {
 	}
 	if len(strayHeadings(md)) != 0 {
 		t.Fatalf("stray headings %v", strayHeadings(md))
+	}
+}
+
+// fuzzBannedWords are the words of the contract's documentation rules (§4)
+// and non-claims (§5) that no fuzz text may use about an outcome or a
+// status, outside the explicit negations in fuzzAllowedNegations.
+var fuzzBannedWords = []string{"tested", "verified", "safe", "correct", "approved", "regression", "bug", "masked", "contradict", "complete", "score", "equivalen", "%"}
+
+// fuzzAllowedNegations are the explicit negations of the fixed note.
+var fuzzAllowedNegations = []string{"it does not establish which revision is correct", "it does not establish equivalent behavior"}
+
+// fuzzBannedWord returns the first banned word text uses outside the allowed
+// negations, or "".
+func fuzzBannedWord(text string) string {
+	lower := strings.ToLower(text)
+	for _, negation := range fuzzAllowedNegations {
+		lower = strings.ReplaceAll(lower, negation, "")
+	}
+	for _, word := range fuzzBannedWords {
+		if strings.Contains(lower, word) {
+			return word
+		}
+	}
+	return ""
+}
+
+// No fuzz text uses a banned word outside the note's explicit negations: the
+// Markdown section of every status (with every fixed function and skip
+// reason), its review targets and its Unverified lines. A section that did
+// not run makes no execution claim, and the lead of a section that ran counts
+// the functions without recorded checks apart.
+func TestFuzzWordingMakesNoBannedClaims(t *testing.T) {
+	skips := []model.FuzzSkip{}
+	for i, reason := range []string{fuzz.ReasonMethod, fuzz.ReasonGeneric, fuzz.ReasonSignature, fuzz.ReasonConstrained, fuzz.ReasonCgo, fuzz.ReasonPackageName, fuzz.ReasonPackageClause, fuzz.ReasonShadowed,
+		fuzz.ReasonSensitive, fuzz.ReasonMovedDir, fuzz.ReasonNotInSnapshot, fuzz.ReasonNoBody, fuzz.ReasonDuplicate, fuzz.ReasonNoInput, fuzz.ReasonBudgetPackages, fuzz.ReasonBudgetFunctions,
+		fuzz.ReasonScriptNotImplemented, fuzz.ReasonScriptTooLarge, fuzz.ReasonScriptScanBound, fuzz.ReasonScriptTotalBound, fuzz.ReasonScriptTimeLimit} {
+		skips = append(skips, model.FuzzSkip{Path: "calc/other.go", Line: i + 1, Symbol: fmt.Sprintf("calc.S%d", i), Reason: reason})
+	}
+	ran := fuzzReport(t, divergeAt(discountCall, "w:"+discountCall))
+	for _, reason := range []string{fuzz.ReasonRuntimeBudget, "observation stream exceeded the report budget", fuzzRevalidationText, "", "the fuzz harness could not be rendered: x", "the fuzz harness could not run: x", "the evidence record could not be stored: x"} {
+		ran.Fuzz.Functions = append(ran.Fuzz.Functions, model.FuzzFunction{Path: "calc/calc.go", Line: 3, EndLine: 4, Symbol: "calc.X", Signature: "func(int) int", Outcome: model.FuzzInconclusive, Reason: reason, Inputs: 1, NotRecorded: 1})
+	}
+	ran.Fuzz.Skipped, ran.Fuzz.SkippedTotal = skips, len(skips)
+	reports := map[string]*model.Report{model.FuzzRan: ran}
+	for status, reason := range map[string]string{model.FuzzNoCandidates: fuzz.ReasonNoCandidates, model.FuzzNotRun: "dependency preparation did not produce an image", model.FuzzDisabled: "--fuzz=false"} {
+		reports[status] = &model.Report{Change: model.Change{Files: []model.ChangedFile{{Path: "calc/calc.go", Status: "M"}}}, Fuzz: &model.FuzzReport{Status: status, Reason: reason, Skipped: skips, SkippedTotal: len(skips)}}
+	}
+	for status, r := range reports {
+		Finalize(r, true)
+		body := section(t, string(Markdown(r)), "## Differential Fuzzing")
+		if !strings.Contains(body, inline(model.FuzzNote)) {
+			t.Fatalf("%s: the note is missing:\n%s", status, body)
+		}
+		if word := fuzzBannedWord(body); word != "" {
+			t.Errorf("%s: the section uses %q:\n%s", status, word, body)
+		}
+		for _, target := range fuzzTargets(r) {
+			if word := fuzzBannedWord(target.reason); word != "" {
+				t.Errorf("%s: a review target uses %q: %s", status, word, target.reason)
+			}
+		}
+		for _, line := range fuzz.Unverified(*r.Fuzz, 3) {
+			if word := fuzzBannedWord(line); word != "" {
+				t.Errorf("%s: an Unverified line uses %q: %s", status, word, line)
+			}
+		}
+		if status != model.FuzzRan {
+			claim := strings.ReplaceAll(body, "No function ran", "")
+			if regexp.MustCompile(`\bran\b|\band compared\b|\bwere planned\b`).MatchString(claim) {
+				t.Errorf("%s: a section that did not run claims execution:\n%s", status, body)
+			}
+		}
+	}
+	lead := "were planned for 9 changed Go functions, 2 of them with recorded fuzz checks on the baseline and the candidate: 1 diverged, 1 not diverged, 7 inconclusive."
+	if body := section(t, string(Markdown(ran)), "## Differential Fuzzing"); !strings.Contains(body, lead) {
+		t.Fatalf("the lead does not count the functions without checks apart:\n%s", body)
 	}
 }
 

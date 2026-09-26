@@ -293,8 +293,11 @@ func fuzzTargets(r *model.Report) []extraTarget {
 func writeFuzz(b *bytes.Buffer, r *model.Report) {
 	f := r.Fuzz
 	line(b, fuzzHeading)
-	diverged, notDiverged, inconclusive := 0, 0, 0
+	diverged, notDiverged, inconclusive, withChecks := 0, 0, 0, 0
 	for _, fn := range f.Functions {
+		if fn.Checks != nil {
+			withChecks++
+		}
 		switch fn.Outcome {
 		case model.FuzzDiverged:
 			diverged++
@@ -306,7 +309,9 @@ func writeFuzz(b *bytes.Buffer, r *model.Report) {
 	}
 	switch f.Status {
 	case model.FuzzRan:
-		fmt.Fprintf(b, "Seeded inputs (%s) ran through %s on the baseline and the candidate: %d diverged, %d not diverged, %d inconclusive.\n\n", inline(f.SeedScheme), fuzzPlural(len(f.Functions), "changed Go function"), diverged, notDiverged, inconclusive)
+		// Planned functions, and among them those with recorded fuzz checks: a
+		// function without checks (sub-cap, deadline, harness failure) never ran.
+		fmt.Fprintf(b, "Seeded inputs (%s) were planned for %s, %d of them with recorded fuzz checks on the baseline and the candidate: %d diverged, %d not diverged, %d inconclusive.\n\n", inline(f.SeedScheme), fuzzPlural(len(f.Functions), "changed Go function"), withChecks, diverged, notDiverged, inconclusive)
 	case model.FuzzNoCandidates:
 		fmt.Fprintf(b, "No function ran: %s.\n\n", inline(fuzzReasonText(f.Reason)))
 	case model.FuzzNotRun:

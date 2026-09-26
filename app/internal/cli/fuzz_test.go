@@ -100,22 +100,40 @@ func TestRecordFuzzSkippedNotRunAddsUnverified(t *testing.T) {
 	}
 }
 
+// The stdout line counts outcomes, never a percentage, and counts only the
+// functions with recorded fuzz checks as having checks: a function that the
+// sub-cap, the deadline or a harness failure kept from running is planned,
+// never "ran". No status uses a word of the contract's banned list (§4, §5).
 func TestFuzzLine(t *testing.T) {
+	checks := &model.FuzzChecks{Base: "check-1", Candidate: "check-2"}
 	for want, f := range map[string]*model.FuzzReport{
 		"": nil,
-		"Differential fuzzing: disabled for this run (--fuzz=false).":                        {Status: model.FuzzDisabled, Reason: "--fuzz=false"},
-		"Differential fuzzing did not run: dependency preparation did not produce an image.": {Status: model.FuzzNotRun, Reason: reasonPrepareFailed},
-		"Differential fuzzing did not run: no reason was recorded.":                          {Status: model.FuzzNotRun},
-		"Differential fuzzing: no function ran (no changed files; 0 skipped).":               {Status: model.FuzzNoCandidates, Reason: "no changed files"},
-		"Differential fuzzing: 3 changed functions ran on seeded inputs; 1 diverged, 1 not diverged, 1 inconclusive; 4 skipped.": {Status: model.FuzzRan, SkippedTotal: 4, Functions: []model.FuzzFunction{
-			{Outcome: model.FuzzDiverged}, {Outcome: model.FuzzNotDiverged}, {Outcome: model.FuzzInconclusive},
+		"Differential fuzzing: disabled for this run (--fuzz=false).":                                                     {Status: model.FuzzDisabled, Reason: "--fuzz=false"},
+		"Differential fuzzing: disabled for this run (--checks=false).":                                                   {Status: model.FuzzDisabled, Reason: "--checks=false"},
+		"Differential fuzzing did not run: dependency preparation did not produce an image.":                              {Status: model.FuzzNotRun, Reason: reasonPrepareFailed},
+		"Differential fuzzing did not run: no reason was recorded.":                                                       {Status: model.FuzzNotRun},
+		"Differential fuzzing: no function ran (no changed files; 0 skipped).":                                            {Status: model.FuzzNoCandidates, Reason: "no changed files"},
+		"Differential fuzzing: no function ran (no changed Go function is eligible for differential fuzzing; 2 skipped).": {Status: model.FuzzNoCandidates, Reason: fuzz.ReasonNoCandidates, SkippedTotal: 2},
+		"Differential fuzzing: 3 changed functions planned, 2 with recorded fuzz checks; 1 diverged, 1 not diverged, 1 inconclusive; 4 skipped.": {Status: model.FuzzRan, SkippedTotal: 4, Functions: []model.FuzzFunction{
+			{Outcome: model.FuzzDiverged, Checks: checks}, {Outcome: model.FuzzNotDiverged, Checks: checks}, {Outcome: model.FuzzInconclusive, Reason: fuzz.ReasonRuntimeBudget},
+		}},
+		// --deadline expired before the stage: nothing ran.
+		"Differential fuzzing: 3 changed functions planned, 0 with recorded fuzz checks; 0 diverged, 0 not diverged, 3 inconclusive; 0 skipped.": {Status: model.FuzzRan, Functions: []model.FuzzFunction{
+			{Outcome: model.FuzzInconclusive}, {Outcome: model.FuzzInconclusive}, {Outcome: model.FuzzInconclusive},
 		}},
 	} {
-		if got := fuzzLine(f); got != want {
+		got := fuzzLine(f)
+		if got != want {
 			t.Errorf("fuzzLine = %q, want %q", got, want)
 		}
-		if strings.Contains(want, "%") {
-			t.Errorf("a percentage in %q", want)
+		lower := strings.ToLower(got)
+		for _, word := range []string{"tested", "verified", "safe", "correct", "approved", "regression", "bug", "masked", "contradict", "complete", "score", "equivalen", "%"} {
+			if strings.Contains(lower, word) {
+				t.Errorf("%q uses %q", got, word)
+			}
+		}
+		if f != nil && f.Status == model.FuzzRan && strings.Contains(got, " ran") {
+			t.Errorf("%q claims that the planned functions ran", got)
 		}
 	}
 }
@@ -160,7 +178,7 @@ func TestFuzzStageThroughTheCLI(t *testing.T) {
 	}
 	for _, want := range []string{
 		"Running differential fuzzing of 1 changed Go function in 1 package in isolated Docker sandboxes...",
-		"Differential fuzzing: 1 changed function ran on seeded inputs; 0 diverged, 0 not diverged, 1 inconclusive; 0 skipped.",
+		"Differential fuzzing: 1 changed function planned, 1 with recorded fuzz checks; 0 diverged, 0 not diverged, 1 inconclusive; 0 skipped.",
 	} {
 		if !strings.Contains(output, want) {
 			t.Errorf("output lacks %q:\n%s", want, output)

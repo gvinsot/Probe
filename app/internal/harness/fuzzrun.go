@@ -9,18 +9,19 @@ package harness
 //
 // Status rules (§1.17, Appendix D.6):
 //   - A baseline-side run (fuzz_base, fuzz_base_confirm) becomes ERROR when
-//     the harness did not build or start on the baseline, when a passing run
-//     did not run every harness test, or when a passing run returned no
-//     readable observation stream. These are failures of the harness on
-//     trusted code, decided from the recorded check, never from text that
-//     candidate code wrote.
+//     its complete log shows that the harness did not build or start on the
+//     baseline, or that a passing run did not run every harness test, or when
+//     a passing run returned no readable observation stream. These are
+//     failures of the harness on trusted code, decided from the recorded
+//     check, never from text that candidate code wrote. A log that was cut
+//     (sandbox.max_output_bytes) never decides ERROR: the run keeps PASS or
+//     FAIL, and the comparison makes its functions inconclusive.
 //   - A candidate-side run (fuzz_candidate, fuzz_candidate_confirm) keeps the
 //     status run.go gave it: a compile, setup or run failure stays FAIL, and
 //     only an infrastructure cause (Docker, exit code 125 or above, a lost
 //     artifact) is ERROR. Candidate code can therefore never force exit 4.
 
 import (
-	"bufio"
 	"context"
 	"encoding/json"
 	"errors"
@@ -30,6 +31,7 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/gvinsot/SwiftProof/app/internal/coverage"
 	"github.com/gvinsot/SwiftProof/app/internal/model"
@@ -58,7 +60,14 @@ const (
 	// fuzzStreamLost is the ERROR cause of a stream that could not be
 	// retained as an artifact: a host-side failure on either side.
 	fuzzStreamLost = "the observation stream could not be retained as an artifact"
+	// fuzzCausePrefix introduces the ERROR cause line appended to the
+	// recorded output of a fuzz check (after its log artifact was retained).
+	fuzzCausePrefix = "\nswiftproof: "
 )
+
+// errFuzzSubCap is the cancellation cause of a fuzz run's context when the
+// stage sub-cap (fuzz.max_runtime_seconds) ends before the overall deadline.
+var errFuzzSubCap = errors.New("fuzz.max_runtime_seconds reached")
 
 // fuzzState counts the RunObserved calls of one harness, so that each run's
 // artifacts get distinct names.
@@ -163,14 +172,16 @@ func (h *Harness) RunObserved(ctx context.Context, run ObservedRun) (base, candi
 		}
 		cleanups = append(cleanups, cleanup)
 	}
-	runCtx, cancel := context.WithDeadline(ctx, run.Deadline)
+	// The sub-cap is the cause of this context's own deadline, so that a
+	// SKIPPED run can be told apart from the overall --deadline.
+	runCtx, cancel := context.WithDeadlineCause(ctx, run.Deadline, errFuzzSubCap)
 	defer cancel()
 	baseKind, candidateKind, tool := model.CheckFuzzBase, model.CheckFuzzCandidate, auditRunFuzz
 	if run.Confirm {
 		baseKind, candidateKind, tool = model.CheckFuzzBaseConfirm, model.CheckFuzzCandidateConfirm, auditRunFuzzConfirm
 	}
 	ceiling := h.preReviewerCeiling()
-	record := func(kind, dir string, baseline bool) ObservedSide {
+	record := func(kind, dir string, baseline bool) (ObservedSide, string) {
 		remaining := time.Until(run.Deadline)
 		if remaining <= 0 {
 			// The sub-cap is over: wait for the context to say so, so that the
@@ -181,9 +192,18 @@ func (h *Harness) RunObserved(ctx context.Context, run ObservedRun) (base, candi
 		c, payload, truncated := h.runWithOptions(runCtx, kind, dir, command, o)
 		return h.fuzzSide(c, payload, truncated, run, baseline)
 	}
-	base = record(baseKind, h.base, true)
-	candidate = record(candidateKind, h.candidate, false)
-	arguments, _ := json.Marshal(map[string]any{"path": run.Path, "tests": len(run.TestNames), "checks": []string{base.Check.ID, candidate.Check.ID}, "baseline": base.Check.Status})
+	base, baseCause := record(baseKind, h.base, true)
+	candidate, candidateCause := record(candidateKind, h.candidate, false)
+	fields := map[string]any{"path": run.Path, "tests": len(run.TestNames), "checks": []string{base.Check.ID, candidate.Check.ID}, "baseline": base.Check.Status}
+	// The ERROR causes are also kept here: the retained check-N.log artifact
+	// holds the sandbox log as it was recorded, before the cause line.
+	if baseCause != "" {
+		fields["baseline_error"] = baseCause
+	}
+	if candidateCause != "" {
+		fields["candidate_error"] = candidateCause
+	}
+	arguments, _ := json.Marshal(fields)
 	h.audit = append(h.audit, model.AuditEvent{Time: started.UTC(), Tool: tool, Arguments: truncateUTF8(Redact(string(arguments)), 4096), Status: candidate.Check.Status, DurationMS: time.Since(started).Milliseconds()})
 	return base, candidate, nil
 }
@@ -235,13 +255,13 @@ func (h *Harness) fuzzPrecheck(run ObservedRun) ([]string, error) {
 
 // fuzzSide post-processes one recorded fuzz run: it decodes the framed
 // payload, normalizes and retains the stream, applies the results budget and
-// the baseline-side ERROR rules, and writes the check back to the ledger.
-// Caller holds h.mu.
-func (h *Harness) fuzzSide(c model.Check, payload []byte, truncated bool, run ObservedRun, baseline bool) ObservedSide {
+// the baseline-side ERROR rules, and writes the check back to the ledger. It
+// returns the side and the ERROR cause it recorded, or "". Caller holds h.mu.
+func (h *Harness) fuzzSide(c model.Check, payload []byte, truncated bool, run ObservedRun, baseline bool) (ObservedSide, string) {
 	side := ObservedSide{}
 	if c.Status != "PASS" && c.Status != "FAIL" {
 		side.Check = c
-		return side
+		return side, ""
 	}
 	cause := ""
 	raw, frameErr := coverage.DecodeFrame(payload, truncated)
@@ -269,35 +289,62 @@ func (h *Harness) fuzzSide(c model.Check, payload []byte, truncated bool, run Ob
 	case baseline && c.Status == "PASS":
 		cause = fuzzBaseNoStream
 	}
-	if baseline && cause == "" {
+	if baseline && cause == "" && h.completeLog(c) {
 		cause = fuzzBaselineStartFailure(c, run.TestNames)
 	}
 	if cause != "" {
 		c.Status, c.Results = "ERROR", ""
-		c.Output = truncateUTF8(Redact(c.Output+"\nswiftproof: "+cause), h.opts.MaxOutputBytes)
+		c.Output = h.withCause(c.Output, cause)
 	}
 	h.replaceCheck(c)
 	side.Check = c
-	return side
+	return side, cause
 }
 
-// fuzzBaselineStartFailure returns why a baseline-side PASS or FAIL run shows
-// that the harness did not build or start, or "". A run whose log records no
-// run event for any harness test did not start the harness (a build failure,
-// a TestMain that exits early, a failing package init); a passing run must
-// record a run event for every harness test. A failing run that started the
-// harness is left FAIL: the baseline process ended while it evaluated inputs.
+// completeLog reports whether the recorded log of c can be trusted to be the
+// whole log: it was not cut by the output bound, and it is not so close to
+// that bound that redaction may have cut its end. Only a complete log may
+// decide a baseline-side ERROR from missing run events: baseline code that
+// writes a lot of output cuts the log, and the candidate chooses which
+// baseline functions run, so a cut log is never a harness failure.
+func (h *Harness) completeLog(c model.Check) bool {
+	return !c.Truncated && len(c.Output) <= h.opts.MaxOutputBytes-utf8.UTFMax
+}
+
+// withCause appends the ERROR cause line to a recorded output. The output is
+// cut first, so that the cause always fits within the output bound, and the
+// composed text is redacted as a whole (Appendix D.16).
+func (h *Harness) withCause(output, cause string) string {
+	suffix := fuzzCausePrefix + cause
+	room := h.opts.MaxOutputBytes - len(suffix)
+	if room < 0 {
+		room = 0
+	}
+	return truncateUTF8(Redact(truncateUTF8(output, room)+suffix), h.opts.MaxOutputBytes)
+}
+
+// fuzzBaselineStartFailure returns why a baseline-side PASS or FAIL run whose
+// log is complete shows that the harness did not build or start, or "". A run
+// whose log records no run event for any harness test did not start the
+// harness (a build failure, a TestMain that exits early, a failing package
+// init); a passing run must record a run event for every harness test. A
+// failing run that started the harness is left FAIL: the baseline process
+// ended while it evaluated inputs. The log is read line by line without a
+// line length bound, so a long output line hides no later event.
 func fuzzBaselineStartFailure(c model.Check, names []string) string {
 	ran := map[string]bool{}
 	wanted := map[string]bool{}
 	for _, name := range names {
 		wanted[name] = true
 	}
-	scanner := bufio.NewScanner(strings.NewReader(c.Output))
-	scanner.Buffer(make([]byte, 4096), maxFileBytes)
-	for scanner.Scan() {
+	for rest := c.Output; rest != ""; {
+		var line string
+		line, rest, _ = strings.Cut(rest, "\n")
+		if !strings.Contains(line, `"run"`) {
+			continue
+		}
 		var event struct{ Action, Test string }
-		if json.Unmarshal(scanner.Bytes(), &event) != nil {
+		if json.Unmarshal([]byte(line), &event) != nil {
 			continue
 		}
 		if event.Action == "run" && wanted[event.Test] {

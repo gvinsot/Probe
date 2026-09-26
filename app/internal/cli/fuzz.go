@@ -43,7 +43,11 @@ func runFuzz(ctx context.Context, h *harness.Harness, cfg config.Config, change 
 		fuzzNotRun(cfg, r, nil, "the changed functions could not be selected: "+err.Error())
 		return
 	}
-	plan.Skipped = append(plan.Skipped, fuzz.SelectScripts(baseDir, candidateDir, change)...)
+	// The TS/JS enumeration reads candidate content on the host: besides its
+	// own size and work bounds, the fuzz sub-cap and --deadline stop it.
+	scriptCtx, cancel := context.WithTimeout(ctx, limits.MaxRuntime)
+	plan.Skipped = append(plan.Skipped, fuzz.SelectScripts(scriptCtx, baseDir, candidateDir, change)...)
+	cancel()
 	if plan.Targets() > 0 && !fuzz.CommandSupported(cfg.Commands["generated_test"]) {
 		fuzzNotRun(cfg, r, plan.Skipped, fuzzTemplateReason)
 		return
@@ -134,7 +138,10 @@ func recordFuzzSkipped(cfg config.Config, sc stageContext, enabled bool, r *mode
 }
 
 // fuzzLine is the stdout line of the fuzz section: counts of outcomes only,
-// never a percentage, and no value.
+// never a percentage, and no value. It counts the planned functions and,
+// among them, those with recorded fuzz checks: a function that the sub-cap,
+// the deadline or a harness failure kept from running has none, and is never
+// counted as run.
 func fuzzLine(f *model.FuzzReport) string {
 	if f == nil {
 		return ""
@@ -147,8 +154,11 @@ func fuzzLine(f *model.FuzzReport) string {
 	case model.FuzzNoCandidates:
 		return fmt.Sprintf("Differential fuzzing: no function ran (%s; %d skipped).", orNoReason(f.Reason), f.SkippedTotal)
 	}
-	diverged, notDiverged, inconclusive := 0, 0, 0
+	diverged, notDiverged, inconclusive, withChecks := 0, 0, 0, 0
 	for _, fn := range f.Functions {
+		if fn.Checks != nil {
+			withChecks++
+		}
 		switch fn.Outcome {
 		case model.FuzzDiverged:
 			diverged++
@@ -158,7 +168,7 @@ func fuzzLine(f *model.FuzzReport) string {
 			inconclusive++
 		}
 	}
-	return fmt.Sprintf("Differential fuzzing: %s ran on seeded inputs; %d diverged, %d not diverged, %d inconclusive; %d skipped.", fuzzCount(len(f.Functions), "changed function"), diverged, notDiverged, inconclusive, f.SkippedTotal)
+	return fmt.Sprintf("Differential fuzzing: %s planned, %d with recorded fuzz checks; %d diverged, %d not diverged, %d inconclusive; %d skipped.", fuzzCount(len(f.Functions), "changed function"), withChecks, diverged, notDiverged, inconclusive, f.SkippedTotal)
 }
 
 // fuzzCount writes n and noun, with a plural s unless n is 1.

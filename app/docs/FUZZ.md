@@ -42,7 +42,7 @@ Every other changed function is listed in `fuzz.skipped` with a fixed reason: me
 
 Functions are ordered by the highest severity of the new-side signals overlapping them, then exported before unexported, then path and line. The full rules are in the [v0.4 specification](../../specs/swiftproof-v0.4-spec.md#f2-deterministic-differential-fuzzing), §F2.1.
 
-**TypeScript and JavaScript.** No TS/JS harness runs in this build. Changed exported TS/JS functions whose body changed and whose signature text is unchanged (function declarations, and `const`, `let` or `var` bindings of function expressions and arrow functions, at the top level of a modified or renamed non-test module) are listed in `fuzz.skipped` with "TS/JS differential fuzzing is not implemented in this build". The enumeration is lexical and best-effort: a construct it does not recognize is simply not listed. They add no Unverified entry and no review request.
+**TypeScript and JavaScript.** No TS/JS harness runs in this build. Changed exported TS/JS functions whose body changed and whose signature text is unchanged (function declarations, and `const`, `let` or `var` bindings of function expressions and arrow functions, at the top level of a modified or renamed non-test module) are listed in `fuzz.skipped` with "TS/JS differential fuzzing is not implemented in this build". The enumeration is lexical and best-effort: a construct it does not recognize is simply not listed. They add no Unverified entry and no review request. Because the modules are candidate content read on the host, the enumeration is bounded linearly in their size whatever they contain: at most 2 MiB per file and 32 MiB in total, 1,048,576 tokens per file, template literals nested at most 64 deep, and at most 16 token visits per token for the parse of a file; it also stops at `fuzz.max_runtime_seconds` and at `--deadline`. A file that one of these bounds stops gets one file-level entry (line 0, no symbol) with the bound as its reason, never a partial list.
 
 ## Seeded inputs
 
@@ -59,7 +59,15 @@ The identical file is staged in both snapshots (never overwriting anything) and 
 
 Packages run one after another in plan order. Each harness is retained as a hashed `fuzz_harness` artifact, and each normalized stream as a hashed `fuzz_observations` artifact. Harness audit events are `stage:run_fuzz` and `stage:run_fuzz_confirm`.
 
-**ERROR or FAIL.** A baseline-side run (`fuzz_base`, `fuzz_base_confirm`) becomes ERROR when the harness did not build or start on the baseline (no harness test recorded a `run` event), when a passing run did not run every harness test, or when a passing run returned no readable observation stream. The baseline is trusted code, so these are failures of the tool on it (exit 4). A candidate-side run keeps FAIL for a compile, setup or run failure, whatever its log says; only an infrastructure cause (a Docker error, exit code 125 or above, a lost artifact) makes it ERROR. Code under review can therefore never force exit 4, and a candidate that does not build makes its functions `inconclusive`.
+**ERROR or FAIL.** A baseline-side run (`fuzz_base`, `fuzz_base_confirm`) becomes ERROR only in these cases:
+
+- its log is complete and shows that the harness did not build or start on the baseline (no harness test recorded a `run` event), or, for a passing run, that some harness test recorded no `run` event;
+- it passed but returned no observation stream, a payload that is not one complete frame, or a stream the validator rejects;
+- its stream could not be retained as an artifact, or an infrastructure cause: a Docker error, exit code 125 or above, or a lost log artifact.
+
+The baseline is trusted code, so these are failures of the tool on it (exit 4). A log cut by `sandbox.max_output_bytes` never decides ERROR: when baseline functions print enough to cut the log, the run keeps PASS or FAIL and its functions are `inconclusive` ("the baseline run log was truncated"). The cause of an ERROR is appended as the last line of the check's recorded output (`swiftproof: <cause>`, within the output bound) after the `check-N.log` artifact was retained, so that line is not in the artifact; the `stage:run_fuzz` or `stage:run_fuzz_confirm` audit event also records it as `baseline_error`.
+
+A candidate-side run keeps FAIL for a compile, setup or run failure, whatever its log says; only an infrastructure cause (a Docker error, exit code 125 or above, a lost artifact) makes it ERROR. Neither a candidate-side log nor a cut baseline log decides ERROR, so what code under review writes cannot force exit 4 through fuzzing, and a candidate that does not build makes its functions `inconclusive`. The change does choose which baseline functions are fuzzed; a baseline function that itself deletes or overwrites the observation file while a passing run evaluates it still gives a baseline ERROR.
 
 **Stream validation.** A stream is accepted only when every line is the byte-exact canonical form of one record in the expected order; otherwise the whole stream is rejected and a bounded, redacted copy is kept as a `fuzz_payload_rejected` artifact. The normalized stream stored in `Check.Results` must be unchanged by redaction. The report keeps at most 16 MiB of structured results (candidate-side runs at most half of it): a stream beyond what remains is kept only as its artifact, `fuzz.functions[].results_sha256` names it, and the function is `inconclusive` ("observation stream exceeded the report budget").
 
@@ -94,7 +102,7 @@ The live-baseline rule applies: `DIVERGED` needs a confirmation pair that was ex
 
 ## Runtime budget
 
-Every fuzz run is charged to the shared `sandbox.max_runtime_seconds` budget. The stage stops at `fuzz.max_runtime_seconds`, counted from its start: no run starts after it, a run's timeout is at most what remains of it (and at most `sandbox.timeout_seconds`), and a run still going when it ends is stopped as TIMEOUT. A package that the sub-cap or the overall `--deadline` stops before it starts gives `inconclusive` functions without checks. When a reviewer will run, fuzz runs also stop at `sandbox.max_runtime_seconds` minus the reviewer reserve (half the budget).
+Every fuzz run is charged to the shared `sandbox.max_runtime_seconds` budget. The stage stops at `fuzz.max_runtime_seconds`, counted from its start: no run starts after it, a run's timeout is at most what remains of it (and at most `sandbox.timeout_seconds`), and a run still going when it ends is stopped as TIMEOUT. A run of a started package that the sub-cap reaches before it starts (typically the candidate run after a baseline run that used up the sub-cap) is SKIPPED with "The time limit of the requesting stage (for example reviewer.timeout_seconds) expired before the run started; the run was not started.": for a fuzz check, that limit is `fuzz.max_runtime_seconds`, not the reviewer's. A package that the sub-cap or the overall `--deadline` stops before it starts gives `inconclusive` functions without checks. When a reviewer will run, fuzz runs also stop at `sandbox.max_runtime_seconds` minus the reviewer reserve (half the budget).
 
 A package costs two containers, plus two more when its first pair shows a difference, so at most `4 × max_packages`. Every container starts with an empty build cache and compiles the package's tests again; see [performance](PERFORMANCE.md) for measured numbers. Size `sandbox.max_runtime_seconds` for the initial checks, coverage, the other stages, `fuzz.max_runtime_seconds`, mutation and the reviewer together.
 
@@ -102,7 +110,7 @@ A package costs two containers, plus two more when its first pair shows a differ
 
 - **JSON** (`fuzz`): `status` (`ran`, `no_candidates`, `not_run`, `disabled`), `reason`, `seed_scheme`, the effective `limits`, `functions` (path, lines, symbol, signature, test name, outcome, reason, evidence ID, check IDs, counterexample, and the counts `inputs`, `compared`, `diverged`, `unstable`, `unconfirmed`, `not_recorded`), `skipped` (at most 200) with `skipped_total`, and a fixed `note`. The object is present exactly when the trusted policy has `fuzz` in review mode. The fuzz checks are in `checks`, with the normalized stream in `results`; the records are in `evidence`; every validated divergence is in `divergences` with its changed-function anchor, the four check IDs and up to 32 divergent inputs with both values.
 - **Markdown**: "Differential Fuzzing", after "Mutation of Added Lines" (or "Changed-line Execution"). One line per function with its outcome, counts and, for a divergence, the smallest divergent input tried with both values; the other values are under "Behavior Divergences". Then the skipped functions (up to 20) and the note. No percentage.
-- **stdout**: one line, for example `Differential fuzzing: 7 changed functions ran on seeded inputs; 2 diverged, 2 not diverged, 3 inconclusive; 1 skipped.`
+- **stdout**: one line, for example `Differential fuzzing: 7 changed functions planned, 7 with recorded fuzz checks; 2 diverged, 2 not diverged, 3 inconclusive; 1 skipped.` A function that the sub-cap, the deadline or a harness failure kept from running has no recorded fuzz checks and is counted apart; the stdout line and the Markdown lead never say that it ran. The fixed note describes the method whatever the section status and never says that fuzzing ran.
 - **Review targets**: the candidate lines of each diverged function (high) and each inconclusive function (medium).
 - **Unverified**: one entry per inconclusive function and one for the functions cut by `max_functions` or `max_packages`, at most 20 in total.
 
@@ -113,6 +121,7 @@ Selection and rendering parse and print Go source on the host; repository code r
 ## Limitations
 
 - Go only; no TS/JS harness runs in this build (the functions are listed as not fuzzed).
+- Functions that print can fill the `go test -json` log: once it is cut at `sandbox.max_output_bytes`, the functions of that run are `inconclusive`. Raise the bound for packages whose functions write to standard output.
 - Methods, generic functions, and struct, map, pointer, interface and qualified-type parameters are not generated; functions whose body is unchanged but whose callees changed are not fuzzed.
 - Only results, recovered panics and slice arguments after the call are observed; files, globals, standard output, goroutines and logs are not. Encodings are bounded (64 KiB, depth 16, 1,024 elements) and errors are compared by message.
 - The functions of one package run in one process in plan order: state an earlier function left behind can cause a difference recorded for a later function.
@@ -122,11 +131,11 @@ Selection and rendering parse and print Go source on the host; repository code r
 
 ## Example
 
-From a real run (2026-09-26, `golang:1.26-bookworm`, a Windows binary built from the branch) on a two-commit fixture whose candidate rewrites the calc functions of the design (`Percent` loses its zero guard, `Join` is rewritten equivalently, `Discount` moves its boundary from `>=` to `>`, `Stamp` appends the current time, `Halt` exits the process at 7, and `Boundary` reports the sandbox user), breaks the build of a second package, and rewrites an exported TypeScript function. The policy had `"fuzz": {"max_runtime_seconds": 3000}` and `generated_test` `["go", "test", "{package}"]`. `review --reviewer=false --ci` exited 2 after 113 s and printed:
+From a real run (2026-09-26, `golang:1.26-bookworm`, a Windows binary built from the branch) on a two-commit fixture whose candidate rewrites the calc functions of the design (`Percent` loses its zero guard, `Join` is rewritten with a `strings.Builder`, `Discount` moves its boundary from `>=` to `>`, `Stamp` appends the current time, `Halt` exits the process at 7, and `Boundary` reports the sandbox user), breaks the build of a second package, and rewrites an exported TypeScript function. The policy had `"fuzz": {"max_runtime_seconds": 3000}` and `generated_test` `["go", "test", "{package}"]`. `review --reviewer=false --ci` exited 2 after 70 s (the binary of the F2b review fixes) and printed:
 
 ```text
 2 recorded behavior divergences (baseline and candidate recorded different values; a human decides which is intended).
-Differential fuzzing: 7 changed functions ran on seeded inputs; 2 diverged, 2 not diverged, 3 inconclusive; 1 skipped.
+Differential fuzzing: 7 changed functions planned, 7 with recorded fuzz checks; 2 diverged, 2 not diverged, 3 inconclusive; 1 skipped.
 ```
 
 The Markdown section:
@@ -134,7 +143,7 @@ The Markdown section:
 ```text
 ## Differential Fuzzing
 
-Seeded inputs (swiftproof-fuzz/v1) ran through 7 changed Go functions on the baseline and the candidate: 2 diverged, 2 not diverged, 3 inconclusive.
+Seeded inputs (swiftproof-fuzz/v1) were planned for 7 changed Go functions, 7 of them with recorded fuzz checks on the baseline and the candidate: 2 diverged, 2 not diverged, 3 inconclusive.
 
 - **inconclusive** broken.Double (broken/broken.go:4): the candidate run failed without recording an observation stream \(for example, the package did not build; see the check log\).
 - **not diverged** calc.Boundary (calc/calc.go:18): 64 of 64 inputs compared; the recorded encodings were equal for each compared input. Evidence evidence-2 (checks check-4, check-5, check-6, check-7).

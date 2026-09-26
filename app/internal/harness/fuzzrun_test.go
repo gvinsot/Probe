@@ -268,52 +268,93 @@ func writeFile(root, rel, content string) {
 	_ = os.WriteFile(p, []byte(content), 0o644)
 }
 
+// fuzzOutputEvents renders go test -json output events of the first harness
+// test, of at least n bytes in total: what baseline code that prints writes.
+func fuzzOutputEvents(n int) string {
+	var b strings.Builder
+	for b.Len() < n {
+		fmt.Fprintf(&b, `{"Action":"output","Package":"example.com/m/pkg","Test":%q,"Output":"printed by the function under test\n"}`+"\n", fuzzNames[0])
+	}
+	return b.String()
+}
+
 // The ERROR and FAIL rules: only baseline-side harness failures and
-// infrastructure causes are ERROR; candidate-side failures stay FAIL.
+// infrastructure causes are ERROR; candidate-side failures stay FAIL. A cut
+// baseline log never decides ERROR from missing run events, and an ERROR
+// cause always fits within the output bound.
 func TestRunObservedStatusRules(t *testing.T) {
 	passLog := fuzzGoLog("pass", fuzzNames...)
 	good := fuzzSideRun{log: passLog, payload: coverageFrame("stream:ok")}
 	buildFailed := "# example.com/m/pkg\npkg/main.go:3:1: syntax error\nFAIL\texample.com/m/pkg [build failed]\n"
+	// Logs cut by a 4096-byte output bound: output of the first test pushes
+	// the run event of the second test, or every run event, past the cut.
+	cutLater := fuzzGoLog("", fuzzNames[0]) + fuzzOutputEvents(8192) + fuzzGoLog("pass", fuzzNames[1])
+	cutAll := fuzzOutputEvents(8192) + passLog
+	// A complete log with one output line longer than 1 MiB before the run
+	// event of the second test.
+	longLine := fuzzGoLog("", fuzzNames[0]) + `{"Action":"output","Package":"example.com/m/pkg","Test":"` + fuzzNames[0] + `","Output":"` + strings.Repeat("x", 3<<19) + `\n"}` + "\n" + fuzzGoLog("pass", fuzzNames...)
 	for name, tc := range map[string]struct {
 		base, candidate          fuzzSideRun
+		maxOutput                int // sandbox.max_output_bytes; 0 keeps the default
 		baseStatus, candStatus   string
 		baseResults, candResults bool
 		baseCause                string
 		rejected                 int
 	}{
-		"both pass":                         {base: good, candidate: good, baseStatus: "PASS", candStatus: "PASS", baseResults: true, candResults: true},
-		"baseline passes without a stream":  {base: fuzzSideRun{log: passLog}, candidate: good, baseStatus: "ERROR", candStatus: "PASS", candResults: true, baseCause: fuzzBaseNoStream},
-		"baseline stream rejected":          {base: fuzzSideRun{log: passLog, payload: coverageFrame("garbage")}, candidate: good, baseStatus: "ERROR", candStatus: "PASS", candResults: true, baseCause: fuzzBaseBadStream, rejected: 1},
-		"baseline frame incomplete":         {base: fuzzSideRun{log: passLog, payload: "SWIFTPROOF"}, candidate: good, baseStatus: "ERROR", candStatus: "PASS", candResults: true, baseCause: fuzzBaseBadStream, rejected: 1},
-		"baseline harness does not build":   {base: fuzzSideRun{exit: 1, log: buildFailed}, candidate: good, baseStatus: "ERROR", candStatus: "PASS", candResults: true, baseCause: fuzzBaseNotStarted},
-		"baseline skips a harness test":     {base: fuzzSideRun{log: fuzzGoLog("pass", fuzzNames[0]), payload: coverageFrame("stream:ok")}, candidate: good, baseStatus: "ERROR", candStatus: "PASS", candResults: true, baseCause: fuzzBaseTestsMissed},
-		"baseline process ends mid-harness": {base: fuzzSideRun{exit: 1, log: fuzzGoLog("", fuzzNames[0]), payload: coverageFrame("stream:partial")}, candidate: good, baseStatus: "FAIL", candStatus: "PASS", baseResults: true, candResults: true},
-		"candidate does not build":          {base: good, candidate: fuzzSideRun{exit: 1, log: buildFailed}, baseStatus: "PASS", candStatus: "FAIL", baseResults: true},
-		"candidate setup text in its log":   {base: good, candidate: fuzzSideRun{exit: 2, log: "[setup failed] permission denied\nfork/exec /x: permission denied\n"}, baseStatus: "PASS", candStatus: "FAIL", baseResults: true},
-		"candidate passes without a stream": {base: good, candidate: fuzzSideRun{log: passLog}, baseStatus: "PASS", candStatus: "PASS", baseResults: true},
-		"candidate stream rejected":         {base: good, candidate: fuzzSideRun{log: passLog, payload: coverageFrame("forged")}, baseStatus: "PASS", candStatus: "PASS", baseResults: true, rejected: 1},
-		"candidate pollutes the channel":    {base: good, candidate: fuzzSideRun{log: passLog, payload: "noise\n" + coverageFrame("stream:ok")}, baseStatus: "PASS", candStatus: "PASS", baseResults: true, rejected: 1},
-		"candidate infrastructure failure":  {base: good, candidate: fuzzSideRun{exit: 125, log: "docker: error"}, baseStatus: "PASS", candStatus: "ERROR", baseResults: true},
-		"baseline infrastructure failure":   {base: fuzzSideRun{exit: 137, log: passLog}, candidate: good, baseStatus: "ERROR", candStatus: "PASS", candResults: true},
+		"baseline passing log cut before a later run event": {base: fuzzSideRun{log: cutLater, payload: coverageFrame("stream:ok")}, candidate: good, maxOutput: 4096, baseStatus: "PASS", candStatus: "PASS", baseResults: true, candResults: true},
+		"baseline passing log cut before any run event":     {base: fuzzSideRun{log: cutAll, payload: coverageFrame("stream:ok")}, candidate: good, maxOutput: 4096, baseStatus: "PASS", candStatus: "PASS", baseResults: true, candResults: true},
+		"baseline failing log cut before any run event":     {base: fuzzSideRun{exit: 1, log: cutAll, payload: coverageFrame("stream:partial")}, candidate: good, maxOutput: 4096, baseStatus: "FAIL", candStatus: "PASS", baseResults: true, candResults: true},
+		"baseline failing log cut without a stream":         {base: fuzzSideRun{exit: 1, log: cutAll}, candidate: good, maxOutput: 4096, baseStatus: "FAIL", candStatus: "PASS", candResults: true},
+		"baseline cut log keeps a stream cause":             {base: fuzzSideRun{log: cutLater}, candidate: good, maxOutput: 4096, baseStatus: "ERROR", candStatus: "PASS", candResults: true, baseCause: fuzzBaseNoStream},
+		"baseline log with a line over 1 MiB":               {base: fuzzSideRun{log: longLine, payload: coverageFrame("stream:ok")}, candidate: good, maxOutput: 4 << 20, baseStatus: "PASS", candStatus: "PASS", baseResults: true, candResults: true},
+		"candidate log cut":                                 {base: good, candidate: fuzzSideRun{log: cutAll, payload: coverageFrame("stream:ok")}, maxOutput: 4096, baseStatus: "PASS", candStatus: "PASS", baseResults: true, candResults: true},
+		"both pass":                                         {base: good, candidate: good, baseStatus: "PASS", candStatus: "PASS", baseResults: true, candResults: true},
+		"baseline passes without a stream":                  {base: fuzzSideRun{log: passLog}, candidate: good, baseStatus: "ERROR", candStatus: "PASS", candResults: true, baseCause: fuzzBaseNoStream},
+		"baseline stream rejected":                          {base: fuzzSideRun{log: passLog, payload: coverageFrame("garbage")}, candidate: good, baseStatus: "ERROR", candStatus: "PASS", candResults: true, baseCause: fuzzBaseBadStream, rejected: 1},
+		"baseline frame incomplete":                         {base: fuzzSideRun{log: passLog, payload: "SWIFTPROOF"}, candidate: good, baseStatus: "ERROR", candStatus: "PASS", candResults: true, baseCause: fuzzBaseBadStream, rejected: 1},
+		"baseline harness does not build":                   {base: fuzzSideRun{exit: 1, log: buildFailed}, candidate: good, baseStatus: "ERROR", candStatus: "PASS", candResults: true, baseCause: fuzzBaseNotStarted},
+		"baseline skips a harness test":                     {base: fuzzSideRun{log: fuzzGoLog("pass", fuzzNames[0]), payload: coverageFrame("stream:ok")}, candidate: good, baseStatus: "ERROR", candStatus: "PASS", candResults: true, baseCause: fuzzBaseTestsMissed},
+		"baseline process ends mid-harness":                 {base: fuzzSideRun{exit: 1, log: fuzzGoLog("", fuzzNames[0]), payload: coverageFrame("stream:partial")}, candidate: good, baseStatus: "FAIL", candStatus: "PASS", baseResults: true, candResults: true},
+		"candidate does not build":                          {base: good, candidate: fuzzSideRun{exit: 1, log: buildFailed}, baseStatus: "PASS", candStatus: "FAIL", baseResults: true},
+		"candidate setup text in its log":                   {base: good, candidate: fuzzSideRun{exit: 2, log: "[setup failed] permission denied\nfork/exec /x: permission denied\n"}, baseStatus: "PASS", candStatus: "FAIL", baseResults: true},
+		"candidate passes without a stream":                 {base: good, candidate: fuzzSideRun{log: passLog}, baseStatus: "PASS", candStatus: "PASS", baseResults: true},
+		"candidate stream rejected":                         {base: good, candidate: fuzzSideRun{log: passLog, payload: coverageFrame("forged")}, baseStatus: "PASS", candStatus: "PASS", baseResults: true, rejected: 1},
+		"candidate pollutes the channel":                    {base: good, candidate: fuzzSideRun{log: passLog, payload: "noise\n" + coverageFrame("stream:ok")}, baseStatus: "PASS", candStatus: "PASS", baseResults: true, rejected: 1},
+		"candidate infrastructure failure":                  {base: good, candidate: fuzzSideRun{exit: 125, log: "docker: error"}, baseStatus: "PASS", candStatus: "ERROR", baseResults: true},
+		"baseline infrastructure failure":                   {base: fuzzSideRun{exit: 137, log: passLog}, candidate: good, baseStatus: "ERROR", candStatus: "PASS", candResults: true},
 	} {
 		t.Run(name, func(t *testing.T) {
 			h := fixture(t)
+			if tc.maxOutput > 0 {
+				h.opts.MaxOutputBytes = tc.maxOutput
+			}
 			fakeFuzz(t, h, tc.base, tc.candidate)
 			base, candidate, err := h.RunObserved(context.Background(), fuzzRun(false, false))
 			if err != nil {
 				t.Fatal(err)
 			}
 			if base.Check.Status != tc.baseStatus || candidate.Check.Status != tc.candStatus {
-				t.Fatalf("statuses %s/%s, want %s/%s\n%s", base.Check.Status, candidate.Check.Status, tc.baseStatus, tc.candStatus, base.Check.Output)
+				t.Fatalf("statuses %s/%s, want %s/%s\n%.300s", base.Check.Status, candidate.Check.Status, tc.baseStatus, tc.candStatus, base.Check.Output)
 			}
 			if (base.Check.Results != "") != tc.baseResults || (candidate.Check.Results != "") != tc.candResults {
 				t.Fatalf("results %q / %q", base.Check.Results, candidate.Check.Results)
 			}
-			if tc.baseCause != "" && !strings.Contains(base.Check.Output, "swiftproof: "+tc.baseCause) {
-				t.Fatalf("baseline log lacks its cause: %q", base.Check.Output)
+			if i := strings.LastIndex(base.Check.Output, "\nswiftproof: "+tc.baseCause); tc.baseCause != "" && (i < 0 || strings.Contains(base.Check.Output[i+1:], "\n")) {
+				t.Fatalf("the last line of the baseline log is not its cause: %.300q", base.Check.Output)
 			}
 			if tc.baseCause == "" && strings.Contains(base.Check.Output, "swiftproof: ") || strings.Contains(candidate.Check.Output, "swiftproof: ") {
-				t.Fatalf("a cause was recorded where none applies: %q / %q", base.Check.Output, candidate.Check.Output)
+				t.Fatalf("a cause was recorded where none applies: %.300q / %.300q", base.Check.Output, candidate.Check.Output)
+			}
+			for _, c := range []model.Check{base.Check, candidate.Check} {
+				if len(c.Output) > h.opts.MaxOutputBytes {
+					t.Fatalf("%s output of %d bytes exceeds the bound %d", c.ID, len(c.Output), h.opts.MaxOutputBytes)
+				}
+			}
+			// The cause is also in the audit event, apart from the retained log.
+			audit := h.Audit()
+			if len(audit) != 1 || audit[0].Tool != auditRunFuzz || strings.Contains(audit[0].Arguments, `"baseline_error"`) != (tc.baseCause != "") ||
+				tc.baseCause != "" && !strings.Contains(audit[0].Arguments, tc.baseCause) {
+				t.Fatalf("audit %+v", audit)
 			}
 			if got := len(artifactsOfKind(h, model.ArtifactFuzzPayloadRejected)); got != tc.rejected {
 				t.Fatalf("%d rejected-payload artifacts, want %d", got, tc.rejected)

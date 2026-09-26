@@ -291,7 +291,7 @@ func TestDockerFuzzReviewEndToEnd(t *testing.T) {
 			t.Errorf("Markdown lacks %q", want)
 		}
 	}
-	if !strings.Contains(stdout.String(), "Differential fuzzing: 7 changed functions ran on seeded inputs; 2 diverged, 2 not diverged, 3 inconclusive; 1 skipped.") {
+	if !strings.Contains(stdout.String(), "Differential fuzzing: 7 changed functions planned, 7 with recorded fuzz checks; 2 diverged, 2 not diverged, 3 inconclusive; 1 skipped.") {
 		t.Errorf("stdout:\n%s", stdout.String())
 	}
 	// The checkout is unchanged, the run's private temporary directory is empty,

@@ -1,8 +1,11 @@
 package fuzz
 
 import (
+	"context"
+	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/gvinsot/SwiftProof/app/internal/model"
 )
@@ -144,7 +147,7 @@ func TestSelectScriptsListsChangedExportsWithSameSignature(t *testing.T) {
 		{Path: "web/fresh.ts", Status: "A"},
 		{Path: "web/price.go", Status: "M"},
 	}}
-	got := SelectScripts(base, candidate, change)
+	got := SelectScripts(context.Background(), base, candidate, change)
 	var listed []string
 	for _, s := range got {
 		if s.Reason != ReasonScriptNotImplemented {
@@ -166,7 +169,7 @@ func TestSelectScriptsListsChangedExportsWithSameSignature(t *testing.T) {
 		t.Fatalf("lines %v", lines)
 	}
 	// Deterministic.
-	again := SelectScripts(base, candidate, change)
+	again := SelectScripts(context.Background(), base, candidate, change)
 	if len(again) != len(got) {
 		t.Fatal("two selections differ")
 	}
@@ -179,7 +182,10 @@ func TestSelectScriptsListsChangedExportsWithSameSignature(t *testing.T) {
 
 func TestScriptTokensSkipCommentsStringsAndRegexps(t *testing.T) {
 	src := "const a = 1 / 2; // tail } {\n/* block\n { */ const r = /[/}]{2}/g; const s = \"}\\\"{\"; const t = `x${ {a: '}'} }y`; if (a) { b }\n"
-	toks := scriptTokens(src)
+	toks, cut := scriptTokens(src)
+	if cut {
+		t.Fatal("a short module was cut")
+	}
 	depth := 0
 	var texts []string
 	for _, tk := range toks {
@@ -206,7 +212,7 @@ func TestScriptTokensSkipCommentsStringsAndRegexps(t *testing.T) {
 }
 
 func TestScriptFunctionsIgnoreNestedAndUnexported(t *testing.T) {
-	fns := scriptFunctions([]byte(`
+	fns, cut := scriptFunctions([]byte(`
 function outer() {
   function inner() { return 1 }
   return inner
@@ -221,11 +227,126 @@ function helperName(a) { return a }
 export * from "./other";
 export { outer as fromOther } from "./other";
 `))
+	if cut {
+		t.Fatal("a short module was cut")
+	}
 	var names []string
 	for _, f := range sortedScriptFunctions(fns) {
 		names = append(names, f.name)
 	}
 	if strings.Join(names, ",") != "overload,default" {
 		t.Fatalf("functions %v", names)
+	}
+}
+
+// adversarialScripts are TS/JS modules of just under 2 MiB that made the
+// enumeration quadratic or deeply recursive: every failed parse attempt
+// scanned to the end of the module, or template literals nested without end.
+func adversarialScripts() map[string]string {
+	out := map[string]string{}
+	for name, unit := range map[string]string{
+		"typed binding without an initializer": "const a: b ",
+		"typed binding per line":               "const a: b\n",
+		"type parameters that never close":     "function f < ",
+		"return type without a body":           "function f(): b ",
+		"arrow return type without an arrow":   "const a = (): b ",
+		"nested template literals":             "`${",
+	} {
+		out[name] = strings.Repeat(unit, (2<<20-1)/len(unit))
+	}
+	return out
+}
+
+// The enumeration is linear in the size of candidate-controlled modules: each
+// adversarial module ends well within a generous time bound (the quadratic
+// scan took over a minute on 2 MiB), and a module that a bound stops is
+// reported as cut rather than partially listed. Code that omits semicolons
+// after typed bindings is not cut.
+func TestScriptEnumerationIsBoundedOnAdversarialInput(t *testing.T) {
+	for name, src := range adversarialScripts() {
+		t.Run(name, func(t *testing.T) {
+			started := time.Now()
+			_, cut := scriptFunctions([]byte(src))
+			if d := time.Since(started); d > 20*time.Second {
+				t.Fatalf("%d bytes took %s", len(src), d)
+			}
+			if name == "typed binding per line" && cut {
+				t.Fatal("typed bindings on separate lines reached a bound")
+			}
+			if name == "nested template literals" && !cut {
+				t.Fatal("template literals nested beyond the depth bound were not reported as cut")
+			}
+		})
+	}
+	// Ordinary code far larger than any test fixture is enumerated completely
+	// within the work bound.
+	var b strings.Builder
+	for i := 0; b.Len() < 1<<20; i++ {
+		fmt.Fprintf(&b, "export function f%d(a: number, b: string): number {\n  const x: number = a + %d\n  let y: string\n  return x + b.length\n}\nexport const g%d = (n: number): number => n * %d\n", i, i, i, i)
+	}
+	fns, cut := scriptFunctions([]byte(b.String()))
+	if cut || len(fns) < 1000 {
+		t.Fatalf("ordinary module: cut %t, %d functions", cut, len(fns))
+	}
+}
+
+// SelectScripts gives a file that a bound stops one file-level entry (line 0,
+// no symbol) instead of its functions: a file over 2 MiB, a file whose scan
+// is cut, files after the total source bound, and files after the context is
+// done.
+func TestSelectScriptsFileLevelBounds(t *testing.T) {
+	base, candidate := t.TempDir(), t.TempDir()
+	big := "export function big() { return 1 }\n" + strings.Repeat("//", 1<<20) + "\n"
+	cut := strings.Repeat("const a: b ", 100000)
+	writeTree(t, base, map[string]string{
+		"web/a.ts":   "export function a() { return 1 }\n",
+		"web/big.ts": big,
+		"web/cut.ts": "export function c() { return 1 }\n" + cut,
+		"web/z.ts":   "export function z() { return 1 }\n",
+	})
+	writeTree(t, candidate, map[string]string{
+		"web/a.ts":   "export function a() { return 2 }\n",
+		"web/big.ts": big,
+		"web/cut.ts": "export function c() { return 2 }\n" + cut,
+		"web/z.ts":   "export function z() { return 2 }\n",
+	})
+	change := model.Change{Files: []model.ChangedFile{{Path: "web/a.ts", Status: "M"}, {Path: "web/big.ts", Status: "M"}, {Path: "web/cut.ts", Status: "M"}, {Path: "web/z.ts", Status: "M"}}}
+	render := func(skips []model.FuzzSkip) string {
+		var parts []string
+		for _, s := range skips {
+			parts = append(parts, fmt.Sprintf("%s:%d:%s:%s", s.Path, s.Line, s.Symbol, s.Reason))
+		}
+		return strings.Join(parts, "\n")
+	}
+	want := strings.Join([]string{
+		"web/a.ts:1:a:" + ReasonScriptNotImplemented,
+		"web/big.ts:0::" + ReasonScriptTooLarge,
+		"web/cut.ts:0::" + ReasonScriptScanBound,
+		"web/z.ts:1:z:" + ReasonScriptNotImplemented,
+	}, "\n")
+	if got := render(SelectScripts(context.Background(), base, candidate, change)); got != want {
+		t.Fatalf("got\n%s\nwant\n%s", got, want)
+	}
+	// Once the total bound is reached, no further file is read.
+	saved := scriptSourceBudget
+	scriptSourceBudget = 1
+	defer func() { scriptSourceBudget = saved }()
+	want = strings.Join([]string{
+		"web/a.ts:1:a:" + ReasonScriptNotImplemented,
+		"web/big.ts:0::" + ReasonScriptTotalBound,
+		"web/cut.ts:0::" + ReasonScriptTotalBound,
+		"web/z.ts:0::" + ReasonScriptTotalBound,
+	}, "\n")
+	if got := render(SelectScripts(context.Background(), base, candidate, change)); got != want {
+		t.Fatalf("got\n%s\nwant\n%s", got, want)
+	}
+	scriptSourceBudget = saved
+	// A done context (the fuzz sub-cap or --deadline) stops the enumeration.
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	for _, s := range SelectScripts(ctx, base, candidate, change) {
+		if s.Line != 0 || s.Symbol != "" || s.Reason != ReasonScriptTimeLimit {
+			t.Fatalf("entry %+v", s)
+		}
 	}
 }
