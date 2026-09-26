@@ -61,6 +61,17 @@ None of the v0.4 stages produces exit 1: only a reproduced high/critical hypothe
 <!-- F1:end -->
 
 <!-- F5:begin -->
+**Intent criteria in CI.** Intent criteria need no policy key and no flag, so they add no release-ordering step, but a v0.4 binary exits 3 on an intent that is not UTF-8 or contains NUL, where earlier binaries accepted it. Pass the pull request description through an environment variable written to a file, never interpolated into a `run:` line, which would let the PR author inject shell:
+
+```yaml
+- name: Write the PR intent
+  env:
+    PR_BODY: ${{ github.event.pull_request.body }}
+  run: printf '%s' "$PR_BODY" > "$RUNNER_TEMP/intent.md"
+- run: swiftproof review --base "origin/$GITHUB_BASE_REF" --intent-file "$RUNNER_TEMP/intent.md" --ci
+```
+
+Put the criteria under an `## Acceptance criteria` heading as a Markdown list. An accepted intent-test failure requests human review, exit 2 with `--ci`, never 1; to act on it in a following step, read `.intent_test_failures | length` from `.swiftproof/confidence-report.json`, and key any comparison between runs on `intent_sha256`, since criterion IDs are positional. Post SwiftProof's PR comment as a comment, never into the description: the marked block is removed from the intent with an Unverified note, but anything else copied there is read as intent. An older binary's `swiftproof report` drops `intent_criteria`, `intent_test_failures` and the new evidence and hypothesis fields, and re-derives `INTENT_TEST_FAILED` as `UNVERIFIED`; render with the binary that produced the report.
 <!-- F5:end -->
 
 <!-- F9:begin -->
