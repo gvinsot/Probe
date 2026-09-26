@@ -664,10 +664,11 @@
       "type": "object",
       "additionalProperties": false,
       "required": ["requested", "effective", "note"],
+      "description": "Concurrency of the initial checks (test, typecheck, build); every other sandbox run is sequential. Parallelism changes no check's timeout, classification or budget charge.",
       "properties": {
-        "requested": {"type": "integer", "minimum": 1, "maximum": 4},
-        "effective": {"type": "integer", "minimum": 1, "maximum": 4},
-        "note": {"type": "string"}
+        "requested": {"type": "integer", "minimum": 1, "maximum": 4, "description": "The --parallel value."},
+        "effective": {"type": "integer", "minimum": 1, "maximum": 4, "description": "The largest number of initial checks that ran at the same time, after the number of checks, the Docker server's capacity and the budget rule."},
+        "note": {"type": "string", "description": "Fixed text: why effective is below requested, and the rules concurrent checks ran under."}
       }
     },
     "executionBudget": {
