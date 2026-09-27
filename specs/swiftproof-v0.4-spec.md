@@ -1,6 +1,6 @@
 # SwiftProof V0.4 — More deterministic evidence, less model dependence
 
-**Status:** contract for the v0.4 release (unreleased). It extends the [V0.2 specification](swiftproof-v0.2-spec.md).  
+**Status:** contract for the v0.4 release. It extends the [V0.2 specification](swiftproof-v0.2-spec.md).  
 **Implementation:** portable Go CLI, standard library only.  
 **Outputs:** `CONFIDENCE_REPORT.md`, `confidence-report.json`, optionally `confidence-report.sarif` and `PR_COMMENT.md`, and retained experiment artifacts.
 
@@ -382,7 +382,7 @@ Mandatory, and repeated in the CI documentation and the v0.4.0 release notes:
 1. Any of `fuzz`, `mutation` or `prepare` makes a binary built from v0.3.4 or earlier exit 3. Do not add them to the repository's own `.swiftproof.json`, to `app/examples/swiftproof.go.json`, or to any base-branch policy until a release that accepts them is published and the workflows are re-pinned (URL and sha256).
 2. The new CLI flags (§6.5) make those older binaries exit 3 at flag parsing. Do not add them to `review.yml` or `pr-review.yml` before re-pinning.
 
-The deployment pipeline tagged `main` as v0.3.5 to v0.3.12 during the v0.4 integration. Binaries built from those tags accept the new keys and flags without implementing v0.4 (v0.3.5 to v0.3.9: the foundation, whose stages record `not_run`; v0.3.10 to v0.3.12: the stages without the final integration fixes). They MUST NOT be presented or pinned as v0.4 releases; the rules above apply to v0.4.0 and later.
+The deployment pipeline tagged `main` as v0.3.5 and later v0.3 versions during the v0.4 integration. Binaries built from those tags accept the new keys and flags without implementing all of v0.4 (v0.3.5 to v0.3.9: the foundation, whose stages record `not_run`; v0.3.10 and later: the stages without all the integration fixes). They MUST NOT be presented or pinned as v0.4 releases; the rules above apply to v0.4.0 and later.
 3. An older binary's `swiftproof report` silently drops the new report fields, because it decodes with plain `json.Unmarshal`. Render with the producing binary.
 4. Consumers validating against the old schema reject new reports. Publish the schema with the release.
 
