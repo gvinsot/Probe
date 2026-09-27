@@ -152,17 +152,22 @@ function renderRepos() {
     item.className = 'repo' + (repo.key === state.repoKey ? ' active' : '');
     item.tabIndex = 0;
 
+    // The title row carries the repository actions, so each entry stays on
+    // two lines: name and actions, then branch and latest verdict.
+    const head = document.createElement('div');
+    head.className = 'repo-head';
     const name = document.createElement('div');
     name.className = 'repo-name';
     name.appendChild(document.createTextNode(repo.full_name));
     if (repo.private) name.appendChild(chip('private'));
-    item.appendChild(name);
+    head.appendChild(name);
+    head.appendChild(repoActions(repo));
+    item.appendChild(head);
 
     const meta = document.createElement('div');
     meta.className = 'repo-meta';
     meta.appendChild(chip(repo.default_branch || 'no branch'));
-    meta.appendChild(repo.has_policy ? chip('.swiftproof.json', 'ok') : chip('no policy', 'warn'));
-    if (repo.monitored) meta.appendChild(repo.hook_outdated ? chip('webhook to reinstall', 'warn') : chip('monitored', 'ok'));
+    if (repo.hook_outdated) meta.appendChild(chip('webhook to reinstall', 'warn'));
     meta.appendChild(verdictChip(repo.latest));
     if (repo.latest && repo.latest.summary && repo.latest.summary.counts && repo.latest.status === 'done') {
       const counts = repo.latest.summary.counts;
@@ -171,44 +176,6 @@ function renderRepos() {
     if (repo.latest && repo.latest.finished_at) meta.appendChild(chip(timeAgo(repo.latest.finished_at)));
     item.appendChild(meta);
 
-    const actions = document.createElement('div');
-    actions.className = 'repo-actions';
-    if (!repo.has_policy) {
-      actions.appendChild(button('Create .swiftproof.json', 'btn setup small', (event) => {
-        event.stopPropagation();
-        openPolicyDialog(repo);
-      }));
-    } else if (!repo.monitored) {
-      const monitor = button('Monitor commits', 'btn monitor small', (event) => {
-        event.stopPropagation();
-        setMonitoring(repo, true, monitor);
-      });
-      monitor.disabled = !repo.admin;
-      if (!repo.admin) monitor.title = 'Your account cannot manage webhooks on this repository';
-      actions.appendChild(monitor);
-    } else {
-      if (repo.hook_outdated) {
-        const reinstall = button('Reinstall webhook', 'btn small', (event) => {
-          event.stopPropagation();
-          setMonitoring(repo, true, reinstall);
-        });
-        reinstall.disabled = !repo.admin;
-        if (!repo.admin) reinstall.title = 'Your account cannot manage webhooks on this repository';
-        actions.appendChild(reinstall);
-      }
-      actions.appendChild(button('Stop monitoring', 'btn quiet small', (event) => {
-        event.stopPropagation();
-        setMonitoring(repo, false);
-      }));
-    }
-    if (repo.has_policy) {
-      actions.appendChild(button('Analyze now', 'btn ghost small', (event) => {
-        event.stopPropagation();
-        analyzeNow(repo);
-      }));
-    }
-    item.appendChild(actions);
-
     const open = () => selectRepo(repo.key);
     item.addEventListener('click', open);
     item.addEventListener('keydown', (event) => {
@@ -216,6 +183,52 @@ function renderRepos() {
     });
     list.appendChild(item);
   }
+}
+
+// repoActions builds the buttons shown to the right of a repository name.
+// A repository that is not monitored yet gets a single "Activate monitoring"
+// action: it commits a .swiftproof.json policy first when there is none.
+function repoActions(repo) {
+  const actions = document.createElement('div');
+  actions.className = 'repo-actions';
+  const noAdmin = 'Your account cannot manage webhooks on this repository';
+  if (!repo.has_policy) {
+    const activate = button('Activate monitoring', 'btn setup small', (event) => {
+      event.stopPropagation();
+      openPolicyDialog(repo);
+    });
+    activate.title = 'Create a .swiftproof.json policy, then watch new commits';
+    actions.appendChild(activate);
+    return actions;
+  }
+  if (!repo.monitored) {
+    const monitor = button('Activate monitoring', 'btn monitor small', (event) => {
+      event.stopPropagation();
+      setMonitoring(repo, true, monitor);
+    });
+    monitor.disabled = !repo.admin;
+    if (!repo.admin) monitor.title = noAdmin;
+    actions.appendChild(monitor);
+  } else if (repo.hook_outdated) {
+    const reinstall = button('Reinstall webhook', 'btn small', (event) => {
+      event.stopPropagation();
+      setMonitoring(repo, true, reinstall);
+    });
+    reinstall.disabled = !repo.admin;
+    if (!repo.admin) reinstall.title = noAdmin;
+    actions.appendChild(reinstall);
+  }
+  actions.appendChild(button('Analyze now', 'btn ghost small', (event) => {
+    event.stopPropagation();
+    analyzeNow(repo);
+  }));
+  if (repo.monitored) {
+    actions.appendChild(button('Stop monitoring', 'btn quiet small', (event) => {
+      event.stopPropagation();
+      setMonitoring(repo, false);
+    }));
+  }
+  return actions;
 }
 
 // renderOutdatedNotice tells the owner which webhooks predate installation
@@ -315,13 +328,13 @@ function button(label, className, onClick) {
 async function openPolicyDialog(repo) {
   const body = el('modal-body');
   const footer = el('modal-footer');
-  el('modal-title').textContent = 'Create .swiftproof.json in ' + repo.full_name;
+  el('modal-title').textContent = 'Activate monitoring on ' + repo.full_name;
   body.textContent = '';
   footer.textContent = '';
 
   const intro = document.createElement('p');
   intro.className = 'note';
-  intro.textContent = 'The policy is generated by the SwiftProof CLI this service runs, and committed on '
+  intro.textContent = 'Monitoring needs a .swiftproof.json policy. It is generated by the SwiftProof CLI this service runs, and committed on '
     + (repo.default_branch || 'the default branch')
     + '. Review the sandbox image and the commands before relying on a report.';
   body.appendChild(intro);
@@ -348,7 +361,7 @@ async function openPolicyDialog(repo) {
   preview.textContent = 'Generating a preview…';
   body.appendChild(preview);
 
-  const create = button('Commit the policy', 'btn', async () => {
+  const create = button(repo.admin ? 'Commit the policy and monitor' : 'Commit the policy', 'btn', async () => {
     create.disabled = true;
     try {
       const payload = await api('/api/repos/' + encodeURIComponent(repo.key) + '/policy', {
@@ -357,7 +370,11 @@ async function openPolicyDialog(repo) {
       });
       upsertRepo(payload.repo);
       closeModal();
-      toast('Committed .swiftproof.json on ' + repo.default_branch + '. Enable monitoring to analyze new commits.');
+      toast('Committed .swiftproof.json on ' + repo.default_branch + '.');
+      // The policy was only the first step of "Activate monitoring".
+      const updated = payload.repo || repo;
+      if (updated.admin) await setMonitoring(updated, true);
+      else toast('Your account cannot manage webhooks on this repository: ask an administrator to activate monitoring.', true);
     } catch (err) {
       toast(err.message, true);
       create.disabled = false;
@@ -487,8 +504,11 @@ function svgElement(tag, attrs) {
   return node;
 }
 
-// Assign lanes from child to parent in Git's topological order. Parent SHAs
-// are retained in the row as accessible links as well as drawn as edges.
+// Height in pixels of a commit row; the graph nodes are aligned on it.
+const COMMIT_ROW = 56;
+
+// Assign lanes from child to parent in Git's topological order; parents are
+// drawn as edges.
 function graphLayout(commits) {
   const lanes = [];
   const positions = new Map();
@@ -497,7 +517,7 @@ function graphLayout(commits) {
     let lane = lanes.indexOf(commit.sha);
     if (lane < 0) { lane = lanes.indexOf(null); if (lane < 0) lane = lanes.length; }
     lanes[lane] = null;
-    positions.set(commit.sha, { x: 16 + lane * 24, y: row * 96 + 28 });
+    positions.set(commit.sha, { x: 12 + lane * 18, y: row * COMMIT_ROW + 17 });
     for (const parent of commit.parents || []) {
       if (lanes.includes(parent)) continue;
       let slot = lanes.indexOf(null);
@@ -506,7 +526,7 @@ function graphLayout(commits) {
     }
     width = Math.max(width, lanes.length, lane + 1);
   });
-  return { positions, width: width * 24 + 8 };
+  return { positions, width: width * 18 + 6 };
 }
 
 function renderGraph() {
@@ -524,13 +544,14 @@ function renderGraph() {
   const tree = el('commit-tree');
   tree.textContent = '';
   const { positions, width } = graphLayout(commits);
-  const svg = svgElement('svg', { width, height: commits.length * 96, 'aria-hidden': 'true', class: 'graph-lines' });
+  const svg = svgElement('svg', { width, height: commits.length * COMMIT_ROW, 'aria-hidden': 'true', class: 'graph-lines' });
+  const bend = COMMIT_ROW * 0.4;
   for (const commit of commits) {
     const p = positions.get(commit.sha);
     for (const parent of commit.parents || []) {
       const target = positions.get(parent);
-      const q = target || { x: p.x, y: p.y + 58 };
-      svg.appendChild(svgElement('path', { d: `M ${p.x} ${p.y} C ${p.x} ${p.y + 36}, ${q.x} ${q.y - 36}, ${q.x} ${q.y}`, class: target ? 'graph-edge' : 'graph-edge boundary' }));
+      const q = target || { x: p.x, y: p.y + COMMIT_ROW * 0.6 };
+      svg.appendChild(svgElement('path', { d: `M ${p.x} ${p.y} C ${p.x} ${p.y + bend}, ${q.x} ${q.y - bend}, ${q.x} ${q.y}`, class: target ? 'graph-edge' : 'graph-edge boundary' }));
     }
   }
   for (const commit of commits) {
@@ -543,27 +564,25 @@ function renderGraph() {
   for (const commit of commits) {
     const row = document.createElement('div');
     row.className = 'commit-row' + (state.commit === commit.sha ? ' selected' : '');
-    const open = button(shortSha(commit.sha) + ' · ' + commit.message, 'commit-open', () => selectRepo(state.repoKey, commit.sha));
-    open.title = commit.message;
+    // Branch tips are labelled in the tree itself, before the message; the
+    // commit id only appears on hover to keep the column narrow.
+    const line = document.createElement('div'); line.className = 'commit-line';
+    for (const branch of commit.branches || []) line.appendChild(chip(branch, 'branch'));
+    const open = button(commit.message, 'commit-open', () => selectRepo(state.repoKey, commit.sha));
+    open.title = commit.sha + '\n' + commit.message;
     if (commit.sha === state.commit) open.setAttribute('aria-current', 'true');
-    row.appendChild(open);
+    line.appendChild(open);
+    row.appendChild(line);
     const meta = document.createElement('div'); meta.className = 'row commit-meta';
-    for (const branch of commit.branches || []) meta.appendChild(chip(branch));
     for (const variant of ['normal', 'plan']) {
       const result = verdictChip(displayedRun(commit.sha, variant));
       result.prepend(document.createTextNode((variant === 'plan' ? 'Plan' : 'Normal') + ': '));
       meta.appendChild(result);
     }
+    const who = document.createElement('span'); who.className = 'note';
+    who.textContent = [commit.author, commit.date ? timeAgo(commit.date) : ''].filter(Boolean).join(' · ');
+    meta.appendChild(who);
     row.appendChild(meta);
-    const parents = document.createElement('div'); parents.className = 'note commit-parents';
-    parents.appendChild(document.createTextNode(commit.author + ' · ' + timeAgo(commit.date) + ' · Parents: '));
-    for (const parent of commit.parents || []) {
-      const link = document.createElement('a');
-      link.href = '#/repo/' + state.repoKey + '/commit/' + parent;
-      link.textContent = shortSha(parent) + ' ';
-      parents.appendChild(link);
-    }
-    row.appendChild(parents);
     list.appendChild(row);
   }
   tree.appendChild(list);

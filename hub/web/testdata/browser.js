@@ -48,6 +48,13 @@ window.addEventListener('DOMContentLoaded', async () => {
     assert(document.querySelectorAll('#commit-tree .chip.unknown').length === 6, 'gray unknown badge for uncached variants');
     assert(document.getElementById('commit-tree').textContent.includes('Human review required'), 'cached verdict badge');
     assert(fixtureCalls.every((call) => !call.path.endsWith('/analyze')), 'browsing must not run analyses');
+    const firstCommit = document.querySelector('.commit-open');
+    assert(!firstCommit.textContent.includes('aaaaaaaa') && firstCommit.title.includes(fixtureSHA('a')), 'commit id only on hover');
+    assert(!document.getElementById('commit-tree').textContent.includes('Parents'), 'parents are drawn, not listed');
+    assert(document.querySelector('.commit-row .chip.branch').textContent === 'main', 'branch name in the tree');
+    const repoHead = document.querySelector('.repo-head');
+    assert(repoHead.textContent.includes('Analyze now') && repoHead.textContent.includes('Activate monitoring'), 'repository actions next to the name');
+    assert(!document.getElementById('repos').textContent.includes('.swiftproof.json'), 'no policy tag');
     document.querySelectorAll('.commit-open')[1].click();
     await settle();
     assert(document.getElementById('commit-actions').textContent.includes('cccccccc'), 'uncached commit stays selected');

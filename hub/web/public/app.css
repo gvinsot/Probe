@@ -154,17 +154,19 @@ h1, h2, h3 { line-height: 1.25; }
 .search { width: 100%; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); color: var(--text); font: inherit; font-size: 0.9rem; }
 .repo-list { list-style: none; margin: 0; padding: 0; max-height: calc(100vh - 220px); overflow: auto; }
 .repo {
-  padding: 11px 14px;
+  padding: 8px 12px;
   border-bottom: 1px solid var(--line);
   cursor: pointer;
   display: grid;
-  gap: 6px;
+  gap: 4px;
 }
 .repo:hover { background: var(--surface-alt); }
 .repo.active { background: var(--accent-soft); }
-.repo-name { display: flex; align-items: center; gap: 8px; font-weight: 600; font-size: 0.92rem; word-break: break-all; }
+.repo-head { display: flex; align-items: center; gap: 8px; }
+.repo-name { flex: 1; min-width: 0; display: flex; align-items: center; flex-wrap: wrap; gap: 6px; font-weight: 600; font-size: 0.9rem; word-break: break-all; }
 .repo-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; color: var(--muted); font-size: 0.78rem; }
-.repo-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+.repo-actions { flex: none; display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 4px; }
+.repo-actions .btn.small { padding: 2px 8px; font-size: 0.76rem; }
 
 /* Chips */
 .chip {
@@ -327,19 +329,41 @@ pre.policy { margin: 0; background: var(--code-bg); color: var(--code-text); pad
 .error-box { border: 1px solid var(--critical); color: var(--critical); border-radius: 8px; padding: 10px; margin-bottom: 14px; font-size: 0.86rem; }
 
 /* Branch topology and the two independently cached analysis modes. */
-.commit-tree { display: flex; overflow: auto; max-height: 580px; border: 1px solid var(--line); border-radius: 8px; }
+.workspace { display: flex; align-items: flex-start; }
+.commit-column {
+  position: sticky;
+  top: 58px;
+  align-self: flex-start;
+  flex: 0 0 340px;
+  min-width: 0;
+  padding: 10px;
+  border-right: 1px solid var(--line);
+}
+.commit-column h3 { margin: 0; font-size: 0.92rem; }
+.commit-column .note { margin: 6px 0; }
+.report-pane { flex: 1; min-width: 0; }
+.commit-tree { display: flex; overflow: auto; max-height: calc(100vh - 230px); border: 1px solid var(--line); border-radius: 8px; }
 .graph-lines { flex: none; }
 .graph-edge { fill: none; stroke: var(--accent); stroke-width: 1.5; opacity: .65; }
 .graph-edge.boundary { stroke-dasharray: 3 3; }
 .graph-node { fill: var(--surface); stroke: var(--accent); stroke-width: 2; }
 .graph-node.selected { fill: var(--accent); }
-.commit-rows { flex: 1; min-width: 380px; }
-.commit-row { height: 96px; padding: 10px 12px; border-bottom: 1px solid var(--line); overflow: hidden; }
+.commit-rows { flex: 1; min-width: 0; }
+.commit-row { height: 56px; padding: 6px 8px; line-height: 1.4; border-bottom: 1px solid var(--line); overflow: hidden; }
+.commit-row:hover { background: var(--surface-alt); }
 .commit-row.selected { background: var(--accent-soft); }
-.commit-open { display: block; width: 100%; padding: 0; border: 0; color: var(--text); background: transparent; font: inherit; font-weight: 600; text-align: left; cursor: pointer; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
-.commit-meta { flex-wrap: nowrap; overflow: hidden; margin: 4px 0; }
-.commit-parents { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.branch-list { margin-bottom: 12px; max-height: 120px; overflow: auto; }
+.commit-line { display: flex; align-items: center; gap: 4px; min-width: 0; }
+.commit-open { flex: 1; min-width: 0; padding: 0; border: 0; color: var(--text); background: transparent; font: inherit; font-size: 0.86rem; font-weight: 600; text-align: left; cursor: pointer; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.chip.branch { flex: none; max-width: 45%; overflow: hidden; text-overflow: ellipsis; color: var(--accent); border-color: var(--accent); background: var(--accent-soft); font-weight: 600; }
+.commit-meta { flex-wrap: nowrap; gap: 4px; overflow: hidden; margin-top: 3px; }
+.commit-meta .chip { font-size: 0.7rem; padding: 0 6px; }
+.commit-meta .note { white-space: nowrap; font-size: 0.72rem; }
+.branch-list { gap: 4px; margin-bottom: 8px; max-height: 84px; overflow: auto; }
+@media (max-width: 1180px) {
+  .workspace { flex-direction: column; align-items: stretch; }
+  .commit-column { position: static; flex: none; border-right: 0; border-bottom: 1px solid var(--line); }
+  .commit-tree { max-height: 420px; }
+}
 .chip.unknown { color: var(--muted); background: var(--bg-alt); border: 1px solid var(--line); }
 .comparison { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
 .comparison-card { border: 1px solid var(--line); border-radius: 8px; padding: 14px; overflow-wrap: anywhere; }
