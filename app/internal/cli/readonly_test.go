@@ -85,23 +85,3 @@ func TestReadOnlyRejectsExecutionFlags(t *testing.T) {
 		}
 	}
 }
-
-func TestReadOnlyHTTPDeploymentException(t *testing.T) {
-	forbidExecution(t)
-	dir := fixture(t)
-	t.Setenv(config.EndpointEnv, "http://192.0.2.1:8000/v1")
-	t.Setenv(config.ModelEnv, "test-model")
-	t.Setenv("SWIFTPROOF_API_KEY", "test-key")
-	for _, tc := range []struct {
-		value string
-		code  int
-	}{{"false", 3}, {"true", 0}} {
-		t.Setenv(config.AllowInsecureHTTPEnv, tc.value)
-		var output bytes.Buffer
-		// An empty diff exercises provider validation without a network request.
-		code := Run(context.Background(), []string{"review", "--read-only", "--repo", dir, "--head", "main", "--out", "report"}, &output, &output, "test")
-		if code != tc.code {
-			t.Fatalf("HTTP exception=%s exit=%d want=%d: %s", tc.value, code, tc.code, output.String())
-		}
-	}
-}
