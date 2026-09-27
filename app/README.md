@@ -56,11 +56,11 @@ Use `--config .swiftproof.json` to explicitly try the local policy before commit
 ## Suggested Human Review
 
 - **high** auth.go:4–4 (new): Authentication or authorization function body changed
-- **low** auth.go:4–4 (old): No nearby test file changed
+- **low** auth.go (whole file): No nearby test file changed
 
 ## Review Surface
 
-Focused review: **2 / 2 changed lines**.
+Focused review: **1 / 2 changed lines**.
 ```
 
 Start with the flagged lines and the reason for each review target. These signals guide your review; they do not establish a confirmed bug.

@@ -51,7 +51,7 @@ func populatedPlan() Plan {
 		Assessment: PlanAssessment{
 			Major:         true,
 			Categories:    []PlanCategory{{Name: PlanCategoryArchitecture, Flagged: true, SignalIDs: []string{"sig-0123456789abcdef"}}},
-			Signals:       []Signal{{ID: "sig-0123456789abcdef", Kind: PlanSignalExportedSignature, Path: "calc/calc.go", Line: 3, EndLine: 4, Side: "old", Symbol: "Discount", Severity: "high", Summary: "The plan changes an exported API", Evidence: "exported"}},
+			Signals:       []Signal{{ID: "sig-0123456789abcdef", Kind: PlanSignalExportedSignature, Path: "calc/calc.go", Line: 3, EndLine: 4, Side: "old", Scope: SignalScopeFile, Symbol: "Discount", Severity: "high", Summary: "The plan changes an exported API", Evidence: "exported"}},
 			CriticalPaths: []PlanCriticalPath{{Path: "calc/auth/token.go", Pattern: "**/auth/**"}},
 			Symbols: []PlanSymbolImpact{{
 				Path: "calc/calc.go", Name: "Discount", Change: PlanSymbolSignature, Found: true, Symbol: "example.com/calc.Discount", Line: 3, Exported: true, Signature: "func Discount(int) int",

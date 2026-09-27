@@ -90,9 +90,10 @@ swiftproof lint HEAD~1..HEAD</code></pre>
               <div class="code">
 <pre><code><span class="o">## Suggested Human Review
 - **high** auth/auth.go:7–7 (new): Authentication or authorization function body changed
-- **high** payment/refund.go:21–21 (old): Configured sensitive path changed; No nearby test file changed; Possible input validation removed</span></code></pre>
+- **high** payment/refund.go (whole file): Configured sensitive path changed; No nearby test file changed
+- **high** payment/refund.go:21–21 (old): Possible input validation removed</span></code></pre>
               </div>
-              <p><strong>(new)</strong> points to a line in the candidate commit and <strong>(old)</strong> to a removed line in the base. <strong>Review Surface</strong> tells you how many changed lines those ranges cover. The same data, with commit IDs and signal evidence, is in <code>confidence-report.json</code> for scripts and CI.</p>
+              <p><strong>(new)</strong> points to a line in the candidate commit and <strong>(old)</strong> to a removed line in the base. <strong>(whole file)</strong> marks a signal about the file itself, such as a sensitive path, rather than about one of its lines. <strong>Review Surface</strong> tells you how many changed lines those ranges cover. The same data, with commit IDs and signal evidence, is in <code>confidence-report.json</code> for scripts and CI.</p>
               <p>Signals are reasons to look, not confirmed bugs. The <a href="docs.html#signals">signal reference</a> explains each one.</p>
             </div>
           </li>

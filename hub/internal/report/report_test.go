@@ -298,3 +298,89 @@ func TestDedupeLinesNeverDropsAReproducedIssue(t *testing.T) {
 		t.Errorf("got %+v, want the unverified and the reproduced issue only", alerts)
 	}
 }
+
+// fileLevel is a report whose file-level signals sit on the first changed line,
+// as the CLI places them, next to a signal about that very line. The review
+// target is the one an earlier CLI built by merging them all on that line.
+const fileLevel = `{
+  "version": 1,
+  "change": {"files": [{"path": "hub/api.go", "status": "M", "additions": 2, "deletions": 0,
+    "hunks": [{"old_start": 1, "old_lines": 1, "new_start": 1, "new_lines": 3, "lines": [
+      {"kind": "context", "old_line": 1, "new_line": 1, "content": "package hub"},
+      {"kind": "add", "new_line": 2, "content": "if err != nil {"},
+      {"kind": "add", "new_line": 3, "content": "}"}
+    ]}]}]},
+  "linter": [
+    {"id": "path", "kind": "sensitive_path", "path": "hub/api.go", "line": 2, "side": "new", "scope": "file",
+     "severity": "high", "summary": "Configured sensitive path changed", "evidence": "Path matches configured pattern hub/**"},
+    {"id": "tests", "kind": "no_test_change", "path": "hub/api.go", "line": 2, "side": "new",
+     "severity": "low", "summary": "No nearby test file changed", "evidence": "written before the CLI recorded a scope"},
+    {"id": "err", "kind": "error_handling_change", "path": "hub/api.go", "line": 2, "side": "new",
+     "severity": "medium", "summary": "Error handling changed", "evidence": "if err != nil {"}
+  ],
+  "review_targets": [
+    {"path": "hub/api.go", "start_line": 2, "end_line": 2, "side": "new", "severity": "high",
+     "reasons": ["Configured sensitive path changed", "No nearby test file changed", "Error handling changed"],
+     "signal_ids": ["path", "tests", "err"]}
+  ],
+  "exit_code": 2
+}`
+
+func TestFileLevelSignalsPointAtNoLine(t *testing.T) {
+	r, err := Decode([]byte(fileLevel))
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := map[string]Alert{}
+	for _, a := range r.Alerts() {
+		got[a.ID] = a
+	}
+	for _, id := range []string{"signal:path", "signal:tests"} {
+		a, ok := got[id]
+		if !ok {
+			t.Fatalf("%s dropped: a file-level signal holds no line another alert could report", id)
+		}
+		if a.Scope != ScopeFile || a.Line != 0 || a.EndLine != 0 || a.Side != "" || a.Path != "hub/api.go" {
+			t.Errorf("%s = %+v, want the whole file and no line", id, a)
+		}
+	}
+	// The line the sensitive path is anchored on keeps its own message.
+	if a, ok := got["signal:err"]; !ok || a.Line != 2 || a.EndLine != 2 || a.Scope != "" {
+		t.Errorf("signal:err = %+v, want line 2 under its own alert", a)
+	}
+	// Every reason of the merged target is shown by its own signal.
+	if a, ok := got["focus:0"]; ok {
+		t.Errorf("focus:0 = %+v repeats reasons that are not about its line", a)
+	}
+	if s := r.Summarize(); s.Counts.Total != 3 || s.Counts.High != 1 || s.Counts.Medium != 1 || s.Counts.Low != 1 {
+		t.Errorf("counts = %+v, want one alert per signal", s.Counts)
+	}
+}
+
+func TestReviewTargetsKeepOnlyTheirOwnReasons(t *testing.T) {
+	r := &Report{
+		Signals:    []Signal{{ID: "s", Kind: "auth_change", Path: "a.go", Line: 4, Side: "new", Severity: "high", Summary: "Authentication or authorization logic changed"}},
+		Hypotheses: []Hypothesis{{ID: "h", Title: "guest reaches the admin page", Severity: "high", Status: "UNVERIFIED", Path: "a.go", Line: 5}},
+		ReviewTargets: []ReviewTarget{
+			{Path: "a.go", StartLine: 4, EndLine: 9, Side: "new", Severity: "high",
+				Reasons:   []string{"Authentication or authorization logic changed", "guest reaches the admin page", "Changed baseline test TestAdmin fails on candidate code"},
+				SignalIDs: []string{"s"}},
+			{Path: "a.go", Side: "new", Severity: "medium", Reasons: []string{"Dependency-preparation input changed"}},
+		},
+	}
+	var focus []Alert
+	for _, a := range r.Alerts() {
+		if a.Kind == KindFocus {
+			focus = append(focus, a)
+		}
+	}
+	if len(focus) != 2 {
+		t.Fatalf("focus alerts = %+v, want the range and the whole file", focus)
+	}
+	if f := focus[0]; strings.Join(f.Reasons, "|") != "Changed baseline test TestAdmin fails on candidate code" || f.Line != 6 || f.EndLine != 9 || f.Title != "a.go:6-9" {
+		t.Errorf("range = %+v, want its own reason on the lines no other alert reports", f)
+	}
+	if f := focus[1]; f.Scope != ScopeFile || f.Line != 0 || f.Title != "a.go" {
+		t.Errorf("whole-file target = %+v", f)
+	}
+}

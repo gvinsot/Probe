@@ -46,13 +46,13 @@ func Analyze(ctx context.Context, repo *gitrepo.Repository, change model.Change,
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	patterns := make([]*regexp.Regexp, 0, len(sensitivePaths))
+	patterns := make([]sensitivePattern, 0, len(sensitivePaths))
 	for _, glob := range sensitivePaths {
 		p, err := compileGlob(glob)
 		if err != nil {
 			return nil, fmt.Errorf("sensitive path: %w", err)
 		}
-		patterns = append(patterns, p)
+		patterns = append(patterns, sensitivePattern{glob, p})
 	}
 	results := make([][]model.Signal, len(change.Files))
 	testDirs, testStems := map[string]bool{}, map[string]bool{}
@@ -142,15 +142,23 @@ func finish(out []model.Signal) []model.Signal {
 	return out
 }
 
-func analyzeFile(ctx context.Context, repo *gitrepo.Repository, change model.Change, f model.ChangedFile, patterns []*regexp.Regexp, hasTestChange bool) []model.Signal {
+// sensitivePattern is a configured sensitive_paths glob and its compiled form;
+// evidence names the glob as the policy wrote it.
+type sensitivePattern struct {
+	glob string
+	re   *regexp.Regexp
+}
+
+func analyzeFile(ctx context.Context, repo *gitrepo.Repository, change model.Change, f model.ChangedFile, patterns []sensitivePattern, hasTestChange bool) []model.Signal {
 	var signals []model.Signal
 	line, side := firstChangedLine(f)
+	// add records a file-level signal: the first changed line only places it.
 	add := func(kind, severity, summary, evidence string) {
-		signals = append(signals, model.Signal{Kind: kind, Path: f.Path, Line: line, Side: side, Severity: severity, Summary: summary, Evidence: evidence})
+		signals = append(signals, model.Signal{Kind: kind, Path: f.Path, Line: line, Side: side, Scope: model.SignalScopeFile, Severity: severity, Summary: summary, Evidence: evidence})
 	}
-	for _, re := range patterns {
-		if re.MatchString(f.Path) || f.OldPath != "" && re.MatchString(f.OldPath) {
-			add("sensitive_path", "high", "Configured sensitive path changed", "Path matches configured pattern "+re.String())
+	for _, p := range patterns {
+		if p.re.MatchString(f.Path) || f.OldPath != "" && p.re.MatchString(f.OldPath) {
+			add("sensitive_path", "high", "Configured sensitive path changed", "Path matches configured pattern "+p.glob)
 			break
 		}
 	}
@@ -317,9 +325,11 @@ func compileGlob(glob string) (*regexp.Regexp, error) {
 	return regexp.Compile(b.String())
 }
 
+// declaration is an exported declaration's signature and the lines it spans; a
+// function spans its signature only, since its body is not part of it.
 type declaration struct {
 	signature string
-	line      int
+	line, end int
 }
 
 type sensitiveFunction struct {
@@ -403,7 +413,7 @@ func parseGo(filename string, content []byte) (goAnalysis, error) {
 			}
 			n.Body = nil
 			n.Doc = nil
-			out[name] = declaration{f.Name.Name + ":" + printNode(n), fset.Position(n.Pos()).Line}
+			out[name] = declaration{f.Name.Name + ":" + printNode(n), fset.Position(n.Pos()).Line, fset.Position(n.End()).Line}
 		case *ast.GenDecl:
 			var previousType ast.Expr
 			var previousValues []ast.Expr
@@ -411,7 +421,7 @@ func parseGo(filename string, content []byte) (goAnalysis, error) {
 				switch spec := s.(type) {
 				case *ast.TypeSpec:
 					if ast.IsExported(spec.Name.Name) {
-						out[spec.Name.Name] = declaration{f.Name.Name + ":" + printNode(spec), fset.Position(spec.Pos()).Line}
+						out[spec.Name.Name] = declaration{f.Name.Name + ":" + printNode(spec), fset.Position(spec.Pos()).Line, fset.Position(spec.End()).Line}
 					}
 				case *ast.ValueSpec:
 					if len(spec.Values) > 0 {
@@ -443,7 +453,7 @@ func parseGo(filename string, content []byte) (goAnalysis, error) {
 								sig += fmt.Sprintf(" [iota=%d]", index)
 							}
 						}
-						out[name.Name] = declaration{sig, fset.Position(name.Pos()).Line}
+						out[name.Name] = declaration{sig, fset.Position(name.Pos()).Line, fset.Position(spec.End()).Line}
 					}
 				}
 			}
@@ -474,7 +484,7 @@ func analyzeGo(ctx context.Context, repo *gitrepo.Repository, change model.Chang
 			analysis, err = parseGo(p, content)
 		}
 		if err != nil {
-			result = append(result, model.Signal{Kind: "analysis_limited", Path: f.Path, Line: 1, Side: side, Severity: "medium", Summary: "Go public declaration analysis incomplete", Evidence: short(err.Error())})
+			result = append(result, model.Signal{Kind: "analysis_limited", Path: f.Path, Line: 1, Side: side, Scope: model.SignalScopeFile, Severity: "medium", Summary: "Go public declaration analysis incomplete", Evidence: short(err.Error())})
 			return analysis, false
 		}
 		return analysis, true
@@ -496,19 +506,19 @@ func analyzeGo(ctx context.Context, repo *gitrepo.Repository, change model.Chang
 			return result
 		}
 	}
+	added, removed := changedLines(f)
 	old, newDecls := beforeAnalysis.declarations, afterAnalysis.declarations
 	for name, before := range old {
 		after, exists := newDecls[name]
 		if exists && before.signature == after.signature {
 			continue
 		}
-		s := model.Signal{Kind: "public_api_change", Path: f.Path, Line: before.line, Side: "old", Symbol: name, Severity: "high", Summary: "Exported Go declaration removed", Evidence: "Go AST declaration: " + short(before.signature)}
+		s := model.Signal{Kind: "public_api_change", Path: f.Path, Symbol: name, Severity: "high", Summary: "Exported Go declaration removed", Evidence: "Go AST declaration: " + short(before.signature)}
 		if exists {
-			s.Line = after.line
-			s.Side = "new"
 			s.Summary = "Exported Go declaration changed"
 			s.Evidence = "Go AST before: " + short(before.signature) + "; after: " + short(after.signature)
 		}
+		s.Line, s.EndLine, s.Side = declarationAnchor(added, removed, before, after, exists)
 		result = append(result, s)
 	}
 	for name, after := range newDecls {
@@ -517,15 +527,15 @@ func analyzeGo(ctx context.Context, repo *gitrepo.Repository, change model.Chang
 		}
 	}
 	if !isTest(f.Path) {
-		result = append(result, sensitiveBodyChanges(f, beforeAnalysis.functions, afterAnalysis.functions)...)
+		result = append(result, sensitiveBodyChanges(f.Path, added, removed, beforeAnalysis.functions, afterAnalysis.functions)...)
 	}
 	return result
 }
 
-func sensitiveBodyChanges(file model.ChangedFile, before, after map[string]sensitiveFunction) []model.Signal {
-	var result []model.Signal
-	var added, removed []int
-	for _, hunk := range file.Hunks {
+// changedLines returns the sorted added (new side) and deleted (old side) line
+// numbers of f.
+func changedLines(f model.ChangedFile) (added, removed []int) {
+	for _, hunk := range f.Hunks {
 		for _, line := range hunk.Lines {
 			if line.Kind == "add" && line.NewLine > 0 {
 				added = append(added, line.NewLine)
@@ -537,6 +547,39 @@ func sensitiveBodyChanges(file model.ChangedFile, before, after map[string]sensi
 	}
 	sort.Ints(added)
 	sort.Ints(removed)
+	return added, removed
+}
+
+// declarationAnchor locates a changed or removed exported declaration on the
+// changed lines inside it, so that a struct whose field changed points at the
+// field rather than at its unchanged first line. A change the declaration's own
+// lines do not show, such as an iota value shifted by an earlier constant, stays
+// on its first line. EndLine is 0 for a single line.
+func declarationAnchor(added, removed []int, before, after declaration, exists bool) (int, int, string) {
+	if exists {
+		if line, end := changedRange(added, after.line, after.end); line != 0 {
+			return line, lineEnd(line, end), "new"
+		}
+		if line, end := changedRange(removed, before.line, before.end); line != 0 {
+			return line, lineEnd(line, end), "old"
+		}
+		return after.line, 0, "new"
+	}
+	if line, end := changedRange(removed, before.line, before.end); line != 0 {
+		return line, lineEnd(line, end), "old"
+	}
+	return before.line, 0, "old"
+}
+
+func lineEnd(line, end int) int {
+	if end > line {
+		return end
+	}
+	return 0
+}
+
+func sensitiveBodyChanges(path string, added, removed []int, before, after map[string]sensitiveFunction) []model.Signal {
+	var result []model.Signal
 	seen := map[string]bool{}
 	for name, function := range after {
 		seen[name] = true
@@ -544,35 +587,37 @@ func sensitiveBodyChanges(file model.ChangedFile, before, after map[string]sensi
 		if exists && function.body == previous.body {
 			continue
 		}
-		line, end := changedBodyRange(added, function)
+		line, end := changedRange(added, function.start, function.end)
 		side := "new"
 		if line == 0 && exists {
-			line, end = changedBodyRange(removed, previous)
+			line, end = changedRange(removed, previous.start, previous.end)
 			side = "old"
 		}
 		if line != 0 {
-			result = append(result, sensitiveBodySignal(file.Path, name, function.kind, side, line, end))
+			result = append(result, sensitiveBodySignal(path, name, function.kind, side, line, end))
 		}
 	}
 	for name, function := range before {
 		if seen[name] {
 			continue
 		}
-		line, end := changedBodyRange(removed, function)
+		line, end := changedRange(removed, function.start, function.end)
 		if line != 0 {
-			result = append(result, sensitiveBodySignal(file.Path, name, function.kind, "old", line, end))
+			result = append(result, sensitiveBodySignal(path, name, function.kind, "old", line, end))
 		}
 	}
 	return result
 }
 
-func changedBodyRange(lines []int, function sensitiveFunction) (int, int) {
-	first := sort.SearchInts(lines, function.start)
-	end := sort.SearchInts(lines, function.end+1)
-	if first == end {
+// changedRange returns the first and last of the sorted lines that fall within
+// [start, end], or 0, 0 when none does.
+func changedRange(lines []int, start, end int) (int, int) {
+	first := sort.SearchInts(lines, start)
+	last := sort.SearchInts(lines, end+1)
+	if first == last {
 		return 0, 0
 	}
-	return lines[first], lines[end-1]
+	return lines[first], lines[last-1]
 }
 
 func sensitiveBodySignal(path, name, kind, side string, line, end int) model.Signal {

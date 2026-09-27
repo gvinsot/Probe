@@ -51,6 +51,12 @@ type Policy struct {
 	Commit string `json:"commit,omitempty"`
 	Path   string `json:"path,omitempty"`
 }
+
+// SignalScopeFile marks a signal about a whole file, such as a sensitive path
+// or a missing test change. Its Line and Side only place it on the file's first
+// changed line for tools that need a line; they say nothing about that line.
+const SignalScopeFile = "file"
+
 type Signal struct {
 	ID       string `json:"id"`
 	Kind     string `json:"kind"`
@@ -58,6 +64,7 @@ type Signal struct {
 	Line     int    `json:"line"`
 	EndLine  int    `json:"end_line,omitempty"`
 	Side     string `json:"side,omitempty"`
+	Scope    string `json:"scope,omitempty"`
 	Symbol   string `json:"symbol,omitempty"`
 	Severity string `json:"severity"`
 	Summary  string `json:"summary"`

@@ -35,11 +35,11 @@ No specific unresolved area was recorded. This does not establish correctness.
 ## Suggested Human Review
 
 - **high** auth.go:4–4 (new): Authentication or authorization function body changed
-- **low** auth.go:4–4 (old): No nearby test file changed
+- **low** auth.go (whole file): No nearby test file changed
 
 ## Review Surface
 
-Focused review: **2 / 2 changed lines**.
+Focused review: **1 / 2 changed lines**.
 
 Distinct changed coordinates; removed and added lines count separately. Focused review is a prioritization aid, not proof that the remaining diff is correct. NOT\_REPRODUCED means only that the recorded experiment did not reproduce the concern.
 

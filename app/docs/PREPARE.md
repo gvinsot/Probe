@@ -106,7 +106,7 @@ The report records:
 - a `## Dependency Preparation` Markdown section before `## Automated Checks`;
 - the `prepare_output` artifact (built or failed builds only);
 - one audit event `stage:prepare` with status `OK`, `ERROR`, `TIMEOUT` or `SKIPPED`;
-- one medium `prepare_input_changed` signal per changed file whose new or old path matches an input pattern, in lint and review, anchored at the file's first changed line.
+- one medium file-level (`"scope": "file"`) `prepare_input_changed` signal per changed file whose new or old path matches an input pattern, in lint and review, anchored at the file's first changed line.
 
 When a review with a built or reused image changes a declared input, the Unverified list gains "Candidate changes dependency-preparation inputs (…); sandbox checks used dependencies prepared from the base commit's versions of the declared inputs only. Candidate dependency changes were not installed, so checks may fail or behave differently for that reason alone; SwiftProof attributes no check result to it.", which requests human review under `--ci`. **Candidate dependency changes are never installed.** The entry neither explains nor discounts any check result: checks keep their recorded statuses. A failed or not permitted preparation adds an Unverified entry that says whether the base-branch prepare command was started; no candidate code ever runs in the prepare stage.
 

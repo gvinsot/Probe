@@ -330,7 +330,10 @@ func populatedReport() Report {
 			User: "sandbox", Network: false, Key: sha, BaseImage: "golang:1.26-bookworm", BaseImageID: img, ImageID: "sha256:" + strings.Repeat("f", 64),
 			AddedBytes: 4096, Inputs: []PreparedInput{{Path: "go.sum", SHA256: sha, Size: 120}}, LogSHA256: sha, DurationMS: 900, Note: PrepareNote,
 		},
-		Signals: []Signal{{ID: "signal-1", Kind: SignalSurvivingMutant, Path: "calc/calc.go", Line: 3, EndLine: 3, Side: "new", Symbol: "Discount", Severity: "medium", Summary: "A mutant of an added line survived", Evidence: "mutant-1"}},
+		Signals: []Signal{
+			{ID: "signal-1", Kind: SignalSurvivingMutant, Path: "calc/calc.go", Line: 3, EndLine: 3, Side: "new", Symbol: "Discount", Severity: "medium", Summary: "A mutant of an added line survived", Evidence: "mutant-1"},
+			{ID: "signal-2", Kind: SignalPrepareInputChanged, Path: "go.sum", Line: 1, Side: "new", Scope: SignalScopeFile, Severity: "medium", Summary: "Dependency-preparation input changed", Evidence: "Matches prepare.inputs pattern go.sum"},
+		},
 		Checks: []Check{
 			check("check-1", CheckTest, "PASS", 0, nil),
 			check("check-2", CheckGeneratedBase, "PASS", 0, stored),

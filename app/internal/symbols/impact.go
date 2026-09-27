@@ -1004,7 +1004,7 @@ func (a *analysis) limitedSignal() []model.Signal {
 	case a.firstUnlisted != nil:
 		s.Path, s.Line, s.Side = a.firstUnlisted.Path, a.firstUnlisted.Line, "new"
 	case a.firstGoPath != "":
-		s.Path, s.Line, s.Side = a.firstGoPath, 1, a.firstGoSide
+		s.Path, s.Line, s.Side, s.Scope = a.firstGoPath, 1, a.firstGoSide, model.SignalScopeFile
 	default:
 		return out
 	}

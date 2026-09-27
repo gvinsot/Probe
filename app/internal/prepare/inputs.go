@@ -43,10 +43,10 @@ func ChangedInputs(spec *config.Prepare, change model.Change) []string {
 }
 
 // Signals returns one medium prepare_input_changed signal per changed file
-// whose new or old path matches a declared input (lint and review). It is
-// anchored at the file's first changed line, like dependency_change, so that a
-// long lockfile hunk does not inflate the focused lines. IDs are assigned by
-// linter.Merge. A nil spec has none.
+// whose new or old path matches a declared input (lint and review). Like
+// dependency_change it is a file-level signal, anchored at the file's first
+// changed line, so that a long lockfile hunk does not inflate the focused
+// lines. IDs are assigned by linter.Merge. A nil spec has none.
 func Signals(spec *config.Prepare, change model.Change) []model.Signal {
 	if spec == nil {
 		return nil
@@ -62,7 +62,7 @@ func Signals(spec *config.Prepare, change model.Change) []model.Signal {
 		}
 		line, side := linter.FirstChangedLine(f)
 		out = append(out, model.Signal{
-			Kind: model.SignalPrepareInputChanged, Path: f.Path, Line: line, Side: side, Severity: "medium",
+			Kind: model.SignalPrepareInputChanged, Path: f.Path, Line: line, Side: side, Scope: model.SignalScopeFile, Severity: "medium",
 			Summary:  "Dependency-preparation input changed",
 			Evidence: "Matches prepare.inputs pattern " + pattern + ". Sandbox checks use dependencies prepared from the base commit's version of the declared inputs only; the candidate's version is never installed, so checks may fail or behave differently for that reason alone.",
 		})

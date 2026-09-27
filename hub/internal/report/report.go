@@ -96,7 +96,12 @@ type Change struct {
 	Deletions  int           `json:"deletions"`
 }
 
-// Signal mirrors a linter signal.
+// ScopeFile marks what concerns a whole file rather than some of its lines.
+const ScopeFile = "file"
+
+// Signal mirrors a linter signal. A file-level signal (Scope "file") keeps a
+// line only to place it on the file's first changed line; that line is not
+// what the signal is about.
 type Signal struct {
 	ID       string `json:"id"`
 	Kind     string `json:"kind"`
@@ -104,10 +109,25 @@ type Signal struct {
 	Line     int    `json:"line"`
 	EndLine  int    `json:"end_line,omitempty"`
 	Side     string `json:"side,omitempty"`
+	Scope    string `json:"scope,omitempty"`
 	Symbol   string `json:"symbol,omitempty"`
 	Severity string `json:"severity"`
 	Summary  string `json:"summary"`
 	Evidence string `json:"evidence"`
+}
+
+// legacyFileKinds are the kinds the CLI placed on a file's first changed line
+// before it recorded a scope. Reports written then are still displayed.
+var legacyFileKinds = map[string]bool{
+	"sensitive_path": true, "binary_change": true, "dependency_change": true,
+	"migration_change": true, "infrastructure_change": true, "file_deleted": true,
+	"file_type_change": true, "large_change": true, "no_test_change": true,
+	"branch_growth": true, "prepare_input_changed": true, "plan_drift": true,
+}
+
+// FileScoped reports a signal about a whole file.
+func (s Signal) FileScoped() bool {
+	return s.Scope == ScopeFile || s.Scope == "" && legacyFileKinds[s.Kind]
 }
 
 // Check mirrors one executed check.
@@ -223,7 +243,8 @@ type EvidenceRef struct {
 }
 
 // Alert is one entry of the severity-filtered list. Path/Line/EndLine point at
-// the modifications it concerns; the UI resolves them against Files.
+// the modifications it concerns; the UI resolves them against Files. An alert
+// with Scope "file" concerns its whole file and has no line.
 type Alert struct {
 	ID       string        `json:"id"`
 	Kind     string        `json:"kind"`
@@ -234,6 +255,7 @@ type Alert struct {
 	Line     int           `json:"line,omitempty"`
 	EndLine  int           `json:"end_line,omitempty"`
 	Side     string        `json:"side,omitempty"`
+	Scope    string        `json:"scope,omitempty"`
 	Status   string        `json:"status,omitempty"`
 	Reasons  []string      `json:"reasons,omitempty"`
 	Evidence []EvidenceRef `json:"evidence,omitempty"`
@@ -415,45 +437,55 @@ func (r *Report) Alerts() []Alert {
 			Status:   c.Status,
 		})
 	}
+	summaries := make(map[string]string, len(r.Signals))
 	for _, s := range r.Signals {
-		end := s.EndLine
-		if end < s.Line {
-			end = s.Line
-		}
-		side := s.Side
-		if side == "" {
-			side = "new"
-		}
-		alerts = append(alerts, Alert{
+		summaries[s.ID] = s.Summary
+		a := Alert{
 			ID:       "signal:" + s.ID,
 			Kind:     KindSignal,
 			Severity: Normalize(s.Severity),
 			Title:    signalTitle(s),
 			Detail:   s.Evidence,
 			Path:     s.Path,
-			Line:     s.Line,
-			EndLine:  end,
-			Side:     side,
 			Status:   "OBSERVED",
 			Reasons:  []string{s.Kind},
-		})
+		}
+		if s.FileScoped() {
+			// Its anchor line would single out a line it says nothing about.
+			a.Scope = ScopeFile
+		} else {
+			a.Line, a.EndLine, a.Side = s.Line, s.EndLine, s.Side
+			if a.EndLine < a.Line {
+				a.EndLine = a.Line
+			}
+			if a.Side == "" {
+				a.Side = "new"
+			}
+		}
+		alerts = append(alerts, a)
 	}
 	for i, t := range r.ReviewTargets {
-		side := t.Side
-		if side == "" {
-			side = "new"
+		reasons := targetReasons(t, summaries, r.Hypotheses)
+		if len(reasons) == 0 {
+			continue
 		}
-		alerts = append(alerts, Alert{
+		a := Alert{
 			ID:       fmt.Sprintf("focus:%d", i),
 			Kind:     KindFocus,
 			Severity: Normalize(t.Severity),
-			Title:    fmt.Sprintf("%s:%d-%d", t.Path, t.StartLine, t.EndLine),
 			Path:     t.Path,
-			Line:     t.StartLine,
-			EndLine:  t.EndLine,
-			Side:     side,
-			Reasons:  t.Reasons,
-		})
+			Reasons:  reasons,
+		}
+		if t.StartLine <= 0 {
+			a.Title, a.Scope = t.Path, ScopeFile
+		} else {
+			a.Title = fmt.Sprintf("%s:%d-%d", t.Path, t.StartLine, t.EndLine)
+			a.Line, a.EndLine, a.Side = t.StartLine, t.EndLine, t.Side
+			if a.Side == "" {
+				a.Side = "new"
+			}
+		}
+		alerts = append(alerts, a)
 	}
 	sort.SliceStable(alerts, func(i, j int) bool {
 		a, b := alerts[i], alerts[j]
@@ -474,6 +506,33 @@ func (r *Report) Alerts() []Alert {
 	return dedupeLines(alerts)
 }
 
+// targetReasons keeps the reasons of a review target that no other alert
+// shows. The CLI merges into one target the signals and issues of adjacent
+// lines, and places file-level signals on their anchor line, so a target's
+// reasons are not all about its lines; its signals and issues are alerts of
+// their own, at their own location. A target left without a reason of its own
+// is not shown.
+func targetReasons(t ReviewTarget, summaries map[string]string, hypotheses []Hypothesis) []string {
+	shown := map[string]bool{}
+	for _, id := range t.SignalIDs {
+		if summary, ok := summaries[id]; ok {
+			shown[summary] = true
+		}
+	}
+	for _, h := range hypotheses {
+		if h.Path == t.Path {
+			shown[h.Title] = true
+		}
+	}
+	var out []string
+	for _, reason := range t.Reasons {
+		if !shown[reason] {
+			out = append(out, reason)
+		}
+	}
+	return out
+}
+
 // lineSpan is an inclusive range of lines of one side of one file.
 type lineSpan struct{ start, end int }
 
@@ -481,8 +540,9 @@ type lineSpan struct{ start, end int }
 // most severe first, and each later alert keeps only the lines no earlier
 // alert already reported. An alert whose lines are all reported is dropped;
 // one whose range is partly reported is narrowed, or split into the parts
-// still unreported. Alerts without a location (checks) are kept as they are,
-// and a reproduced issue is never dropped: it is evidence, not a pointer.
+// still unreported. Alerts without a line (checks, and alerts about a whole
+// file) are kept as they are and hold no line, and a reproduced issue is never
+// dropped: it is evidence, not a pointer.
 // Only the list shrinks; the verdict still comes from the CLI exit code.
 func dedupeLines(alerts []Alert) []Alert {
 	covered := map[string][]lineSpan{}

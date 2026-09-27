@@ -168,6 +168,18 @@ window.addEventListener('DOMContentLoaded', async () => {
     await settle();
     assert(document.querySelector('#plan-result a').href.endsWith('?variant=plan'), 'download selected variant');
     assert(document.getElementById('plan-result').textContent.includes('Generated plan'), 'stored plan visible');
+    // An alert singles out only the lines it is about, and says why it singles out none.
+    const diffFile = { path: 'hub/api.go', status: 'M', additions: 1, deletions: 0, hunks: [{ old_start: 1, old_lines: 1, new_start: 1, new_lines: 2, lines: [
+      { kind: 'context', old_line: 1, new_line: 1, content: 'package hub' }, { kind: 'add', new_line: 2, content: 'if err != nil {}' }] }] };
+    const wholeFile = { id: 'signal:path', kind: 'signal', severity: 'high', title: 'Configured sensitive path changed', path: 'hub/api.go', scope: 'file' };
+    assert(alertLocation(wholeFile) === 'hub/api.go · whole file', 'file-level location: ' + alertLocation(wholeFile));
+    const wholeDiff = renderDiff(diffFile, wholeFile);
+    assert(!wholeDiff.querySelector('tr.focus') && wholeDiff.querySelector('.diff-note').textContent.includes('whole file'), 'a file-level alert highlights no line');
+    const lineAlert = { id: 'signal:err', kind: 'signal', severity: 'medium', title: 'Error handling changed', path: 'hub/api.go', line: 2, end_line: 2, side: 'new' };
+    const lineDiff = renderDiff(diffFile, lineAlert);
+    assert(lineDiff.querySelectorAll('tr.focus').length === 1 && !lineDiff.querySelector('.diff-note'), 'a line alert highlights its line');
+    const outside = renderDiff(diffFile, { ...lineAlert, line: 40, end_line: 40 });
+    assert(!outside.querySelector('tr.focus') && outside.querySelector('.diff-note').textContent.startsWith('Line 40 is outside the recorded diff'), 'a line outside the diff is named');
     assert(!document.body.dataset.testResult, document.body.dataset.testResult);
     document.body.dataset.testResult = 'PASS';
   } catch (err) { fixtureFail(err); }

@@ -246,7 +246,32 @@ func targets(r *model.Report) ([]model.ReviewTarget, model.ReviewSurface) {
 			}
 		}
 	}
+	// A file-level signal says nothing about the line that anchors it: it joins
+	// one whole-file target per path (lines 0), which focuses no changed line.
+	addFile := func(path, side, sev, reason, id string) {
+		if path == "" {
+			return
+		}
+		if side != "old" {
+			side = "new"
+		}
+		c := coordinate{path: path}
+		t := selected[c]
+		if t == nil {
+			t = &model.ReviewTarget{Path: path, Side: side, Severity: severity(sev)}
+			selected[c] = t
+		}
+		if rank(sev) > rank(t.Severity) {
+			t.Severity = severity(sev)
+		}
+		t.Reasons = append(t.Reasons, reason)
+		t.SignalIDs = append(t.SignalIDs, id)
+	}
 	for _, s := range r.Signals {
+		if s.Scope == model.SignalScopeFile {
+			addFile(s.Path, s.Side, s.Severity, s.Summary, s.ID)
+			continue
+		}
 		add(s.Path, s.Side, s.Line, s.EndLine, s.Severity, s.Summary, s.ID)
 	}
 	for _, h := range r.Hypotheses {
@@ -282,7 +307,7 @@ func targets(r *model.Report) ([]model.ReviewTarget, model.ReviewSurface) {
 	for _, t := range out {
 		if len(merged) > 0 {
 			last := &merged[len(merged)-1]
-			if last.Path == t.Path && last.Side == t.Side && t.StartLine > 0 && last.EndLine+1 >= t.StartLine {
+			if last.Path == t.Path && last.Side == t.Side && last.StartLine > 0 && t.StartLine > 0 && last.EndLine+1 >= t.StartLine {
 				if t.EndLine > last.EndLine {
 					last.EndLine = t.EndLine
 				}
@@ -432,6 +457,10 @@ func renderMarkdown(r *model.Report) []byte {
 		line(&b, "No location was prioritized by the available signals. Review intent and behavior before merging.\n")
 	}
 	for _, t := range r.ReviewTargets {
+		if t.StartLine == 0 {
+			fmt.Fprintf(&b, "- **%s** %s (whole file): %s\n", inline(t.Severity), inline(t.Path), inline(strings.Join(t.Reasons, "; ")))
+			continue
+		}
 		fmt.Fprintf(&b, "- **%s** %s:%d–%d (%s): %s\n", inline(t.Severity), inline(t.Path), t.StartLine, t.EndLine, inline(t.Side), inline(strings.Join(t.Reasons, "; ")))
 	}
 	fmt.Fprintf(&b, "\n## Review Surface\n\nFocused review: **%d / %d changed lines**.\n\n%s\n", r.ReviewSurface.FocusedLines, r.ReviewSurface.ChangedLines, inline(r.ReviewSurface.Note))

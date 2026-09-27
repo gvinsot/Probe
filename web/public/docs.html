@@ -358,7 +358,7 @@ swiftproof review --base origin/main --plan .swiftproof/PLAN.json --ci   <span c
 
         <section id="signals">
           <h2>Risk signals</h2>
-          <p>Signals are reasons to look, not confirmed defects. Go files get syntax-aware analysis; TypeScript/JavaScript, Python, Rust and other languages use labelled text heuristics. Signals on the same lines are merged into one review range in the report.</p>
+          <p>Signals are reasons to look, not confirmed defects. Go files get syntax-aware analysis; TypeScript/JavaScript, Python, Rust and other languages use labelled text heuristics. Signals on the same lines are merged into one review range in the report. File-level signals (<code>sensitive_path</code>, <code>dependency_change</code>, <code>migration_change</code>, <code>infrastructure_change</code>, <code>binary_change</code>, <code>file_deleted</code>, <code>file_type_change</code>, <code>large_change</code>, <code>branch_growth</code>, <code>no_test_change</code>, <code>prepare_input_changed</code>, <code>plan_drift</code>) concern the file, not a line: the report lists them under the file as <em>whole file</em>, and the JSON marks them <code>"scope": "file"</code>. Their <code>line</code> only places them on the file's first changed line.</p>
           <div class="table-wrap">
             <table>
               <thead><tr><th>Kind</th><th>Severity</th><th>Raised when</th></tr></thead>

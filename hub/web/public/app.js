@@ -1096,6 +1096,7 @@ function statusClass(status) {
 
 function alertLocation(alert) {
   if (!alert.path) return alert.reasons ? alert.reasons.join(', ') : '';
+  if (alert.scope === 'file') return alert.path + ' · whole file';
   let where = alert.path;
   if (alert.line) {
     where += ':' + alert.line;
@@ -1156,10 +1157,32 @@ function alertBody(alert) {
   } else if (alert.path) {
     const missing = document.createElement('p');
     missing.className = 'note';
-    missing.textContent = 'The analyzed range carries no diff for ' + alert.path + '.';
+    missing.textContent = alert.line
+      ? alertLines(alert) + ' of ' + alert.path + ' outside the recorded diff: the analyzed range does not change this file.'
+      : 'The analyzed range carries no diff for ' + alert.path + '.';
     body.appendChild(missing);
   }
   return body;
+}
+
+// alertLines names the lines an alert points at, as the subject of a sentence.
+function alertLines(alert) {
+  const side = alert.side === 'old' ? ' (old side)' : '';
+  if (alert.end_line && alert.end_line > alert.line) return 'Lines ' + alert.line + '-' + alert.end_line + side + ' are';
+  return 'Line ' + alert.line + side + ' is';
+}
+
+// diffNote says why the diff singles out no line: the alert concerns the whole
+// file, or the diff does not show the lines it points at.
+function diffNote(alert, focused) {
+  let text = '';
+  if (alert.scope === 'file') text = 'This alert concerns the whole file, not one of its lines. All its modifications follow.';
+  else if (alert.line && !focused) text = alertLines(alert) + ' outside the recorded diff. The modifications of this file follow.';
+  if (!text) return null;
+  const note = document.createElement('p');
+  note.className = 'note diff-note';
+  note.textContent = text;
+  return note;
 }
 
 function findFile(path) {
@@ -1168,7 +1191,7 @@ function findFile(path) {
 }
 
 // renderDiff shows every modification of the concerned file and highlights the
-// lines the alert points at.
+// lines the alert points at, or says why it highlights none.
 function renderDiff(file, alert) {
   const wrapper = document.createElement('div');
   wrapper.className = 'diff';
@@ -1222,6 +1245,8 @@ function renderDiff(file, alert) {
   }
   table.appendChild(body);
 
+  const note = diffNote(alert, firstFocus);
+  if (note) wrapper.appendChild(note);
   const pre = document.createElement('div');
   pre.appendChild(table);
   wrapper.appendChild(pre);

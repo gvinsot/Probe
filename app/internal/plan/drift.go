@@ -118,9 +118,9 @@ func DriftStatus(items []model.PlanDriftItem) string {
 	return model.PlanDriftConforming
 }
 
-// DriftSignals turns the items that point into the diff into plan_drift
-// signals, located on the first changed line of their file, so that any
-// consumer rendering signals shows them. Untouched planned files are not in
+// DriftSignals turns the items that point into the diff into file-level
+// plan_drift signals, located on the first changed line of their file, so that
+// any consumer rendering signals shows them. Untouched planned files are not in
 // the diff and stay in the section only. IDs are assigned by the caller.
 func DriftSignals(items []model.PlanDriftItem, change model.Change) []model.Signal {
 	first := map[string][2]any{}
@@ -139,7 +139,7 @@ func DriftSignals(items []model.PlanDriftItem, change model.Change) []model.Sign
 		if !ok || it.Kind == model.DriftPlannedUntouched {
 			continue
 		}
-		out = append(out, model.Signal{Kind: model.SignalPlanDrift, Path: it.Path, Line: loc[0].(int), Side: loc[1].(string), Symbol: it.Symbol, Severity: it.Severity, Summary: it.Summary, Evidence: "Plan contract check (" + it.Kind + "): deterministic comparison of the diff with the plan"})
+		out = append(out, model.Signal{Kind: model.SignalPlanDrift, Path: it.Path, Line: loc[0].(int), Side: loc[1].(string), Scope: model.SignalScopeFile, Symbol: it.Symbol, Severity: it.Severity, Summary: it.Summary, Evidence: "Plan contract check (" + it.Kind + "): deterministic comparison of the diff with the plan"})
 	}
 	return out
 }

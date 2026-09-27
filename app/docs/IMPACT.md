@@ -63,7 +63,7 @@ A reaching test is an existing `TestX(t *testing.T)` function (recognized syntac
 | Kind | Severity | Where | When |
 | --- | --- | --- | --- |
 | `impacted_caller` | low | the caller's line (new side) | one per listed caller site: "Unchanged caller of a changed Go function", "Unchanged reference to a changed Go function" or "Unchanged interface call that may dispatch to a changed Go method" |
-| `analysis_limited` (symbol `impact_index`) | medium | the first caller site left out, else line 1 of the first changed Go file | at most one per run, when caller signals were left out by the caps, or when the index is limited or unavailable and changed functions are concerned |
+| `analysis_limited` (symbol `impact_index`) | medium | the first caller site left out, else line 1 of the first changed Go file (file-level, `"scope": "file"`) | at most one per run, when caller signals were left out by the caps, or when the index is limited or unavailable and changed functions are concerned |
 
 At most 10 `impacted_caller` signals are added per changed function and 100 per run; the `analysis_limited` signal states how many caller sites were left out. The low targets land on unchanged lines, so the review surface's focused-line count does not change. Neither kind requests human review or changes the exit code.
 

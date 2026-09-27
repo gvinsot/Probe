@@ -74,7 +74,7 @@ swiftproof review --base origin/main --plan .swiftproof/PLAN.json --ci
 swiftproof lint   --base origin/main --plan .swiftproof/PLAN.json
 ```
 
-`--plan` reads the `contract` of a PLAN.json (at most 4 MiB, format `swiftproof-plan` version 1, with a base commit and planned files; anything else exits 3 before Git analysis). The report gains a `plan_drift` section, and every difference that points into the diff is also added to the linter list as a `plan_drift` signal, located on the file's first changed line, so tools that render signals, such as the hub, show it without recomputing anything.
+`--plan` reads the `contract` of a PLAN.json (at most 4 MiB, format `swiftproof-plan` version 1, with a base commit and planned files; anything else exits 3 before Git analysis). The report gains a `plan_drift` section, and every difference that points into the diff is also added to the linter list as a file-level (`"scope": "file"`) `plan_drift` signal, located on the file's first changed line, so tools that render signals, such as the hub, show it without recomputing anything.
 
 | Kind | Severity | When |
 | --- | --- | --- |

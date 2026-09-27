@@ -710,6 +710,13 @@
         "side": {
           "$ref": "#/$defs/side"
         },
+        "scope": {
+          "type": "string",
+          "enum": [
+            "file"
+          ],
+          "description": "The signal concerns the whole file; line and side only place it on the file's first changed line."
+        },
         "symbol": {
           "type": "string"
         },

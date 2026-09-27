@@ -293,6 +293,7 @@ h1, h2, h3 { line-height: 1.25; }
 .diff { border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
 .diff-file { display: flex; align-items: center; gap: 8px; padding: 7px 10px; background: var(--surface-alt); border-bottom: 1px solid var(--line); font-size: 0.82rem; }
 .diff-file .path { font-weight: 600; word-break: break-all; }
+.diff .diff-note { margin: 0; padding: 6px 10px; border-bottom: 1px solid var(--line); }
 .diff pre { margin: 0; overflow: auto; max-height: 460px; background: var(--surface); }
 .diff table { border-collapse: collapse; width: 100%; font-size: 0.8rem; }
 .diff td { padding: 0 8px; vertical-align: top; white-space: pre-wrap; word-break: break-word; }

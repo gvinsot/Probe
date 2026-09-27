@@ -99,6 +99,49 @@ func TestAnalyzeRealChangesAndDeterminism(t *testing.T) {
 	}
 }
 
+// Every signal points at what its message is about: a file-level signal says
+// so, and a changed or removed exported declaration points at its changed
+// lines, not at its unchanged first line.
+func TestSignalLocationsMatchTheirMessage(t *testing.T) {
+	dir := t.TempDir()
+	git(t, dir, "init", "-b", "main")
+	git(t, dir, "config", "core.autocrlf", "false")
+	put(t, dir, "auth/store.go", "package auth\n\ntype Gone struct {\n\tID int\n}\n\ntype Store struct {\n\tName string\n\tSize int\n}\n")
+	base := commit(t, dir)
+	put(t, dir, "auth/store.go", "package auth\n\ntype Store struct {\n\tName string\n\tSize int64\n}\n")
+	head := commit(t, dir)
+	r, err := gitrepo.Open(context.Background(), dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	change, err := r.Analyze(context.Background(), base, head, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	signals, err := Analyze(context.Background(), r, change, []string{"auth/**"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := map[string]model.Signal{}
+	for _, s := range signals {
+		got[s.Kind+" "+s.Symbol] = s
+	}
+	for _, key := range []string{"sensitive_path ", "no_test_change "} {
+		if s := got[key]; s.Scope != model.SignalScopeFile {
+			t.Errorf("%s is not file-level: %+v", key, s)
+		}
+	}
+	if s := got["sensitive_path "]; s.Evidence != "Path matches configured pattern auth/**" {
+		t.Errorf("evidence does not name the configured glob: %q", s.Evidence)
+	}
+	if s := got["public_api_change Store"]; s.Scope != "" || s.Side != "new" || s.Line != 5 || s.EndLine != 0 {
+		t.Errorf("changed struct not located on its changed field: %+v", s)
+	}
+	if s := got["public_api_change Gone"]; s.Scope != "" || s.Side != "old" || s.Line != 3 || s.EndLine != 5 {
+		t.Errorf("removed struct not located on its removed lines: %+v", s)
+	}
+}
+
 func TestGoDeclarationsSignatures(t *testing.T) {
 	before := []byte("package api\n// Comment\ntype Store interface { Read(string) ([]byte, error) }\ntype Item[T any] struct { Value T }\nfunc (i *Item[T]) Get() T { return i.Value }\nconst ( hidden = iota; Answer )\nvar Name string = \"before\"\n")
 	a, err := goDeclarations("a.go", before)

@@ -581,6 +581,45 @@ func TestUncoveredSignalsReachReviewTargets(t *testing.T) {
 	}
 }
 
+// A file-level signal is about its file, not about the line that anchors it:
+// it gets a whole-file target, lends its reason to no line and focuses none.
+func TestFileLevelSignalsGetAWholeFileTarget(t *testing.T) {
+	r := &model.Report{
+		Change: model.Change{Files: []model.ChangedFile{{Path: "pay/refund.go", Status: "M", Hunks: []model.Hunk{{Lines: []model.DiffLine{
+			{Kind: "add", NewLine: 1, Content: "if err != nil {"},
+			{Kind: "add", NewLine: 2, Content: "}"},
+		}}}}}},
+		Signals: []model.Signal{
+			{ID: "path", Kind: "sensitive_path", Path: "pay/refund.go", Line: 1, Side: "new", Scope: model.SignalScopeFile, Severity: "high", Summary: "Configured sensitive path changed"},
+			{ID: "tests", Kind: "no_test_change", Path: "pay/refund.go", Line: 1, Side: "new", Scope: model.SignalScopeFile, Severity: "low", Summary: "No nearby test file changed"},
+			{ID: "err", Kind: "error_handling_change", Path: "pay/refund.go", Line: 1, Side: "new", Severity: "medium", Summary: "Error handling changed"},
+		},
+	}
+	Finalize(r, true)
+	if len(r.ReviewTargets) != 2 {
+		t.Fatalf("targets = %+v, want the whole file and line 1", r.ReviewTargets)
+	}
+	file, line := r.ReviewTargets[0], r.ReviewTargets[1]
+	if file.StartLine != 0 || file.EndLine != 0 || file.Severity != "high" || strings.Join(file.Reasons, "|") != "Configured sensitive path changed|No nearby test file changed" || strings.Join(file.SignalIDs, "|") != "path|tests" {
+		t.Errorf("whole-file target = %+v", file)
+	}
+	if line.StartLine != 1 || line.EndLine != 1 || line.Severity != "medium" || strings.Join(line.Reasons, "|") != "Error handling changed" {
+		t.Errorf("line target = %+v, want only the reason about line 1", line)
+	}
+	if r.ReviewSurface.FocusedLines != 1 || r.ReviewSurface.ChangedLines != 2 {
+		t.Errorf("surface = %+v, want only the line-level signal focused", r.ReviewSurface)
+	}
+	md := string(Markdown(r))
+	for _, want := range []string{
+		"- **high** pay/refund.go (whole file): Configured sensitive path changed; No nearby test file changed\n",
+		"- **medium** pay/refund.go:1–1 (new): Error handling changed\n",
+	} {
+		if !strings.Contains(md, want) {
+			t.Errorf("review list lacks %q:\n%s", want, md)
+		}
+	}
+}
+
 func jestProofReport() *model.Report {
 	r := proofReport()
 	command := []string{"npx", "--no", "vitest", "run", "src/cart.test.ts", "--reporter=json", "--outputFile=/tmp/swiftproof-test-results.json"}
