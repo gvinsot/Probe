@@ -14,7 +14,7 @@ produces a focused review plan with traceable evidence.
 | [`hub/`](hub/README.md) | The SwiftProof Hub web application (Go module `github.com/gvinsot/SwiftProof/hub`): forge sign-in, policy bootstrap and the live report viewer. |
 | [`web/`](web/) | The static promotional website, served by nginx. |
 | [`devops/`](devops/) | PulsarCD / Docker Swarm deployment of the website. |
-| [`specs/`](specs/) | General product specifications. |
+| [`specs/`](specs/README.md) | Current CLI, Hub, website and deployment specifications. |
 
 A root `go.work` includes `app/` and `hub/`, so Go commands also work from the
 repository root with workspace patterns (`go test ./app/...`, `go test ./hub/...`). SwiftProof
@@ -65,7 +65,7 @@ internally against its own GitHub Enterprise or GitLab instance. Sign-in needs
 an OAuth application per forge; until one is configured the deployment still
 serves, and its sign-in page says that no forge is available. Images are
 published to Docker Hub by `hub/scripts/postbuild.sh` (wired into CI by
-`devops/github-workflows/hub.yml`, to be copied into `.github/workflows/`); see
+`.github/workflows/hub.yml`, with a template in `devops/github-workflows/`); see
 [hub/README.md](hub/README.md) for the configuration and the security model.
 
 Licensed under the GNU AGPL-3.0 with an attribution term (section 7(b)), see [LICENSE](LICENSE) and [NOTICE](NOTICE). Releases up to v0.3.0 remain available under the MIT license.

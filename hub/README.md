@@ -27,8 +27,8 @@ approves a change and never turns a zero exit code into a claim of correctness.
 * `lint` (default) — maps the diff to risk signals. It **never executes
   repository code**, so it is safe to point at untrusted repositories.
 * `review` — also runs the configured checks in the CLI's Docker sandbox and
-  tries to reproduce issues with differential tests. It needs a Docker socket,
-  which the operator must mount deliberately, and inherits the CLI's isolation
+  tries to reproduce issues with differential tests. It needs a Docker client and daemon access,
+  which the operator must provide deliberately, and inherits the CLI's isolation
   (non-root, no network, read-only mounts, preloaded images only).
 
 The LLM investigation stays a deployment decision: the hub holds no provider
@@ -71,7 +71,7 @@ webhooks there.
 | `SWIFTPROOF_HUB_BASE_URL` | — | **Required.** Public URL of this deployment. |
 | `SWIFTPROOF_HUB_ADDR` | `:8080` | Listen address. |
 | `SWIFTPROOF_HUB_DATA_DIR` | `/var/lib/swiftproof-hub` | State directory; back it up. |
-| `SWIFTPROOF_HUB_SESSION_KEY` | generated | 64 hex characters. Seals sessions and stored tokens; set it explicitly to run several replicas. See [Session key](#session-key-backup-and-rotation). |
+| `SWIFTPROOF_HUB_SESSION_KEY` | generated | 64 hex characters. Seals sessions and stored tokens; back it up with the data volume; the shipped stack uses one replica. See [Session key](#session-key-backup-and-rotation). |
 | `SWIFTPROOF_HUB_SESSION_KEY_PREVIOUS` | — | Keys retired by a rotation (comma separated). They still open stored credentials, which are resealed under the current key at start-up. |
 | `SWIFTPROOF_HUB_INSTANCE` | `public` | `public` or `private`. A public instance, where anybody can sign in and subscribe a repository, only ever lints. |
 | `SWIFTPROOF_HUB_MODE` | `lint` | `lint`, or `review` on a private instance only; the hub refuses to start otherwise. |
@@ -98,7 +98,8 @@ and `SWIFTPROOF_HUB_REVIEW_POLICIES` may also be supplied as a file named by
 `<NAME>_FILE`, or as `/run/secrets/<NAME>`, following the Docker secret
 convention the CLI uses. Prefer that to a plain variable: the environment of a
 container is readable by anyone who can inspect it. The stacks in `devops/`
-declare these as Docker secrets.
+differ: the standalone Hub stack declares Docker secrets; the combined public
+stack uses environment variables unless the deployment mounts secret overrides.
 
 ### Session key: backup and rotation
 
@@ -134,10 +135,10 @@ PUSH=false hub/scripts/postbuild.sh
 
 Only a `vX.Y.Z` version moves the `latest` tag; a development build never does.
 
-In CI, the workflow in
-[`devops/github-workflows/hub.yml`](../devops/github-workflows/hub.yml) tests
-the module, then runs this script as its post-build step. Copy it to
-`.github/workflows/hub.yml` to activate it, and set the `DOCKERHUB_USERNAME`
+In CI, the installed workflow in
+[`.github/workflows/hub.yml`](../.github/workflows/hub.yml) tests the module,
+then runs this script as its post-build step. A template is also kept in
+`devops/github-workflows/hub.yml`. Set the `DOCKERHUB_USERNAME`
 and `DOCKERHUB_TOKEN` repository secrets; without them the workflow still
 builds and smoke-tests the image, it just does not publish.
 
@@ -243,6 +244,8 @@ go vet ./hub/...
 ```
 
 The UI lives in `hub/web/public/` and is embedded at build time; editing it
-needs no toolchain. Reports are decoded against the published
-[confidence report schema](../app/schema/confidence-report.schema.json), and
-unknown fields are ignored so a newer CLI cannot break the dashboard.
+needs no toolchain. Reports decode a subset of the version-1
+[confidence report format](../app/schema/confidence-report.schema.json); this
+is not full JSON Schema validation. Unknown fields are ignored, and raw JSON
+keeps sections that have no dedicated dashboard panel. See the
+[current specification](../specs/swiftproof-hub-spec.md) for the supported scope.

@@ -1,16 +1,17 @@
 # SwiftProof V0.4 — More deterministic evidence, less model dependence
 
-**Status:** contract for the v0.4 release (unreleased). It extends the [V0.2 specification](swiftproof-v0.2-spec.md).  
+**Status:** consolidated specification of the CLI implemented on `main`, checked against commit `23a1d2e` on 2026-09-27. This describes source capabilities, not the feature set of every published binary. Release compatibility is covered in §7; Hub, website and deployment are covered in [swiftproof-hub-spec.md](swiftproof-hub-spec.md).
+
 **Implementation:** portable Go CLI, standard library only.  
 **Outputs:** `CONFIDENCE_REPORT.md`, `confidence-report.json`, optionally `confidence-report.sarif` and `PR_COMMENT.md`, and retained experiment artifacts.
 
-## 1. Scope and relation to v0.2
+## 1. Scope
 
-### 1.1 Relation
+### 1.1 Product principles
 
-v0.2 stays binding except the refinements in §2. §2 is the complete list of refinements: every v0.2 MUST / MUST NOT that it does not name stays binding unchanged.
+This is a standalone specification: the core contract is in §2 and the detailed evidence stages are in §F1–F9. Older proposals are retained in Git history only.
 
-The product principles are unchanged:
+The product helps developers identify the changed behavior, inspect recorded experiments and choose human review locations. Public CLI output and documentation use English; freeform intent and hypotheses may use any language. The principles are:
 
 - There are no confidence percentages and no automatic approval.
 - Model claims stay hypotheses until harness evidence supports them. Models cannot create evidence records or check outcomes.
@@ -38,7 +39,7 @@ Human decisions recorded on 2026-09-25:
 
 1. **Replay-backed negative conclusions.** The rule of §3.4 applies as written: with an explicit `--cache-dir`, a negative conclusion may rest on a replay that two agreeing live runs recorded. It does not by itself request review, and the report lists it in `execution.replay_backed`.
 2. **TS/JS differential fuzzing.** v0.4 includes a real harness for eligible exported TS/JS functions, with the same seed scheme (§F2).
-3. **DISMISSED** keeps its v0.2 semantics. A `DISMISSED` claim is not refused merely because another cited record verifies positive.
+3. **DISMISSED** requires a source observation and a rationale (§4.2). A `DISMISSED` claim is not refused merely because another cited record verifies positive.
 4. **`FAILS_ON_CANDIDATE`** (§F3, §F6) stays a review request (exit 2 with `--ci`). It never produces exit 1 and cannot support `REPRODUCED`.
 5. **Mutation noise.** Surviving mutants never request review on their own (medium signal). A mutation run cut short by `max_mutants` is `incomplete`, which requests review under `--ci`.
 
@@ -53,7 +54,6 @@ Budget rules:
    - When nothing is available, the run is recorded as SKIPPED with "Sandbox runtime budget exhausted.", or "Sandbox runtime reserved for reviewer experiments." when the ceiling was the limit.
    - Otherwise the run's timeout is the smallest of the per-run timeout, any tighter stage timeout and the available budget. That timeout is reserved before launch. After execution the reservation is released and the elapsed time is charged.
    - A replay (§3.4) reserves and charges nothing.
-   - Run sequentially, this equals the v0.3 accounting.
 3. **Sub-caps.** These stages track their own elapsed time, pass a per-run timeout no larger than their remaining sub-cap, and stop launching when it is used up. A sub-cap is a ceiling inside the shared budget, never an addition to it.
 
    | Stage | Sub-cap |
@@ -63,7 +63,7 @@ Budget rules:
    | F3 changed baseline tests | 180 s, or less |
    | F6 impacted tests | 180 s |
 
-4. **Reviewer reserve.** When the reviewer will run, half of `sandbox.max_runtime_seconds` is reserved for its experiments: F3, F6, F2 and F4 use the ceiling `max_runtime_seconds − reserve`. The initial checks and coverage are not limited by the reserve, as in v0.3.
+4. **Reviewer reserve.** When the reviewer will run, half of `sandbox.max_runtime_seconds` is reserved for its experiments: F3, F6, F2 and F4 use the ceiling `max_runtime_seconds − reserve`. The initial checks and coverage are not limited by the reserve.
 5. **Parallelism** is confined to the initial checks (`--parallel`, 1..4). Each launch reserves its timeout per rule 2, in configured order, so the sum of in-flight timeouts never exceeds the remaining budget. Every other run is sequential.
 6. **`--deadline D`** (a Go duration from 1m to 24h) sets a stage deadline at the start of the command plus D − 30 s. The 30 s are kept for cleanup and writing the report.
    - Preparation, sandbox runs and the reviewer observe it. The Git comparison, policy loading, static analysis and snapshots are not interrupted by it, but the time they take counts against D.
@@ -76,22 +76,174 @@ Budget rules:
    - With the defaults and a reviewer: 600 + 300 + 600 s plus overheads when the initial checks and coverage use less than 300 s, and at most 600 + 600 + 600 s plus overheads.
    - With `--deadline D`: at most D plus up to 5 s of cleanup per run in flight, unless the Git comparison, static analysis and snapshot export alone, which the deadline does not interrupt, take longer than D − 30 s.
 
-## 2. Refinements of v0.2
+## 2. Core CLI contract
 
-This is the complete list. Every v0.2 MUST / MUST NOT that is not named here stays binding unchanged.
+### 2.1 Commands, comparisons and policy
 
-| ID | v0.2 text | v0.4 rule | Scope | Compensating controls | Proving tests |
-|---|---|---|---|---|---|
-| R1 | §6 "Require a preloaded trusted Docker image; do not pull/build images from candidate instructions." and "Dependencies are prepared outside review." | When the **base-branch policy** has `prepare`, SwiftProof may derive a local image by running that command on inputs exported from the **base commit** and committing the container. It never pulls (`--pull=never`) and never builds from candidate content. Without `prepare`, the v0.2 rule applies verbatim. | F8 | Policy from `BaseRefCommit`; inputs from `BaseCommit` only; runs before any candidate code; key and label check before reuse; size cap; fail closed (exit 4); a candidate change to an input is a visible signal and Unverified entry. | F8 `TestDockerPrepareOfflineCommitAndReuse`; export-source test (HeadCommit content never exported); not_permitted and size-cap tests |
-| R2 | §6 "Run non-root with read-only root filesystem, dropped capabilities, no new privileges, and CPU/RAM/PID/time/output limits." | **The prepare container only** has a writable root filesystem. It may run as root when the policy says `user: root`, with a fixed minimal capability set, and has network only when the policy and `--allow-prepare-network` both enable it. Every other §6 limit applies to it. **Checks are unchanged.** | F8 | The profile in §F8: `--cap-drop=ALL` plus the fixed list for root, no-new-privileges, sandbox memory/CPU/PID limits, no host env, one read-only inputs mount, bounded log, `--pull=never`. Egress risk documented. | Golden argv test of the prepare profile; Docker test showing no network without the flag |
-| R3 | §6 "Each execution uses fresh disposable state." | With an explicit `--cache-dir`, a baseline-side run of byte-identical inputs may be **replayed** from recorded live executions. A replay never supports a positive status. It supports a negative status only after two agreeing live runs, and the report lists such conclusions. | F7 | Opt-in; key over tree, image ID, policy, docker argv, tool version (§F7); integrity re-check on read; directory outside repo and output, owner-only; contradiction evicts; no raw output persisted. | F0 live-confirmation test; F7 key, poisoning, integrity, contradiction and `replay_backed` tests |
-| R4 | §6 "A coverage run MAY return one coverage profile to the host as a length-declared framed payload…" | The same framed channel, with the same guarantees, also returns a Jest-compatible report (existing since TS support) and an F2 observation stream (Go or TS/JS). There is at most one payload per run. Every recorded `Results` is a `Redact` fixed point, and the total is ≤ `ResultsBudget` (16 MiB) per report, of which candidate-side runs may use at most half. | F0, F1, F2 | Framing, separate bound, artifact hash, fixed-point rule, overflow to artifact-only, a baseline-side half that candidate output cannot use up | F0 fixed-point and budget tests; F2 overflow test |
-| R5 | §5 "Reference/symbol lookup is textual in this version." | Go lookups may use a static index built on the host from git objects, by parsing and type-checking the repository's own packages with the standard library (imports from outside the repository are not loaded), never executing repository code, and labelled approximate. The textual fallback remains. | F6 | No repository code runs; the approximate label; "empty is not absence" wording | F6 index tests; lexical fallback test |
-| R6 | §10 coverage "The command runs last…" | Coverage runs after test/typecheck/build and before every v0.4 stage and the reviewer. It still shares the same budget. | F0 | Stage order fixed in §1.3 | cli stage-order test |
-| R7 | §8 "`--checks=false` skips initial checks only" | `--checks=false` also disables the v0.4 deterministic stages: fuzz `disabled`, mutation `not_run`, and `--base-tests` / `--impacted-tests` rejected with exit 3. Reviewer-requested execution remains sandboxed. | F0 | Recorded statuses; the existing Unverified entry | flag tests; `record*Skipped` tests |
-| R8 | §7 status table | Adds the hypothesis statuses `DIVERGED` and `INTENT_TEST_FAILED`, which never produce exit 1 and never enter `reproduced_issues`, plus the §3.1 evidence kinds and statuses. **`NOT_REPRODUCED` keeps its v0.2 requirement unchanged.** | F0 | Acceptance table (§4.2) | acceptance-table tests |
-| R9 | §7 "Models cannot create evidence records or check outcomes." (unchanged) with a new weaker use | A harness-recorded, **candidate-only** run of a model-written criterion test may support `INTENT_TEST_FAILED`, a separately named status that has no baseline control and says so. It requires an assertion failure and a static reference to changed symbols. | F5 | The verifier conditions (§F5); fixed wording in every output; never exit 1 | F5 verifier tests (panic, setup failure, no reference → UNVERIFIED) |
-| R10 | §8 "600 seconds total sandbox runtime" | Prepare is bounded by `prepare.timeout_seconds` (default 600) and `--deadline`, and is **not** charged to `sandbox.max_runtime_seconds`. Every other run is charged, and v0.4 sub-caps sit inside the budget. | F0, F8 | §1.3; `--deadline` | run budget tests |
+The commands are `init`, `lint`, `review`, `report` and `version` (also
+`--version`); `help`, `--help` and `-h` expose usage.
+
+- `init` writes a version-1 `.swiftproof.json` with argv arrays and defaults for
+  Go, TypeScript/JavaScript, Python or an unknown language; existing policy is
+  not overwritten without `--force`. Defaults are starting points, not prepared
+  dependency environments. It does not seed the optional F2/F4/F8 objects.
+- `lint` works with Git and the binary, without Docker, a model or network.
+  It executes no repository code. `--checks=true` or `--reviewer=true` are
+  rejected. It includes deterministic signals and the default static impact
+  analysis (§F6).
+- `review` adds isolated checks and the stages in §1.3. `--checks=false` skips
+  initial checks, coverage and deterministic execution stages, but does not
+  forbid sandbox execution requested by the reviewer (§6.5).
+- `report` reads saved JSON (64 MiB maximum), finalizes evidence again, and
+  renders the requested formats. It does not authenticate imported data or
+  re-execute experiments. Use the producing binary to preserve its fields.
+- `--base main --head HEAD` compares the unique merge base to head;
+  `BASE..HEAD` or `--exact` compares exact endpoints; `BASE...HEAD` selects
+  the merge base. Resolve refs once and record requested refs and immutable IDs.
+- Only committed Git objects are analyzed. Working-tree edits and untracked
+  files are outside the comparison. Missing history, ambiguous merge bases,
+  malformed revisions and exhausted bounds must not yield a clean partial result.
+- Default policy comes from **`BaseRefCommit`, the resolved tip of `--base`**,
+  which can differ from the diff's merge-base `BaseCommit`. Candidate edits
+  cannot change their own checks or privileges. `--config PATH` explicitly
+  selects a trusted local override. Missing baseline policy uses built-in
+  defaults with a visible note.
+- Policy is strict versioned JSON: unknown fields, duplicate keys, invalid
+  bounds, unknown command names and multiple root values fail. The command
+  names are `test`, `typecheck`, `build`, `generated_test` and `coverage`.
+  Full validation is in [config.go](../app/internal/config/config.go).
+
+### 2.2 Static signals and source boundaries
+
+Signals carry stable IDs, kind, severity, path, old/new side, line range,
+summary and evidence text, in deterministic order. Signals are risks to
+investigate, not evidence-backed findings.
+
+The linter compares Go AST exported declarations/signatures and sensitive
+function bodies, ignoring comment/formatting-only body changes. Lexical rules
+cover network/DB/auth operations, removed validation/error handling, unsafe
+constructs/type suppressions, TODO/FIXME, branch growth, dependency manifests,
+sensitive paths, binaries, deletions and structural changes. Sensitive names
+and branch counts are heuristics, not vulnerability or complexity proofs.
+Missing associated changed tests means precisely that, not missing coverage.
+Test-edit signals are detailed in §F3; Go static caller analysis in §F6.
+TypeScript/JavaScript analysis remains lexical.
+
+Git paths use NUL-delimited metadata; renames, deletions, binaries and unusual
+names retain their identity. External diff/textconv are disabled. Bounds are
+64 MiB of Git output, 2 MiB per analyzed source file, 100,000 tree entries/files
+and 250,000 parsed diff lines including context. Parse failures and skipped
+oversized files stay visible. Snapshots export exact Git blobs without checkout
+filters/export attributes, reject symlinks/submodules for execution and cap
+individual files at 512 MiB and a snapshot at 2 GiB.
+
+### 2.3 Harness, reviewer and sandbox
+
+The offered tools are `read_file`, `get_diff`, `search_code`, `find_references`,
+`inspect_symbol`, `find_callers`, `run_tests`, `run_test`, `run_typecheck`,
+`run_build`, `create_test`, `run_generated_test`, `delete_generated_test`,
+`create_intent_test` and `run_intent_test` (the last two are offered only when
+acceptance criteria exist).
+[ToolDefinitions](../app/internal/harness/harness.go) is the authoritative
+argument schema; §F5 and §F6 specify intent tests and index-backed lookup.
+
+Paths stay within sanitized snapshots: reject absolute paths, traversal,
+metadata directories, credential filenames and symlink escapes. Reads, searches,
+responses and generated tests are bounded; accepted/rejected calls are audited.
+Commands are trusted argv arrays without implicit shell interpretation.
+`{file}`/`{package}` substitution uses validated test paths. Generated tests
+cannot overwrite existing files; deletion does not refund their creation budget.
+Secret masking is best effort, including disk reports and provider context.
+
+Checks use preloaded trusted Docker images, fresh disposable state, sanitized
+read-only source mounts and bounded ephemeral workspace copies. They run
+non-root with a read-only root filesystem, dropped capabilities,
+no-new-privileges and CPU/RAM/PID/time/output limits. Do not mount the working
+checkout or Docker socket, or forward host secret variables into checks.
+Networking requires both trusted policy and `--allow-network`; `--no-network`
+forces it off. Timed-out containers are forcibly removed and temporary
+snapshots are cleaned up. There is no host fallback and no candidate-directed
+image pull/build. Missing Docker, images or toolchains is incomplete execution,
+never PASS. §F8 is the sole preparation exception; §F7 describes opt-in replay.
+Docker and trusted images are part of the execution boundary, not protection
+against kernel/runtime vulnerabilities.
+
+Generated-test evidence validates named execution with Go `go test -json`
+(cache disabled) or a Jest-compatible structured report from Vitest/Jest.
+Missing, skipped, unrelated or inconclusive named results cannot establish
+reproduction. Other frameworks may run checks but lack this evidence adapter.
+Recognized setup/compilation failures remain unverified; an arbitrary runner
+can emit unfamiliar failures. Even a differential test can encode the wrong
+expected behavior. §3–5 define classification and exit effects.
+
+A nonempty reviewer model from trusted policy, explicit config or deployment
+activates investigation in `review`. Endpoint/key alone does not activate it;
+`--reviewer=false` disables calls, `--reviewer` requires a model, and lint or
+empty changes make no provider calls. `SWIFTPROOF_REVIEWER_ENDPOINT` and
+`SWIFTPROOF_REVIEWER_MODEL` override policy. The configured API-key variable
+(default `SWIFTPROOF_API_KEY`) takes precedence over its `_FILE` path and then
+`/run/secrets/<NAME>`. Secret resolution errors fail even when investigation is
+disabled; endpoint validation is required only for an active reviewer.
+
+Provider calls use bounded Chat Completions function calling, HTTPS remotely
+or HTTP on loopback, with redirects refused. Provider traffic is separate from
+sandbox networking; `--no-network` alone does not disable it. Repository text,
+intent and tool output remain untrusted input. Provider failures preserve the
+deterministic report and record incomplete investigation. A model cannot create
+evidence or check outcomes. Defaults: 20 iterations, 10 test creations, 600 s
+reviewer timeout, 600 s sandbox runtime, 120 s per command, 64 KiB captured
+output, 1 GiB RAM and 2 CPUs. Provider input/output and call budgets are bounded
+separately. Exhaustion stays visible as an unverified area.
+
+### 2.4 Coverage, report and review surface
+
+Go-only changed-line execution uses the optional `coverage` argv with exactly
+one `{coverage_out}` placeholder. `init --language go` seeds
+`go test -covermode=count -coverprofile={coverage_out} ./...`; other languages
+seed no coverage command. The harness substitutes the path without appending
+coverage flags. It runs after initial checks and before the other stages,
+within the shared runtime budget. An absent command is `not_configured`.
+
+A length-declared stdout frame returns at most one separately bounded payload
+(profile, Jest-compatible results or fuzz stream), with no writable host mount
+or post-exit container access. Mismatched frames are discarded. Profiles are
+retained as hashed artifacts and mapped without inference: distinguish executed
+added lines, not-executed lines, lines with no instrumented block, and lines
+not measured. Missing/truncated/unparsable/unmapped profiles are not measured.
+No execution measurement establishes correctness; deleted lines are not measured
+on the candidate. Non-Go and baseline coverage comparison remain deferred.
+
+The canonical version-1 report records tool/time, change and policy provenance,
+signals, checks, hypotheses, evidence, reproduced issues, unverified areas,
+review targets/surface, coverage, artifacts, audit and exit code. §6 lists the
+additional sections and outputs; the machine contract is the
+[JSON schema](../app/schema/confidence-report.schema.json).
+
+Review targets use path, old/new side and inclusive ranges. Merge overlapping
+targets and count each changed line once. The denominator is additions plus
+deletions, excluding context and unavailable binary line counts; deleted lines
+use baseline coordinates. `0 / N` focused lines does not remove the need for
+review, and binary-only changes remain reviewable with a zero denominator.
+Escape repository/model text and mask sensitive-file diff bodies. Files are
+replaced atomically; reports remain unsigned audit records, not attestations.
+
+### 2.5 Cross-stage rules
+
+The R identifiers are retained for links from implementation documentation;
+the rules below are current behavior, not amendments to a deleted document.
+
+| ID | Rule | Detailed contract |
+| --- | --- | --- |
+| R1 | Trusted policy may prepare a local image using baseline inputs only; without `prepare`, a preloaded dependency image is required. | §F8 |
+| R2 | Only preparation has a writable root filesystem and optional policy-selected root user with fixed capabilities; checks keep the profile in §2.3. | §F8 |
+| R3 | Explicit cache use may replay baseline PASS after two agreeing live runs; positive conclusions require live confirmation. | §3.4, §F7 |
+| R4 | One framed payload per run; recorded structured results are redaction fixed points, bounded to 16 MiB per report with at most half consumed by candidate runs. | §6.6, §F2 |
+| R5 | Go lookups may use the approximate host-side static index, never executing code or loading external imports; lexical fallback remains. | §F6 |
+| R6 | Coverage follows initial checks and precedes deterministic stages and reviewer. | §1.3 |
+| R7 | `--checks=false` skips deterministic execution stages as well as initial checks and coverage; reviewer execution remains sandboxed. | §6.5 |
+| R8 | `DIVERGED` and `INTENT_TEST_FAILED` never enter `reproduced_issues` or produce exit 1. | §3–5 |
+| R9 | A candidate-only criterion test may support `INTENT_TEST_FAILED` only with validated assertion failure and reference to changed symbols. | §F5 |
+| R10 | Preparation has its own timeout and observes `--deadline`; all other sandbox runs share one runtime budget. | §1.3, §F8 |
 
 ## 3. Naming conventions
 
@@ -101,11 +253,11 @@ Hypothesis statuses. Only `report.Finalize` assigns a final status.
 
 | Status | Meaning |
 | --- | --- |
-| `REPRODUCED` | v0.2 meaning, unchanged. |
+| `REPRODUCED` | Same generated-test command: validated baseline PASS and candidate FAIL without recognized setup failure, supported by differential evidence and a live baseline. The assertion still needs human judgment. |
 | `DIVERGED` | A cited observation or fuzz experiment recorded different values between revisions for the same inputs (§F1, §F2). |
 | `INTENT_TEST_FAILED` | A cited model-written test for one acceptance criterion failed on the candidate, with no baseline control (§F5). |
-| `NOT_REPRODUCED` | v0.2 meaning and requirement, unchanged. |
-| `DISMISSED` | v0.2 meaning, unchanged. |
+| `NOT_REPRODUCED` | Validated generated test passes on baseline and candidate; this experiment did not reproduce the hypothesis (§4.2). |
+| `DISMISSED` | Recorded source observation plus non-blank rationale; an investigation explanation, not correctness proof. |
 | `UNVERIFIED` | The default for anything unsupported. |
 
 Evidence statuses: `OBSERVED`, `REPRODUCED`, `NOT_REPRODUCED`, `UNVERIFIED`, `DIVERGED`, `NOT_DIVERGED`, `FAILS_ON_CANDIDATE`, `PASSES_ON_CANDIDATE`, `INTENT_TEST_FAILED` and `INTENT_TEST_PASSED`. `NOT_DIVERGED` never supports any hypothesis status.
@@ -116,8 +268,8 @@ Only harness code creates evidence records. The schema's `evidence.runner` enum 
 
 | Evidence kind | Part | Runner |
 | --- | --- | --- |
-| `source_observation` | v0.2 | none |
-| `differential_test` | v0.2 | `go_test_json` or `jest_json` |
+| `source_observation` | Core | none |
+| `differential_test` | Core | `go_test_json` or `jest_json` |
 | `differential_observation` | F1 | `go_test_json` (Go `t.Attr`) or `jest_json` (Vitest meta in the Jest-compatible report) |
 | `differential_fuzz` | F2 | `go_test_json` for a Go harness; `jest_json` for a TS/JS harness run by Vitest or Jest, whose single payload is the observation stream (§F2) |
 | `base_test_differential` | F3 | `go_test_json` |
@@ -130,8 +282,8 @@ Only harness code creates evidence records. The schema's `evidence.runner` enum 
 
 | Check kind | Part | Notes |
 | --- | --- | --- |
-| `test`, `typecheck`, `build`, `coverage`, `existing_test` | v0.2 | Unchanged. |
-| `generated_test_base`, `generated_test_candidate` | v0.2 | The base kind is also the kind of a live re-run. |
+| `test`, `typecheck`, `build`, `coverage`, `existing_test` | Core | Unchanged. |
+| `generated_test_base`, `generated_test_candidate` | Core | The base kind is also the kind of a live re-run. |
 | `generated_test_base_repeat` | F1 | Always live, never cached. |
 | `generated_test_intent` | F5 | Candidate only. |
 | `fuzz_base`, `fuzz_candidate` | F2 | First pair. |
@@ -218,7 +370,7 @@ A claimed hypothesis status is kept only when it is **valid** (at least one evid
 | `REPRODUCED` | `differential_test`, `REPRODUCED` | Live baseline (§3.4) |
 | `DIVERGED` | `differential_observation`, `DIVERGED`; `differential_fuzz`, `DIVERGED` | Live repeat or confirmation (§3.4) |
 | `INTENT_TEST_FAILED` | `intent_test`, `INTENT_TEST_FAILED` | The evidence's criterion equals the hypothesis's, and that criterion occurs exactly once in the report |
-| `NOT_REPRODUCED` | `differential_test`, `NOT_REPRODUCED` | v0.2 requirement unchanged |
+| `NOT_REPRODUCED` | `differential_test`, `NOT_REPRODUCED` | Validated named execution passes on both revisions |
 | `DISMISSED` | `source_observation`, `OBSERVED` | Non-blank rationale |
 
 Anything else becomes `UNVERIFIED`. These never support any hypothesis status: `differential_observation` or `differential_fuzz` with `NOT_DIVERGED`; `base_test_differential`; `impacted_test_differential`; `intent_test` with `INTENT_TEST_PASSED`; and every signal, coverage record, mutant, impact record, cache record and prepare record.
@@ -271,7 +423,7 @@ Precedence:
 | F5 intent link discarded by `Finalize` (Unverified note) | 0 | 2 |
 | F5 `INTENT_TEST_PASSED`; any retained `intent_judgment` | 0 | 0 |
 | F5 intent not UTF-8 or contains NUL | 3 | 3 |
-| F5 intent-test setup failure (ERROR check; inherited `generated_test_*` rule, unchanged v0.2 behavior) | 4 | 4 |
+| F5 intent-test setup failure (ERROR check; core `generated_test_*` rule) | 4 | 4 |
 | F7 cache hit, miss, rejected, contradicted, or disabled at runtime | 0 | 0 |
 | Invalid `--cache-dir` (syntax, location, ownership, symlink) | 3 | 3 |
 | `--deadline` reached (TIMEOUT / SKIPPED checks, Unverified entry) | 0 | 2 |
@@ -285,7 +437,7 @@ Precedence:
 | Invalid flag combination (§6.5), unknown format, bad `--report-url`, invalid policy key value | 3 | 3 |
 | Report write failure | 4 | 4 |
 
-The log of a candidate-side v0.4 check (`fuzz_candidate`, `fuzz_candidate_confirm`, `base_test_hybrid`, `impacted_test_candidate`, and the mutation ledger's `mutation_control` and `mutant`) is written by candidate code, so its text never makes the check ERROR: such a check is ERROR only for an infrastructure cause (a Docker or executor error, exit code 125 or above, a lost log artifact), and a compile, setup or run failure stays FAIL. The inherited v0.2 log-text rules (a recognized setup failure of a generated test, a `fork/exec` failure line) still apply to the v0.2 kinds, to `generated_test_intent` and to the baseline-side kinds.
+The log of a candidate-side v0.4 check (`fuzz_candidate`, `fuzz_candidate_confirm`, `base_test_hybrid`, `impacted_test_candidate`, and the mutation ledger's `mutation_control` and `mutant`) is written by candidate code, so its text never makes the check ERROR: such a check is ERROR only for an infrastructure cause (a Docker or executor error, exit code 125 or above, a lost log artifact), and a compile, setup or run failure stays FAIL. The core log-text rules (a recognized setup failure of a generated test, a `fork/exec` failure line) still apply to the core check kinds, to `generated_test_intent` and to the baseline-side kinds.
 
 ## 6. Report fields and section order
 
@@ -369,11 +521,11 @@ After the existing coverage line, `review` and `lint` print at most one line per
 | `--allow-prepare-network` | review | false | — |
 | `--deadline D` | review | none | A Go duration from 1m to 24h. |
 
-An execution-only flag (`--base-tests`, `--fuzz`, `--impacted-tests`, `--cache-dir`, `--parallel`, `--allow-prepare-network`, `--deadline`) set explicitly on `lint` exits 3 with "lint does not execute sandbox checks; --X applies to review only". `--allow-network` and `--no-network` keep their v0.2 accept-and-ignore behavior in lint. `--no-network` also keeps the prepare container offline.
+An execution-only flag (`--base-tests`, `--fuzz`, `--impacted-tests`, `--cache-dir`, `--parallel`, `--allow-prepare-network`, `--deadline`) set explicitly on `lint` exits 3 with "lint does not execute sandbox checks; --X applies to review only". `--allow-network` and `--no-network` are accepted and ignored in lint. `--no-network` also keeps the prepare container offline.
 
 ### 6.6 Finalize
 
-`Finalize` re-derives every status from recorded checks, in both `review` and `report`. Section finalizers may change only their own section and never set the exit code. Running `Finalize` twice, or `Write` → decode → `Finalize`, MUST yield byte-identical JSON; every recorded `results` value is therefore a fixed point of redaction. Redaction itself is applied repeatedly until the text no longer changes (a single v0.2 pass could leave text that a second pass would still change); text that would need more than 8 changing passes, which only adversarially nested input does, is replaced as a whole by the redaction marker, keeping its line breaks. `reproduced_issues` and `intent_test_failures` copy a hypothesis only after its intent link is normalized, so each copy equals its hypothesis.
+`Finalize` re-derives every status from recorded checks, in both `review` and `report`. Section finalizers may change only their own section and never set the exit code. Running `Finalize` twice, or `Write` → decode → `Finalize`, MUST yield byte-identical JSON; every recorded `results` value is therefore a fixed point of redaction. Redaction itself is applied repeatedly until the text no longer changes (a single pass could leave text that a second pass would still change); text that would need more than 8 changing passes, which only adversarially nested input does, is replaced as a whole by the redaction marker, keeping its line breaks. `reproduced_issues` and `intent_test_failures` copy a hypothesis only after its intent link is normalized, so each copy equals its hypothesis.
 
 ## 7. Release ordering
 
@@ -421,10 +573,16 @@ Documentation rule: about v0.4 statuses, never write "tested", "verified", "safe
 
 ## 9. Acceptance criteria
 
-v0.4 is acceptable when, in addition to the v0.2 criteria and the acceptance bullets of each §F section:
+The implementation must meet the core criteria below and the acceptance bullets of each §F section:
+
+- Static lint needs only Git and the binary; configured reviewer activation, explicit disabling, empty changes and provider failures follow §2.3.
+- Real Git fixtures cover immutable comparisons, baseline-tip policy trust, additions, deletions, renames and binaries.
+- Fabricated/duplicate IDs, setup failures, timeouts and unrelated or skipped tests cannot establish reproduction.
+- Traversal, floods, unauthorized tools, redirects, sensitive inputs and Markdown injection are covered by boundary tests.
+- Reports agree on evidence and deduplicated surface counts, including deletions. Builds and tests target Linux, Windows and macOS; race and real Docker integration require suitable runners.
 
 - Exit 1 arises only from a reproduced high/critical hypothesis. For every v0.4 record, a fixture shows the exit codes of §5 without and with `--ci`, and never 1.
-- Every record listed in §4.2 as never supporting a hypothesis status fails to support each status in tests, and `NOT_REPRODUCED` keeps its v0.2 requirement.
+- Every record listed in §4.2 as never supporting a hypothesis status fails to support each status in tests, and `NOT_REPRODUCED` requires named generated-test execution passing on both revisions.
 - A positive status resting on a replayed baseline becomes `UNVERIFIED` (or the part's inconclusive status); a negative status rests on a replay only after two agreeing live runs and is listed in `execution.replay_backed`.
 - Removing checks or evidence from a saved report, or forcing statuses without evidence, makes every v0.4 positive result fall back to `UNVERIFIED`, `inconclusive` or `INCONCLUSIVE` when it is re-rendered, and yields no export finding for that class.
 - `Finalize` is idempotent, including across `Write` → decode → `Finalize` of a report whose results contain secret-shaped text.
@@ -437,11 +595,11 @@ v0.4 is acceptable when, in addition to the v0.2 criteria and the acceptance bul
 - Outputs and documentation follow §8.
 - A combined end-to-end review using every part (a policy with `fuzz`, `mutation` and `prepare`, `--base-tests`, `--impacted-tests`, an intent, a scripted provider, every format, `--cache-dir`, `--parallel 2` and `--deadline`) exits 2 (never 1 unless a reproduced high/critical hypothesis is scripted), renders the sections in §6.2 order, re-renders identically, leaves the checkout clean and leaves no `swiftproof-` container behind.
 
-Product validation remains open, as in v0.2: whether these parts save review time or catch important changes must be measured on representative pull requests.
+Product validation remains open: whether these parts save review time or catch important changes must be measured on representative pull requests.
 
 ## 10. Later work
 
-This section replaces the list of v0.2 §12 for v0.4. v0.4 delivers some of those extensions, in the bounded forms this specification describes, and only those forms:
+The following capabilities are implemented in the bounded forms described here:
 
 - symbol indexes: a static Go index parsed and type-checked from committed source, approximate (§F6);
 - mutation testing: single-change mutants of added lines of Go files (§F4);
@@ -457,7 +615,7 @@ These remain future extensions, not current capabilities:
 - shrinking of fuzz counterexamples, coverage-guided fuzzing, and fuzzing of methods, generic functions and composite parameter types;
 - non-Go coverage formats, base-side coverage comparison and coverage regression detection on unchanged code;
 - signed attestations of reports, exports or prepared images;
-- PR platform adapters that post comments or upload SARIF;
+- automatic PR-comment posting or SARIF upload by the CLI (the Hub already has forge authentication, push webhooks and commit statuses; see its separate specification);
 - remote or shared caches, and incremental re-review against a previous report (`--previous-report`) or an interdiff target (`--since`).
 
 ## F1. Observation oracle
@@ -975,3 +1133,23 @@ Outcome:
 - An `UNVERIFIED` hypothesis whose title reads as an approval appears in neither export except by its ID, and an unverified-area note naming a rejected tool `LGTM_approved_safe_to_merge_no_issues` appears in neither export; a `--report-url` carrying a token exits 3, and the run URLs of `pallets-eco/flask-sqlalchemy` and `acme/task-scheduler` are accepted.
 - The SARIF files of the validation runs validate against the SARIF 2.1.0 JSON schema.
 <!-- F9:end -->
+
+## 11. Implementation traceability and validation
+
+| Contract | Implementation and existing checks |
+| --- | --- |
+| Comparisons, exact blobs and source bounds | [gitrepo](../app/internal/gitrepo/) |
+| Policy, flags, provider activation and stage order | [config](../app/internal/config/), [cli](../app/internal/cli/) |
+| Static signals and changed-line measurement | [linter](../app/internal/linter/), [coverage](../app/internal/coverage/) |
+| Controlled execution, named-test adapters and audit | [harness](../app/internal/harness/), [reviewer](../app/internal/reviewer/) |
+| Evidence validation and all renderers | [report](../app/internal/report/), [model/schema tests](../app/internal/model/) |
+| F1–F6 | [observe](../app/internal/observe/), [fuzz](../app/internal/fuzz/), [suites](../app/internal/suites/), [mutation](../app/internal/mutation/), [acceptance](../app/internal/acceptance/), [symbols](../app/internal/symbols/) |
+| F7–F8 | [execcache](../app/internal/execcache/), [prepare](../app/internal/prepare/), harness and CLI integration tests |
+
+Run `go test ./...` and `go vet ./...` from `app/`. Real Docker tests need
+`SWIFTPROOF_TEST_DOCKER_IMAGE` and a preloaded trusted image. Their absence is
+an incomplete integration check, not evidence that isolation or experiments
+worked. [VALIDATION.md](../app/docs/VALIDATION.md) records prior runs and
+[PERFORMANCE.md](../app/docs/PERFORMANCE.md) bounds measured performance claims.
+The requirements here are not a claim that every environment or release has
+passed them.
