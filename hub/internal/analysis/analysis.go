@@ -80,7 +80,7 @@ type Runner struct {
 	log      *slog.Logger
 	queue    chan Job
 	mu       sync.Mutex
-	active   map[string]struct{}
+	active   map[string]time.Time // job key -> enqueue time of the attempt
 	perUser  map[string]int
 	activity map[activityKey]Activity
 }
@@ -90,7 +90,7 @@ func New(cfg config.Config, s *store.Store, a *accounts.Manager, b *events.Broke
 	return &Runner{
 		cfg: cfg, store: s, accounts: a, events: b, log: log,
 		queue:    make(chan Job, cfg.QueueSize),
-		active:   map[string]struct{}{},
+		active:   map[string]time.Time{},
 		perUser:  map[string]int{},
 		activity: map[activityKey]Activity{},
 	}
@@ -141,40 +141,49 @@ func jobKey(j Job) string {
 // It returns ErrQuota when the account is at its quota and ErrBusy when the
 // shared queue is full.
 func (r *Runner) Enqueue(j Job) error {
+	_, err := r.Submit(j)
+	return err
+}
+
+// Submit is Enqueue that also returns the enqueue time of the attempt that
+// will analyze the job: the new one, or the one already queued or running for
+// the same commit and variant. A caller matches it against the run events and
+// the activity list to tell that attempt apart from earlier ones.
+func (r *Runner) Submit(j Job) (time.Time, error) {
 	if j.Variant == "" {
 		j.Variant = "normal"
 	}
 	if j.Variant != "normal" && j.Variant != "plan" {
-		return fmt.Errorf("invalid analysis variant")
+		return time.Time{}, fmt.Errorf("invalid analysis variant")
 	}
 	if j.Variant == "plan" && (strings.TrimSpace(j.Intent) == "" || len(j.Intent) > 64<<10) {
-		return fmt.Errorf("plan intent is required (at most 64 KiB)")
+		return time.Time{}, fmt.Errorf("plan intent is required (at most 64 KiB)")
 	}
 	if !commitPattern.MatchString(j.Commit) {
-		return fmt.Errorf("invalid commit %q", j.Commit)
+		return time.Time{}, fmt.Errorf("invalid commit %q", j.Commit)
 	}
 	r.mu.Lock()
-	if _, busy := r.active[jobKey(j)]; busy {
+	if queuedAt, busy := r.active[jobKey(j)]; busy {
 		r.mu.Unlock()
-		return nil
+		return queuedAt, nil
 	}
 	if r.cfg.UserQuota > 0 && r.perUser[j.UserKey] >= r.cfg.UserQuota {
 		r.mu.Unlock()
-		return ErrQuota
+		return time.Time{}, ErrQuota
 	}
-	r.active[jobKey(j)] = struct{}{}
-	r.perUser[j.UserKey]++
-	r.mu.Unlock()
 	j.ready = make(chan struct{})
 	j.queuedAt = time.Now().UTC()
+	r.active[jobKey(j)] = j.queuedAt
+	r.perUser[j.UserKey]++
+	r.mu.Unlock()
 	select {
 	case r.queue <- j:
 		r.markQueued(j)
 		close(j.ready)
-		return nil
+		return j.queuedAt, nil
 	default:
 		r.release(j)
-		return ErrBusy
+		return time.Time{}, ErrBusy
 	}
 }
 

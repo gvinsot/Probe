@@ -44,7 +44,12 @@ const state = {
   variant: "normal",
   graphs: new Map(),
   runs: [],
+  // Queued or running attempts by pendingKey, each tagged with its repo_key.
+  // The server's history supersedes an entry once the attempt is finished.
   pending: new Map(),
+  // Enqueue time (ms) of the latest finished attempt by pendingKey, so a late
+  // or replayed event cannot bring back a "queued" badge.
+  settled: new Map(),
   loadID: 0,
   reportID: 0,
   minSeverity: loadMinSeverity(),
@@ -663,6 +668,7 @@ async function setMonitoring(repo, on, trigger) {
       method: on ? 'POST' : 'DELETE',
     });
     upsertRepo(payload.repo);
+    followQueued(repo.key, payload.queued);
     toast(on
       ? 'Monitoring ' + repo.full_name + '. A first analysis is queued; every new commit will follow.'
       : 'Stopped monitoring ' + repo.full_name + '.');
@@ -674,7 +680,8 @@ async function setMonitoring(repo, on, trigger) {
 
 async function analyzeNow(repo) {
   try {
-    await api('/api/repos/' + encodeURIComponent(repo.key) + '/analyze', { method: 'POST', body: {} });
+    const queued = await api('/api/repos/' + encodeURIComponent(repo.key) + '/analyze', { method: 'POST', body: {} });
+    followQueued(repo.key, queued);
     toast('Analysis queued for ' + repo.full_name + '.');
   } catch (err) {
     toast(err.message, true);
@@ -720,7 +727,7 @@ async function loadHistory(resetIntent = false) {
   ]);
   if (loadID !== state.loadID || repo.key !== state.repoKey) return;
   const [graphResult, runsResult] = results;
-  if (runsResult.status === 'fulfilled') state.runs = runsResult.value.runs || [];
+  if (runsResult.status === 'fulfilled') { state.runs = runsResult.value.runs || []; settleFromHistory(repo.key); }
   else { state.runs = []; toast(runsResult.reason.message, true); }
   if (graphResult.status === 'fulfilled') {
     state.graphs.set(repo.key, graphResult.value);
@@ -742,10 +749,108 @@ function cachedRun(commit, variant) {
   return state.runs.find((run) => run.commit === commit && (run.variant || 'normal') === variant);
 }
 
-function pendingKey(repoKey, commit, variant) { return repoKey + '/' + commit + '/' + variant; }
+function pendingKey(repoKey, commit, variant) { return repoKey + '/' + commit + '/' + (variant || 'normal'); }
 
 function displayedRun(commit, variant) {
   return state.pending.get(pendingKey(state.repoKey, commit, variant)) || cachedRun(commit, variant);
+}
+
+function isPending(run) { return Boolean(run) && (run.status === 'queued' || run.status === 'running'); }
+
+// trackRun records the state of one attempt, whoever reported it: a live
+// event, an enqueue response or the activity list. Attempts are told apart by
+// their server enqueue time, so an event about an older attempt, or a late
+// "queued" for an attempt already finished, changes nothing. It returns false
+// for such stale updates.
+function trackRun(repoKey, run) {
+  if (!repoKey || !run || !run.commit) return false;
+  const key = pendingKey(repoKey, run.commit, run.variant);
+  const at = runTimestamp(run.queued_at);
+  const floor = state.settled.get(key) || 0;
+  if (at && (isPending(run) ? at <= floor : at < floor)) return false;
+  const current = state.pending.get(key);
+  const currentAt = runTimestamp(current?.queued_at);
+  if (at && currentAt && (at < currentAt || (at === currentAt && current.status === 'running' && run.status === 'queued'))) return false;
+  if (isPending(run)) {
+    state.pending.set(key, { ...run, variant: run.variant || 'normal', repo_key: repoKey, requested: current?.requested || run.requested || Date.now() });
+    watchPending();
+  } else {
+    state.pending.delete(key);
+    if (at) state.settled.set(key, Math.max(at, floor));
+  }
+  return true;
+}
+
+// followQueued tracks the attempt an enqueue request resolved to.
+function followQueued(repoKey, queued) {
+  if (!queued || !queued.commit) return false;
+  const run = { commit: queued.commit, variant: queued.variant || 'normal', status: 'queued', queued_at: queued.queued_at, requested: Date.now() };
+  if (!trackRun(repoKey, run)) return false;
+  rememberRun(repoKey, run);
+  renderRepos();
+  if (repoKey === state.repoKey) { renderGraph(); renderCommitActions(); }
+  return true;
+}
+
+// settleFromHistory lets the stored history of a repository close the attempts
+// it already holds a result for.
+function settleFromHistory(repoKey) {
+  for (const run of Array.from(state.pending.values())) {
+    if (run.repo_key !== repoKey || !runTimestamp(run.queued_at)) continue;
+    const cached = cachedRun(run.commit, run.variant);
+    if (cached && !isPending(cached) && runTimestamp(cached.queued_at) >= runTimestamp(run.queued_at)) trackRun(repoKey, cached);
+  }
+}
+
+// Live events normally close an attempt, but a proxy may delay or drop them.
+// While anything is shown as queued or running, the activity list is polled
+// so that a finished analysis never stays "queued".
+const PENDING_POLL_MS = 4000;
+// An attempt the hub never acknowledged is forgotten after this delay.
+const PENDING_GRACE_MS = 60000;
+let pendingTimer = null;
+
+function watchPending() {
+  if (pendingTimer || state.pending.size === 0) return;
+  pendingTimer = setTimeout(async () => {
+    try { await syncPending(); } finally { pendingTimer = null; watchPending(); }
+  }, PENDING_POLL_MS);
+}
+
+async function syncPending() {
+  if (state.pending.size === 0) return;
+  let items;
+  try { items = (await api('/api/analyses')).analyses || []; } catch (err) { return; }
+  const finished = new Set();
+  let changed = false;
+  for (const run of Array.from(state.pending.values())) {
+    const since = runTimestamp(run.queued_at);
+    let latest = null;
+    for (const item of items) {
+      if (item.repo_key !== run.repo_key || item.commit !== run.commit || (item.variant || 'normal') !== run.variant) continue;
+      // Without the server's enqueue time only work still in progress can be
+      // matched: an earlier finished attempt must not close this one.
+      if (since ? runTimestamp(item.queued_at) < since : !isPending(item)) continue;
+      if (!latest || runTimestamp(item.queued_at) > runTimestamp(latest.queued_at)) latest = item;
+    }
+    if (latest) {
+      if (trackRun(run.repo_key, latest)) {
+        changed = true;
+        if (!isPending(latest)) finished.add(run.repo_key);
+      }
+    } else if (since || Date.now() - run.requested > PENDING_GRACE_MS) {
+      // The hub no longer knows this attempt (its activity list lives in
+      // memory and a restart clears it): the stored history decides.
+      state.pending.delete(pendingKey(run.repo_key, run.commit, run.variant));
+      changed = true;
+      finished.add(run.repo_key);
+    }
+  }
+  if (!changed) return;
+  renderRepos();
+  if (state.repoKey) { renderGraph(); renderCommitActions(); }
+  // The activity list carries no verdict: reload the results it announced.
+  if (finished.size) refreshDashboard(finished.has(state.repoKey));
 }
 
 // Combine review requests in the tree, keeping the most severe report's
@@ -903,15 +1008,20 @@ async function analyzeCommit(variant) {
   const key = pendingKey(repoKey, commit, variant);
   const intent = planIntent().value.trim();
   if (variant === 'plan' && !intent) { toast('Enter an intent for the plan.', true); return; }
-  state.pending.set(key, { status: 'queued', variant });
+  // Shown until the hub names the attempt; events or polling then take over.
+  const optimistic = { status: 'queued', commit, variant, repo_key: repoKey, requested: Date.now() };
+  state.pending.set(key, optimistic);
+  watchPending();
   renderCommitActions(); renderGraph();
   try {
-    await api('/api/repos/' + encodeURIComponent(repoKey) + '/analyze', {
+    const queued = await api('/api/repos/' + encodeURIComponent(repoKey) + '/analyze', {
       method: 'POST', body: { commit, variant, intent: variant === 'plan' ? intent : '' },
     });
+    if (queued?.commit === commit && state.pending.get(key) === optimistic) state.pending.delete(key);
+    if (!followQueued(repoKey, queued) && repoKey === state.repoKey) { renderCommitActions(); renderGraph(); }
     toast((variant === 'plan' ? 'Plan' : 'Analysis') + ' queued for ' + shortSha(commit) + '.');
   } catch (err) {
-    state.pending.delete(key);
+    if (state.pending.get(key) === optimistic) state.pending.delete(key);
     if (repoKey === state.repoKey) { renderCommitActions(); renderGraph(); }
     toast(err.message, true);
   }
@@ -1521,26 +1631,18 @@ function connectEvents() {
       const previous = state.repos.get(event.repo.key);
       if (previous && previous.recent_incomplete) event.repo.recent_incomplete = true;
       state.repos.set(event.repo.key, event.repo);
-      rememberRun(event.repo.key, event.repo.latest);
+      // A repository snapshot may carry an older attempt than one already seen.
+      if (!event.repo.latest || trackRun(event.repo.key, event.repo.latest)) rememberRun(event.repo.key, event.repo.latest);
       renderRepos();
-      if (event.repo.latest) {
-        const run = event.repo.latest;
-        const key = pendingKey(event.repo.key, run.commit, run.variant || 'normal');
-        if (['queued', 'running'].includes(run.status)) state.pending.set(key, run);
-        else state.pending.delete(key);
-      }
       if (event.repo.key === state.repoKey) { renderGraph(); renderCommitActions(); }
     } else if (event.type === 'run') {
       const run = event.run;
-      rememberRun(event.repo_key, run);
+      if (trackRun(event.repo_key, run)) rememberRun(event.repo_key, run);
       renderRepos();
-      const key = pendingKey(event.repo_key, run.commit, run.variant || 'normal');
-      if (['queued', 'running'].includes(run.status)) state.pending.set(key, run);
-      else state.pending.delete(key);
       if (event.repo_key === state.repoKey) { renderGraph(); renderCommitActions(); }
     } else if (event.type === 'report') {
-      state.pending.delete(pendingKey(event.repo_key, event.commit, event.run.variant || 'normal'));
-      rememberRun(event.repo_key, Object.assign({ commit: event.commit }, event.run));
+      const run = Object.assign({ commit: event.commit }, event.run);
+      if (trackRun(event.repo_key, run)) rememberRun(event.repo_key, run);
       renderRepos();
       const repo = state.repos.get(event.repo_key);
       if (event.repo_key === state.repoKey) {

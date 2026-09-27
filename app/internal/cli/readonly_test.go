@@ -76,6 +76,27 @@ func TestReadOnlyReviewUsesDeploymentProviderWithoutExecution(t *testing.T) {
 	}
 }
 
+func TestReadOnlyReviewerFailureIsIncomplete(t *testing.T) {
+	forbidExecution(t)
+	dir := fixture(t)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "unavailable", http.StatusBadGateway)
+	}))
+	defer server.Close()
+	t.Setenv(config.EndpointEnv, server.URL)
+	t.Setenv(config.ModelEnv, "deployment-model")
+	var output bytes.Buffer
+	// Without a single completion no AI review happened: that is exit 4, not
+	// a human-review verdict a caller would read as a finished analysis.
+	code := Run(context.Background(), []string{"review", "--read-only", "--repo", dir, "--out", "report", "--ci"}, &output, &output, "test")
+	if code != 4 || !strings.Contains(output.String(), "Read-only reviewer incomplete: reviewer endpoint returned HTTP 502") {
+		t.Fatalf("exit=%d: %s", code, output.String())
+	}
+	if r := readReviewerReport(t, dir); r.ExitCode != 4 {
+		t.Fatalf("report exit code %d", r.ExitCode)
+	}
+}
+
 func TestReadOnlyRejectsExecutionFlags(t *testing.T) {
 	forbidExecution(t)
 	for _, flag := range []string{"--checks", "--reviewer=false", "--allow-network", "--allow-prepare-network", "--parallel=2", "--cache-dir=cache", "--fuzz", "--base-tests", "--impacted-tests"} {

@@ -457,7 +457,12 @@ func analyze(ctx context.Context, mode string, args []string, out, errOut io.Wri
 		}
 	} else if *readOnly && len(change.Files) > 0 {
 		if err := runReadOnlyReview(work, repo, &r, impact.lookup, reviewerOptions, output, errOut); err != nil {
+			// The reviewer is the whole of a read-only review: without it
+			// nothing beyond lint was examined, so the run is incomplete
+			// rather than a review outcome. Budget limits are not errors.
 			r.Unverified = append(r.Unverified, "Read-only reviewer incomplete: "+err.Error())
+			fmt.Fprintln(errOut, "Read-only reviewer incomplete: "+err.Error())
+			operationalFailure = true
 		}
 	} else if mode == "review" && len(change.Files) > 0 && !(*checks || *useReviewer) {
 		r.Unverified = append(r.Unverified, "Automated execution was explicitly disabled; only static change analysis was performed.")

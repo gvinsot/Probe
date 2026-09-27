@@ -300,10 +300,11 @@ func (s *Server) handleMonitorOn(w http.ResponseWriter, r *http.Request) {
 	}
 	s.events.Publish(sess.UserKey, map[string]any{"type": "repo", "repo": updated.Public()})
 	// A first report right away makes the dashboard useful before the next push.
-	if err := s.enqueueHead(r.Context(), user, updated, provider, token); err != nil {
+	queued, err := s.enqueueHead(r.Context(), user, updated, provider, token)
+	if err != nil {
 		s.log.Warn("initial analysis", "repo", repo.FullName, "error", err)
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"repo": updated.Public()})
+	writeJSON(w, http.StatusOK, map[string]any{"repo": updated.Public(), "queued": queued})
 }
 
 // handleMonitorOff removes the webhook and stops analyzing pushes.
@@ -387,14 +388,16 @@ func (s *Server) handleAnalyze(w http.ResponseWriter, r *http.Request) {
 			UserKey: sess.UserKey, RepoKey: repo.Key, Commit: body.Commit,
 			Ref: body.Ref, Trigger: analysis.TriggerManual, Variant: body.Variant, Intent: body.Intent,
 		}
-		if err := s.runner.Enqueue(job); err != nil {
+		queuedAt, err := s.runner.Submit(job)
+		if err != nil {
 			s.writeEnqueueError(w, err)
 			return
 		}
-		writeJSON(w, http.StatusAccepted, map[string]string{"status": "queued", "commit": body.Commit})
+		writeJSON(w, http.StatusAccepted, queuedAnalysis{Status: "queued", Commit: body.Commit, Variant: variantOrNormal(body.Variant), QueuedAt: queuedAt})
 		return
 	}
-	if err := s.enqueueHead(r.Context(), user, repo, provider, token); err != nil {
+	queued, err := s.enqueueHead(r.Context(), user, repo, provider, token)
+	if err != nil {
 		if errors.Is(err, analysis.ErrQuota) || errors.Is(err, analysis.ErrBusy) {
 			s.writeEnqueueError(w, err)
 			return
@@ -402,23 +405,43 @@ func (s *Server) handleAnalyze(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadGateway, err.Error())
 		return
 	}
-	writeJSON(w, http.StatusAccepted, map[string]string{"status": "queued"})
+	writeJSON(w, http.StatusAccepted, queued)
+}
+
+// queuedAnalysis identifies the attempt an enqueue request resolved to, so the
+// dashboard can follow that attempt, not an earlier result of the same commit.
+type queuedAnalysis struct {
+	Status   string    `json:"status"`
+	Commit   string    `json:"commit"`
+	Variant  string    `json:"variant"`
+	QueuedAt time.Time `json:"queued_at"`
+}
+
+func variantOrNormal(variant string) string {
+	if variant == "" {
+		return "normal"
+	}
+	return variant
 }
 
 // enqueueHead schedules an analysis of the tip of the default branch.
-func (s *Server) enqueueHead(ctx context.Context, user *store.User, repo *store.Repo, provider forge.Provider, token forge.Token) error {
+func (s *Server) enqueueHead(ctx context.Context, user *store.User, repo *store.Repo, provider forge.Provider, token forge.Token) (*queuedAnalysis, error) {
 	if repo.DefaultBranch == "" {
-		return fmt.Errorf("this repository has no default branch yet")
+		return nil, fmt.Errorf("this repository has no default branch yet")
 	}
 	head, err := provider.HeadCommit(ctx, token, forgeRepo(repo), repo.DefaultBranch)
 	if err != nil {
-		return fmt.Errorf("resolve %s: %w", repo.DefaultBranch, err)
+		return nil, fmt.Errorf("resolve %s: %w", repo.DefaultBranch, err)
 	}
-	return s.runner.Enqueue(analysis.Job{
+	queuedAt, err := s.runner.Submit(analysis.Job{
 		UserKey: user.Key, RepoKey: repo.Key, Commit: head.SHA,
 		Ref: "refs/heads/" + repo.DefaultBranch, Message: head.Message, Author: head.Author,
 		Trigger: analysis.TriggerManual,
 	})
+	if err != nil {
+		return nil, err
+	}
+	return &queuedAnalysis{Status: "queued", Commit: head.SHA, Variant: "normal", QueuedAt: queuedAt}, nil
 }
 
 func (s *Server) handleRuns(w http.ResponseWriter, r *http.Request) {

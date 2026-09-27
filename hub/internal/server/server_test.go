@@ -1161,6 +1161,11 @@ func TestCommitAnalysisVariantsAndScopedCache(t *testing.T) {
 		if got.Code != 202 {
 			t.Fatalf("queue: %d %s", got.Code, got.Body)
 		}
+		// The response names the attempt, so the dashboard follows it rather
+		// than an earlier result of the same commit.
+		if queued := h.decode(got); queued["commit"] != commit || queued["variant"] != variant || queued["queued_at"] == nil || queued["queued_at"] == "0001-01-01T00:00:00Z" {
+			t.Fatalf("enqueue response: %v", queued)
+		}
 		raw := json.RawMessage(storedReport)
 		if variant == "plan" {
 			raw = json.RawMessage(`{"format":"swiftproof-plan","version":1,"exit_code":2}`)

@@ -265,15 +265,21 @@ func TestEnqueueValidatesRejectsDuplicatesAndReportsSaturation(t *testing.T) {
 	if err := r.Enqueue(Job{UserKey: userKey, RepoKey: repoKey, Commit: "not-a-sha!"}); err == nil {
 		t.Error("an invalid commit must be refused")
 	}
-	if err := r.Enqueue(job); err != nil {
-		t.Fatalf("Enqueue: %v", err)
+	queuedAt, err := r.Submit(job)
+	if err != nil || queuedAt.IsZero() {
+		t.Fatalf("Submit: %v, %v", queuedAt, err)
 	}
 	if r.Pending() != 1 {
 		t.Fatalf("queue depth = %d, want 1", r.Pending())
 	}
-	// A redelivery of the same push must not queue the work twice.
-	if err := r.Enqueue(job); err != nil {
+	// A redelivery of the same push must not queue the work twice, and names
+	// the attempt already queued so a caller follows that one.
+	again, err := r.Submit(job)
+	if err != nil {
 		t.Fatalf("a duplicate must be accepted silently, got %v", err)
+	}
+	if !again.Equal(queuedAt) {
+		t.Errorf("a duplicate names attempt %v, want the queued %v", again, queuedAt)
 	}
 	if r.Pending() != 1 {
 		t.Errorf("queue depth = %d after a duplicate, want 1", r.Pending())

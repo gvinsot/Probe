@@ -45,7 +45,10 @@ window.fetch = async (path, init) => {
     const variant = new URL(path, location.origin).searchParams.get('variant');
     const run = fixtureRun(variant);
     data = { run, view: { summary: run.summary, alerts: [], files: [], unverified: ['No checks ran'], plan_drift: variant === 'plan' ? { status: 'conforming', decision: 'human_review_required', decision_reasons: ['No checks ran'] } : null }, plan: variant === 'plan' ? { proposal: { summary: 'Generated plan' } } : null };
-  } else if (path.endsWith('/analyze')) data = { status: 'queued' };
+  } else if (path.endsWith('/analyze')) {
+    const body = JSON.parse(init.body);
+    data = { status: 'queued', commit: body.commit || fixtureSHA('a'), variant: body.variant || 'normal', queued_at: new Date().toISOString() };
+  }
   else throw new Error('Unexpected request: ' + path);
   return { ok: true, status: 200, text: async () => JSON.stringify(data) };
 };
@@ -185,6 +188,13 @@ window.addEventListener('DOMContentLoaded', async () => {
       assert(body.commit === fixtureSHA('c') && body.variant === (i ? 'plan' : 'normal'), 'exact selected commit and variant');
       assert(requests[i].init.headers['X-SwiftProof-CSRF'] === 'csrf', 'analysis includes CSRF');
     }
+    for (const variant of ['normal', 'plan']) {
+      const pending = state.pending.get(pendingKey('repo', fixtureSHA('c'), variant));
+      assert(pending && pending.status === 'queued' && runTimestamp(pending.queued_at), 'launched attempt followed by its server enqueue time');
+      fixtureStream.onmessage({ data: JSON.stringify({ type: 'run', repo_key: 'repo', run: { commit: fixtureSHA('c'), variant, status: 'done', queued_at: pending.queued_at } }) });
+      assert(!state.pending.has(pendingKey('repo', fixtureSHA('c'), variant)), 'a finished event closes the attempt');
+    }
+    state.recent.get('repo').delete(fixtureSHA('c')); // Keep the period fixtures below unchanged.
     fixtureStream.onmessage({ data: JSON.stringify({ type: 'report', repo_key: 'repo', commit: fixtureSHA('a'), run: fixtureRun('normal') }) });
     await settle();
     assert(document.querySelectorAll('.commit-row:first-child .commit-meta .chip').length === 1, 'live results keep reviews aggregated');
@@ -308,6 +318,30 @@ window.addEventListener('DOMContentLoaded', async () => {
     fixtureReposGate = null;
     assert(repoMeta().includes('reproduced issue'), 'in-flight snapshot preserves the newer SSE verdict');
     assert(state.recent.get('repo').get(fixtureSHA('g')).queued_at, 'in-flight merge preserves queue time');
+
+    // A finished analysis whose live events were lost must not stay queued:
+    // the activity list closes it and the stored history replaces the badge.
+    const lostCommit = fixtureSHA('b');
+    const lostKey = pendingKey('repo', lostCommit, 'normal');
+    const lostAt = new Date(Date.now() - 1000).toISOString();
+    followQueued('repo', { commit: lostCommit, variant: 'normal', queued_at: lostAt });
+    assert(displayedRun(lostCommit, 'normal')?.status === 'queued', 'enqueued attempt shown as queued');
+    fixtureActivities = [
+      { repo_key: 'repo', commit: lostCommit, variant: 'normal', status: 'done', queued_at: fixtureAgo(1), finished_at: fixtureAgo(1) },
+      { repo_key: 'repo', commit: lostCommit, variant: 'normal', status: 'running', queued_at: lostAt },
+    ];
+    await syncPending();
+    assert(state.pending.get(lostKey)?.status === 'running', 'an earlier finished attempt does not close the new one');
+    fixtureActivities[1] = { ...fixtureActivities[1], status: 'done', finished_at: new Date().toISOString() };
+    fixtureRuns = [...fixtureRuns, { commit: lostCommit, variant: 'normal', status: 'done', queued_at: lostAt, summary: { verdict: 'clear' } }];
+    await syncPending();
+    await settle(); await settle();
+    assert(!state.pending.has(lostKey), 'polling closes an attempt whose events were lost');
+    assert(displayedRun(lostCommit, 'normal')?.status === 'done', 'history replaces the queued badge');
+    fixtureStream.onmessage({ data: JSON.stringify({ type: 'run', repo_key: 'repo', run: { commit: lostCommit, variant: 'normal', status: 'queued', queued_at: lostAt } }) });
+    assert(!state.pending.has(lostKey), 'a late queued event for a finished attempt is ignored');
+    followQueued('repo', { commit: lostCommit, variant: 'normal', queued_at: lostAt });
+    assert(!state.pending.has(lostKey), 'a late enqueue response for a finished attempt is ignored');
     assert(!document.body.dataset.testResult, document.body.dataset.testResult);
     document.body.dataset.testResult = 'PASS';
   } catch (err) { fixtureFail(err); }

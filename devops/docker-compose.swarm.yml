@@ -111,6 +111,9 @@ services:
       - swiftproof-hub-data:/var/lib/swiftproof-hub
     networks:
       - proxy
+      # Reaches the cluster LLM services for read-only AI review, e.g.
+      # SWIFTPROOF_REVIEWER_ENDPOINT=http://vllm-dev-service:8000/v1.
+      - llm-net
     deploy:
       mode: replicated
       replicas: 1
@@ -164,4 +167,6 @@ volumes:
 
 networks:
   proxy:
+    external: true
+  llm-net:
     external: true
