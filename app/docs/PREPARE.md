@@ -35,7 +35,7 @@ The binding rules are in the [v0.4 specification](../../specs/swiftproof-v0.4-sp
 
 Unknown fields and duplicate keys are rejected, and every policy error exits 3 before any container starts. `swiftproof init` never writes `prepare`.
 
-`prepare` is **release-ordered**: every binary before v0.4.0 rejects a policy that contains it (exit 3), and `--allow-prepare-network` makes an older binary exit 3 at flag parsing. Publish and re-pin first; see [release ordering](CI.md#release-ordering-for-v04).
+`prepare` is **release-ordered**: binaries built from v0.3.4 or earlier reject a policy that contains it (exit 3), and binaries without `--allow-prepare-network` exit 3 at flag parsing. Intermediate v0.3 builds may accept both without the completed v0.4 implementation. Publish and re-pin first; see [release ordering](CI.md#release-ordering-for-v04).
 
 Never put a credential in `command` or `env`. The command is redacted in the report, but both are stored in the derived image's configuration.
 

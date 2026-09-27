@@ -19,7 +19,7 @@ The index is built only when the change touches at least one Go file it may read
 
 ## Enabling and disabling
 
-Impact analysis is on by default for `lint` and `review`. `--impact=false` disables it: the report then has no `impact` object, no impact signal is added, and the reviewer tools stay lexical. There is no policy key, so the candidate cannot enable, disable or tune it, and no release ordering applies to it. `--impacted-tests` (review only) needs the index and exits 3 with `--impact=false`.
+Impact analysis is on by default for `lint` and `review`. `--impact=false` disables it: the report then has no `impact` object, no impact signal is added, and the reviewer tools stay lexical. There is no policy key, so the candidate cannot enable, disable or tune it. Automatic analysis needs no policy migration, but passing `--impact` requires a binary that recognizes the flag (see [release ordering](CI.md#release-ordering-for-v04)). `--impacted-tests` (review only) needs the index and exits 3 with `--impact=false`.
 
 ## Changed functions
 
@@ -151,7 +151,7 @@ swiftproof review --base main --impacted-tests --ci
 
 - `--impacted-tests` exits 3 on `lint`, together with `--checks=false`, and together with `--impact=false`, before any container starts.
 - The trusted policy's `generated_test` command must let SwiftProof establish which Go tests ran: `go test` with exactly one standalone `{package}` or `{file}` target and only flags otherwise, without `-C`, `-exec`, `-overlay`, `-args` or `--`. `["go", "test", "{package}"]` is the recommended template. With `{file}`, `go test` compiles only that test file, without the package's other files: a test file of the package itself (for example `package price`) that uses package code does not build on the baseline, so its tests get no result and a reason, and the stage requests review. An external test file (`package price_test`) that imports the package can build. With any other template nothing runs and `tests_status` is `not_run` with the reason.
-- The flag makes a binary older than v0.4.0 exit 3 while parsing arguments. Do not pass it through a workflow pinned to an older release; re-pin first (see [CI integration](CI.md)).
+- A binary without the flag exits 3 while parsing arguments. Re-pin to v0.4.0 or later before using it; intermediate v0.3 builds may accept the flag without the completed stage (see [CI integration](CI.md#release-ordering-for-v04)).
 
 ### What is selected
 

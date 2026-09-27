@@ -1,6 +1,8 @@
 # Implementation validation
 
-Validated locally on 2026-09-19. These checks establish tested implementation behavior, not a measurement of human review-time savings.
+This page is a historical validation log: each dated block describes the revision and environment exercised at that time, not a fresh validation of the current checkout. Early v0.4 blocks include foundation stages that were implemented later; the integration results are at the end of the page. Commands using `./internal/...`, `./cmd/...` or `./...` run from `app/` in the current repository layout.
+
+Initial validation, 2026-09-19. These checks establish tested implementation behavior, not a measurement of human review-time savings.
 
 - Full Go tests and `go vet` pass on Windows amd64 with Go 1.27.1.
 - Full tests with `-race`, and `go vet`, pass in Linux with Go 1.26 and networking disabled.
@@ -12,7 +14,7 @@ Validated locally on 2026-09-19. These checks establish tested implementation be
 - Provider tests cover structured tool calling, input/iteration/time limits, unsupported tools, malformed responses and redirect refusal. No live paid/cloud model was required for these tests.
 - The public JSON schema is checked as Draft 2020-12. Reports, output escaping, credential masking, evidence references and focused-line calculations have targeted tests.
 
-Reproduce ordinary checks:
+Reproduce ordinary CLI checks from `app/`:
 
 ```sh
 go test ./...
@@ -23,10 +25,10 @@ go test -race ./...
 For actual container tests, preload a trusted Go image and set `SWIFTPROOF_TEST_DOCKER_IMAGE=golang:1.26-bookworm`, then run:
 
 ```sh
-go test ./internal/harness ./internal/cli -run Docker -count=1 -v
+go test ./... -run Docker -count=1 -v
 ```
 
-Tests without that environment variable intentionally skip real Docker integration. The included CI workflow enables it on Linux.
+Tests without that environment variable intentionally skip real Docker integration. The regular CI workflow enables it on Linux and runs all CLI packages, including dependency preparation, fuzzing and Docker utilities; the release workflow currently limits its Docker test command to `internal/harness` and `internal/cli`.
 
 The published v0.1.0 binaries are used by the new PR and deployment adapters.
 The reusable PR workflow and pilot pass `actionlint`. The companion PulsarCD

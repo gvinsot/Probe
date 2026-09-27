@@ -11,8 +11,8 @@ swiftproof review --base main --base-tests --ci
 ```
 
 - `--base-tests` exits 3 on `lint` and together with `--checks=false`, before any container starts.
-- The trusted policy's `generated_test` command must let SwiftProof establish which Go tests ran: `go test` with exactly one standalone `{package}` or `{file}` target and only flags otherwise, without `-C`, `-exec`, `-overlay`, `-args` or `--`. `["go", "test", "{package}"]` is the recommended template. With `{file}`, only that one file is compiled with the package's test files, so tests that use package-internal code usually do not build and stay `UNVERIFIED`. With any other template nothing runs and the section is `not_run` with the reason.
-- The flag makes a binary older than v0.4.0 exit 3 while parsing arguments. Do not pass it through a workflow pinned to an older release; re-pin first (see [CI integration](CI.md)).
+- The trusted policy's `generated_test` command must let SwiftProof establish which Go tests ran: `go test` with exactly one standalone `{package}` or `{file}` target and only flags otherwise, without `-C`, `-exec`, `-overlay`, `-args` or `--`. `["go", "test", "{package}"]` is the recommended template. With `{file}`, only that one file is compiled, without the package's other source or test files, so tests that use package-internal code usually do not build and stay `UNVERIFIED`. An external test file that imports the package can build. With any other template nothing runs and the section is `not_run` with the reason.
+- A binary without the flag exits 3 while parsing arguments. Re-pin to v0.4.0 or later before using it; intermediate v0.3 builds may accept the flag without the completed stage (see [CI integration](CI.md#release-ordering-for-v04)).
 
 ## What is selected
 

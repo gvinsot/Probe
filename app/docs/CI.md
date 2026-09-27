@@ -6,7 +6,7 @@ Install a **trusted pinned** SwiftProof binary, fetch full base/candidate histor
 swiftproof review --base "$BASE_COMMIT" --head "$HEAD_COMMIT" --ci --out .swiftproof
 ```
 
-The base identifies the trusted target branch. SwiftProof uses its merge base with the candidate for comparison and policy; `--exact` selects a direct comparison. Any explicit `--config` must be supplied from a trusted source outside candidate control.
+The base identifies the trusted target branch. SwiftProof uses its merge base with the candidate for the comparison, but loads policy from the tip of the supplied base ref (`change.base_ref_commit`, recorded as `policy.commit`). `--exact` selects a direct comparison without changing the policy source. Any explicit `--config` must be supplied from a trusted source outside candidate control.
 
 Preserve the exit status while uploading Markdown, JSON and `.swiftproof/artifacts/`, including after failure. Exit 2 requests human review; it is not a confirmed bug. Exit 4 means execution/reporting failed, for example because the image was unavailable. Set branch protection accordingly.
 
@@ -26,7 +26,7 @@ One asymmetry is known and deliberate: `swiftproof report` re-renders a saved re
 
 ## Release ordering for v0.4
 
-v0.4 extends the coverage rule above to three policy keys, several flags, new report fields and the report schema. Each of them makes a binary that predates v0.4.0 fail or silently lose information, so upgrade in this order: publish v0.4.0, re-pin every workflow that reviews the base branch (download URL and sha256 together), and only then commit a new key or pass a new flag.
+v0.4 extends the coverage rule above to three policy keys, several flags, new report fields and the report schema. Binaries without these features fail or silently lose information; intermediate v0.3 tags contain only part of the integration (see below). Upgrade in this order: publish v0.4.0, re-pin every workflow that reviews the base branch (download URL and sha256 together), and only then commit a new key or pass a new flag.
 
 1. **Policy keys.** `fuzz`, `mutation` and `prepare` are optional top-level policy objects. Policy decoding rejects unknown fields, so a binary built from v0.3.4 or earlier (including the published v0.1.0, v0.2.0 and v0.3.0) exits 3 on a policy that contains one of them. Do not add them to any base-branch policy, including this repository's own `.swiftproof.json` and `app/examples/swiftproof.go.json`, before the re-pin. `swiftproof init` never writes them.
 2. **Flags.** `--base-tests`, `--fuzz`, `--impact`, `--impacted-tests`, `--cache-dir`, `--parallel`, `--allow-prepare-network`, `--deadline` and `--report-url`, and the `--format` values `sarif` and `pr-comment`, make an older binary exit 3 while parsing arguments. Do not pass them through a job pinned to an older release. The included `review.yml` and `pr-review.yml` are deliberately unchanged and pass none of them.
@@ -266,9 +266,9 @@ T ≈ Git comparison + snapshots + prepare.timeout_seconds + S + reviewer.timeou
     + N_runs × 5 s (bounded container cleanup) + report write
 ```
 
-S is the sandbox time spent before the reviewer. It never exceeds `max_runtime_seconds`, and it exceeds `max_runtime_seconds` minus the reserve only when the initial checks and coverage alone use more. The reviewer's own sandbox runs fall inside `reviewer.timeout_seconds`. With the defaults and a reviewer, T is 600 + 300 + 600 s plus overheads when the initial checks and coverage take less than 300 s, and at most 600 + 600 + 600 s plus overheads.
+S is the sandbox time spent before the reviewer. It never exceeds `max_runtime_seconds`, and it exceeds `max_runtime_seconds` minus the reserve only when the initial checks and coverage alone use more. The reviewer's own sandbox runs fall inside `reviewer.timeout_seconds`. With preparation configured at its default timeout and a reviewer, T is 600 + 300 + 600 s plus overheads when the initial checks and coverage take less than 300 s, and at most 600 + 600 + 600 s plus overheads. The built-in policy has no `prepare` object: omit the first 600 s when no preparation runs.
 
-`--deadline D` (from 1m to 24h) bounds the whole command instead. The deadline counts from the start of the `review` command: preparation, sandbox runs and the reviewer stop at that start plus D minus 30 s, and the last 30 s are kept for cleanup and writing the report. The Git comparison, policy loading, static analysis and snapshot export are not interrupted, but the time they take counts against D. Running containers end as TIMEOUT, runs that had not started are recorded as SKIPPED ("Overall deadline reached; the run was not started."), and the report records the deadline as an unverified area, which is exit 2 with `--ci`. When sandbox runs happened, `execution.budget.deadline_reached` is true. Wall-clock time then stays within D plus up to 5 s of cleanup per run in flight, unless the Git comparison, static analysis and snapshot export alone take longer than D minus 30 s; they are bounded by their size limits. Reaching the deadline never produces exit 4 by itself, except that dependency preparation cut short fails, and failed preparation exits 4. Once a workflow is pinned to a v0.4 binary, set `--deadline` to the job's `timeout-minutes` minus 5 minutes, so that the job writes a report instead of being cancelled.
+`--deadline D` (from 1m to 24h) bounds the whole command instead. The deadline counts from the start of the `review` command: preparation, sandbox runs and the reviewer stop at that start plus D minus 30 s, and the last 30 s are kept for cleanup and writing the report. The Git comparison, policy loading, static analysis and snapshot export are not interrupted, but the time they take counts against D. Running containers end as TIMEOUT, runs that had not started are recorded as SKIPPED ("Overall deadline reached; the run was not started."), and the report records the deadline as an unverified area, which is exit 2 with `--ci`. When sandbox runs happened, `execution.budget.deadline_reached` is true. Wall-clock time then stays within D plus up to 5 s of cleanup per run in flight, unless the Git comparison, static analysis and snapshot export alone take longer than D minus 30 s; size limits bound their inputs, but not the duration of a single Go package type check (see [Impact analysis in CI](#impact-analysis-in-ci)). Reaching the deadline never produces exit 4 by itself, except that dependency preparation cut short fails, and failed preparation exits 4. Once a workflow is pinned to a v0.4 binary, set `--deadline` to the job's `timeout-minutes` minus 5 minutes, so that the job writes a report instead of being cancelled.
 
 **Report size (known limit).** The JSON report keeps every recorded check log, including the mutation ledger. Each log is bounded by `sandbox.max_output_bytes` (64 KiB by default, 4 MiB at most) before JSON escaping, which can enlarge it up to six times. Structured results (Jest-compatible reports and fuzz observation streams) add at most 16 MiB per report; beyond that they are kept only as hashed artifacts. `swiftproof report` reads at most 64 MiB of JSON and exits 3 on a larger file, so a review with many checks and a raised `max_output_bytes`, such as a large mutation run, can write a report that `swiftproof report` cannot re-render. The files written by the review itself are not affected. The bound of roughly `max_output_bytes` × number of checks predates v0.4. With the default limits, the largest report the test suite builds (the structured-results budget filled by the streams of 16 fuzz functions, 200 mutants with one control run each, so 400 mutation logs, and 78 other checks, every log 64 KiB of `go test -json` lines) is 52.9 MiB and re-renders byte-identically (`TestLargestReportReRendersWithinTheInputLimit`); logs made mostly of characters that JSON escapes as six bytes (`<`, `>`, `&`) or a raised `max_output_bytes` can still exceed 64 MiB.
 
@@ -280,7 +280,7 @@ published v0.1.0 binary with a pinned checksum, preloads a trusted Docker image,
 reviews immutable SHAs and retains reports and experiments for 30 days.
 The workflow explicitly selects the reviewer flag for v0.1.0 compatibility.
 
-After publishing these workflow files, another repository can use:
+Another repository can use the included reusable workflow:
 
 ```yaml
 name: SwiftProof
@@ -296,7 +296,8 @@ jobs:
 ```
 
 Replace the placeholder with a reviewed commit **containing this workflow**;
-the existing v0.1.0 tag predates it. The example is not usable until then.
+the v0.1.0 tag predates it. The workflow is present on `main`, while the binary
+it downloads remains pinned to v0.1.0.
 Supply `base-sha` and `head-sha` explicitly when calling outside a PR event.
 For another language/dependency image, set `sandbox-image` to match the trusted
 baseline policy's image. It must already contain the project's dependencies.

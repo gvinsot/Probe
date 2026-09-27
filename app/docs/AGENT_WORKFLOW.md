@@ -36,6 +36,7 @@ as intent, and its list items can become acceptance criteria. Put the handoff
 list above in a PR comment or the handoff message for the same reason. See
 [exports](EXPORTS.md) and [intent criteria](INTENT.md).
 
-Use `--reviewer=false` for a provider-free review. A configured LLM is used
-automatically by the current source version; v0.1.0 requires `--reviewer`.
+Use `--reviewer=false` for a provider-free review. A model configured in the
+trusted policy or through `SWIFTPROOF_REVIEWER_MODEL` is used automatically by
+the current source version; v0.1.0 requires `--reviewer`.
 The CI adapter explicitly supplies this flag to work with either version.

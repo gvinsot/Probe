@@ -1,5 +1,7 @@
 # Performance measurements
 
+The dated measurements on this page are historical runs, not measurements of every later commit. Commands use paths relative to `app/`; run them from that directory in the current repository layout.
+
 Local microbenchmarks, 2026-09-19: Windows amd64, Go 1.27.1, AMD Ryzen 7 9800X3D, GOMAXPROCS 8. Measured with:
 
 ```sh
@@ -30,7 +32,7 @@ T ≈ Git comparison + snapshots + prepare.timeout_seconds + S + reviewer.timeou
 
 - S is the sandbox time spent before the reviewer. It never exceeds `sandbox.max_runtime_seconds`, and it exceeds `max_runtime_seconds` minus the reviewer reserve only when the initial checks and coverage alone use more.
 - The reviewer's own sandbox runs fall inside `reviewer.timeout_seconds`.
-- With the default policy and a reviewer: 600 + 300 + 600 s plus overheads when the initial checks and coverage take less than 300 s, and at most 600 + 600 + 600 s plus overheads.
+- With preparation configured at its default timeout and a reviewer: 600 + 300 + 600 s plus overheads when the initial checks and coverage take less than 300 s, and at most 600 + 600 + 600 s plus overheads. The built-in policy has no `prepare` object; omit the first 600 s when no preparation runs.
 - With `--deadline D`: at most D plus up to 5 s of cleanup per run in flight, unless the Git comparison, static analysis and snapshot export alone, which the deadline does not interrupt, take longer than D − 30 s. An in-flight preparation can take up to 20 s of cleanup instead of 5 s.
 - `--parallel` changes wall-clock time, not S: every concurrent launch reserves its per-run timeout from what remains of the budget.
 
