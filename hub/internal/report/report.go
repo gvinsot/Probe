@@ -471,7 +471,75 @@ func (r *Report) Alerts() []Alert {
 		}
 		return a.Line < b.Line
 	})
-	return alerts
+	return dedupeLines(alerts)
+}
+
+// lineSpan is an inclusive range of lines of one side of one file.
+type lineSpan struct{ start, end int }
+
+// dedupeLines keeps a single alert per line of code: alerts arrive ranked
+// most severe first, and each later alert keeps only the lines no earlier
+// alert already reported. An alert whose lines are all reported is dropped;
+// one whose range is partly reported is narrowed, or split into the parts
+// still unreported. Alerts without a location (checks) are kept as they are,
+// and a reproduced issue is never dropped: it is evidence, not a pointer.
+// Only the list shrinks; the verdict still comes from the CLI exit code.
+func dedupeLines(alerts []Alert) []Alert {
+	covered := map[string][]lineSpan{}
+	out := make([]Alert, 0, len(alerts))
+	for _, a := range alerts {
+		if a.Path == "" || a.Line <= 0 {
+			out = append(out, a)
+			continue
+		}
+		end := a.EndLine
+		if end < a.Line {
+			end = a.Line
+		}
+		key := a.Side + "\x00" + a.Path
+		spans := uncovered(lineSpan{a.Line, end}, covered[key])
+		covered[key] = append(covered[key], lineSpan{a.Line, end})
+		if len(spans) == 0 {
+			if a.Kind == KindIssue && strings.EqualFold(a.Status, "REPRODUCED") {
+				out = append(out, a)
+			}
+			continue
+		}
+		for i, sp := range spans {
+			part := a
+			part.Line, part.EndLine = sp.start, sp.end
+			if len(spans) > 1 {
+				part.ID = fmt.Sprintf("%s#%d", a.ID, i+1)
+			}
+			if a.Kind == KindFocus {
+				part.Title = fmt.Sprintf("%s:%d-%d", a.Path, sp.start, sp.end)
+			}
+			out = append(out, part)
+		}
+	}
+	return out
+}
+
+// uncovered returns the parts of span that none of the covered spans holds.
+func uncovered(span lineSpan, covered []lineSpan) []lineSpan {
+	rest := []lineSpan{span}
+	for _, c := range covered {
+		next := rest[:0:0]
+		for _, r := range rest {
+			if c.end < r.start || c.start > r.end {
+				next = append(next, r)
+				continue
+			}
+			if r.start < c.start {
+				next = append(next, lineSpan{r.start, c.start - 1})
+			}
+			if r.end > c.end {
+				next = append(next, lineSpan{c.end + 1, r.end})
+			}
+		}
+		rest = next
+	}
+	return rest
 }
 
 func checkTitle(c Check) string {

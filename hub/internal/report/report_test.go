@@ -2,6 +2,8 @@ package report
 
 import (
 	"encoding/json"
+	"fmt"
+	"strings"
 	"testing"
 )
 
@@ -98,8 +100,11 @@ func TestRankAndNormalize(t *testing.T) {
 
 func TestAlertsRankReproducedIssuesFirst(t *testing.T) {
 	alerts := decodeSample(t).Alerts()
-	if len(alerts) != 6 {
-		t.Fatalf("got %d alerts, want 6 (2 hypotheses, 1 failed check, 2 signals, 1 target)", len(alerts))
+	// 2 hypotheses, 1 failed check, 2 signals and 1 target, minus the target
+	// and the low signal whose lines the critical issue and the high signal
+	// already report.
+	if len(alerts) != 4 {
+		t.Fatalf("got %d alerts, want 4", len(alerts))
 	}
 	if alerts[0].ID != "issue:h1" {
 		t.Errorf("first alert is %q, want the reproduced critical issue", alerts[0].ID)
@@ -132,15 +137,16 @@ func TestSummarizeCounts(t *testing.T) {
 	if s.Counts.Critical != 1 {
 		t.Errorf("critical = %d, want 1", s.Counts.Critical)
 	}
-	// One high signal, one high review target and one failed check.
-	if s.Counts.High != 3 {
-		t.Errorf("high = %d, want 3", s.Counts.High)
+	// One high signal and one failed check; the high review target and the
+	// low signal cover lines already reported and are deduplicated.
+	if s.Counts.High != 2 {
+		t.Errorf("high = %d, want 2", s.Counts.High)
 	}
-	if s.Counts.Medium != 1 || s.Counts.Low != 1 {
-		t.Errorf("medium = %d, low = %d, want 1 and 1", s.Counts.Medium, s.Counts.Low)
+	if s.Counts.Medium != 1 || s.Counts.Low != 0 {
+		t.Errorf("medium = %d, low = %d, want 1 and 0", s.Counts.Medium, s.Counts.Low)
 	}
-	if s.Counts.Total != 6 {
-		t.Errorf("total = %d, want 6", s.Counts.Total)
+	if s.Counts.Total != 4 {
+		t.Errorf("total = %d, want 4", s.Counts.Total)
 	}
 	if s.ChecksPassed != 1 || s.ChecksFailed != 1 {
 		t.Errorf("checks = %d passed / %d failed, want 1 and 1", s.ChecksPassed, s.ChecksFailed)
@@ -158,11 +164,11 @@ func TestCountsAtLeastMatchesTheSeveritySlider(t *testing.T) {
 	if got := c.AtLeast(SeverityCritical); got != 1 {
 		t.Errorf("AtLeast(critical) = %d, want 1", got)
 	}
-	if got := c.AtLeast(SeverityHigh); got != 4 {
-		t.Errorf("AtLeast(high) = %d, want 4", got)
+	if got := c.AtLeast(SeverityHigh); got != 3 {
+		t.Errorf("AtLeast(high) = %d, want 3", got)
 	}
-	if got := c.AtLeast(SeverityMedium); got != 5 {
-		t.Errorf("AtLeast(medium) = %d, want 5", got)
+	if got := c.AtLeast(SeverityMedium); got != 4 {
+		t.Errorf("AtLeast(medium) = %d, want 4", got)
 	}
 	if got := c.AtLeast(SeverityLow); got != c.Total {
 		t.Errorf("AtLeast(low) = %d, want every alert (%d)", got, c.Total)
@@ -224,5 +230,71 @@ func TestAlertsToleratesAMissingEvidenceReference(t *testing.T) {
 	alerts := r.Alerts()
 	if len(alerts[0].Evidence) != 0 {
 		t.Errorf("a dangling evidence id must be skipped, got %+v", alerts[0].Evidence)
+	}
+}
+
+func TestAlertsKeepOnlyTheMostSevereAlertPerLine(t *testing.T) {
+	r := decodeSample(t)
+	alerts := r.Alerts()
+	seen := map[string]string{}
+	for _, a := range alerts {
+		if a.Path == "" {
+			continue
+		}
+		for line := a.Line; line <= a.EndLine; line++ {
+			key := fmt.Sprintf("%s %s:%d", a.Side, a.Path, line)
+			if prev, ok := seen[key]; ok {
+				t.Errorf("line %s reported by %s and %s", key, prev, a.ID)
+			}
+			seen[key] = a.ID
+		}
+	}
+	for _, a := range alerts {
+		switch a.ID {
+		case "focus:0", "signal:s2":
+			t.Errorf("%s only covers lines already reported by more severe alerts", a.ID)
+		case "signal:s1":
+			if a.Line != 12 || a.EndLine != 12 {
+				t.Errorf("signal:s1 keeps %d-%d, want only its unreported line 12", a.Line, a.EndLine)
+			}
+		}
+	}
+	// The verdict never depends on the deduplicated list.
+	if s := r.Summarize(); s.Verdict != VerdictBlocked || s.Reproduced != 1 {
+		t.Errorf("summary = %+v", s)
+	}
+}
+
+func TestDedupeLinesSplitsAPartlyReportedRange(t *testing.T) {
+	alerts := dedupeLines([]Alert{
+		{ID: "issue:a", Kind: KindIssue, Severity: SeverityHigh, Path: "a.go", Line: 5, EndLine: 5, Side: "new"},
+		{ID: "focus:0", Kind: KindFocus, Severity: SeverityMedium, Title: "a.go:1-9", Path: "a.go", Line: 1, EndLine: 9, Side: "new"},
+		{ID: "focus:1", Kind: KindFocus, Severity: SeverityLow, Path: "a.go", Line: 5, EndLine: 5, Side: "old"},
+		{ID: "check:x", Kind: KindCheck, Severity: SeverityLow},
+	})
+	var got []string
+	for _, a := range alerts {
+		got = append(got, fmt.Sprintf("%s %s %d-%d %s", a.ID, a.Side, a.Line, a.EndLine, a.Title))
+	}
+	want := []string{
+		"issue:a new 5-5 ",
+		"focus:0#1 new 1-4 a.go:1-4",
+		"focus:0#2 new 6-9 a.go:6-9",
+		"focus:1 old 5-5 a.go:5-5",
+		"check:x  0-0 ",
+	}
+	if strings.Join(got, "\n") != strings.Join(want, "\n") {
+		t.Errorf("got\n%s\nwant\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
+	}
+}
+
+func TestDedupeLinesNeverDropsAReproducedIssue(t *testing.T) {
+	alerts := dedupeLines([]Alert{
+		{ID: "issue:u", Kind: KindIssue, Severity: SeverityCritical, Status: "UNVERIFIED", Path: "a.go", Line: 3, EndLine: 3},
+		{ID: "issue:r", Kind: KindIssue, Severity: SeverityHigh, Status: "REPRODUCED", Path: "a.go", Line: 3, EndLine: 3},
+		{ID: "signal:s", Kind: KindSignal, Severity: SeverityLow, Path: "a.go", Line: 3, EndLine: 3},
+	})
+	if len(alerts) != 2 || alerts[1].ID != "issue:r" {
+		t.Errorf("got %+v, want the unverified and the reproduced issue only", alerts)
 	}
 }
