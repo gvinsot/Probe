@@ -283,3 +283,34 @@ func TestHookInstalledBeforeTokensIsFlagged(t *testing.T) {
 		t.Errorf("OutdatedHooks = %d, %v; want 1", n, err)
 	}
 }
+
+func TestVariantCacheSurvivesReopenAndKeepsLegacyNormal(t *testing.T) {
+	dir := t.TempDir()
+	s, err := Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, variant := range []string{"", "plan"} {
+		rec := &Record{UserKey: "user", RepoKey: "repo", Run: Run{Commit: "abcdef0123", Variant: variant, Status: StatusDone}, Raw: json.RawMessage(`{"version":1}`)}
+		if err := s.PutRecord(rec); err != nil {
+			t.Fatal(err)
+		}
+	}
+	s, err = Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, variant := range []string{"normal", "plan"} {
+		rec, err := s.RecordVariant("user", "repo", "abcdef0123", variant)
+		if err != nil || (variant == "plan" && rec.Variant != "plan") {
+			t.Fatalf("variant %s: %+v, %v", variant, rec, err)
+		}
+	}
+	if _, err := s.RecordVariant("other", "repo", "abcdef0123", "plan"); err != ErrNotFound {
+		t.Fatalf("cross-user: %v", err)
+	}
+	runs, err := s.History("user", "repo", 0)
+	if err != nil || len(runs) != 2 {
+		t.Fatalf("history=%+v err=%v", runs, err)
+	}
+}

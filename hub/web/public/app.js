@@ -1,8 +1,8 @@
 // SwiftProof Hub dashboard.
 //
 // The page holds three things: the repository list with its bootstrap actions,
-// the report viewer with its severity filter, and a live event stream that
-// opens the report of a new commit as soon as it has been analyzed.
+// the commit graph and cached plan/normal results, and a live event stream
+// that refreshes results without changing the selected commit.
 'use strict';
 
 const LEVELS = ['low', 'medium', 'high', 'critical'];
@@ -22,6 +22,12 @@ const state = {
   commit: null,
   view: null,
   run: null,
+  variant: "normal",
+  graphs: new Map(),
+  runs: [],
+  pending: new Map(),
+  loadID: 0,
+  reportID: 0,
   minSeverity: 0,
   kind: 'all',
   query: '',
@@ -104,15 +110,15 @@ function timeAgo(value) {
 }
 
 function verdictChip(run) {
-  if (!run) return chip('never analyzed');
+  if (!run) { const unknown = chip('?', 'unknown'); unknown.title = 'No cached result'; return unknown; }
   if (run.status === 'queued') return chip('queued', 'busy');
   if (run.status === 'running') return chip('analyzing…', 'busy');
   if (run.status === 'failed') return chip('analysis failed', 'bad');
   const summary = run.summary || {};
   switch (summary.verdict) {
     case 'blocked': return chip('reproduced issue', 'bad');
-    case 'review': return chip('review required', 'warn');
-    case 'clear': return chip('no blocker', 'ok');
+    case 'review': return chip('Human review required', 'warn');
+    case 'clear': return chip(run.variant === 'plan' ? 'No plan category flagged' : 'no blocker', 'ok');
     default: return chip(summary.verdict || 'unknown');
   }
 }
@@ -418,72 +424,248 @@ function upsertRepo(repo) {
 /* ------------------------------------------------------------- the report -- */
 
 async function selectRepo(repoKey, commit) {
+  const changed = state.repoKey !== repoKey || state.commit !== (commit || null);
   state.repoKey = repoKey;
   state.commit = commit || null;
   state.expanded.clear();
-  const suffix = commit ? '/commit/' + commit : '';
-  const hash = '#/repo/' + repoKey + suffix;
+  if (changed) state.variant = 'normal';
+  const hash = '#/repo/' + repoKey + (commit ? '/commit/' + commit : '');
   if (window.location.hash !== hash) window.location.hash = hash;
   renderRepos();
-  await loadHistory();
+  clearReport(state.repos.get(repoKey));
+  el('commit-tree').textContent = '';
+  el('branches').textContent = '';
+  el('commit-actions').classList.add('hidden');
+  await loadHistory(changed);
 }
 
-async function loadHistory() {
+async function loadHistory(resetIntent = false) {
   const repo = state.repos.get(state.repoKey);
   if (!repo) return;
-  el('report-repo').textContent = repo.full_name;
-  try {
-    const payload = await api('/api/repos/' + encodeURIComponent(repo.key) + '/runs');
-    const select = el('history');
-    select.textContent = '';
-    const runs = payload.runs || [];
-    for (const run of runs) {
-      const option = document.createElement('option');
-      option.value = run.commit;
-      const label = [shortSha(run.commit), run.message || '(no message)'].join(' · ');
-      option.textContent = label.length > 70 ? label.slice(0, 69) + '…' : label;
-      select.appendChild(option);
-    }
-    if (runs.length === 0) {
-      showNoReport(repo);
-      return;
-    }
-    if (!state.commit || !runs.some((run) => run.commit === state.commit)) {
-      state.commit = runs[0].commit;
-    }
-    select.value = state.commit;
+  const loadID = ++state.loadID;
+  el('commit-browser').classList.remove('hidden');
+  el('graph-note').textContent = 'Loading commits…';
+  // History remains useful if fetching Git temporarily fails.
+  const results = await Promise.allSettled([
+    state.graphs.has(repo.key) ? Promise.resolve(state.graphs.get(repo.key))
+      : api('/api/repos/' + encodeURIComponent(repo.key) + '/commits'),
+    api('/api/repos/' + encodeURIComponent(repo.key) + '/runs'),
+  ]);
+  if (loadID !== state.loadID || repo.key !== state.repoKey) return;
+  const [graphResult, runsResult] = results;
+  if (runsResult.status === 'fulfilled') state.runs = runsResult.value.runs || [];
+  else { state.runs = []; toast(runsResult.reason.message, true); }
+  if (graphResult.status === 'fulfilled') {
+    state.graphs.set(repo.key, graphResult.value);
+    renderGraph();
+  } else {
+    el('graph-note').textContent = graphResult.reason.message;
+    el('commit-tree').textContent = '';
+  }
+  if (state.commit) {
+    renderCommitActions(resetIntent);
     await loadReport();
+  } else {
+    clearReport(repo);
+    el('report-empty').textContent = 'Select a commit to inspect cached results or launch an analysis.';
+  }
+}
+
+function cachedRun(commit, variant) {
+  return state.runs.find((run) => run.commit === commit && (run.variant || 'normal') === variant);
+}
+
+function pendingKey(repoKey, commit, variant) { return repoKey + '/' + commit + '/' + variant; }
+
+function displayedRun(commit, variant) {
+  return state.pending.get(pendingKey(state.repoKey, commit, variant)) || cachedRun(commit, variant);
+}
+
+function svgElement(tag, attrs) {
+  const node = document.createElementNS('http://www.w3.org/2000/svg', tag);
+  for (const [key, value] of Object.entries(attrs)) node.setAttribute(key, String(value));
+  return node;
+}
+
+// Assign lanes from child to parent in Git's topological order. Parent SHAs
+// are retained in the row as accessible links as well as drawn as edges.
+function graphLayout(commits) {
+  const lanes = [];
+  const positions = new Map();
+  let width = 1;
+  commits.forEach((commit, row) => {
+    let lane = lanes.indexOf(commit.sha);
+    if (lane < 0) { lane = lanes.indexOf(null); if (lane < 0) lane = lanes.length; }
+    lanes[lane] = null;
+    positions.set(commit.sha, { x: 16 + lane * 24, y: row * 96 + 28 });
+    for (const parent of commit.parents || []) {
+      if (lanes.includes(parent)) continue;
+      let slot = lanes.indexOf(null);
+      if (slot < 0) slot = lanes.length;
+      lanes[slot] = parent;
+    }
+    width = Math.max(width, lanes.length, lane + 1);
+  });
+  return { positions, width: width * 24 + 8 };
+}
+
+function renderGraph() {
+  const graph = state.graphs.get(state.repoKey);
+  if (!graph) return;
+  const commits = graph.commits || [];
+  el('graph-note').textContent = !commits.length ? 'This repository has no commits yet.'
+    : graph.limited ? 'Recent history: up to 300 commits, fetched to a depth of 100 per branch. Older parents may be outside this view.'
+      : 'All branches · select a commit · ? means no cached result.';
+  const branches = el('branches');
+  branches.textContent = '';
+  for (const branch of graph.branches || []) {
+    branches.appendChild(button(branch.name, 'btn quiet small', () => selectRepo(state.repoKey, branch.sha)));
+  }
+  const tree = el('commit-tree');
+  tree.textContent = '';
+  const { positions, width } = graphLayout(commits);
+  const svg = svgElement('svg', { width, height: commits.length * 96, 'aria-hidden': 'true', class: 'graph-lines' });
+  for (const commit of commits) {
+    const p = positions.get(commit.sha);
+    for (const parent of commit.parents || []) {
+      const target = positions.get(parent);
+      const q = target || { x: p.x, y: p.y + 58 };
+      svg.appendChild(svgElement('path', { d: `M ${p.x} ${p.y} C ${p.x} ${p.y + 36}, ${q.x} ${q.y - 36}, ${q.x} ${q.y}`, class: target ? 'graph-edge' : 'graph-edge boundary' }));
+    }
+  }
+  for (const commit of commits) {
+    const p = positions.get(commit.sha);
+    svg.appendChild(svgElement('circle', { cx: p.x, cy: p.y, r: 5, class: commit.sha === state.commit ? 'graph-node selected' : 'graph-node' }));
+  }
+  tree.appendChild(svg);
+  const list = document.createElement('div');
+  list.className = 'commit-rows';
+  for (const commit of commits) {
+    const row = document.createElement('div');
+    row.className = 'commit-row' + (state.commit === commit.sha ? ' selected' : '');
+    const open = button(shortSha(commit.sha) + ' · ' + commit.message, 'commit-open', () => selectRepo(state.repoKey, commit.sha));
+    open.title = commit.message;
+    if (commit.sha === state.commit) open.setAttribute('aria-current', 'true');
+    row.appendChild(open);
+    const meta = document.createElement('div'); meta.className = 'row commit-meta';
+    for (const branch of commit.branches || []) meta.appendChild(chip(branch));
+    for (const variant of ['normal', 'plan']) {
+      const result = verdictChip(displayedRun(commit.sha, variant));
+      result.prepend(document.createTextNode((variant === 'plan' ? 'Plan' : 'Normal') + ': '));
+      meta.appendChild(result);
+    }
+    row.appendChild(meta);
+    const parents = document.createElement('div'); parents.className = 'note commit-parents';
+    parents.appendChild(document.createTextNode(commit.author + ' · ' + timeAgo(commit.date) + ' · Parents: '));
+    for (const parent of commit.parents || []) {
+      const link = document.createElement('a');
+      link.href = '#/repo/' + state.repoKey + '/commit/' + parent;
+      link.textContent = shortSha(parent) + ' ';
+      parents.appendChild(link);
+    }
+    row.appendChild(parents);
+    list.appendChild(row);
+  }
+  tree.appendChild(list);
+}
+
+function renderCommitActions(resetIntent = false) {
+  const repo = state.repos.get(state.repoKey);
+  if (!repo || !state.commit) return;
+  el('commit-actions').classList.remove('hidden');
+  const node = (state.graphs.get(repo.key)?.commits || []).find((c) => c.sha === state.commit);
+  el('selected-commit').textContent = shortSha(state.commit) + (node ? ' · ' + node.message : '');
+  if (resetIntent) el('plan-intent').value = cachedRun(state.commit, 'plan')?.intent || node?.message || '';
+  const comparison = el('comparison'); comparison.textContent = '';
+  for (const variant of ['normal', 'plan']) {
+    const run = displayedRun(state.commit, variant);
+    const card = document.createElement('div'); card.className = 'comparison-card';
+    const title = document.createElement('h3'); title.textContent = variant === 'plan' ? 'Plan' : 'Normal analysis'; card.appendChild(title);
+    card.appendChild(verdictChip(run));
+    if (run) {
+      const detail = document.createElement('p'); detail.className = 'note';
+      detail.textContent = [run.mode, run.base_commit ? 'Base ' + shortSha(run.base_commit) : '', run.finished_at ? timeAgo(run.finished_at) : '', run.error].filter(Boolean).join(' · ');
+      card.appendChild(detail);
+    }
+    const actions = document.createElement('div'); actions.className = 'row';
+    const launch = button('Run ' + (variant === 'plan' ? 'plan' : 'normal analysis'), 'btn small', () => analyzeCommit(variant));
+    launch.disabled = run && ['queued', 'running'].includes(run.status);
+    actions.appendChild(launch);
+    const view = button('View cached result', 'btn quiet small', () => { state.variant = variant; loadReport(); });
+    view.disabled = !cachedRun(state.commit, variant);
+    actions.appendChild(view);
+    card.appendChild(actions);
+    comparison.appendChild(card);
+  }
+}
+
+async function analyzeCommit(variant) {
+  const repoKey = state.repoKey, commit = state.commit;
+  const key = pendingKey(repoKey, commit, variant);
+  const intent = el('plan-intent').value.trim();
+  if (variant === 'plan' && !intent) { toast('Enter an intent for the plan.', true); return; }
+  state.pending.set(key, { status: 'queued', variant });
+  renderCommitActions(); renderGraph();
+  try {
+    await api('/api/repos/' + encodeURIComponent(repoKey) + '/analyze', {
+      method: 'POST', body: { commit, variant, intent: variant === 'plan' ? intent : '' },
+    });
+    toast((variant === 'plan' ? 'Plan' : 'Analysis') + ' queued for ' + shortSha(commit) + '.');
   } catch (err) {
+    state.pending.delete(key);
+    if (repoKey === state.repoKey) { renderCommitActions(); renderGraph(); }
     toast(err.message, true);
   }
 }
 
-function showNoReport(repo) {
-  state.view = null;
+function clearReport(repo) {
+  state.view = null; state.run = null;
+  el('report-head').textContent = '';
+  const title = document.createElement('h2'); title.id = 'report-repo'; title.textContent = repo?.full_name || 'Select a repository';
+  el('report-head').appendChild(title);
+  const sub = document.createElement('p'); sub.id = 'report-sub'; sub.className = 'report-sub'; el('report-head').appendChild(sub);
   el('filters').classList.add('hidden');
   el('alerts').textContent = '';
   el('extras').classList.add('hidden');
-  const empty = el('report-empty');
-  empty.classList.remove('hidden');
-  empty.textContent = repo.has_policy
-    ? 'No report yet. Use “Analyze now”, or enable monitoring to get one on every commit.'
-    : 'This repository has no .swiftproof.json on ' + (repo.default_branch || 'its default branch') + '. Create it to start.';
-  el('report-sub').textContent = repo.web_url || '';
+  el('plan-result').classList.add('hidden');
+  el('report-empty').classList.remove('hidden');
+  el('report-empty').textContent = 'No cached result for this mode. Launch an analysis above.';
 }
 
 async function loadReport() {
   const repo = state.repos.get(state.repoKey);
-  if (!repo || !state.commit) return;
+  const commit = state.commit, variant = state.variant;
+  if (!repo || !commit) return;
+  clearReport(repo);
+  const reportID = ++state.reportID;
+  const run = cachedRun(commit, variant);
+  if (!run) return;
   try {
     const payload = await api('/api/repos/' + encodeURIComponent(repo.key)
-      + '/reports/' + encodeURIComponent(state.commit));
+      + '/reports/' + encodeURIComponent(commit) + '?variant=' + variant);
+    if (reportID !== state.reportID || repo.key !== state.repoKey || commit !== state.commit || variant !== state.variant) return;
+    if (variant === 'plan') { renderPlan(payload); return; }
     state.view = payload.view;
     state.run = payload.run;
     renderReport();
   } catch (err) {
-    showNoReport(repo);
-    toast(err.message, true);
+    if (reportID !== state.reportID || repo.key !== state.repoKey || commit !== state.commit || variant !== state.variant) return;
+    el('report-empty').textContent = run.error || err.message;
   }
+}
+
+function renderPlan(payload) {
+  el('report-empty').classList.add('hidden');
+  const holder = el('plan-result'); holder.textContent = ''; holder.classList.remove('hidden');
+  const title = document.createElement('h3'); title.textContent = 'Cached plan · ' + shortSha(payload.run.commit); holder.appendChild(title);
+  holder.appendChild(verdictChip(payload.run));
+  const note = document.createElement('p'); note.className = 'note';
+  note.textContent = 'Model-written proposal, not evidence. This plan starts at ' + shortSha(payload.run.base_commit) + '. It does not check the actual commit or approve it.';
+  holder.appendChild(note);
+  const pre = document.createElement('pre'); pre.className = 'policy'; pre.textContent = JSON.stringify(payload.plan, null, 2); holder.appendChild(pre);
+  const link = document.createElement('a'); link.className = 'btn quiet small'; link.textContent = 'Download plan JSON';
+  link.href = '/api/repos/' + encodeURIComponent(state.repoKey) + '/reports/' + encodeURIComponent(state.commit) + '/raw?variant=plan';
+  link.download = 'PLAN.json'; holder.appendChild(link);
 }
 
 function renderReport() {
@@ -926,24 +1108,28 @@ function connectEvents() {
     let event;
     try { event = JSON.parse(message.data); } catch (err) { return; }
     if (event.type === 'repo' && event.repo) {
-      const previous = state.repos.get(event.repo.key);
       state.repos.set(event.repo.key, event.repo);
       renderRepos();
-      // The report of the repository on screen refreshes on its own; another
-      // repository only gets a discreet notice.
-      if (event.repo.key === state.repoKey && event.repo.latest
-        && event.repo.latest.status === 'done'
-        && (!previous || !previous.latest || previous.latest.commit !== event.repo.latest.commit)) {
-        state.commit = event.repo.latest.commit;
-        loadHistory();
+      if (event.repo.latest) {
+        const run = event.repo.latest;
+        const key = pendingKey(event.repo.key, run.commit, run.variant || 'normal');
+        if (['queued', 'running'].includes(run.status)) state.pending.set(key, run);
+        else state.pending.delete(key);
       }
+      if (event.repo.key === state.repoKey) { renderGraph(); renderCommitActions(); }
+    } else if (event.type === 'run') {
+      const run = event.run;
+      const key = pendingKey(event.repo_key, run.commit, run.variant || 'normal');
+      if (['queued', 'running'].includes(run.status)) state.pending.set(key, run);
+      else state.pending.delete(key);
+      if (event.repo_key === state.repoKey) { renderGraph(); renderCommitActions(); }
     } else if (event.type === 'report') {
+      state.pending.delete(pendingKey(event.repo_key, event.commit, event.run.variant || 'normal'));
       const repo = state.repos.get(event.repo_key);
       if (event.repo_key === state.repoKey) {
-        state.commit = event.commit;
         loadHistory();
       } else if (repo) {
-        toast('New report for ' + repo.full_name + ' (' + shortSha(event.commit) + ').');
+        toast('New result for ' + repo.full_name + ' (' + shortSha(event.commit) + ').');
       }
     } else if (event.type === 'sync' && event.status === 'finished') {
       loadRepos();
@@ -1025,11 +1211,9 @@ async function boot() {
     el('severity-value').textContent = LEVELS[state.minSeverity];
     renderAlerts();
   });
-  el('history').addEventListener('change', (event) => {
-    state.commit = event.target.value;
-    state.expanded.clear();
-    window.location.hash = '#/repo/' + state.repoKey + '/commit/' + state.commit;
-    loadReport();
+  el('refresh-commits').addEventListener('click', () => {
+    state.graphs.delete(state.repoKey);
+    loadHistory();
   });
   el('modal-close').addEventListener('click', closeModal);
   el('modal').addEventListener('click', (event) => {

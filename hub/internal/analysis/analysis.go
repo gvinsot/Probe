@@ -8,7 +8,6 @@
 package analysis
 
 import (
-	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -17,7 +16,6 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -59,6 +57,10 @@ type Job struct {
 	Message string
 	Author  string
 	Trigger string
+	Variant string
+	Intent  string
+	// ready orders the queued event before workers can publish running/done.
+	ready chan struct{}
 }
 
 // ErrBusy is returned when the queue is saturated; the caller should retry.
@@ -100,6 +102,9 @@ func (r *Runner) Start(ctx context.Context) {
 				case <-ctx.Done():
 					return
 				case job := <-r.queue:
+					if job.ready != nil {
+						<-job.ready
+					}
 					r.process(ctx, job)
 					r.release(job)
 				}
@@ -108,12 +113,26 @@ func (r *Runner) Start(ctx context.Context) {
 	}
 }
 
-func jobKey(j Job) string { return j.UserKey + "/" + j.RepoKey + "/" + j.Commit }
+func jobKey(j Job) string {
+	if j.Variant == "" {
+		j.Variant = "normal"
+	}
+	return j.UserKey + "/" + j.RepoKey + "/" + j.Commit + "/" + j.Variant
+}
 
 // Enqueue schedules an analysis, ignoring a commit already queued or running.
 // It returns ErrQuota when the account is at its quota and ErrBusy when the
 // shared queue is full.
 func (r *Runner) Enqueue(j Job) error {
+	if j.Variant == "" {
+		j.Variant = "normal"
+	}
+	if j.Variant != "normal" && j.Variant != "plan" {
+		return fmt.Errorf("invalid analysis variant")
+	}
+	if j.Variant == "plan" && (strings.TrimSpace(j.Intent) == "" || len(j.Intent) > 64<<10) {
+		return fmt.Errorf("plan intent is required (at most 64 KiB)")
+	}
 	if !commitPattern.MatchString(j.Commit) {
 		return fmt.Errorf("invalid commit %q", j.Commit)
 	}
@@ -129,9 +148,11 @@ func (r *Runner) Enqueue(j Job) error {
 	r.active[jobKey(j)] = struct{}{}
 	r.perUser[j.UserKey]++
 	r.mu.Unlock()
+	j.ready = make(chan struct{})
 	select {
 	case r.queue <- j:
 		r.markQueued(j)
+		close(j.ready)
 		return nil
 	default:
 		r.release(j)
@@ -156,13 +177,18 @@ func (r *Runner) Pending() int { return len(r.queue) }
 func (r *Runner) markQueued(j Job) {
 	run := store.Run{
 		Commit: j.Commit, BaseCommit: j.Before, Ref: j.Ref, Message: firstLine(j.Message),
-		Author: j.Author, Status: store.StatusQueued, Trigger: j.Trigger, QueuedAt: time.Now().UTC(),
+		Variant: j.Variant, Intent: j.Intent, Author: j.Author, Status: store.StatusQueued, Trigger: j.Trigger, QueuedAt: time.Now().UTC(),
 	}
 	r.publishRun(j, run)
 }
 
 // publishRun stores the run as the repository's latest state and streams it.
 func (r *Runner) publishRun(j Job, run store.Run) {
+	r.events.Publish(j.UserKey, map[string]any{"type": "run", "repo_key": j.RepoKey, "run": run})
+	// A proposal must never become the repository badge or commit status.
+	if j.Variant == "plan" {
+		return
+	}
 	repo, err := r.store.UpdateRepo(j.UserKey, j.RepoKey, func(repo *store.Repo) error {
 		// A late finish of an older commit must not overwrite a newer run.
 		if repo.Latest != nil && repo.Latest.Commit != run.Commit && repo.Latest.QueuedAt.After(run.QueuedAt) {
@@ -182,7 +208,7 @@ func (r *Runner) process(ctx context.Context, j Job) {
 	started := time.Now().UTC()
 	run := store.Run{
 		Commit: j.Commit, BaseCommit: j.Before, Ref: j.Ref, Message: firstLine(j.Message),
-		Author: j.Author, Status: store.StatusRunning, Trigger: j.Trigger,
+		Variant: j.Variant, Intent: j.Intent, Author: j.Author, Status: store.StatusRunning, Trigger: j.Trigger,
 		QueuedAt: started, StartedAt: started,
 	}
 	r.publishRun(j, run)
@@ -200,18 +226,17 @@ func (r *Runner) process(ctx context.Context, j Job) {
 	} else {
 		run.Status = store.StatusDone
 	}
-	if rec != nil {
-		rec.Run = run
-		if err := r.store.PutRecord(rec); err != nil {
-			r.log.Error("store report", "repo", j.RepoKey, "error", err)
-		}
+	if rec == nil {
+		rec = &store.Record{UserKey: j.UserKey, RepoKey: j.RepoKey}
+	}
+	rec.Run = run
+	if err := r.store.PutRecord(rec); err != nil {
+		r.log.Error("store report", "repo", j.RepoKey, "error", err)
 	}
 	r.publishRun(j, run)
-	if rec != nil {
-		r.events.Publish(j.UserKey, map[string]any{
-			"type": "report", "repo_key": j.RepoKey, "commit": j.Commit, "run": run,
-		})
-	}
+	r.events.Publish(j.UserKey, map[string]any{
+		"type": "report", "repo_key": j.RepoKey, "commit": j.Commit, "run": run,
+	})
 	r.publishStatus(ctx, j, run)
 }
 
@@ -256,6 +281,9 @@ func (r *Runner) analyze(ctx context.Context, j Job, run *store.Run) (*store.Rec
 	}
 	base := g.resolveBase(ctx, j.Before, j.Commit, r.cfg.CloneDepth)
 	run.BaseCommit = base
+	if j.Variant == "plan" {
+		return r.analyzePlan(ctx, work, base, j, run, repo.FullName)
+	}
 	mode := r.modeFor(ctx, g, repo, base)
 	run.Mode = mode
 
@@ -276,7 +304,7 @@ func (r *Runner) analyze(ctx context.Context, j Job, run *store.Run) (*store.Rec
 	run.ToolVersion = parsed.ToolVersion
 	// Exit codes 0, 1 and 2 are review outcomes, not failures; 3 and 4 mean
 	// the run itself could not be completed and the report is incomplete.
-	if exitCode >= 3 {
+	if exitCode < 0 || exitCode >= 3 {
 		return &store.Record{
 			UserKey: j.UserKey, RepoKey: j.RepoKey, RepoName: repo.FullName, Raw: json.RawMessage(data),
 		}, fmt.Errorf("swiftproof %s could not complete (exit %d): %s", mode, exitCode, tail(output))
@@ -330,25 +358,12 @@ func (r *Runner) runCLI(ctx context.Context, work, mode, base, head string) (str
 			args = append(args, "--reviewer=false")
 		}
 	}
-	cmd := exec.CommandContext(ctx, r.cfg.Binary, args...)
-	cmd.Dir = work
-	cmd.Env = cliEnv(work)
-	var out bytes.Buffer
-	cmd.Stdout, cmd.Stderr = &out, &out
-	err := cmd.Run()
-	exitCode := 0
-	var exitErr *exec.ExitError
-	if errors.As(err, &exitErr) {
-		exitCode = exitErr.ExitCode()
-	} else if err != nil {
-		return out.String(), -1, fmt.Errorf("run %s: %w", r.cfg.Binary, err)
-	}
-	return out.String(), exitCode, err
+	return r.executeCLI(ctx, work, args)
 }
 
 // publishStatus reports the outcome back onto the commit, when enabled.
 func (r *Runner) publishStatus(ctx context.Context, j Job, run store.Run) {
-	if !r.cfg.CommitStatus {
+	if j.Variant == "plan" || !r.cfg.CommitStatus {
 		return
 	}
 	repo, err := r.store.Repo(j.UserKey, j.RepoKey)

@@ -1140,3 +1140,63 @@ func TestInstallationTokenNeverReachesTheLogs(t *testing.T) {
 		t.Fatalf("the installation token reached the logs: %s", logs.String())
 	}
 }
+
+func TestCommitAnalysisVariantsAndScopedCache(t *testing.T) {
+	h := newHarness(t)
+	h.signIn()
+	repo := h.addRepo(nil)
+	commit := strings.Repeat("a", 40)
+	path := "/api/repos/" + repo.Key
+	for _, body := range []map[string]string{
+		{"commit": commit, "variant": "invalid"},
+		{"commit": commit, "variant": "plan"},
+		{"variant": "plan", "intent": "intent"},
+	} {
+		if got := h.do("POST", path+"/analyze", body); got.Code != 400 {
+			t.Fatalf("invalid request: %d %s", got.Code, got.Body)
+		}
+	}
+	for _, variant := range []string{"normal", "plan"} {
+		got := h.do("POST", path+"/analyze", map[string]string{"commit": commit, "variant": variant, "intent": "intent"})
+		if got.Code != 202 {
+			t.Fatalf("queue: %d %s", got.Code, got.Body)
+		}
+		raw := json.RawMessage(storedReport)
+		if variant == "plan" {
+			raw = json.RawMessage(`{"format":"swiftproof-plan","version":1,"exit_code":2}`)
+		}
+		if err := h.store.PutRecord(&store.Record{UserKey: h.userKey, RepoKey: repo.Key, Run: store.Run{Commit: commit, Variant: variant, Status: store.StatusDone}, Raw: raw}); err != nil {
+			t.Fatal(err)
+		}
+		got = h.do("GET", path+"/reports/"+commit+"?variant="+variant, nil)
+		if got.Code != 200 {
+			t.Fatalf("report: %d %s", got.Code, got.Body)
+		}
+		payload := h.decode(got)
+		if variant == "plan" && (payload["plan"] == nil || payload["view"] != nil) {
+			t.Fatalf("plan rendered as review: %v", payload)
+		}
+	}
+	if h.server.runner.Pending() != 2 {
+		t.Fatal("variants were collapsed")
+	}
+	// Change the session owner: the same repository key must expose neither
+	// Git history nor either cached report to an unrelated account.
+	sess, err := secrets.NewSession("unrelated", config.GitHub, "other", time.Hour, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := h.store.PutUser(&store.User{Key: "unrelated", Provider: config.GitHub}); err != nil {
+		t.Fatal(err)
+	}
+	value, err := h.keys.SignSession(sess)
+	if err != nil {
+		t.Fatal(err)
+	}
+	h.cookie = &http.Cookie{Name: sessionCookie, Value: value}
+	for _, suffix := range []string{"/commits", "/reports/" + commit + "?variant=plan", "/runs"} {
+		if got := h.do("GET", path+suffix, nil); got.Code != 404 {
+			t.Fatalf("ownership %s: %d", suffix, got.Code)
+		}
+	}
+}

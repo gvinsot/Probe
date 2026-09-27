@@ -365,11 +365,21 @@ func (s *Server) handleAnalyze(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var body struct {
-		Commit string `json:"commit"`
-		Ref    string `json:"ref"`
+		Commit  string `json:"commit"`
+		Ref     string `json:"ref"`
+		Variant string `json:"variant"`
+		Intent  string `json:"intent"`
 	}
 	if err := decodeBody(r, &body); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if body.Variant != "" && body.Variant != "normal" && body.Variant != "plan" {
+		writeError(w, http.StatusBadRequest, "invalid analysis variant")
+		return
+	}
+	if body.Variant == "plan" && body.Commit == "" {
+		writeError(w, http.StatusBadRequest, "select a commit for the plan")
 		return
 	}
 	provider, token, ok := s.forgeAccess(w, r.Context(), user)
@@ -379,7 +389,7 @@ func (s *Server) handleAnalyze(w http.ResponseWriter, r *http.Request) {
 	if body.Commit != "" {
 		job := analysis.Job{
 			UserKey: sess.UserKey, RepoKey: repo.Key, Commit: body.Commit,
-			Ref: body.Ref, Trigger: analysis.TriggerManual,
+			Ref: body.Ref, Trigger: analysis.TriggerManual, Variant: body.Variant, Intent: body.Intent,
 		}
 		if err := s.runner.Enqueue(job); err != nil {
 			s.writeEnqueueError(w, err)
@@ -447,6 +457,10 @@ func (s *Server) handleReport(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	if rec.Variant == "plan" {
+		writeJSON(w, http.StatusOK, map[string]any{"repo": repo.Public(), "run": rec.Run, "plan": rec.Raw})
+		return
+	}
 	parsed, err := report.Decode(rec.Raw)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "the stored report could not be read")
@@ -486,7 +500,12 @@ func (s *Server) recordOf(w http.ResponseWriter, r *http.Request, sess secrets.S
 		writeError(w, http.StatusBadRequest, "invalid commit")
 		return nil, nil, false
 	}
-	rec, err := s.store.Record(sess.UserKey, repo.Key, commit)
+	variant := r.URL.Query().Get("variant")
+	if variant != "" && variant != "normal" && variant != "plan" {
+		writeError(w, http.StatusBadRequest, "invalid analysis variant")
+		return nil, nil, false
+	}
+	rec, err := s.store.RecordVariant(sess.UserKey, repo.Key, commit, variant)
 	if err != nil {
 		if errors.Is(err, store.ErrNotFound) {
 			writeError(w, http.StatusNotFound, "no report for this commit")
@@ -566,4 +585,22 @@ func forgeRepo(repo *store.Repo) forge.Repo {
 		ID: repo.ID, FullName: repo.FullName, WebURL: repo.WebURL, CloneURL: repo.CloneURL,
 		DefaultBranch: repo.DefaultBranch, Private: repo.Private, Admin: repo.Admin,
 	}
+}
+
+// handleCommits exposes branch topology, scoped to the signed-in account.
+func (s *Server) handleCommits(w http.ResponseWriter, r *http.Request) {
+	sess, _, ok := s.require(w, r)
+	if !ok {
+		return
+	}
+	repo, ok := s.repoOf(w, r, sess)
+	if !ok {
+		return
+	}
+	graph, err := s.runner.Graph(r.Context(), sess.UserKey, repo.Key)
+	if err != nil {
+		writeError(w, http.StatusBadGateway, "could not load commit history: "+err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, graph)
 }

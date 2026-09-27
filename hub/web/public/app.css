@@ -134,6 +134,7 @@ h1, h2, h3 { line-height: 1.25; }
 @media (max-width: 960px) { .layout { grid-template-columns: 1fr; } }
 
 .panel {
+  min-width: 0;
   background: var(--surface);
   border: 1px solid var(--line);
   border-radius: var(--radius);
@@ -324,3 +325,29 @@ pre.policy { margin: 0; background: var(--code-bg); color: var(--code-text); pad
 .signin-actions a:hover { border-color: var(--accent); color: var(--accent); background: var(--accent-soft); }
 .legal { margin-top: 22px; font-size: 0.78rem; color: var(--muted); }
 .error-box { border: 1px solid var(--critical); color: var(--critical); border-radius: 8px; padding: 10px; margin-bottom: 14px; font-size: 0.86rem; }
+
+/* Branch topology and the two independently cached analysis modes. */
+.commit-tree { display: flex; overflow: auto; max-height: 580px; border: 1px solid var(--line); border-radius: 8px; }
+.graph-lines { flex: none; }
+.graph-edge { fill: none; stroke: var(--accent); stroke-width: 1.5; opacity: .65; }
+.graph-edge.boundary { stroke-dasharray: 3 3; }
+.graph-node { fill: var(--surface); stroke: var(--accent); stroke-width: 2; }
+.graph-node.selected { fill: var(--accent); }
+.commit-rows { flex: 1; min-width: 380px; }
+.commit-row { height: 96px; padding: 10px 12px; border-bottom: 1px solid var(--line); overflow: hidden; }
+.commit-row.selected { background: var(--accent-soft); }
+.commit-open { display: block; width: 100%; padding: 0; border: 0; color: var(--text); background: transparent; font: inherit; font-weight: 600; text-align: left; cursor: pointer; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.commit-meta { flex-wrap: nowrap; overflow: hidden; margin: 4px 0; }
+.commit-parents { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.branch-list { margin-bottom: 12px; max-height: 120px; overflow: auto; }
+.chip.unknown { color: var(--muted); background: var(--bg-alt); border: 1px solid var(--line); }
+.comparison { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.comparison-card { border: 1px solid var(--line); border-radius: 8px; padding: 14px; overflow-wrap: anywhere; }
+.comparison-card h3 { margin-top: 0; }
+#plan-intent { display: block; width: 100%; resize: vertical; margin-top: 8px; }
+#plan-result pre { max-height: 500px; overflow: auto; }
+@media (max-width: 700px) {
+  .comparison { grid-template-columns: 1fr; }
+  .topbar { flex-wrap: wrap; gap: 8px; padding: 10px; }
+  .layout { padding: 12px 10px 30px; }
+}

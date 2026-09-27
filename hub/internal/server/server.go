@@ -90,6 +90,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("DELETE /api/repos/{repo}/monitor", s.handleMonitorOff)
 	mux.HandleFunc("POST /api/repos/{repo}/analyze", s.handleAnalyze)
 	mux.HandleFunc("GET /api/repos/{repo}/runs", s.handleRuns)
+	mux.HandleFunc("GET /api/repos/{repo}/commits", s.handleCommits)
 	mux.HandleFunc("GET /api/repos/{repo}/reports/{commit}", s.handleReport)
 	mux.HandleFunc("GET /api/repos/{repo}/reports/{commit}/raw", s.handleReportRaw)
 	mux.HandleFunc("GET /api/events", s.handleEvents)

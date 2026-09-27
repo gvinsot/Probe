@@ -48,10 +48,24 @@
         </div>
         <p class="report-sub" id="report-sub">
           Repositories without a <code>.swiftproof.json</code> policy can get one in a click.
-          Monitored repositories are analyzed on every new commit, and their report opens here automatically.
+          Select a repository to browse its branches and commits. Cached results update as analyses finish.
         </p>
       </div>
 
+      <section class="panel-body hidden" id="commit-browser" aria-label="Commit history">
+        <div class="row"><h3>Commit tree</h3><span class="spacer"></span><button class="btn quiet small" id="refresh-commits">Refresh commits</button></div>
+        <p class="note" id="graph-note" role="status"></p>
+        <div class="row branch-list" id="branches"></div>
+        <div class="commit-tree" id="commit-tree"></div>
+      </section>
+      <section class="panel-body hidden" id="commit-actions" aria-label="Selected commit">
+        <h3 id="selected-commit"></h3>
+        <label class="note" for="plan-intent">Plan intent (editable; starts from this commit’s first parent)</label>
+        <textarea class="search" id="plan-intent" rows="3" maxlength="65536"></textarea>
+        <p class="note">A plan proposes changes without executing them. Normal analysis checks the selected commit, using the server’s lint or review mode.</p>
+        <div class="comparison" id="comparison"></div>
+      </section>
+      <div class="panel-body hidden" id="plan-result"></div>
       <div class="repo-info hidden" id="repo-info"></div>
 
       <div class="filters hidden" id="filters">
@@ -61,7 +75,6 @@
             <input type="range" id="severity" min="0" max="3" step="1" value="0" list="severity-ticks">
             <output id="severity-value" for="severity">low</output>
           </div>
-          <select id="history" class="select" aria-label="Analyzed commits"></select>
         </div>
         <datalist id="severity-ticks">
           <option value="0" label="low"></option>

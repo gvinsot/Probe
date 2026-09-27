@@ -71,6 +71,8 @@ type Run struct {
 	Trigger    string `json:"trigger,omitempty"`
 	// Mode is the analysis mode actually used: lint unless the operator
 	// validated this repository's policy for review.
+	Variant     string         `json:"variant,omitempty"`
+	Intent      string         `json:"intent,omitempty"`
 	Mode        string         `json:"mode,omitempty"`
 	QueuedAt    time.Time      `json:"queued_at"`
 	StartedAt   time.Time      `json:"started_at,omitempty"`
@@ -523,10 +525,13 @@ func (s *Store) UpdateUser(key string, mutate func(*User) error) error {
 func (s *Store) PutRecord(rec *Record) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if rec.Variant != "" && rec.Variant != "normal" && rec.Variant != "plan" {
+		return fmt.Errorf("invalid analysis variant")
+	}
 	if !ValidKey(rec.Commit) {
 		return fmt.Errorf("invalid commit %q", rec.Commit)
 	}
-	path, err := s.path("reports", rec.UserKey, rec.RepoKey, rec.Commit+".json")
+	path, err := s.path("reports", rec.UserKey, rec.RepoKey, recordName(rec.Commit, rec.Variant))
 	if err != nil {
 		return err
 	}
@@ -569,9 +574,17 @@ func (s *Store) trimLocked(dir string) error {
 
 // Record loads one stored report.
 func (s *Store) Record(userKey, repoKey, commit string) (*Record, error) {
+	return s.RecordVariant(userKey, repoKey, commit, "normal")
+}
+
+// RecordVariant keeps plan artifacts separate from normal confidence reports.
+func (s *Store) RecordVariant(userKey, repoKey, commit, variant string) (*Record, error) {
+	if variant != "" && variant != "normal" && variant != "plan" {
+		return nil, fmt.Errorf("invalid analysis variant")
+	}
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	path, err := s.path("reports", userKey, repoKey, commit+".json")
+	path, err := s.path("reports", userKey, repoKey, recordName(commit, variant))
 	if err != nil {
 		return nil, err
 	}
@@ -615,4 +628,11 @@ func (s *Store) History(userKey, repoKey string, limit int) ([]Run, error) {
 		runs = runs[:limit]
 	}
 	return runs, nil
+}
+
+func recordName(commit, variant string) string {
+	if variant == "plan" {
+		return commit + ".plan.json"
+	}
+	return commit + ".json"
 }
