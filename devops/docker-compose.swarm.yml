@@ -135,6 +135,19 @@ services:
         - "traefik.http.routers.swiftproof-app.tls.certresolver=letsencrypt"
         - "traefik.http.routers.swiftproof-app.middlewares=global@file"
 
+        # OAuth callback router, without the WAF. GitHub appends the RFC 9207
+        # issuer to the callback (iss=https://github.com/login/oauth), and the
+        # edge WAF rejects any query argument holding a URL, so the sign-in
+        # ended on a bare 403 before reaching the hub. The hub authenticates
+        # this request itself (signed state pinned to a cookie, single-use
+        # code); it keeps the edge headers and rate limit.
+        - "traefik.http.routers.swiftproof-app-oauth.rule=Host(`${SWIFTPROOF_APP_DOMAIN:-app.swiftproof.net}`) && (Path(`/auth/github/callback`) || Path(`/auth/gitlab/callback`))"
+        - "traefik.http.routers.swiftproof-app-oauth.priority=1000"
+        - "traefik.http.routers.swiftproof-app-oauth.entrypoints=websecure"
+        - "traefik.http.routers.swiftproof-app-oauth.tls.certresolver=letsencrypt"
+        - "traefik.http.routers.swiftproof-app-oauth.service=swiftproof-app"
+        - "traefik.http.routers.swiftproof-app-oauth.middlewares=security-headers@file,rate-limit@file"
+
         # HTTP -> HTTPS redirect
         - "traefik.http.routers.swiftproof-app-http.rule=Host(`${SWIFTPROOF_APP_DOMAIN:-app.swiftproof.net}`)"
         - "traefik.http.routers.swiftproof-app-http.entrypoints=web"

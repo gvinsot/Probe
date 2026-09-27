@@ -177,6 +177,19 @@ builds and smoke-tests the image, it just does not publish.
   `Content-Security-Policy` without `unsafe-inline`.
 * **The analyzed code is never executed in `lint` mode.**
 
+### Web application firewall
+
+GitHub appends the RFC 9207 issuer to the OAuth callback
+(`/auth/github/callback?code=…&state=…&iss=https://github.com/login/oauth`).
+A WAF rule that rejects URLs in query arguments (a common "remote file
+inclusion" rule) answers that request with a bare 403, and the sign-in never
+reaches the hub. The provided stacks therefore route `/auth/github/callback`
+and `/auth/gitlab/callback` through a dedicated router that keeps the security
+headers and the rate limit but skips the WAF. The hub authenticates the
+callback itself: the signed, expiring state must match the cookie set by the
+browser that started the flow, and the code is single-use. Apply the same
+exception on any other proxy that inspects query strings.
+
 ### Proxy access logs
 
 The webhook URL registered on the forge is `/hooks/<key>?token=<installation
