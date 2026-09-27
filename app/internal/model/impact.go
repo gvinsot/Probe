@@ -14,11 +14,29 @@ const (
 	ChangeSignatureChanged  = "signature_changed"
 	ResolutionStatic        = "static"
 	ResolutionInterface     = "interface"
+	// ResolutionName is a link of the lexical index (TypeScript/JavaScript,
+	// Python, Rust): a call matched to a declaration by name only.
+	ResolutionName = "name"
 )
 
 // ImpactNote is the fixed note of the impact section. It says what the static
 // index is and what it does not establish.
 const ImpactNote = "The index is built on the host from committed source by parsing and type-checking the Go packages of the repository with the Go standard library, without running repository code. Imports from outside the repository are not loaded, and files are selected with linux/amd64 build constraints. Calls through function values, reflection, go:linkname, assembly and generated code are not resolved, and interface edges are possible dispatch only. A listed caller is a place to review, not a defect, and an absent caller is not proof that none exists. A test that reaches a function is not evidence that it asserts the behavior of that function."
+
+// ImpactNoteLexical is added to the note when the index holds lexical
+// (TypeScript/JavaScript, Python or Rust) sources.
+const ImpactNoteLexical = "TypeScript/JavaScript, Python and Rust sources are scanned lexically, without type checking: their declarations and calls are found from tokens, and a call is linked by name to the same-named functions and methods of the same language (\"name\" resolution), so a link may be wrong and calls through variables, aliases, re-exports, macros or dynamic dispatch are missed."
+
+// ImpactNoteFor returns the fixed note of a section whose index holds the
+// given languages.
+func ImpactNoteFor(languages []string) string {
+	for _, l := range languages {
+		if l != "go" {
+			return ImpactNote + " " + ImpactNoteLexical
+		}
+	}
+	return ImpactNote
+}
 
 // ImpactCaller is a reference to a changed function from unchanged, non-test
 // code, found by the static index. Depth is 1: callers are direct reference
@@ -79,5 +97,9 @@ type Impact struct {
 	ChangedFunctions []ImpactFunction `json:"changed_functions"`
 	TestsStatus      string           `json:"tests_status,omitempty"` // present only with --impacted-tests
 	TestsReason      string           `json:"tests_reason,omitempty"`
-	Note             string           `json:"note"`
+	// Languages lists the languages whose files the index holds ("go",
+	// "typescript", "python", "rust"). It is set only when TypeScript/
+	// JavaScript, Python or Rust files changed; a Go-only section omits it.
+	Languages []string `json:"languages,omitempty"`
+	Note      string   `json:"note"`
 }

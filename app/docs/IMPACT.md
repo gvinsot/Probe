@@ -17,6 +17,19 @@ It is static and approximate. It never executes repository code, never creates e
 
 The index is built only when the change touches at least one Go file it may read: a Go file under `testdata` or `vendor`, in a directory whose name starts with `_` or `.`, or on a sensitive path does not count. Otherwise the section says `not_applicable` and the reviewer tools stay lexical.
 
+## TypeScript/JavaScript, Python and Rust (lexical index)
+
+When a change touches a TypeScript/JavaScript (`.ts`, `.tsx`, `.mts`, `.cts`, `.js`, `.jsx`, `.mjs`, `.cjs`), Python (`.py`) or Rust (`.rs`) file, the same index also holds those sources, read from the same committed Git objects. There is no type checker for them in the Go standard library, so they are **scanned lexically**:
+
+- Declaration files (`.d.ts`), minified bundles, and files under `node_modules`, `bower_components`, `dist`, `build`, `coverage`, `target`, `venv`, `__pycache__`, `site-packages`, `vendor` or a directory whose name starts with `.` are not read, nor are sensitive paths.
+- A per-language tokenizer drops comments and keeps strings, template literals, regular expressions, raw strings and char literals as single tokens.
+- Declarations: TS/JS `function`s, `const`/`let` arrow and function expressions, and class methods (`Class.method`); Python module-level `def`s and class methods (`Class.method`, nested classes included); Rust `fn`s and methods of `impl` and `trait` blocks (`Type.method`, the self type of `impl Trait for Type`). Nested functions and closures belong to their enclosing declaration.
+- Tests: `it(...)`/`test(...)` blocks in `*.test.*`, `*.spec.*` and `__tests__/` files (named `describe > title`); `test*` functions and methods of `Test*`/`TestCase` classes in `test_*.py`, `*_test.py`, `conftest.py` and `tests/`; Rust functions with a `#[test]`, `#[tokio::test]`, `#[rstest]`-style attribute. Helpers inside a Rust `#[cfg(test)]` module are test code.
+- Calls are identifiers followed by `(`. A call is linked **by name** to the same-named declarations of the same language: `this.`/`self.` calls to the caller's own class first, `Module.f`/`module::f`/`Type::f` to the declaring file or type, plain calls to the same file first. A name with more than 3 candidates, or a common method name (`get`, `push`, `map`, `unwrap`...) called on a value of unknown type, is recorded as a name match only (reviewer tools), never linked. Paths through external types (`Vec::new`) are not linked.
+- Changed functions are compared per file (following renames) and name, by the token digests of their signature and body.
+
+Links from the lexical index carry the resolution `name`, the `impacted_caller` evidence says "Lexical index (approximate, linked by name only)", and reviewer tools answer with the method `lexical_name_index`. The section lists `languages` (for example `["go", "python"]`) whenever such files changed, and the fixed note gains a sentence on the lexical method. In a repository mixing Go and other languages, an unavailable Go index (for example no `go.mod`) makes the section `limited` and leaves the lexical part working. `--impacted-tests` still runs Go tests only: reaching tests of other languages are listed and reported as not run.
+
 ## Enabling and disabling
 
 Impact analysis is on by default for `lint` and `review`. `--impact=false` disables it: the report then has no `impact` object, no impact signal is added, and the reviewer tools stay lexical. There is no policy key, so the candidate cannot enable, disable or tune it. Automatic analysis needs no policy migration, but passing `--impact` requires a binary that recognizes the flag (see [release ordering](CI.md#release-ordering-for-v04)). `--impacted-tests` (review only) needs the index and exits 3 with `--impact=false`.

@@ -2,7 +2,8 @@ package cli
 
 // Impact analysis (F6a owns this file; runImpactedTests and
 // recordImpactedTestsSkipped belong to F6b). With --impact (the default) lint
-// and review build a static index of the candidate's Go packages on the host,
+// and review build a static index of the candidate's Go packages (and,
+// lexically, of its TypeScript/JavaScript, Python and Rust sources) on the host,
 // from committed Git objects, without executing repository code. It adds low
 // impacted_caller signals and at most one medium analysis_limited signal, the
 // impact section, and the index behind the reviewer's symbol tools.
@@ -16,6 +17,7 @@ import (
 	"github.com/gvinsot/SwiftProof/app/internal/harness"
 	"github.com/gvinsot/SwiftProof/app/internal/model"
 	"github.com/gvinsot/SwiftProof/app/internal/redact"
+	"github.com/gvinsot/SwiftProof/app/internal/report"
 	"github.com/gvinsot/SwiftProof/app/internal/symbols"
 )
 
@@ -93,11 +95,17 @@ func impactLine(i *model.Impact) string {
 			tests += f.TestsTotal
 		}
 		line = fmt.Sprintf("Impact analysis (static Go index, approximate): %d changed Go functions; %d caller sites in unchanged code and %d reaching tests, counted per function.", len(i.ChangedFunctions), callers, tests)
+		if len(i.Languages) > 0 {
+			line = fmt.Sprintf("Impact analysis (static index of %s sources, approximate): %d changed functions; %d caller sites in unchanged code and %d reaching tests, counted per function.", report.ImpactLanguages(i.Languages), len(i.ChangedFunctions), callers, tests)
+		}
 		if i.Status == model.ImpactLimited {
 			line += " The index is limited; see the report."
 		}
 	case model.ImpactUnavailable:
 		line = "Impact analysis: the static Go index is unavailable (" + redact.TruncateUTF8(i.Reason, 200) + ")."
+		if len(i.Languages) > 0 {
+			line = "Impact analysis: the static index is unavailable (" + redact.TruncateUTF8(i.Reason, 200) + ")."
+		}
 	}
 	if i.TestsStatus != "" {
 		counts := map[string]int{}

@@ -167,12 +167,35 @@ func resolutionOf(iface bool) string {
 	return "static"
 }
 
+// methodOf and limitationsOf describe how the index answers about id.
+func (x *Index) methodOf(id int32) string {
+	if x.decls[id].lexical() {
+		return MethodLexical
+	}
+	return Method
+}
+
+func (x *Index) limitationsOf(id int32) string {
+	if x.decls[id].lexical() {
+		return LimitationsLexical
+	}
+	return Limitations
+}
+
+// edgeResolution is the resolution of one reference.
+func (x *Index) edgeResolution(e edge, iface bool) string {
+	if x.decls[e.callee].lexical() {
+		return "name"
+	}
+	return resolutionOf(iface)
+}
+
 // reference is one site in a tool response.
 func (x *Index) reference(e edge, iface bool, bud *budget) map[string]any {
 	file := x.files[e.file]
 	return map[string]any{
 		"path": file, "line": int(e.line), "caller": x.decls[e.caller].Key,
-		"resolution": resolutionOf(iface), "call": e.call, "test": strings.HasSuffix(file, "_test.go"),
+		"resolution": x.edgeResolution(e, iface), "call": e.call, "test": testFile(file) || x.decls[e.caller].testCode,
 		"content": x.snippet(e.file, e.line, bud),
 	}
 }
@@ -197,13 +220,16 @@ func (x *Index) referencesOf(id int32, bud *budget) map[string]any {
 		list(x.references(im), true)
 	}
 	out := map[string]any{
-		"method": Method, "limitations": Limitations, "declaration": x.declaration(id),
+		"method": x.methodOf(id), "limitations": x.limitationsOf(id), "declaration": x.declaration(id),
 		"references": refs, "references_total": total, "truncated": total > len(refs) || bud.stopped || bud.implGap(),
 	}
 	if matches, n := x.nameMatches(id, bud); n > 0 {
 		out["name_matches"] = matches
 		out["name_matches_total"] = n
 		out["name_matches_note"] = "Calls of a method with this name on a value whose type is not resolved (for example from a package outside the repository). They may or may not call this method."
+		if x.decls[id].lexical() {
+			out["name_matches_note"] = "Calls of this name that the lexical index did not link (a common method name on a value of unknown type, or too many declarations of the name). They may or may not call this declaration."
+		}
 	}
 	return out
 }
@@ -212,7 +238,7 @@ func (x *Index) referencesOf(id int32, bud *budget) map[string]any {
 // counts them.
 func (x *Index) nameMatches(id int32, bud *budget) ([]map[string]any, int) {
 	d := x.decls[id]
-	if d.Kind != KindMethod && d.Kind != KindInterfaceMethod {
+	if d.Kind != KindMethod && d.Kind != KindInterfaceMethod && !(d.lexical() && d.Kind == KindFunc) {
 		return nil, 0
 	}
 	name := lastName(d.Name)
@@ -294,7 +320,7 @@ func (x *Index) callers(id int32, depth int, bud *budget) map[string]any {
 		frontier = next
 	}
 	return map[string]any{
-		"method": Method, "limitations": Limitations, "declaration": x.declaration(id), "depth": depth,
+		"method": x.methodOf(id), "limitations": x.limitationsOf(id), "declaration": x.declaration(id), "depth": depth,
 		"callers": results, "callers_total": total, "truncated": truncated || bud.implGap() || total > len(results),
 	}
 }
@@ -326,7 +352,7 @@ func (x *Index) inspect(id int32, bud *budget) map[string]any {
 	}
 	// callees are the indexed declarations this one references, not callers.
 	out := map[string]any{
-		"method": Method, "limitations": Limitations, "declaration": x.declaration(id),
+		"method": x.methodOf(id), "limitations": x.limitationsOf(id), "declaration": x.declaration(id),
 		"reference_sites": refs, "callees": callees, "callees_total": calleeTotal,
 	}
 	switch d.Kind {
@@ -375,6 +401,9 @@ func (x *Index) inspect(id int32, bud *budget) map[string]any {
 	out["tests_reaching"] = listed
 	out["tests_reaching_total"] = total
 	out["tests_reaching_note"] = "Existing TestX functions that reach this declaration within 3 references in the static index. Reaching a function is not evidence that a test asserts its behavior."
+	if d.lexical() {
+		out["tests_reaching_note"] = "Existing tests that reach this declaration within 3 name-matched calls in the lexical index. Reaching a function is not evidence that a test asserts its behavior."
+	}
 	out["truncated"] = bud.stopped || bud.implGap() || capped || calleeTotal > len(callees)
 	return out
 }

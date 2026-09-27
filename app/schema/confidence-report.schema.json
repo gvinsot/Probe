@@ -572,7 +572,7 @@
       "type": "object",
       "additionalProperties": false,
       "required": ["status", "indexed_files", "changed_functions", "note"],
-      "description": "Static, approximate impact analysis of changed Go functions, built from committed source without executing repository code or loading imports from outside the repository. It is never execution evidence. Interface edges are possible dispatch only, and an absent caller or test is not proof that none exists.",
+      "description": "Static, approximate impact analysis of changed Go, TypeScript/JavaScript, Python and Rust functions (Go type-checked, the others scanned lexically), built from committed source without executing repository code or loading imports from outside the repository. It is never execution evidence. Interface edges are possible dispatch only, and an absent caller or test is not proof that none exists.",
       "properties": {
         "status": {"type": "string", "enum": ["not_applicable", "indexed", "limited", "unavailable"]},
         "reason": {"type": "string"},
@@ -580,6 +580,7 @@
         "changed_functions": {"type": "array", "items": {"$ref": "#/$defs/impactFunction"}},
         "tests_status": {"type": "string", "enum": ["ran", "no_candidates", "not_run"]},
         "tests_reason": {"type": "string"},
+        "languages": {"type": "array", "uniqueItems": true, "items": {"type": "string", "enum": ["go", "typescript", "python", "rust"]}, "description": "Languages whose files the index holds. Present only when TypeScript/JavaScript, Python or Rust files changed; those are scanned lexically and linked by name (resolution \"name\")."},
         "note": {"type": "string"}
       }
     },
@@ -587,7 +588,7 @@
       "type": "object",
       "additionalProperties": false,
       "required": ["path", "line", "end_line", "symbol", "change", "callers", "callers_total", "tests", "indexed", "tests_total"],
-      "description": "A changed function or method of a changed non-test Go file. When indexed is false, its callers and tests were not searched and reason says why. When indexed is true and reason is present, a search bound was reached and callers or tests may be missing.",
+      "description": "A changed function or method of a changed non-test Go, TypeScript/JavaScript, Python or Rust file. When indexed is false, its callers and tests were not searched and reason says why. When indexed is true and reason is present, a search bound was reached and callers or tests may be missing.",
       "properties": {
         "path": {"$ref": "#/$defs/path"},
         "line": {"$ref": "#/$defs/line"},
@@ -606,13 +607,13 @@
       "type": "object",
       "additionalProperties": false,
       "required": ["path", "line", "symbol", "depth", "resolution"],
-      "description": "A reference to a changed function from unchanged, non-test code. A place to review, not a defect; interface resolution is possible dispatch only.",
+      "description": "A reference to a changed function from unchanged, non-test code. A place to review, not a defect; interface resolution is possible dispatch only, and name resolution is a lexical match by name only.",
       "properties": {
         "path": {"$ref": "#/$defs/path"},
         "line": {"$ref": "#/$defs/line"},
         "symbol": {"type": "string"},
         "depth": {"type": "integer", "minimum": 1, "maximum": 3},
-        "resolution": {"type": "string", "enum": ["static", "interface"]}
+        "resolution": {"type": "string", "enum": ["static", "interface", "name"]}
       }
     },
     "impactTest": {
@@ -625,7 +626,7 @@
         "line": {"$ref": "#/$defs/line"},
         "package": {"type": "string"},
         "depth": {"type": "integer", "minimum": 1, "maximum": 3},
-        "resolution": {"type": "string", "enum": ["static", "interface"]},
+        "resolution": {"type": "string", "enum": ["static", "interface", "name"]},
         "evidence_id": {"$ref": "#/$defs/id"},
         "status": {"type": "string", "enum": ["FAILS_ON_CANDIDATE", "PASSES_ON_CANDIDATE", "UNVERIFIED"]},
         "reason": {"type": "string"},

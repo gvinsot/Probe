@@ -52,6 +52,14 @@ func TestTestWeakeningSignals(t *testing.T) {
 		file model.ChangedFile
 		want string
 	}{
+		{"rust_assertion_removed_and_ignored", changed("tests/cart.rs", hunk(3, 3,
+			"+#[ignore]",
+			" #[test]",
+			" fn totals() {",
+			"-    assert_eq!(total(&[1, 2]), 3);",
+			"+    assert!(total(&[1, 2]) > 0);",
+			" }",
+		)), "test_skip_added@new:3,test_expectation_relaxed@new:6"},
 		{"js_assertions_removed", changed("src/cart.test.ts", hunk(10, 10,
 			" it(\"totals\", () => {",
 			"-  expect(total([1, 2])).toBe(3);",

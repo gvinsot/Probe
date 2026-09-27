@@ -1,5 +1,6 @@
-// Package symbols builds a static index of a repository's own Go packages from
-// committed Git objects, and derives the impact analysis of a change from it:
+// Package symbols builds a static index of a repository's own Go packages
+// (type-checked) and TypeScript/JavaScript, Python and Rust sources (scanned
+// lexically, see lexical.go) from committed Git objects, and derives the impact analysis of a change from it:
 // the functions and methods the change modified, the places in unchanged code
 // that reference them, and the existing Go tests that reach them within a few
 // calls.
@@ -33,9 +34,9 @@ const Limitations = "Approximate static analysis of committed Go source: imports
 const LimitedSymbol = "impact_index"
 
 // NotApplicableReason is the reason of a not_applicable section: the change
-// touches no Go file the index may read. Go files can still have changed in
-// the paths the index never reads.
-const NotApplicableReason = "no indexable Go file changed (files under testdata or vendor, in directories whose name starts with _ or ., and sensitive paths are not indexed)"
+// touches no Go, TypeScript/JavaScript, Python or Rust file the index may
+// read. Such files can still have changed in the paths the index never reads.
+const NotApplicableReason = "no indexable Go, TypeScript/JavaScript, Python or Rust file changed (Go files under testdata or vendor or in directories whose name starts with _, dependency and build directories such as node_modules, target or venv, directories whose name starts with ., and sensitive paths are not indexed)"
 
 // Analysis caps (contract §2 F6a and Appendix B).
 const (

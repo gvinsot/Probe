@@ -24,6 +24,7 @@ const (
 	weakeningGo       = "go"
 	weakeningJS       = "js"
 	weakeningPython   = "python"
+	weakeningRust     = "rust"
 )
 
 // weakeningPatterns are the lexical patterns of one language.
@@ -70,6 +71,15 @@ var weakeningLanguages = map[string]weakeningPatterns{
 		comparison:  "assert",
 		null:        "None",
 	},
+	weakeningRust: {
+		assertion:   patterns(`\b(assert|assert_eq|assert_ne|debug_assert|debug_assert_eq|debug_assert_ne|assert_matches)!\s*\(`, `\.(expect_err|unwrap_err)\s*\(`),
+		declaration: patterns(`^\s*#\[\s*(\w+::)*(test|rstest|test_case)\b`),
+		skip:        patterns(`^\s*#\[\s*ignore\b`),
+		strict:      patterns(`\bassert_eq!\s*\(`, `\bassert_matches!\s*\(`),
+		loose:       patterns(`\bassert_ne!\s*\(`, `\bassert!\s*\(.*\.(is_ok|is_err|is_some|is_none|is_empty|contains)\s*\(`),
+		comparison:  "assert",
+		null:        "None",
+	},
 }
 
 // weakeningLanguage returns the pattern set for a test file, or false for a
@@ -82,6 +92,8 @@ func weakeningLanguage(p string) (weakeningPatterns, bool) {
 		return weakeningLanguages[weakeningJS], true
 	case ".py":
 		return weakeningLanguages[weakeningPython], true
+	case ".rs":
+		return weakeningLanguages[weakeningRust], true
 	}
 	return weakeningPatterns{}, false
 }

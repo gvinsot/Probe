@@ -205,7 +205,7 @@ func TestReviewerFindCallersUsesIndex(t *testing.T) {
 	if !strings.Contains(tools["c2"], `"implementations"`) || !strings.Contains(tools["c2"], "example.test/shop/cart.Cart.Total") {
 		t.Fatalf("inspect_symbol result %s", tools["c2"])
 	}
-	if !strings.Contains(tools["c3"], "lexical") || !strings.Contains(tools["c3"], "static Go index") {
+	if !strings.Contains(tools["c3"], "lexical") || !strings.Contains(tools["c3"], "static index") {
 		t.Fatalf("fallback result %s", tools["c3"])
 	}
 	r := readReviewerReport(t, dir)

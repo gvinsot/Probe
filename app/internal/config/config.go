@@ -96,6 +96,13 @@ func Default(language string) Config {
 	case "python":
 		c.Sandbox.Image = "python:3.13-bookworm"
 		c.Commands = map[string][]string{"test": {"python", "-m", "unittest", "discover"}, "generated_test": {"python", "-m", "unittest", "{file}"}}
+	case "rust":
+		// The sandbox has no network: dependencies must be in the image's
+		// Cargo home (preloaded, or fetched by a trusted prepare command), so
+		// cargo runs offline. No generated_test default: a cargo test target
+		// is named by its file stem, which no placeholder expands to.
+		c.Sandbox.Image = "rust:1-bookworm"
+		c.Commands = map[string][]string{"test": {"cargo", "test", "--workspace", "--offline"}, "typecheck": {"cargo", "check", "--workspace", "--all-targets", "--offline"}, "build": {"cargo", "build", "--workspace", "--offline"}}
 	default:
 		c.Language = "unknown"
 	}

@@ -63,7 +63,7 @@ func finalizeImpact(r *model.Report, l *ledger) bool {
 		return false
 	}
 	// The note is fixed text: a stored note, edited or not, is never rendered.
-	im.Note = model.ImpactNote
+	im.Note = model.ImpactNoteFor(im.Languages)
 	needsHuman := im.TestsStatus == model.ImpactTestsNotRun
 	for i := range im.ChangedFunctions {
 		f := &im.ChangedFunctions[i]
@@ -138,22 +138,39 @@ func writeImpact(b *bytes.Buffer, r *model.Report) {
 	}
 	line(b, "\n## Impact Analysis\n")
 	searched := false
+	lexical := len(im.Languages) > 0
 	switch im.Status {
 	case model.ImpactIndexed:
 		searched = true
-		fmt.Fprintf(b, "Static Go index of %d files (approximate). Callers are reference sites in unchanged, non-test code; tests are existing Go tests that reach a changed function within 3 references.\n\n", im.IndexedFiles)
+		if lexical {
+			fmt.Fprintf(b, "Static index of %d %s files (approximate; %s). Callers are reference sites in unchanged, non-test code; tests are existing tests that reach a changed function within 3 references.\n\n", im.IndexedFiles, impactLanguages(im.Languages), impactMethods(im.Languages))
+		} else {
+			fmt.Fprintf(b, "Static Go index of %d files (approximate). Callers are reference sites in unchanged, non-test code; tests are existing Go tests that reach a changed function within 3 references.\n\n", im.IndexedFiles)
+		}
 	case model.ImpactLimited:
 		searched = true
-		fmt.Fprintf(b, "Static Go index of %d files (approximate), limited: %s. Callers and tests of changed functions may be missing.\n\n", im.IndexedFiles, inline(noFinalPeriod(im.Reason)))
+		if lexical {
+			fmt.Fprintf(b, "Static index of %d %s files (approximate), limited: %s. Callers and tests of changed functions may be missing.\n\n", im.IndexedFiles, impactLanguages(im.Languages), inline(noFinalPeriod(im.Reason)))
+		} else {
+			fmt.Fprintf(b, "Static Go index of %d files (approximate), limited: %s. Callers and tests of changed functions may be missing.\n\n", im.IndexedFiles, inline(noFinalPeriod(im.Reason)))
+		}
 	case model.ImpactUnavailable:
-		fmt.Fprintf(b, "The static Go index is unavailable: %s. Callers and tests of changed functions were not searched.\n\n", inline(orNone(im.Reason)))
+		if lexical {
+			fmt.Fprintf(b, "The static index is unavailable: %s. Callers and tests of changed functions were not searched.\n\n", inline(orNone(im.Reason)))
+		} else {
+			fmt.Fprintf(b, "The static Go index is unavailable: %s. Callers and tests of changed functions were not searched.\n\n", inline(orNone(im.Reason)))
+		}
 	case model.ImpactNotApplicable:
-		line(b, "No indexable Go file changed (files under testdata or vendor, in directories whose name starts with _ or ., and sensitive paths are not indexed), so no static index was built.\n")
+		line(b, "No indexable Go, TypeScript/JavaScript, Python or Rust file changed (Go files under testdata or vendor or in directories whose name starts with _, dependency and build directories such as node_modules, target or venv, directories whose name starts with ., and sensitive paths are not indexed), so no static index was built.\n")
 	default:
 		fmt.Fprintf(b, "Impact analysis status: %s.\n\n", inline(im.Status))
 	}
 	if searched && len(im.ChangedFunctions) == 0 {
-		line(b, "The changed non-test Go files contain no changed function or method.\n")
+		if lexical {
+			line(b, "The changed non-test source files contain no changed function or method.\n")
+		} else {
+			line(b, "The changed non-test Go files contain no changed function or method.\n")
+		}
 	}
 	for i, f := range im.ChangedFunctions {
 		if i == maxImpactFunctionsShown {
@@ -217,6 +234,46 @@ func writeImpact(b *bytes.Buffer, r *model.Report) {
 	}
 	fmt.Fprintf(b, "\n%s\n", inline(im.Note))
 }
+
+// impactLanguages names the languages of a lexical section, e.g. "Go and
+// Python" or "TypeScript/JavaScript, Python and Rust".
+func impactLanguages(languages []string) string {
+	var names []string
+	for _, l := range languages {
+		switch l {
+		case "go":
+			names = append(names, "Go")
+		case "typescript":
+			names = append(names, "TypeScript/JavaScript")
+		case "python":
+			names = append(names, "Python")
+		case "rust":
+			names = append(names, "Rust")
+		default:
+			names = append(names, inline(l))
+		}
+	}
+	switch len(names) {
+	case 0:
+		return "source"
+	case 1:
+		return names[0]
+	}
+	return strings.Join(names[:len(names)-1], ", ") + " and " + names[len(names)-1]
+}
+
+// impactMethods says how the languages of a lexical section are indexed.
+func impactMethods(languages []string) string {
+	for _, l := range languages {
+		if l == "go" {
+			return "Go is type-checked, the other languages are scanned lexically and linked by name"
+		}
+	}
+	return "scanned lexically and linked by name"
+}
+
+// ImpactLanguages names the languages of an impact section for display.
+func ImpactLanguages(languages []string) string { return impactLanguages(languages) }
 
 // orNone replaces an empty reason with a fixed text, and drops a final
 // period: every caller ends the sentence itself.

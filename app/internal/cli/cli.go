@@ -28,7 +28,7 @@ import (
 const usage = `SwiftProof — evidence for focused review of AI-assisted changes
 
 Usage:
-  swiftproof init [--repo PATH] [--language go|typescript|python]
+  swiftproof init [--repo PATH] [--language go|typescript|javascript|python|rust]
   swiftproof lint [--base main] [--head HEAD] [--ci]
   swiftproof review [--base main] [--reviewer=false] [--ci]
   swiftproof review [flags] BASE..HEAD
@@ -95,7 +95,7 @@ func initialize(args []string, out, errOut io.Writer) int {
 	if *language == "" {
 		*language = detect(func(name string) bool { _, err := os.Stat(filepath.Join(*repoDir, name)); return err == nil })
 	}
-	if *language != "go" && *language != "typescript" && *language != "javascript" && *language != "python" && *language != "unknown" {
+	if *language != "go" && *language != "typescript" && *language != "javascript" && *language != "python" && *language != "rust" && *language != "unknown" {
 		return fail(errOut, 3, "unsupported language %q", *language)
 	}
 	c := config.Default(*language)
@@ -493,7 +493,7 @@ func shortCommit(id string) string {
 }
 
 func detect(exists func(string) bool) string {
-	for _, item := range []struct{ file, language string }{{"go.mod", "go"}, {"go.work", "go"}, {"tsconfig.json", "typescript"}, {"package.json", "javascript"}, {"pyproject.toml", "python"}, {"setup.py", "python"}} {
+	for _, item := range []struct{ file, language string }{{"go.mod", "go"}, {"go.work", "go"}, {"Cargo.toml", "rust"}, {"tsconfig.json", "typescript"}, {"package.json", "javascript"}, {"pyproject.toml", "python"}, {"setup.py", "python"}, {"requirements.txt", "python"}} {
 		if exists(item.file) {
 			return item.language
 		}

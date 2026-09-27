@@ -40,7 +40,9 @@ type analysis struct {
 	reasons       []string
 	unknown       bool // some changed functions could not be determined
 	changed       []changedFunction
-	touched       map[string]bool // fnKey of every changed or added function
+	touched       map[string]bool // fnKey of every changed or added Go function
+	touchedKeys   map[string]bool // index key of every changed or added lexical function
+	multi         bool            // lexical sources changed: texts name no single language
 	fileReason    map[string]string
 	firstGoPath   string
 	firstGoSide   string
@@ -48,6 +50,22 @@ type analysis struct {
 	signals       []model.Signal
 	remainder     int
 	firstUnlisted *model.Signal
+}
+
+// indexWord and fnWord name the index and the functions in texts: Go-only
+// wording unless lexical sources changed.
+func (a *analysis) indexWord() string {
+	if a.multi {
+		return "static index"
+	}
+	return "static Go index"
+}
+
+func (a *analysis) fnWord() string {
+	if a.multi {
+		return "functions"
+	}
+	return "Go functions"
 }
 
 func (a *analysis) limit(reason string) {
@@ -60,9 +78,11 @@ func (a *analysis) limit(reason string) {
 }
 
 // Analyze builds the static index of the candidate commit and the impact of
-// the change on it. It returns an error only when ctx is cancelled: every
-// other failure degrades the section to limited or unavailable with a reason.
-// Nothing in the repository is executed.
+// the change on it. Go packages are parsed and type-checked; TypeScript and
+// JavaScript, Python and Rust sources are scanned lexically (lexindex.go),
+// and both parts share one index. It returns an error only when ctx is
+// cancelled: every other failure degrades the section to limited or
+// unavailable with a reason. Nothing in the repository is executed.
 func Analyze(ctx context.Context, repo *gitrepo.Repository, change model.Change, opts Options) (*Result, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
@@ -72,12 +92,15 @@ func Analyze(ctx context.Context, repo *gitrepo.Repository, change model.Change,
 		change:       change,
 		impact:       &model.Impact{Status: model.ImpactIndexed, ChangedFunctions: []model.ImpactFunction{}, Note: model.ImpactNote},
 		touched:      map[string]bool{},
+		touchedKeys:  map[string]bool{},
 		fileReason:   map[string]string{},
 		changedPaths: map[string]bool{},
 	}
 	deadline := time.Now().Add(a.lim.Timeout)
 	headPaths, anyGo := changedGoFiles(change, opts.Sensitive)
-	if !anyGo {
+	anyLex := changedLexicalFiles(change, opts.Sensitive)
+	a.multi = anyLex
+	if !anyGo && !anyLex {
 		a.impact.Status, a.impact.Reason = model.ImpactNotApplicable, NotApplicableReason
 		return &Result{report: a.impact}, nil
 	}
@@ -86,7 +109,7 @@ func Analyze(ctx context.Context, repo *gitrepo.Repository, change model.Change,
 		if f.OldPath != "" {
 			a.changedPaths[f.OldPath] = true
 		}
-		if a.firstGoPath == "" && strings.HasSuffix(f.Path, ".go") && indexable(f.Path, opts.Sensitive) {
+		if a.firstGoPath == "" && (strings.HasSuffix(f.Path, ".go") && indexable(f.Path, opts.Sensitive) || lexIndexable(f.Path, opts.Sensitive)) {
 			if f.Status != "D" {
 				a.firstGoPath, a.firstGoSide = f.Path, "new"
 			}
@@ -98,7 +121,7 @@ func Analyze(ctx context.Context, repo *gitrepo.Repository, change model.Change,
 			if f.OldPath != "" {
 				p = f.OldPath
 			}
-			if strings.HasSuffix(p, ".go") && indexable(p, opts.Sensitive) {
+			if strings.HasSuffix(p, ".go") && indexable(p, opts.Sensitive) || lexIndexable(p, opts.Sensitive) {
 				a.firstGoPath, a.firstGoSide = p, "old"
 				break
 			}
@@ -113,6 +136,90 @@ func Analyze(ctx context.Context, repo *gitrepo.Repository, change model.Change,
 		a.unknown = true
 		return a.unavailable("the candidate tree could not be listed: " + shortError(err)), nil
 	}
+	var g *goBuild
+	if anyGo {
+		var reason string
+		g, reason, err = a.buildGo(ctx, repo, headTree, headPaths, opts.Sensitive, deadline)
+		if err != nil {
+			return nil, err
+		}
+		if reason != "" {
+			if !anyLex {
+				return a.unavailable(reason), nil
+			}
+			// The lexical part is still built: the Go functions are listed
+			// as not indexed, and the section is limited.
+			a.limit("the static Go index is unavailable: " + reason)
+			for _, cf := range a.changed {
+				if a.fileReason[cf.path] == "" {
+					a.fileReason[cf.path] = "the static Go index is unavailable (" + reason + ")"
+				}
+			}
+			g = nil
+		}
+	}
+	if g == nil {
+		g = &goBuild{b: newBuilder(token.NewFileSet(), a.lim, deadline), content: map[string][]byte{}}
+	}
+	languages := map[string]bool{}
+	if g.indexed > 0 {
+		languages[LangGo] = true
+	}
+	indexed := g.indexed
+	if anyLex {
+		lb, err := a.buildLexical(ctx, repo, headTree, g.b, g.content, deadline, opts.Sensitive)
+		if err != nil {
+			return nil, err
+		}
+		indexed += lb.indexed
+		for l := range lb.languages {
+			languages[l] = true
+		}
+		sort.SliceStable(a.changed, func(i, j int) bool {
+			x, y := a.changed[i], a.changed[j]
+			if x.path != y.path {
+				return x.path < y.path
+			}
+			if x.line != y.line {
+				return x.line < y.line
+			}
+			return x.name < y.name
+		})
+		if len(a.changed) > a.lim.MaxChangedFunctions {
+			a.limit(fmt.Sprintf("%d further changed functions are not listed (at most %d)", len(a.changed)-a.lim.MaxChangedFunctions, a.lim.MaxChangedFunctions))
+			a.unknown = true
+			a.changed = a.changed[:a.lim.MaxChangedFunctions]
+		}
+		for _, l := range []string{LangGo, LangTypeScript, LangPython, LangRust} {
+			if languages[l] {
+				a.impact.Languages = append(a.impact.Languages, l)
+			}
+		}
+		a.impact.Note = model.ImpactNoteFor(a.impact.Languages)
+	}
+	x := g.b.finish(g.content, indexed)
+	a.impact.IndexedFiles = indexed
+	if err := a.describe(ctx, x, g.mods, deadline); err != nil {
+		return nil, err
+	}
+	a.finishStatus()
+	return &Result{report: a.impact, signals: a.limitedSignal(), index: x}, nil
+}
+
+// goBuild is the Go part of the index under construction.
+type goBuild struct {
+	b       *builder
+	mods    modules
+	content map[string][]byte
+	indexed int
+}
+
+// buildGo reads, parses and type-checks the Go packages of the candidate
+// tree and lists the changed Go functions. It returns the reason why the Go
+// index is unavailable instead of a build, and an error only when ctx is
+// cancelled.
+func (a *analysis) buildGo(ctx context.Context, repo *gitrepo.Repository, headTree []gitrepo.TreeEntry, headPaths []string, sensitive func(string) bool, deadline time.Time) (*goBuild, string, error) {
+	opts := Options{Sensitive: sensitive}
 	entries := selectEntries(headTree, opts.Sensitive)
 	byPath := map[string]gitrepo.TreeEntry{}
 	var readable []gitrepo.TreeEntry
@@ -152,17 +259,17 @@ func Analyze(ctx context.Context, repo *gitrepo.Repository, change model.Change,
 	head, err := readEntries(ctx, repo, toRead, a.lim.MaxFileBytes)
 	if err != nil {
 		if ctx.Err() != nil {
-			return nil, ctx.Err()
+			return nil, "", ctx.Err()
 		}
 		a.unknown = true
-		return a.unavailable("the candidate Go sources could not be read: " + shortError(err)), nil
+		return nil, "the candidate Go sources could not be read: " + shortError(err), nil
 	}
 
 	if err := a.changedFunctions(ctx, repo, head, byPath, opts.Sensitive); err != nil {
-		return nil, err
+		return nil, "", err
 	}
 	if tooBig != "" {
-		return a.unavailable(tooBig), nil
+		return nil, tooBig, nil
 	}
 	mods := discoverModules(head)
 	usable := false
@@ -171,9 +278,9 @@ func Analyze(ctx context.Context, repo *gitrepo.Repository, change model.Change,
 	}
 	if !usable {
 		if len(mods.list) == 0 {
-			return a.unavailable("no go.mod file in the committed tree"), nil
+			return nil, "no go.mod file in the committed tree", nil
 		}
-		return a.unavailable("no go.mod file of the committed tree has a readable module path"), nil
+		return nil, "no go.mod file of the committed tree has a readable module path", nil
 	}
 	if mods.unreadable > 0 {
 		a.limit(fmt.Sprintf("%d go.mod files have no readable module path; their packages were not indexed", mods.unreadable))
@@ -219,7 +326,7 @@ func Analyze(ctx context.Context, repo *gitrepo.Repository, change model.Change,
 	fset := token.NewFileSet()
 	asts := parseFiles(ctx, fset, candidates, head)
 	if err := ctx.Err(); err != nil {
-		return nil, err
+		return nil, "", err
 	}
 	var files []parsed
 	parseErrors := headerErrors
@@ -249,14 +356,14 @@ func Analyze(ctx context.Context, repo *gitrepo.Repository, change model.Change,
 		a.limit(fmt.Sprintf("%d Go files were not indexed because their package clause differs from their directory's package", g.clauseSkips))
 	}
 	if len(g.nodes) > a.lim.MaxPackages {
-		return a.unavailable(fmt.Sprintf("the candidate tree has more than %d Go packages", a.lim.MaxPackages)), nil
+		return nil, fmt.Sprintf("the candidate tree has more than %d Go packages", a.lim.MaxPackages), nil
 	}
 
 	// Type checking in dependency order.
 	b := newBuilder(fset, a.lim, deadline)
 	for _, n := range order(g.nodes) {
 		if err := ctx.Err(); err != nil {
-			return nil, err
+			return nil, "", err
 		}
 		if time.Now().After(deadline) {
 			b.timedOut++
@@ -301,13 +408,7 @@ func Analyze(ctx context.Context, repo *gitrepo.Repository, change model.Change,
 			indexed++
 		}
 	}
-	x := b.finish(content, indexed)
-	a.impact.IndexedFiles = indexed
-	if err := a.describe(ctx, x, mods, deadline); err != nil {
-		return nil, err
-	}
-	a.finishStatus()
-	return &Result{report: a.impact, signals: a.limitedSignal(), index: x}, nil
+	return &goBuild{b: b, mods: mods, content: content, indexed: indexed}, "", nil
 }
 
 // changedFunctions reads the baseline versions of the changed files and
@@ -412,7 +513,7 @@ func (a *analysis) unavailable(reason string) *Result {
 		a.impact.ChangedFunctions = append(a.impact.ChangedFunctions, model.ImpactFunction{
 			Path: cf.path, Line: cf.line, EndLine: cf.end, Symbol: cf.pkgName + "." + cf.name, Change: cf.change,
 			Callers: []model.ImpactCaller{}, Tests: []model.ImpactTest{},
-			Reason: "the static Go index is unavailable; callers and tests were not searched",
+			Reason: "the " + a.indexWord() + " is unavailable; callers and tests were not searched",
 		})
 	}
 	return &Result{report: a.impact, signals: a.limitedSignal()}
@@ -481,6 +582,9 @@ func (a *analysis) describe(ctx context.Context, x *Index, mods modules, deadlin
 			touchedKeys[ip+"."+parts[2]] = true
 		}
 	}
+	for key := range a.touchedKeys {
+		touchedKeys[key] = true
+	}
 	fns := make([]model.ImpactFunction, len(a.changed))
 	ids := make([]int32, len(a.changed))
 	var byPos map[declPos]int32
@@ -489,7 +593,12 @@ func (a *analysis) describe(ctx context.Context, x *Index, mods modules, deadlin
 		ids[i] = -1
 		importPath, inModule := mods.importPath(cf.dir)
 		id, found := int32(-1), false
-		if inModule {
+		if cf.key != "" {
+			// A lexical function: its key is known.
+			inModule = true
+			fn.Symbol = cf.key
+			id, found = x.byKey[cf.key]
+		} else if inModule {
 			fn.Symbol = importPath + "." + cf.name
 			id, found = x.byKey[fn.Symbol]
 			if (!found || x.decls[id].Path != cf.path) && a.fileReason[cf.path] == "" {
@@ -514,6 +623,8 @@ func (a *analysis) describe(ctx context.Context, x *Index, mods modules, deadlin
 			fn.Reason = a.fileReason[cf.path]
 		case !inModule:
 			fn.Reason = "the file is outside every Go module with a readable module path"
+		case (!found || x.decls[id].Path != cf.path) && cf.key != "":
+			fn.Reason = "the declaration is not in the lexical index"
 		case !found || x.decls[id].Path != cf.path:
 			fn.Reason = "the declaration is not in the static Go index"
 		default:
@@ -563,7 +674,10 @@ func (a *analysis) describe(ctx context.Context, x *Index, mods modules, deadlin
 		for j, s := range sites {
 			if j < MaxCallersListed {
 				resolution := model.ResolutionStatic
-				if s.iface {
+				switch {
+				case x.decls[ids[i]].lexical():
+					resolution = model.ResolutionName
+				case s.iface:
 					resolution = model.ResolutionInterface
 				}
 				fn.Callers = append(fn.Callers, model.ImpactCaller{Path: x.files[s.file], Line: int(s.line), Symbol: x.decls[s.caller].Key, Depth: 1, Resolution: resolution})
@@ -685,7 +799,7 @@ func (x *Index) sites(id int32, touched map[string]bool, added map[string]map[in
 	byLine := map[[2]int32]int{}
 	consider := func(e edge, via int32, iface bool) {
 		file := x.files[e.file]
-		if strings.HasSuffix(file, "_test.go") || touched[x.decls[e.caller].Key] || added[file][int(e.line)] {
+		if testFile(file) || x.decls[e.caller].testCode || touched[x.decls[e.caller].Key] || added[file][int(e.line)] {
 			return
 		}
 		k := [2]int32{e.file, e.line}
@@ -779,10 +893,16 @@ func (x *Index) reachingTests(id int32, mods modules, changedPaths map[string]bo
 			via = append(via, x.decls[nodes[j].id].Key)
 		}
 		resolution := model.ResolutionStatic
-		if child.iface {
+		switch {
+		case d.lexical():
+			resolution = model.ResolutionName
+		case child.iface:
 			resolution = model.ResolutionInterface
 		}
 		pkg, _ := mods.importPath(dirOf(d.Path))
+		if d.lexical() {
+			pkg = dirOf(d.Path)
+		}
 		tests = append(tests, model.ImpactTest{Name: d.Name, Path: d.Path, Line: d.Line, Package: pkg, Depth: child.depth, Resolution: resolution, Via: via, FileChanged: changedPaths[d.Path]})
 		return true
 	}
@@ -840,7 +960,10 @@ func callerSignal(x *Index, fn model.ImpactFunction, s site) model.Signal {
 	}
 	caller := x.decls[s.caller].Key
 	sig := model.Signal{Kind: model.SignalImpactedCaller, Path: x.files[s.file], Line: int(s.line), Side: "new", Symbol: fn.Symbol, Severity: "low"}
-	switch {
+	switch lang := x.decls[s.via].Language; {
+	case lang != "":
+		sig.Summary = "Unchanged caller of a changed " + langName(lang) + " function"
+		sig.Evidence = fmt.Sprintf("Lexical index (approximate, linked by name only): %s calls a function or method named %s here, which may be %s. Its %s changed at %s:%d. A place to review, not a defect.", caller, lastName(x.decls[s.via].Name), fn.Symbol, what, fn.Path, fn.Line)
 	case s.iface:
 		sig.Summary = "Unchanged interface call that may dispatch to a changed Go method"
 		sig.Evidence = fmt.Sprintf("Static Go index (approximate): %s calls the interface method %s here, and the receiver type of %s implements that interface, so this call may dispatch to it; dispatch is possible, not established. The %s of %s changed at %s:%d. A place to review, not a defect.", caller, x.decls[s.via].Key, fn.Symbol, what, fn.Symbol, fn.Path, fn.Line)
@@ -863,14 +986,14 @@ func (a *analysis) limitedSignal() []model.Signal {
 	out := append([]model.Signal(nil), a.signals...)
 	var parts []string
 	if a.remainder > 0 {
-		parts = append(parts, fmt.Sprintf("%d further caller sites of changed Go functions in unchanged code are not listed as signals (at most %d per changed function and %d in total); impact.changed_functions records callers_total for each function.", a.remainder, MaxSignalsPerFunction, MaxSignalsTotal))
+		parts = append(parts, fmt.Sprintf("%d further caller sites of changed "+a.fnWord()+" in unchanged code are not listed as signals (at most %d per changed function and %d in total); impact.changed_functions records callers_total for each function.", a.remainder, MaxSignalsPerFunction, MaxSignalsTotal))
 	}
 	concerned := len(a.changed) > 0 || a.unknown
 	switch {
 	case a.impact.Status == model.ImpactUnavailable && concerned:
-		parts = append(parts, "The static Go index is unavailable ("+a.impact.Reason+"), so callers of changed Go functions were not searched.")
+		parts = append(parts, "The "+a.indexWord()+" is unavailable ("+a.impact.Reason+"), so callers of changed "+a.fnWord()+" were not searched.")
 	case len(a.reasons) > 0 && concerned:
-		parts = append(parts, "The static Go index is limited ("+joinReasons(a.reasons)+"), so callers of changed Go functions may be missing from it.")
+		parts = append(parts, "The "+a.indexWord()+" is limited ("+joinReasons(a.reasons)+"), so callers of changed "+a.fnWord()+" may be missing from it.")
 	}
 	if len(parts) == 0 {
 		return out

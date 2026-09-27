@@ -38,9 +38,18 @@ type Decl struct {
 	Line      int
 	EndLine   int
 	Kind      string
-	Test      bool // a TestX(t *testing.T) function in a _test.go file
+	Test      bool // a TestX(t *testing.T) function in a _test.go file, or a lexical test
 	Signature string
+	// Language is "" for a Go declaration, and the lexical language
+	// (LangTypeScript, LangPython or LangRust) otherwise.
+	Language string
+	// testCode marks lexical test code that is not in a test file: a test,
+	// or a helper inside a Rust #[cfg(test)] module.
+	testCode bool
 }
+
+// lexical reports a declaration of the lexical index.
+func (d Decl) lexical() bool { return d.Language != "" }
 
 // edge is one reference to a declaration: a call, or a use as a value.
 type edge struct {

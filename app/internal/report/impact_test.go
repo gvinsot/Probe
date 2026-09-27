@@ -66,7 +66,7 @@ func TestImpactSectionStatuses(t *testing.T) {
 	}{
 		{"not applicable", func(i *model.Impact) {
 			i.Status, i.Reason, i.ChangedFunctions = model.ImpactNotApplicable, "no indexable Go file changed (files under testdata or vendor, in directories whose name starts with _ or ., and sensitive paths are not indexed)", []model.ImpactFunction{}
-		}, []string{"No indexable Go file changed (files under testdata or vendor, in directories whose name starts with _ or ., and sensitive paths are not indexed), so no static index was built."}},
+		}, []string{"No indexable Go, TypeScript/JavaScript, Python or Rust file changed (Go files under testdata or vendor or in directories whose name starts with _, dependency and build directories such as node_modules, target or venv, directories whose name starts with ., and sensitive paths are not indexed), so no static index was built."}},
 		{"search bound", func(i *model.Impact) {
 			i.Status, i.Reason = model.ImpactLimited, "the caller search stopped at its limit of 10 visits; callers of 1 changed functions may be missing"
 			i.ChangedFunctions[0].Reason = "the caller search stopped at its time or visit limit; callers of this function may be missing"
@@ -92,6 +92,14 @@ func TestImpactSectionStatuses(t *testing.T) {
 				i.ChangedFunctions = append(i.ChangedFunctions, i.ChangedFunctions[0])
 			}
 		}, []string{"- … 5 more changed functions in confidence-report.json"}},
+		{"lexical languages", func(i *model.Impact) {
+			i.Languages = []string{"go", "typescript", "python"}
+			i.ChangedFunctions[0].Callers[0].Resolution = model.ResolutionName
+		}, []string{"Static index of 6 Go, TypeScript/JavaScript and Python files (approximate; Go is type-checked, the other languages are scanned lexically and linked by name).", "(name)", "TypeScript/JavaScript, Python and Rust sources are scanned lexically, without type checking"}},
+		{"lexical no changed function", func(i *model.Impact) {
+			i.Languages = []string{"rust"}
+			i.ChangedFunctions = []model.ImpactFunction{}
+		}, []string{"Static index of 6 Rust files", "The changed non-test source files contain no changed function or method."}},
 		{"impacted tests status", func(i *model.Impact) {
 			i.TestsStatus, i.TestsReason = model.ImpactTestsNotRun, "not implemented in this build"
 		}, []string{"Impacted tests: not\\_run: not implemented in this build."}},

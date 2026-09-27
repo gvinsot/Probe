@@ -27,6 +27,7 @@ type changedFunction struct {
 	path, dir, pkgName, name string
 	line, end                int
 	change                   string // model.ChangeBodyChanged | model.ChangeSignatureChanged
+	key                      string // lexical functions: the index key; "" for Go
 }
 
 // fingerprints lists the functions and methods of one Go source. init

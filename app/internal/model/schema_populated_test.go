@@ -117,6 +117,7 @@ func fullyPopulatedReport() Report {
 	f.Compared, f.Unstable, f.Unconfirmed, f.NotRecorded = 61, 1, 1, 1
 	r.Fuzz.Skipped = append(r.Fuzz.Skipped, FuzzSkip{Path: "calc/calc.go", Line: 9, Symbol: "Scale", Reason: "signature changed"})
 	r.Fuzz.SkippedTotal = 2
+	r.Impact.Languages = []string{"go", "python"}
 	fn := &r.Impact.ChangedFunctions[0]
 	fn.Indexed, fn.Reason, fn.TestsTotal = true, "r", 2
 	fn.Tests[0].Via = []string{"shop.TestTotal", "shop.Checkout", "calc.Discount"}

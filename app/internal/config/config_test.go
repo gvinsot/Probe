@@ -9,7 +9,7 @@ import (
 )
 
 func TestRoundTripDefaults(t *testing.T) {
-	for _, lang := range []string{"go", "typescript", "python", "unknown"} {
+	for _, lang := range []string{"go", "typescript", "python", "rust", "unknown"} {
 		c := Default(lang)
 		b, err := json.Marshal(c)
 		if err != nil {
@@ -24,6 +24,21 @@ func TestRoundTripDefaults(t *testing.T) {
 		}
 	}
 }
+func TestDefaultRust(t *testing.T) {
+	c := Default("rust")
+	if c.Language != "rust" || c.Sandbox.Image != "rust:1-bookworm" {
+		t.Fatalf("rust defaults: %+v", c)
+	}
+	for kind, want := range map[string]string{"test": "cargo test --workspace --offline", "typecheck": "cargo check --workspace --all-targets --offline", "build": "cargo build --workspace --offline"} {
+		if got := strings.Join(c.Commands[kind], " "); got != want {
+			t.Errorf("%s = %q, want %q", kind, got, want)
+		}
+	}
+	if _, ok := c.Commands["generated_test"]; ok {
+		t.Error("rust must not seed a generated_test template")
+	}
+}
+
 func TestRejectInvalidPolicy(t *testing.T) {
 	for _, input := range []string{
 		`{"version":2}`, `{"version":1,"secret":"oops"}`, `{"version":1} {}`,
