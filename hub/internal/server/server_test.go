@@ -1102,12 +1102,12 @@ func TestWebhookFromBeforeTokensAsksForAction(t *testing.T) {
 	}
 }
 
-// TestDashboardShowsTheBadgeAndPendingActions guards the UI contract: the
-// dashboard renders the badge URL and the reinstall action from the API.
-func TestDashboardShowsTheBadgeAndPendingActions(t *testing.T) {
+// TestDashboardShowsPendingActions guards the UI contract: the dashboard
+// renders the reinstall action from the API.
+func TestDashboardShowsPendingActions(t *testing.T) {
 	h := newHarness(t)
 	script := h.do(http.MethodGet, "/app.js", nil).Body.String()
-	for _, want := range []string{"repo.badge_key", "'/badge/'", "repo.hook_outdated", "Reinstall webhook"} {
+	for _, want := range []string{"repo.hook_outdated", "Reinstall webhook"} {
 		if !strings.Contains(script, want) {
 			t.Errorf("app.js does not use %s", want)
 		}

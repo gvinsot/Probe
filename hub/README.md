@@ -267,8 +267,8 @@ hub does not re-register them behind the owner's back; instead:
   a **Reinstall webhook** button, which replaces the hook on the forge and
   issues the new badge URL.
 
-Once reinstalled, the dashboard shows the badge URL and a README snippet for
-the selected repository.
+The public badge remains available through the API-provided `badge_key`; the
+report view does not display a badge or its URL.
 
 ## Endpoints
 
@@ -285,7 +285,7 @@ the selected repository.
 | `GET` | `/api/repos/{repo}/reports/{commit}` · `/raw` | Rendered view, or the stored JSON report. |
 | `GET` | `/api/events` | Server-sent analysis updates of the signed-in account. |
 | `POST` | `/hooks/{key}?token=…` | Webhook receiver; needs the installation token and the forge signature. |
-| `GET` | `/badge/{badge_key}.svg` | Latest verdict as a badge; `badge_key` is returned with a monitored repository, and the dashboard shows the full URL. |
+| `GET` | `/badge/{badge_key}.svg` | Latest verdict as a badge; `badge_key` is returned with a monitored repository. |
 
 ## Development
 

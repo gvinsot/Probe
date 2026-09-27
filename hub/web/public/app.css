@@ -213,7 +213,7 @@ h1, h2, h3 { line-height: 1.25; }
 .verdict.blocked { color: var(--critical); border-color: var(--critical); }
 .verdict.failed { color: var(--muted); border-color: var(--line); }
 
-/* Repository information: badge and pending actions */
+/* Repository information: pending actions */
 .notice {
   margin: 0 14px 10px;
   padding: 9px 11px;
@@ -224,8 +224,6 @@ h1, h2, h3 { line-height: 1.25; }
 }
 .repo-info { display: grid; gap: 10px; padding: 12px 14px; border-bottom: 1px solid var(--line); }
 .repo-info .notice { margin: 0; }
-.badge-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
-.badge-row input { flex: 1 1 260px; min-width: 0; padding: 4px 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface-alt); color: inherit; font-size: 0.78rem; }
 
 /* Severity filter */
 .filters { display: grid; gap: 10px; padding: 12px 14px; border-bottom: 1px solid var(--line); background: var(--surface-alt); }
