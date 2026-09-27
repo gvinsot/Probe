@@ -45,8 +45,11 @@ branch; a notice identifies truncated history. Branch buttons and parent links
 can select commits outside the displayed window. “Refresh commits” reloads the
 tree; simply browsing never launches an analysis.
 
-Each commit has separate **Normal** and **Plan** badges. A gray **?** means no
-cached result; **Human review required** reflects the trusted CLI's exit code 2.
+Each commit shows the cached analysis and plan statuses. When both request
+human review, the tree shows one badge at the higher severity, respecting the
+selected severity threshold; hovering shows both severities. Other statuses
+keep separate badges. A gray **?** means no cached result; **Human review
+required** reflects the trusted CLI's exit code 2.
 The two result cards show the actual mode, baseline and result age. Normal
 analysis uses the deployment's existing lint/review policy validation. Plan
 runs `swiftproof plan --ci` at the commit's first parent (the commit itself for

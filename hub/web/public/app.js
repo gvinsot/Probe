@@ -592,6 +592,19 @@ function displayedRun(commit, variant) {
   return state.pending.get(pendingKey(state.repoKey, commit, variant)) || cachedRun(commit, variant);
 }
 
+// Combine review requests in the tree, keeping the most severe report's
+// presentation. Other statuses remain visible for each variant.
+function commitVerdictChips(normal, plan) {
+  if ([normal, plan].every((run) => run && run.status === 'done' && run.summary?.verdict === 'review')) {
+    const result = verdictChip(statusRank(plan) > statusRank(normal) ? plan : normal);
+    result.title = ['Analysis: ' + reviewLevel(normal.summary), 'Plan: ' + reviewLevel(plan.summary), result.title].filter(Boolean).join('\n');
+    return [result];
+  }
+  const planChip = verdictChip(plan);
+  planChip.prepend(document.createTextNode('Plan: '));
+  return [verdictChip(normal), planChip];
+}
+
 function svgElement(tag, attrs) {
   const node = document.createElementNS('http://www.w3.org/2000/svg', tag);
   for (const [key, value] of Object.entries(attrs)) node.setAttribute(key, String(value));
@@ -669,9 +682,7 @@ function renderGraph() {
     line.appendChild(open);
     row.appendChild(line);
     const meta = document.createElement('div'); meta.className = 'row commit-meta';
-    for (const variant of ['normal', 'plan']) {
-      const result = verdictChip(displayedRun(commit.sha, variant));
-      if (variant === 'plan') result.prepend(document.createTextNode('Plan: '));
+    for (const result of commitVerdictChips(displayedRun(commit.sha, 'normal'), displayedRun(commit.sha, 'plan'))) {
       meta.appendChild(result);
     }
     const who = document.createElement('span'); who.className = 'note';

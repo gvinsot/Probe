@@ -55,6 +55,32 @@ window.addEventListener('DOMContentLoaded', async () => {
     assert(!document.getElementById('commit-tree').textContent.includes('Normal'), 'the analysis badge has no mode prefix');
     assert(document.getElementById('commit-tree').textContent.includes('Plan: '), 'the plan badge keeps its prefix');
     assert(document.querySelector('#commit-tree .chip.warn').classList.contains('tone-high'), 'review badge tinted by the most severe alert');
+    assert(document.querySelectorAll('.commit-row:first-child .commit-meta .chip').length === 1, 'equal plan and analysis reviews share one tree badge');
+    // Exercise both severity orders, ties, missing alerts and every threshold.
+    const reviewRun = (variant, level) => ({ ...fixtureRun(variant), summary: { verdict: 'review', counts: level ? { [level]: 1 } : {} } });
+    for (const normalLevel of [...LEVELS, null]) {
+      for (const planLevel of [...LEVELS, null]) {
+        for (let threshold = 0; threshold < LEVELS.length; threshold++) {
+          state.minSeverity = threshold;
+          const badges = commitVerdictChips(reviewRun('normal', normalLevel), reviewRun('plan', planLevel));
+          const highest = Math.max(LEVELS.indexOf(normalLevel || 'medium'), LEVELS.indexOf(planLevel || 'medium'));
+          assert(badges.length === 1, 'reviews aggregate into one badge');
+          const badge = badges[0];
+          if (highest < threshold) {
+            assert(badge.classList.contains('below-threshold'), 'aggregated review below threshold');
+          } else {
+            assert(badge.textContent === 'Human review required' && badge.classList.contains('tone-' + LEVELS[highest]), 'aggregate uses the higher severity');
+          }
+          assert(badge.title.includes('Analysis: ' + (normalLevel || 'medium')) && badge.title.includes('Plan: ' + (planLevel || 'medium')), 'hover retains both review severities');
+        }
+      }
+    }
+    state.minSeverity = 0;
+    for (const other of [undefined, { status: 'queued' }, { status: 'running' }, { status: 'failed' }, { status: 'done', summary: { verdict: 'blocked' } }, { status: 'done', summary: { verdict: 'clear' } }]) {
+      for (const runs of [[other, fixtureRun('plan')], [fixtureRun('normal'), other]]) {
+        assert(commitVerdictChips(...runs).length === 2, 'non-review statuses retain separate badges');
+      }
+    }
     assert(fixtureCalls.every((call) => !call.path.endsWith('/analyze')), 'browsing must not run analyses');
     const firstCommit = document.querySelector('.commit-open');
     assert(!firstCommit.textContent.includes('aaaaaaaa') && firstCommit.title.includes(fixtureSHA('a')), 'commit id only on hover');
@@ -94,6 +120,7 @@ window.addEventListener('DOMContentLoaded', async () => {
     }
     fixtureStream.onmessage({ data: JSON.stringify({ type: 'report', repo_key: 'repo', commit: fixtureSHA('a'), run: fixtureRun('normal') }) });
     await settle();
+    assert(document.querySelectorAll('.commit-row:first-child .commit-meta .chip').length === 1, 'live results keep reviews aggregated');
     assert(document.getElementById('report-head').textContent.includes('cccccccc'), 'live results do not steal selection');
     document.querySelector('.commit-open').click();
     await settle();
