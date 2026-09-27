@@ -433,3 +433,14 @@ td.desc { color: var(--muted); min-width: 260px; }
 /* Grid items default to min-width: auto, which lets long code lines widen
    the whole page on phones. */
 .hero-grid > *, .two-col > *, .annotated > *, .compare > *, .dl-hero > *, .ref > * { min-width: 0; }
+
+/* Shown by site.js when part of a page could not be rendered. */
+.site-error {
+  margin: 16px auto;
+  max-width: 1100px;
+  padding: 12px 16px;
+  border: 1px solid var(--high);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--text);
+}

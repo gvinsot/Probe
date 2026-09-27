@@ -1,0 +1,38 @@
+name: Website
+
+# Copy this file to .github/workflows/web.yml to activate it (it then
+# supersedes the `web` job of ci.yml). It is kept here because publishing a
+# workflow needs a token with the `workflow` scope, which the agent that wrote
+# it does not have.
+#
+# Builds the promotional website image, starts it and checks the cache
+# headers it really serves: every page and asset must be revalidated
+# (Cache-Control: no-cache) and answer 304 when unchanged, so a deployment can
+# never pair a new page with an old site.js or styles.css.
+
+on:
+  push:
+    paths: ["web/**", "devops/github-workflows/web.yml", ".github/workflows/web.yml"]
+  pull_request:
+    paths: ["web/**", "devops/github-workflows/web.yml", ".github/workflows/web.yml"]
+permissions:
+  contents: read
+jobs:
+  web:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Build the website image
+        run: docker build -t swiftproof-web:ci .
+      - name: Check the cache headers served by the image
+        run: |
+          docker run -d --name swiftproof-web -p 8080:80 swiftproof-web:ci
+          for i in $(seq 30); do curl -sf -o /dev/null http://127.0.0.1:8080/ && break; sleep 1; done
+          scripts/check-cache-headers.sh http://127.0.0.1:8080
+      - if: always()
+        run: docker rm -f swiftproof-web || true

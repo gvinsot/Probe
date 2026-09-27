@@ -31,6 +31,44 @@
 
   function $(sel, root) { return (root || document).querySelector(sel); }
   function $$(sel, root) { return Array.prototype.slice.call((root || document).querySelectorAll(sel)); }
+
+  // The script is shared by every page and may briefly meet a page from
+  // another deployment, so no step may assume an element exists: a missing
+  // one is reported and the rest of the page still renders.
+  var missing = [];
+  function need(sel) {
+    var el = $(sel);
+    if (!el && missing.indexOf(sel) < 0) missing.push(sel);
+    return el;
+  }
+  function setText(sel, text) { var el = need(sel); if (el) el.textContent = text; return el; }
+  function setHtml(sel, html) { var el = need(sel); if (el) el.innerHTML = html; return el; }
+
+  // showError puts one visible notice at the top of the page instead of
+  // leaving it half filled without explanation.
+  function showError() {
+    if ($("#site-error")) return;
+    var box = document.createElement("div");
+    box.id = "site-error";
+    box.className = "site-error";
+    box.setAttribute("role", "alert");
+    box.innerHTML = "Part of this page could not be displayed. Reload the page; if this persists, " +
+      'every release stays available on <a href="' + RELEASES_PAGE + '">GitHub Releases</a>.';
+    var host = $("main") || document.body;
+    if (host) host.insertBefore(box, host.firstChild);
+  }
+  function reportMissing() {
+    if (!missing.length) return;
+    if (window.console) console.error("SwiftProof site: missing page elements " + missing.join(", "));
+    showError();
+  }
+  // safely runs one page step: a failure is reported and the other steps run.
+  function safely(step) {
+    try { step(); } catch (e) {
+      if (window.console) console.error("SwiftProof site:", e);
+      showError();
+    }
+  }
   function platform(id) { for (var i = 0; i < PLATFORMS.length; i++) if (PLATFORMS[i].id === id) return PLATFORMS[i]; return PLATFORMS[0]; }
   function archiveName(tag, p) { return "swiftproof-" + tag + "-" + p.id + p.ext; }
   function assetUrl(tag, p) { return RELEASES_PAGE + "/download/" + tag + "/" + archiveName(tag, p); }
@@ -169,31 +207,33 @@
     var main = link(latest, p);
     var offline = latest.offline;
 
-    $("#dl-version").textContent = "SwiftProof " + latest.tag;
-    $("#dl-meta").innerHTML = "Released " + escapeHtml(formatDate(latest.date)) +
+    setText("#dl-version", "SwiftProof " + latest.tag);
+    setHtml("#dl-meta", "Released " + escapeHtml(formatDate(latest.date)) +
       ' · <a href="' + escapeHtml(latest.url) + '">release notes</a>' +
-      ' · <a href="' + escapeHtml(RELEASES_PAGE + "/download/" + latest.tag + "/SHA256SUMS") + '">SHA256SUMS</a>';
-    var btn = $("#dl-main");
-    btn.href = main.url;
-    btn.textContent = "Download for " + p.label + " " + p.arch;
-    $("#dl-file").textContent = archiveName(latest.tag, p) + (main.size ? " · " + formatSize(main.size) : "");
-    var note = $("#dl-detect");
-    if (detected.mobile) note.textContent = "SwiftProof is a command-line tool for desktop and server systems. Pick the platform of the machine you will run it on.";
-    else if (!detected.exact) note.textContent = "Detected " + p.label + ". On an Intel Mac, choose macOS Intel below.";
-    else note.textContent = "Detected from your browser: " + p.label + " " + p.arch + ". Other platforms are listed alongside.";
+      ' · <a href="' + escapeHtml(RELEASES_PAGE + "/download/" + latest.tag + "/SHA256SUMS") + '">SHA256SUMS</a>');
+    var btn = need("#dl-main");
+    if (btn) {
+      btn.href = main.url;
+      btn.textContent = "Download for " + p.label + " " + p.arch;
+    }
+    setText("#dl-file", archiveName(latest.tag, p) + (main.size ? " · " + formatSize(main.size) : ""));
+    setText("#dl-detect", detected.mobile
+      ? "SwiftProof is a command-line tool for desktop and server systems. Pick the platform of the machine you will run it on."
+      : !detected.exact
+        ? "Detected " + p.label + ". On an Intel Mac, choose macOS Intel below."
+        : "Detected from your browser: " + p.label + " " + p.arch + ". Other platforms are listed alongside.");
 
-    $("#dl-platforms").innerHTML = PLATFORMS.map(function (q) {
+    setHtml("#dl-platforms", PLATFORMS.map(function (q) {
       var l = link(latest, q);
       return '<a href="' + escapeHtml(l.url) + '"' + (q.id === p.id ? ' class="current" aria-current="true"' : "") + ">" +
         "<span>" + q.label + " " + q.arch + "</span><small>" + q.ext + (l.size ? " · " + formatSize(l.size) : "") + "</small></a>";
-    }).join("");
+    }).join(""));
 
-    var status = $("#releases-status");
-    status.textContent = offline
+    setText("#releases-status", offline
       ? "GitHub could not be reached, so this list may be incomplete and has no notes. The complete history is on GitHub Releases."
-      : releases.length + " releases, newest first.";
+      : releases.length + " releases, newest first.");
 
-    $("#releases").innerHTML = releases.map(function (r, i) {
+    setHtml("#releases", releases.map(function (r, i) {
       var rows = PLATFORMS.map(function (q) {
         var l = link(r, q);
         return "<tr" + (q.id === p.id ? ' class="mine"' : "") + "><td>" + q.label + " " + q.arch + (q.id === p.id ? ' <span class="badge">yours</span>' : "") + "</td>" +
@@ -210,7 +250,7 @@
         "</tbody></table></div>" +
         (r.notes ? '<div class="release-notes">' + markdown(r.notes, notesBase) + "</div>" : '<p class="status"><a href="' + escapeHtml(r.url) + '">Read the release notes on GitHub</a>.</p>') +
         "</div></details>";
-    }).join("");
+    }).join(""));
 
     if (location.hash) {
       var target = document.getElementById(decodeURIComponent(location.hash.slice(1)));
@@ -229,7 +269,9 @@
           var on = b === btn;
           b.setAttribute("aria-selected", on ? "true" : "false");
           b.tabIndex = on ? 0 : -1;
-          document.getElementById(b.getAttribute("aria-controls")).hidden = !on;
+          var panel = document.getElementById(b.getAttribute("aria-controls"));
+          if (panel) panel.hidden = !on;
+          else need("#" + b.getAttribute("aria-controls"));
         });
       }
       buttons.forEach(function (b, i) {
@@ -315,7 +357,7 @@
         var navLink = $(".ref-side a[href='#" + section.id + "']");
         if (navLink) navLink.parentNode.hidden = !keep;
       });
-      count.textContent = term ? (matches ? matches + " match" + (matches > 1 ? "es" : "") : "No match. Try a flag such as --base or a key such as memory_mb.") : "";
+      if (count) count.textContent = term ? (matches ? matches + " match" + (matches > 1 ? "es" : "") : "No match. Try a flag such as --base or a key such as memory_mb.") : "";
       try { history.replaceState(null, "", term ? "?q=" + encodeURIComponent(term) + location.hash : location.pathname + location.hash); } catch (e) { /* file:// */ }
     }
     input.addEventListener("input", apply);
@@ -339,17 +381,25 @@
 
   // ------------------------------------------------------------------- start
 
-  wireCopyButtons();
-  wireReference();
+  // Each step is independent: one failing leaves the others in place and
+  // shows a notice rather than stopping the page midway.
+  safely(wireCopyButtons);
+  safely(wireReference);
+  reportMissing();
   detectPlatform().then(function (detected) {
-    wireTabs(detected);
+    safely(function () { wireTabs(detected); });
+    reportMissing();
     var needsReleases = $("[data-download-latest], [data-download-href], [data-version], #dl-hero");
     if (!needsReleases) return;
-    loadReleases().then(function (releases) {
+    return loadReleases().then(function (releases) {
       var latest = latestStable(releases);
-      fillVersionPlaceholders(latest);
-      wireDownloadButtons(latest, detected);
-      renderDownloadPage(releases, detected);
+      safely(function () { fillVersionPlaceholders(latest); });
+      safely(function () { wireDownloadButtons(latest, detected); });
+      safely(function () { renderDownloadPage(releases, detected); });
+      reportMissing();
     });
+  }).catch(function (e) {
+    if (window.console) console.error("SwiftProof site:", e);
+    showError();
   });
 })();
