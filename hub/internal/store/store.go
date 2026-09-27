@@ -73,8 +73,8 @@ type Run struct {
 	Status     string `json:"status"`
 	Error      string `json:"error,omitempty"`
 	Trigger    string `json:"trigger,omitempty"`
-	// Mode is the analysis mode actually used: lint unless the operator
-	// validated this repository's policy for review.
+	// Mode is the actual analysis mode: lint, review-read-only, review or plan.
+	// Full review additionally requires operator validation of the base policy.
 	Variant     string         `json:"variant,omitempty"`
 	Intent      string         `json:"intent,omitempty"`
 	Mode        string         `json:"mode,omitempty"`

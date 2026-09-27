@@ -777,7 +777,7 @@ function renderCommitActions(resetIntent = false) {
     card.appendChild(head);
     if (run) {
       const detail = document.createElement('p'); detail.className = 'note';
-      detail.textContent = [run.mode, run.base_commit ? 'Base ' + shortSha(run.base_commit) : '', run.finished_at ? timeAgo(run.finished_at) : '', run.error].filter(Boolean).join(' · ');
+      detail.textContent = [analysisModeLabel(run.mode), run.base_commit ? 'Base ' + shortSha(run.base_commit) : '', run.finished_at ? timeAgo(run.finished_at) : '', run.error].filter(Boolean).join(' · ');
       card.appendChild(detail);
     }
     if (variant === 'plan') card.appendChild(planIntentField);
@@ -811,6 +811,11 @@ async function analyzeCommit(variant) {
     if (repoKey === state.repoKey) { renderCommitActions(); renderGraph(); }
     toast(err.message, true);
   }
+}
+
+function analysisModeLabel(mode) {
+  if (mode === 'review-read-only') return 'AI review (read-only)';
+  return mode || 'lint';
 }
 
 function renderReportCommit(repo, run) {
@@ -932,6 +937,13 @@ function renderReport() {
   }
   sub.textContent = parts.join(' · ');
   head.appendChild(sub);
+
+  if (run?.mode === 'review-read-only') {
+    const note = document.createElement('p');
+    note.className = 'report-sub';
+    note.textContent = 'Read-only AI review: no code or tests were executed. Model suspicions are unverified hypotheses, not reproduced issues.';
+    head.appendChild(note);
+  }
 
   if (run && run.error) {
     const error = document.createElement('p');
@@ -1513,7 +1525,7 @@ async function boot() {
   }
   state.me = me;
   state.csrf = me.csrf;
-  el('mode-label').textContent = 'Hub ' + (me.version || '') + ' · ' + (me.mode || 'lint') + ' mode';
+  el('mode-label').textContent = 'Hub ' + (me.version || '') + ' · ' + analysisModeLabel(me.mode);
 
   const who = el('who');
   if (me.user.avatar_url) {

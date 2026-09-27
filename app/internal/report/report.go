@@ -374,6 +374,9 @@ func renderMarkdown(r *model.Report) []byte {
 	verified := verifyReport(r).verified
 	var b bytes.Buffer
 	line(&b, "# Change Confidence Report\n")
+	if r.AnalysisMode == "review-read-only" {
+		line(&b, "**Read-only AI review.** No repository code or tests were executed. Model suspicions are unverified hypotheses, not reproduced issues.\n")
+	}
 	fmt.Fprintf(&b, "## Change Summary\n\n%d additions / %d deletions · %d files changed\n\n", r.Change.Additions, r.Change.Deletions, len(r.Change.Files))
 	fmt.Fprintf(&b, "Base: %s\n\nCandidate: %s\n\n", inline(r.Change.BaseCommit), inline(r.Change.HeadCommit))
 	switch r.Policy.Source {

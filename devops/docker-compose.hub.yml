@@ -40,12 +40,15 @@ services:
     environment:
       SWIFTPROOF_HUB_BASE_URL: "https://${SWIFTPROOF_HUB_DOMAIN:-hub.swiftproof.net}"
       SWIFTPROOF_HUB_DATA_DIR: /var/lib/swiftproof-hub
-      # A public instance only ever lints. An internal deployment whose users
+      # A public instance supports lint and read-only AI review. A deployment whose users
       # are known may set private and review, which then also needs a Docker
       # socket and SWIFTPROOF_HUB_REVIEW_POLICIES listing the validated
       # repositories and policy digests; every other repository is linted.
       SWIFTPROOF_HUB_INSTANCE: "${SWIFTPROOF_HUB_INSTANCE:-public}"
-      SWIFTPROOF_HUB_MODE: "${SWIFTPROOF_HUB_MODE:-lint}"
+      SWIFTPROOF_HUB_MODE: "${SWIFTPROOF_HUB_MODE:-auto}"
+      SWIFTPROOF_REVIEWER_ENDPOINT: "${SWIFTPROOF_REVIEWER_ENDPOINT:-}"
+      SWIFTPROOF_REVIEWER_MODEL: "${SWIFTPROOF_REVIEWER_MODEL:-}"
+      # If the provider needs a key, mount a secret at /run/secrets/SWIFTPROOF_API_KEY.
       SWIFTPROOF_HUB_REVIEW_POLICIES: "${SWIFTPROOF_HUB_REVIEW_POLICIES:-}"
       SWIFTPROOF_HUB_USER_QUOTA: "${SWIFTPROOF_HUB_USER_QUOTA:-8}"
       SWIFTPROOF_HUB_HOOK_RATE: "${SWIFTPROOF_HUB_HOOK_RATE:-30}"

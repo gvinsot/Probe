@@ -37,7 +37,7 @@ ENV SWIFTPROOF_HUB_ADDR=:8080 \
     SWIFTPROOF_HUB_DATA_DIR=/var/lib/swiftproof-hub \
     SWIFTPROOF_HUB_BINARY=/usr/local/bin/swiftproof \
     SWIFTPROOF_HUB_INSTANCE=public \
-    SWIFTPROOF_HUB_MODE=lint
+    SWIFTPROOF_HUB_MODE=auto
 
 USER swiftproof
 WORKDIR /var/lib/swiftproof-hub

@@ -64,11 +64,15 @@ services:
       SWIFTPROOF_HUB_BASE_URL: "https://${SWIFTPROOF_APP_DOMAIN:-app.swiftproof.net}"
       SWIFTPROOF_HUB_DATA_DIR: /var/lib/swiftproof-hub
       # app.swiftproof.net is open to anybody who signs in, so it is a public
-      # instance, pinned to lint: nothing it analyzes is ever executed. Both are
-      # fixed here on purpose, not taken from the deployment environment; the
-      # hub refuses to start in review mode on a public instance anyway.
+      # instance. Auto uses read-only AI review when a deployment LLM is
+      # configured, otherwise lint. Neither mode executes repository code;
+      # full review remains forbidden on this public instance.
       SWIFTPROOF_HUB_INSTANCE: public
-      SWIFTPROOF_HUB_MODE: lint
+      SWIFTPROOF_HUB_MODE: auto
+      SWIFTPROOF_REVIEWER_ENDPOINT: "${SWIFTPROOF_REVIEWER_ENDPOINT:-}"
+      SWIFTPROOF_REVIEWER_MODEL: "${SWIFTPROOF_REVIEWER_MODEL:-}"
+      # PulsarCD mounts _KEY variables as secrets for the CLI to read.
+      SWIFTPROOF_API_KEY: "${SWIFTPROOF_API_KEY:-}"
       SWIFTPROOF_HUB_WORKERS: "${SWIFTPROOF_HUB_WORKERS:-2}"
       # One account cannot hold more than this many queued or running analyses,
       # and one webhook routing key is accepted this many times per minute.

@@ -1,5 +1,23 @@
 # Security boundaries
 
+## Read-only AI review
+
+`review --read-only` analyzes public repositories without entering dependency
+preparation or sandbox execution. Its snapshot harness has no image, commands
+or execution cache. Both the model tool definitions and dispatch enforce an
+explicit allowlist of source inspection tools; unknown future tools are denied.
+Execution-backed hypothesis statuses are refused. Source-backed dismissals
+still undergo normal evidence validation.
+
+Provider configuration, credential variable and reviewer budgets are reset to
+deployment settings and built-in defaults, so even the repository's base policy
+cannot redirect a public review or select another server secret. Repository
+text remains untrusted model input. Redaction and bounded requests still apply.
+Source is sent to the configured provider; resulting suspicions are hypotheses,
+not evidence that a test ran or that a change is correct.
+
+## Shared boundaries and full review
+
 SwiftProof treats candidate code, generated tests, model output and repository text as untrusted. Static analysis uses immutable Git objects with external diff/textconv disabled. Execution uses Docker only; the source checkout is never executed or mounted.
 
 Policy comes from the tip of the base ref (`--base`, `main` by default) unless the caller explicitly supplies `--config`; the report records that commit. The diff still starts at the merge base, but the policy never comes from the candidate or from any commit only the candidate branch contains. The base ref is a trust decision: select a protected branch or trusted commit, never a branch the change author can write to, and pin the binary used in CI. Candidate policy changes cannot implicitly alter image, commands, provider or budgets. A nonempty `reviewer.model` in this trusted policy enables provider requests automatically during `review`. Use `--reviewer=false` to disable them for a run. `lint` never calls the provider. `--no-network` applies only to sandbox containers.

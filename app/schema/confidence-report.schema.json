@@ -9,6 +9,7 @@
   "properties": {
     "version": {"const": 1},
     "tool_version": {"type": "string"},
+    "analysis_mode": {"const": "review-read-only", "description": "LLM source inspection only; no repository code or tests were executed."},
     "generated_at": {"type": "string", "format": "date-time"},
     "intent": {"type": "string"},
     "intent_sha256": {"$ref": "#/$defs/sha256", "description": "SHA-256 of the intent text as recorded, after SwiftProof PR-comment blocks were removed."},

@@ -25,17 +25,31 @@ approves a change and never turns a zero exit code into a claim of correctness.
 
 ## Analysis modes
 
-* `lint` (default) — maps the diff to risk signals. It **never executes
+* `auto` (default) — selects `review-read-only` when the deployment has a
+  reviewer endpoint and model, otherwise `lint`. A partial provider configuration
+  is a startup error. The selected mode is shown in the UI.
+* `lint` — maps the diff to risk signals without calling a model. It **never executes
   repository code**, so it is safe to point at untrusted repositories.
+* `review-read-only` — adds an LLM investigation of the diff and relevant source.
+  Only file reads, diff, search, reference, symbol and caller lookups are available.
+  It needs no Docker socket and never prepares dependencies, writes generated
+  tests or executes repository code. Model suspicions remain **unverified**;
+  this mode cannot reproduce a bug. It is allowed on public instances.
 * `review` — also runs the configured checks in the CLI's Docker sandbox and
   tries to reproduce issues with differential tests. It needs a Docker client and daemon access,
   which the operator must provide deliberately, and inherits the CLI's isolation
   (non-root, no network, read-only mounts, preloaded images only).
 
-The LLM investigation stays a deployment decision: the hub holds no provider
-credential and only forwards `SWIFTPROOF_REVIEWER_ENDPOINT`,
-`SWIFTPROOF_REVIEWER_MODEL` and `SWIFTPROOF_API_KEY` to the CLI when they are
-set on the container.
+The LLM investigation stays a deployment decision: set
+`SWIFTPROOF_REVIEWER_ENDPOINT`, `SWIFTPROOF_REVIEWER_MODEL` and, if required,
+`SWIFTPROOF_API_KEY` on the container. The CLI also reads `SWIFTPROOF_API_KEY_FILE`
+or `/run/secrets/SWIFTPROOF_API_KEY`. In read-only mode, repository policy cannot
+choose the provider, credential variable or investigation budgets. The CLI uses
+its bounded defaults. Redacted diff and relevant source are sent to the configured
+provider. Explicit `SWIFTPROOF_HUB_MODE=lint` keeps normal analysis offline.
+The combined public stack uses `auto`; after adding the provider settings and
+redeploying the updated image, new analyses use read-only AI review. Existing
+cached lint reports keep their original mode until explicitly rerun.
 
 ## Commit tree and cached results
 
@@ -51,7 +65,7 @@ selected severity threshold; hovering shows both severities. Other statuses
 keep separate badges. A gray **?** means no cached result; **Human review
 required** reflects the trusted CLI's exit code 2.
 The two result cards show the actual mode, baseline and result age. Normal
-analysis uses the deployment's existing lint/review policy validation. Plan
+analysis uses the deployment's selected mode; full review additionally validates the policy. Plan
 runs `swiftproof plan --ci` at the commit's first parent (the commit itself for
 an initial commit), with an editable intent initially taken from its subject.
 It produces a proposal, not a review of the actual diff or a plan-conformance
@@ -136,8 +150,10 @@ webhooks there.
 | `SWIFTPROOF_HUB_DATA_DIR` | `/var/lib/swiftproof-hub` | State directory; back it up. |
 | `SWIFTPROOF_HUB_SESSION_KEY` | generated | 64 hex characters. Seals sessions and stored tokens; back it up with the data volume; the shipped stack uses one replica. See [Session key](#session-key-backup-and-rotation). |
 | `SWIFTPROOF_HUB_SESSION_KEY_PREVIOUS` | — | Keys retired by a rotation (comma separated). They still open stored credentials, which are resealed under the current key at start-up. |
-| `SWIFTPROOF_HUB_INSTANCE` | `public` | `public` or `private`. A public instance, where anybody can sign in and subscribe a repository, only ever lints. |
-| `SWIFTPROOF_HUB_MODE` | `lint` | `lint`, or `review` on a private instance only; the hub refuses to start otherwise. |
+| `SWIFTPROOF_HUB_INSTANCE` | `public` | `public` or `private`. A public instance allows lint and read-only AI review; it refuses full review. |
+| `SWIFTPROOF_HUB_MODE` | `auto` | `auto`, `lint`, `review-read-only`, or `review` on a private instance only. |
+| `SWIFTPROOF_REVIEWER_ENDPOINT` / `SWIFTPROOF_REVIEWER_MODEL` | — | Set both to enable read-only AI review in `auto`. Endpoint follows the CLI's HTTPS rules (HTTP only on loopback). |
+| `SWIFTPROOF_API_KEY` / `SWIFTPROOF_API_KEY_FILE` | — | Optional provider credential; mounted `/run/secrets/SWIFTPROOF_API_KEY` is also supported. |
 | `SWIFTPROOF_HUB_REVIEW_POLICIES` | — | Required with `review`. Entries `<github\|gitlab>:<owner/repo>@sha256:<digest>`, separated by commas or white space: the repositories and base-branch `.swiftproof.json` digests (`sha256sum .swiftproof.json`) the operator validated. Every other repository, and any other version of a listed policy, is analyzed in lint mode. |
 | `SWIFTPROOF_HUB_WORKERS` | `2` | Concurrent analyses. |
 | `SWIFTPROOF_HUB_QUEUE_SIZE` | `256` | Pending analyses before webhooks are asked to retry. |
@@ -228,7 +244,8 @@ builds and smoke-tests the image, it just does not publish.
   are anonymous. A badge has its own random key, distinct from the webhook's,
   and an unknown or unpublished badge key gets the same plain `404` as any
   missing resource.
-* **Execution**: a public instance only lints. Review runs the checks of the
+* **Execution**: a public instance permits lint and read-only AI review, neither
+  of which executes repository code. Full review runs the checks of the
   base-branch policy in the CLI's sandbox, so it is limited to a private
   instance and, there, to repositories whose policy digest the operator
   listed.
@@ -238,7 +255,7 @@ builds and smoke-tests the image, it just does not publish.
   owner; a repository key from another account resolves to 404.
 * **The UI ships no inline script**, so the service serves a strict
   `Content-Security-Policy` without `unsafe-inline`.
-* **The analyzed code is never executed in `lint` mode.**
+* **The analyzed code is never executed in `lint` or `review-read-only` mode.**
 
 ### Web application firewall
 

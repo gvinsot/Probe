@@ -106,6 +106,7 @@ var neverRecorded = map[string]string{
 // leaves zero, apart from neverRecorded, set to a value a run could record.
 func fullyPopulatedReport() Report {
 	r := populatedReport()
+	r.AnalysisMode = "review-read-only"
 	r.Change.Files = append(r.Change.Files, ChangedFile{Path: "assets/logo.png", Status: "M", Binary: true, Hunks: []Hunk{}})
 	r.Checks = append(r.Checks, Check{ID: "check-15", Kind: CheckExistingTest, Status: "FAIL", Command: []string{"go", "test", "-json", "./calc"}, ExitCode: 1, DurationMS: 40, Output: "{\"Action\":\"output\"}", Truncated: true})
 	r.Coverage.NotExecutedLines, r.Coverage.NoBlockLines, r.Coverage.NotMeasuredLines = 1, 1, 1

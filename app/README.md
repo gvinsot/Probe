@@ -218,6 +218,30 @@ Model claims are checked against harness evidence before entering reproduced iss
 
 The LLM can investigate business rules and interactions beyond static patterns and propose concrete counterexamples. Its findings remain hypotheses until supported by evidence. Better review quality or time savings must be measured on representative PRs; adding a model alone does not establish either.
 
+### Read-only AI review
+
+`swiftproof review --read-only --base main --ci` analyzes the actual diff and
+relevant source with the deployment's model, without Docker or repository code
+execution. It skips preparation, checks, coverage execution, fuzzing and mutation.
+The model can only read files, get the diff, search code and look up references,
+symbols and callers. Write and execution calls are rejected by the dispatcher.
+Execution flags cannot be combined with `--read-only`; `--deadline` remains
+available. This is stronger than `--checks=false`, which still allows experiments
+in ordinary review.
+
+Set `SWIFTPROOF_REVIEWER_MODEL` and `SWIFTPROOF_REVIEWER_ENDPOINT` (the endpoint
+defaults to OpenAI for standalone CLI use). In this mode all policy `reviewer`
+settings are ignored: provider settings come from the deployment, credentials
+use `SWIFTPROOF_API_KEY` / `_FILE` / `/run/secrets/SWIFTPROOF_API_KEY`, and reviewer
+budgets use built-in defaults (`--max-iterations` can override the iteration cap).
+Source is sent to that provider with the existing redaction and input limits.
+
+The JSON report records `analysis_mode: "review-read-only"`, and Markdown states
+that no code or tests ran. Suspicions are `UNVERIFIED`; only source-backed
+`DISMISSED` claims can be accepted as dismissals. No reproduced issue can be
+established by this mode. Existing CI rules still apply: an unresolved hypothesis
+requests human review (exit 2 with `--ci`), and exit 0 is no correctness guarantee.
+
 ### Provider settings from the deployment
 
 The provider belongs to the deployment rather than to the reviewed repository, so the same binary and the same committed policy can be pointed at an operator's endpoint without a policy change:

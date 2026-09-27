@@ -62,8 +62,14 @@ and supported hypotheses/checks/signals may still appear in the alert list.
 
 ## 3. Analysis boundary and scheduling
 
-- Default/public mode is `lint`, which executes no repository code. Startup
-  rejects `review` on a public instance. Private review requires an operator
+- Default mode is `auto`: `review-read-only` when deployment endpoint and model
+  are configured, otherwise `lint`. Partial provider configuration fails startup.
+  Both modes execute no repository code. Read-only AI review runs the CLI's
+  `review --read-only`, exposing only source inspection tools and recording
+  unverified suspicions or validated source dismissals, never reproduced issues.
+  Provider, credential name and reviewer budgets cannot come from repository
+  policy in this mode. Cached lint reports keep their mode until explicitly rerun.
+  Startup rejects full `review` on a public instance. Private review requires an operator
   allowlist of `<provider>:<owner/repo>@sha256:<policy-digest>` entries. At each
   run the Hub hashes the exact policy bytes at the selected base commit; missing
   policy or a digest/repository mismatch falls back to lint.
@@ -179,7 +185,7 @@ Docker executable.
 
 | Deployment file | Shipped behavior |
 | --- | --- |
-| [Combined Swarm stack](../devops/docker-compose.swarm.yml) | nginx website and `swiftproof-app` Hub, Traefik HTTPS routes, external `proxy` network; defaults `swiftproof.net` and `app.swiftproof.net`. Public/lint are fixed; no-forge startup defaults on. Hub has one replica and stop-first updates on its state volume. |
+| [Combined Swarm stack](../devops/docker-compose.swarm.yml) | nginx website and `swiftproof-app` Hub, Traefik HTTPS routes, external `proxy` network; defaults `swiftproof.net` and `app.swiftproof.net`. Public/auto are fixed; no-forge startup defaults on. Hub has one replica and stop-first updates on its state volume. |
 | [Standalone Hub stack](../devops/docker-compose.hub.yml) | Configurable domain/instance/mode, one replica, persistent volume, explicit external Docker secrets for the session key and GitHub client secret. Review still needs additional Docker setup. |
 
 The combined stack supplies secrets as environment variables unless deployment

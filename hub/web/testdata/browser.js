@@ -3,7 +3,7 @@
 const fixtureSHA = (letter) => letter.repeat(40);
 const fixtureRepo = { key: 'repo', full_name: 'acme/shop', provider: 'github', default_branch: 'main', web_url: 'https://github.com/acme/shop', has_policy: true, admin: true };
 const fixtureCounts = { total: 1, high: 1, critical: 0, medium: 0, low: 0 };
-const fixtureRun = (variant) => ({ commit: fixtureSHA('a'), variant, status: 'done', mode: 'lint', summary: { verdict: 'review', counts: fixtureCounts, reproduced: 0, unverified: 1, focused_lines: 2, changed_lines: 5, changed_files: 1, additions: 4, deletions: 1 } });
+const fixtureRun = (variant) => ({ commit: fixtureSHA('a'), variant, status: 'done', mode: variant === 'plan' ? 'plan' : 'review-read-only', summary: { verdict: 'review', counts: fixtureCounts, reproduced: 0, unverified: 1, focused_lines: 2, changed_lines: 5, changed_files: 1, additions: 4, deletions: 1 } });
 const fixtureAgo = (hours) => new Date(Date.now() - hours * 3600 * 1000).toISOString();
 fixtureRepo.recent = [
   Object.assign(fixtureRun('normal'), { queued_at: fixtureAgo(2) }),
@@ -17,7 +17,7 @@ window.EventSource = class { constructor() { fixtureStream = this; } };
 window.fetch = async (path, init) => {
   fixtureCalls.push({ path, init });
   let data;
-  if (path === '/api/me') data = { authenticated: true, csrf: 'csrf', user: { login: 'octocat', provider: 'github' } };
+  if (path === '/api/me') data = { authenticated: true, mode: 'review-read-only', csrf: 'csrf', user: { login: 'octocat', provider: 'github' } };
   else if (path === '/api/repos') {
     if (fixtureReposGate) await fixtureReposGate;
     data = { repos: [fixtureRepo] };
@@ -154,6 +154,13 @@ window.addEventListener('DOMContentLoaded', async () => {
     assert(!document.getElementById('report-head').textContent.includes('never approves'), 'no disclaimer line');
     assert(document.querySelector('#report-head .verdict').textContent === 'Human review required', 'report verdict rendered');
     assert(document.querySelector('#report-head .verdict').classList.contains('tone-high'), 'report verdict tinted by the most severe alert');
+    assert(document.getElementById('mode-label').textContent.includes('AI review (read-only)'), 'deployment mode shown');
+    assert(cards[0].textContent.includes('AI review (read-only)'), 'actual analysis mode shown');
+    assert(document.getElementById('report-head').textContent.includes('no code or tests were executed'), 'read-only report scope shown');
+    const actualMode = state.run.mode;
+    state.run.mode = 'lint'; renderReport();
+    assert(!document.getElementById('report-head').textContent.includes('Read-only AI review'), 'old lint report keeps its own scope');
+    state.run.mode = actualMode; renderReport();
     assert(cards[0].querySelector('h3').textContent === 'Analysis', 'analysis card title');
     const severity = document.getElementById('severity');
     assert(document.querySelector('.topbar').contains(severity), 'severity threshold in the top bar');

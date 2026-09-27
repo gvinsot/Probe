@@ -69,9 +69,11 @@ The service is configured through the environment:
   SWIFTPROOF_HUB_SESSION_KEY_PREVIOUS keys retired by a rotation, still able to open
                                      stored credentials, which are resealed at start-up
   SWIFTPROOF_HUB_INSTANCE            public (default) or private; a public instance
-                                     only ever lints
-  SWIFTPROOF_HUB_MODE                lint (default, never runs repository code) or review,
-                                     accepted only on a private instance
+                                     permits lint and read-only AI review
+  SWIFTPROOF_HUB_MODE                auto (default), lint, review-read-only or review;
+                                     full review requires a private instance
+                                     auto uses read-only AI review with an endpoint
+                                     and model configured, otherwise lint
   SWIFTPROOF_HUB_REVIEW_POLICIES     review allowlist, entries
                                      <github|gitlab>:<owner/repo>@sha256:<policy digest>;
                                      every other repository is linted

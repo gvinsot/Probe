@@ -31,6 +31,7 @@ Usage:
   swiftproof init [--repo PATH] [--language go|typescript|javascript|python|rust]
   swiftproof lint [--base main] [--head HEAD] [--ci]
   swiftproof review [--base main] [--reviewer=false] [--ci]
+  swiftproof review --read-only [--base main] [--ci]
   swiftproof review [flags] BASE..HEAD
   swiftproof plan --intent-file FILE [--base main] [--ci]
   swiftproof review --plan .swiftproof/PLAN.json [flags]
@@ -46,6 +47,8 @@ SWIFTPROOF_REVIEWER_ENDPOINT and SWIFTPROOF_REVIEWER_MODEL override that policy,
 the API key comes from the api_key_env variable or its /run/secrets/<NAME> Docker secret.
 The reviewer sends bounded, redacted source context to its configured API.
 Use --reviewer=false to disable it. Lint never calls a provider.
+Review --read-only inspects the diff with the deployment's LLM, without Docker
+or code execution. Its suspicions stay unverified; execution flags are refused.
 Plan asks the provider for an implementation plan (read-only, nothing runs) and
 evaluates it with fixed rules; review or lint --plan check the diff against it.
 
@@ -142,6 +145,7 @@ func analyze(ctx context.Context, mode string, args []string, out, errOut io.Wri
 	format := f.String("format", "markdown,json", "comma-separated output formats: markdown,json,sarif,pr-comment")
 	ci := f.Bool("ci", false, "return 2 when human review is required")
 	checks := f.Bool("checks", mode == "review", "run configured checks in the Docker sandbox")
+	readOnly := f.Bool("read-only", false, "review: inspect changes with the LLM using read-only tools, without Docker or code execution")
 	useReviewer := f.Bool("reviewer", false, "use LLM investigation (default: enabled for review when a model is configured in policy or the environment); --reviewer=false disables provider calls")
 	maxIterations := f.Int("max-iterations", 0, "override LLM iteration budget (1..100)")
 	intent := f.String("intent", "", "PR intent or acceptance criteria")
@@ -173,6 +177,12 @@ func analyze(ctx context.Context, mode string, args []string, out, errOut io.Wri
 		return fail(errOut, 3, "%v", err)
 	}
 	explicit := visitedFlags(f)
+	if err := validateReadOnlyFlags(mode, explicit, *readOnly, *checks, *useReviewer, *allowNetwork, *allowPrepareNetwork); err != nil {
+		return fail(errOut, 3, "%v", err)
+	}
+	if *readOnly {
+		*checks, *useReviewer = false, true
+	}
 	if err := validateExecutionFlags(mode, explicit, execFlags{checks: *checks, baseTests: *baseTests, impact: *impactFlag, impactedTests: *impactedTests, parallel: *parallel, cacheDir: *cacheDir, deadline: *deadline}); err != nil {
 		return fail(errOut, 3, "%v", err)
 	}
@@ -235,6 +245,11 @@ func analyze(ctx context.Context, mode string, args []string, out, errOut io.Wri
 	if policy.Source == model.PolicyDefault {
 		fmt.Fprintf(errOut, "No %s at %s (%s); using built-in %s defaults.\n", config.Filename, change.BaseRef, shortCommit(policy.Commit), cfg.Language)
 	}
+	if *readOnly {
+		// Public repositories cannot select the provider, credential name or
+		// investigation budgets. Read-only review uses deployment settings.
+		cfg.Reviewer = config.Default(cfg.Language).Reviewer
+	}
 	if *maxIterations != 0 {
 		cfg.Reviewer.MaxIterations = *maxIterations
 	}
@@ -252,16 +267,20 @@ func analyze(ctx context.Context, mode string, args []string, out, errOut io.Wri
 	if err != nil {
 		return fail(errOut, 3, "%v", err)
 	}
-	if !reviewerExplicit {
+	if !reviewerExplicit && !*readOnly {
 		*useReviewer = mode == "review" && provider.Model != ""
 	}
 	if mode == "lint" && (*checks || *useReviewer) {
 		return fail(errOut, 3, "lint does not execute checks or a reviewer; use review")
 	}
 	if *useReviewer && provider.Model == "" {
+		if *readOnly {
+			return fail(errOut, 3, "%s must be configured before using --read-only", config.ModelEnv)
+		}
 		return fail(errOut, 3, "reviewer.model must be configured in policy or %s before using --reviewer", config.ModelEnv)
 	}
 	reviewerOptions := reviewer.Options{Endpoint: provider.Endpoint, Model: provider.Model, APIKey: provider.APIKey, MaxIterations: cfg.Reviewer.MaxIterations, Timeout: time.Duration(cfg.Reviewer.TimeoutSeconds) * time.Second, MaxInputBytes: cfg.Reviewer.MaxInputBytes}
+	reviewerOptions.ReadOnly = *readOnly
 	if *useReviewer {
 		if err := reviewer.Validate(reviewerOptions); err != nil {
 			return fail(errOut, 3, "%v", err)
@@ -302,6 +321,9 @@ func analyze(ctx context.Context, mode string, args []string, out, errOut io.Wri
 	}
 	signals = linter.Merge(signals, impact.signals)
 	r := model.Report{Version: 1, ToolVersion: version, GeneratedAt: time.Now().UTC(), Intent: doc.Text, IntentSHA256: doc.SHA256, IntentCriteria: doc.Criteria, Change: change, Policy: policy, Signals: signals, Impact: impact.report, Coverage: coverage.NotConfigured()}
+	if *readOnly {
+		r.AnalysisMode = "review-read-only"
+	}
 	r.Unverified = append(r.Unverified, doc.Notes...)
 	if drift != nil {
 		// The critical globs of this review's trusted policy; Finalize
@@ -313,8 +335,11 @@ func analyze(ctx context.Context, mode string, args []string, out, errOut io.Wri
 		r.PlanDrift = drift
 	}
 	operationalFailure := false
-	needExecution := mode == "review" && len(change.Files) > 0 && (*checks || *useReviewer)
+	needExecution := mode == "review" && !*readOnly && len(change.Files) > 0 && (*checks || *useReviewer)
 	sc := stageContext{mode: mode, checks: *checks, reason: noExecutionReason(mode, change, *checks, *useReviewer)}
+	if *readOnly {
+		sc.reason = "read-only review does not execute repository code"
+	}
 	image := cfg.Sandbox.Image
 	var prep preparation
 	if mode == "review" && cfg.Prepare != nil {
@@ -428,6 +453,10 @@ func analyze(ctx context.Context, mode string, args []string, out, errOut io.Wri
 			if c.Status == "ERROR" {
 				operationalFailure = true
 			}
+		}
+	} else if *readOnly && len(change.Files) > 0 {
+		if err := runReadOnlyReview(work, repo, &r, impact.lookup, reviewerOptions, output, errOut); err != nil {
+			r.Unverified = append(r.Unverified, "Read-only reviewer incomplete: "+err.Error())
 		}
 	} else if mode == "review" && len(change.Files) > 0 && !(*checks || *useReviewer) {
 		r.Unverified = append(r.Unverified, "Automated execution was explicitly disabled; only static change analysis was performed.")

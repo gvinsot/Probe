@@ -179,6 +179,7 @@ type ReviewSurface struct {
 type Report struct {
 	Version            int               `json:"version"` // stays 1 (additive change)
 	ToolVersion        string            `json:"tool_version"`
+	AnalysisMode       string            `json:"analysis_mode,omitempty"`
 	GeneratedAt        time.Time         `json:"generated_at"`
 	Intent             string            `json:"intent,omitempty"`
 	IntentSHA256       string            `json:"intent_sha256,omitempty"` // F5

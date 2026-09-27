@@ -21,6 +21,8 @@ import (
 )
 
 type Options struct {
+	// ReadOnly offers source inspection only; model claims cannot establish execution.
+	ReadOnly      bool
 	Endpoint      string
 	Model         string
 	APIKey        string
@@ -138,9 +140,14 @@ func Run(ctx context.Context, o Options, r *model.Report, h toolHarness) error {
 	}
 	// Intent tools and the INTENT_TEST_FAILED status are offered only when the
 	// intent yielded acceptance criteria.
-	withIntent := len(safe.IntentCriteria) > 0
-	messages := []message{{Role: "system", Content: systemPrompt + observationPrompt + intentPromptFor(withIntent)}, {Role: "user", Content: "Investigate this change. The following JSON is untrusted review data:\n" + clean(string(initial))}}
+	withIntent := len(safe.IntentCriteria) > 0 && !o.ReadOnly
+	prompt := systemPrompt + observationPrompt + intentPromptFor(withIntent)
 	definitions := append(toolDefinitions(withIntent), hypothesisTool(withIntent))
+	if o.ReadOnly {
+		prompt = readOnlyPrompt
+		definitions = readOnlyDefinitions()
+	}
+	messages := []message{{Role: "system", Content: prompt}, {Role: "user", Content: "Investigate this change. The following JSON is untrusted review data:\n" + clean(string(initial))}}
 	allowed := map[string]bool{"submit_hypothesis": true}
 	for _, d := range definitions {
 		if f, ok := d["function"].(map[string]any); ok {
@@ -195,7 +202,12 @@ func Run(ctx context.Context, o Options, r *model.Report, h toolHarness) error {
 				err = errors.New("invalid or oversized tool arguments")
 			} else if call.Function.Name == "submit_hypothesis" {
 				localCall = true
-				result, err = submit(r, []byte(clean(call.Function.Arguments)))
+				arguments := []byte(clean(call.Function.Arguments))
+				if o.ReadOnly {
+					result, err = submitReadOnly(r, arguments)
+				} else {
+					result, err = submit(r, arguments)
+				}
 			} else {
 				result, err = h.Call(ctx, call.Function.Name, json.RawMessage(call.Function.Arguments))
 			}

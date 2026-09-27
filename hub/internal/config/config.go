@@ -19,16 +19,19 @@ import (
 	"time"
 )
 
-// Analysis modes. Lint never executes repository code; review runs the
+// Analysis modes. Lint and read-only review never execute repository code;
+// auto selects between them using deployment provider settings. Review runs the
 // configured checks in Docker and therefore needs a Docker socket, which the
 // operator must mount deliberately.
 const (
-	ModeLint   = "lint"
-	ModeReview = "review"
+	ModeAuto     = "auto"
+	ModeLint     = "lint"
+	ModeReadOnly = "review-read-only"
+	ModeReview   = "review"
 )
 
 // Instance kinds. A public instance lets anybody sign in and subscribe a
-// repository, so it is locked to lint: nothing it analyzes is ever executed.
+// repository; lint and read-only AI review never execute what they analyze.
 // Only a private instance, whose users the operator knows, may run review, and
 // then only for the repositories whose policy the operator validated.
 const (
@@ -123,7 +126,7 @@ func Load(getenv func(string) string) (Config, error) {
 		DataDir:           env(getenv, "SWIFTPROOF_HUB_DATA_DIR", defaultDataDir),
 		Binary:            env(getenv, "SWIFTPROOF_HUB_BINARY", defaultBinary),
 		Instance:          strings.ToLower(env(getenv, "SWIFTPROOF_HUB_INSTANCE", InstancePublic)),
-		Mode:              strings.ToLower(env(getenv, "SWIFTPROOF_HUB_MODE", ModeLint)),
+		Mode:              strings.ToLower(env(getenv, "SWIFTPROOF_HUB_MODE", ModeAuto)),
 		UserQuota:         envInt(getenv, "SWIFTPROOF_HUB_USER_QUOTA", defaultUserQuota),
 		HookRate:          envInt(getenv, "SWIFTPROOF_HUB_HOOK_RATE", defaultHookRate),
 		Workers:           envInt(getenv, "SWIFTPROOF_HUB_WORKERS", defaultWorkers),
@@ -145,8 +148,17 @@ func Load(getenv func(string) string) (Config, error) {
 		return c, fmt.Errorf("SWIFTPROOF_HUB_BASE_URL must be an absolute http(s) URL, got %q", base)
 	}
 	c.BaseURL = base
-	if c.Mode != ModeLint && c.Mode != ModeReview {
-		return c, fmt.Errorf("SWIFTPROOF_HUB_MODE must be %q or %q, got %q", ModeLint, ModeReview, c.Mode)
+	if c.Mode == ModeAuto {
+		c.Mode = ModeLint
+		if strings.TrimSpace(getenv(EndpointEnvName)) != "" || strings.TrimSpace(getenv(ModelEnvName)) != "" {
+			c.Mode = ModeReadOnly
+		}
+	}
+	if c.Mode != ModeLint && c.Mode != ModeReview && c.Mode != ModeReadOnly {
+		return c, fmt.Errorf("SWIFTPROOF_HUB_MODE must be auto, lint, review-read-only or review, got %q", c.Mode)
+	}
+	if c.Mode == ModeReadOnly && (strings.TrimSpace(getenv(EndpointEnvName)) == "" || strings.TrimSpace(getenv(ModelEnvName)) == "") {
+		return c, fmt.Errorf("read-only AI review requires deployment-configured %s and %s", EndpointEnvName, ModelEnvName)
 	}
 	if c.Instance != InstancePublic && c.Instance != InstancePrivate {
 		return c, fmt.Errorf("SWIFTPROOF_HUB_INSTANCE must be %q or %q, got %q", InstancePublic, InstancePrivate, c.Instance)

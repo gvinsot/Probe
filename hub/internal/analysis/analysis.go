@@ -2,8 +2,8 @@
 //
 // The hub never becomes a second implementation of the review: it prepares a
 // disposable checkout, executes the trusted binary, and stores the confidence
-// report the CLI produced. In the default lint mode no repository code is
-// executed at all; review mode runs the configured checks in the CLI's own
+// report the CLI produced. Lint and read-only AI review execute no repository
+// code; full review runs the configured checks in the CLI's own
 // Docker sandbox and therefore requires a deliberately mounted Docker socket.
 package analysis
 
@@ -342,6 +342,9 @@ func (r *Runner) analyze(ctx context.Context, j Job, run *store.Run) (record *st
 // it is only used when the operator validated that repository with that
 // policy digest. Everything else is linted, which never runs repository code.
 func (r *Runner) modeFor(ctx context.Context, g *gitRunner, repo *store.Repo, base string) string {
+	if r.cfg.Mode == config.ModeReadOnly {
+		return config.ModeReadOnly
+	}
 	if r.cfg.Mode != config.ModeReview {
 		return config.ModeLint
 	}
@@ -361,7 +364,13 @@ func (r *Runner) modeFor(ctx context.Context, g *gitRunner, repo *store.Repo, ba
 
 // runCLI executes the trusted binary on the prepared checkout.
 func (r *Runner) runCLI(ctx context.Context, work, mode, base, head string) (string, int, error) {
-	if mode != config.ModeReview {
+	readOnly := mode == config.ModeReadOnly
+	if readOnly {
+		if strings.TrimSpace(os.Getenv(config.EndpointEnvName)) == "" || strings.TrimSpace(os.Getenv(config.ModelEnvName)) == "" {
+			return "", 3, fmt.Errorf("read-only AI review requires a deployment-configured endpoint and model")
+		}
+		mode = config.ModeReview
+	} else if mode != config.ModeReview {
 		mode = config.ModeLint
 	}
 	args := []string{
@@ -373,6 +382,9 @@ func (r *Runner) runCLI(ctx context.Context, work, mode, base, head string) (str
 		"--format", "json,markdown",
 		"--out", ".swiftproof",
 		"--ci",
+	}
+	if readOnly {
+		args = append(args, "--read-only")
 	}
 	if mode == config.ModeReview {
 		// The hub holds no provider credential of its own: LLM investigation
@@ -448,7 +460,7 @@ func cliEnv(work string) []string {
 		"GIT_TERMINAL_PROMPT=0",
 		"GIT_CONFIG_NOSYSTEM=1",
 	}
-	for _, name := range []string{"DOCKER_HOST", "DOCKER_CERT_PATH", "DOCKER_TLS_VERIFY", config.EndpointEnvName, config.ModelEnvName, "SWIFTPROOF_API_KEY"} {
+	for _, name := range []string{"DOCKER_HOST", "DOCKER_CERT_PATH", "DOCKER_TLS_VERIFY", config.EndpointEnvName, config.ModelEnvName, "SWIFTPROOF_API_KEY", "SWIFTPROOF_API_KEY_FILE"} {
 		if v := os.Getenv(name); v != "" {
 			env = append(env, name+"="+v)
 		}
