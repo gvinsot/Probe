@@ -1200,3 +1200,33 @@ func TestCommitAnalysisVariantsAndScopedCache(t *testing.T) {
 		}
 	}
 }
+
+// TestStaticAssetsRevalidate guards against a browser pairing a cached app.js
+// with a newer app.html after an upgrade: assets are revalidated against a
+// content hash on every load.
+func TestStaticAssetsRevalidate(t *testing.T) {
+	h := newHarness(t)
+	for _, name := range []string{"/app.js", "/app.html", "/app.css"} {
+		w := h.do(http.MethodGet, name, nil)
+		if w.Code != http.StatusOK {
+			t.Fatalf("%s: status %d", name, w.Code)
+		}
+		if got := w.Header().Get("Cache-Control"); got != "no-cache" {
+			t.Errorf("%s: Cache-Control %q, want no-cache", name, got)
+		}
+		tag := w.Header().Get("ETag")
+		if len(tag) < 10 || tag[0] != '"' {
+			t.Fatalf("%s: ETag %q", name, tag)
+		}
+		r := httptest.NewRequest(http.MethodGet, name, nil)
+		r.Header.Set("If-None-Match", tag)
+		again := httptest.NewRecorder()
+		h.handler.ServeHTTP(again, r)
+		if again.Code != http.StatusNotModified {
+			t.Errorf("%s: revalidation status %d, want 304", name, again.Code)
+		}
+	}
+	if h.do(http.MethodGet, "/app.js", nil).Header().Get("ETag") == h.do(http.MethodGet, "/app.html", nil).Header().Get("ETag") {
+		t.Error("distinct assets share an ETag")
+	}
+}

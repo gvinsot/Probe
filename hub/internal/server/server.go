@@ -9,6 +9,8 @@
 package server
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -53,6 +55,9 @@ type Server struct {
 	hookLimit *windowLimiter
 	cliOnce   sync.Once
 	cli       string
+	// etagOnce computes etags: a content hash per embedded asset.
+	etagOnce sync.Once
+	etags    map[string]string
 }
 
 // New builds the server.
@@ -201,10 +206,37 @@ func (s *Server) handleStatic(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	// The assets ship inside the image and change with it; a short revalidated
-	// lifetime keeps an upgraded container from serving a stale dashboard.
-	w.Header().Set("Cache-Control", "public, max-age=300")
+	// The assets ship inside the image and change with it. The page and its
+	// script must always match, otherwise an upgrade leaves a browser running
+	// a cached app.js against a newer app.html (a missing element breaks the
+	// dashboard). Browsers therefore revalidate every asset against its content
+	// hash, which costs a 304 when nothing changed.
+	w.Header().Set("Cache-Control", "no-cache")
+	if tag := s.assetETag(name); tag != "" {
+		w.Header().Set("ETag", tag)
+	}
 	http.ServeContent(w, r, name, info.ModTime(), f.(io.ReadSeeker))
+}
+
+// assetETag returns the strong ETag of an embedded asset, or "" if unknown.
+// Embedded files carry no modification time, so the content is the validator.
+func (s *Server) assetETag(name string) string {
+	s.etagOnce.Do(func() {
+		s.etags = map[string]string{}
+		_ = fs.WalkDir(s.static, ".", func(path string, d fs.DirEntry, err error) error {
+			if err != nil || d.IsDir() {
+				return nil
+			}
+			data, err := fs.ReadFile(s.static, path)
+			if err != nil {
+				return nil
+			}
+			sum := sha256.Sum256(data)
+			s.etags[path] = `"` + hex.EncodeToString(sum[:16]) + `"`
+			return nil
+		})
+	})
+	return s.etags[name]
 }
 
 // session authenticates the cookie of a request.

@@ -90,6 +90,9 @@ window.addEventListener('DOMContentLoaded', async () => {
     document.querySelector('.commit-open').click();
     await settle();
     const cards = document.querySelectorAll('.comparison-card');
+    assert(cards.length === 2 && cards[1].contains(document.getElementById('plan-intent')), 'both mode cards, intent in the Plan card');
+    assert(!document.getElementById('filters').classList.contains('hidden'), 'cached report shown on commit click');
+    assert(document.querySelector('#report-head .verdict').textContent === 'Human review required', 'report verdict rendered');
     cards[1].querySelectorAll('button')[1].click();
     await settle();
     assert(document.querySelector('#plan-result a').href.endsWith('?variant=plan'), 'download selected variant');
