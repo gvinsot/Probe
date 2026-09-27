@@ -14,6 +14,10 @@
   --accent: #0f7b6c;
   --accent-strong: #0a5c51;
   --accent-soft: #d9f0ec;
+  --setup: #2563eb;
+  --setup-strong: #1d4ed8;
+  --monitor: #7c3aed;
+  --monitor-strong: #6d28d9;
   --code-bg: #0f1720;
   --code-text: #d7e0ea;
   --ok: #0f7b6c;
@@ -42,6 +46,10 @@
     --accent: #3cc2ab;
     --accent-strong: #62d6c2;
     --accent-soft: #123a35;
+    --setup: #3b82f6;
+    --setup-strong: #2563eb;
+    --monitor: #8b5cf6;
+    --monitor-strong: #7c3aed;
     --ok: #3cc2ab;
     --low: #8b97a6;
     --medium: #e0b252;
@@ -107,6 +115,12 @@ h1, h2, h3 { line-height: 1.25; }
 .btn.ghost:hover { background: var(--accent-soft); }
 .btn.quiet { background: transparent; border-color: var(--line); color: var(--muted); }
 .btn.quiet:hover { background: var(--surface-alt); color: var(--text); }
+/* Onboarding actions get their own colors so they stand out in the repository
+   list: blue to create the policy, violet to start monitoring commits. */
+.btn.setup { background: var(--setup); border-color: var(--setup); }
+.btn.setup:hover { background: var(--setup-strong); border-color: var(--setup-strong); }
+.btn.monitor { background: var(--monitor); border-color: var(--monitor); }
+.btn.monitor:hover { background: var(--monitor-strong); border-color: var(--monitor-strong); }
 .btn.small { padding: 4px 10px; font-size: 0.8rem; }
 
 /* Layout */

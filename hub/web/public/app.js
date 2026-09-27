@@ -168,12 +168,12 @@ function renderRepos() {
     const actions = document.createElement('div');
     actions.className = 'repo-actions';
     if (!repo.has_policy) {
-      actions.appendChild(button('Create .swiftproof.json', 'btn small', (event) => {
+      actions.appendChild(button('Create .swiftproof.json', 'btn setup small', (event) => {
         event.stopPropagation();
         openPolicyDialog(repo);
       }));
     } else if (!repo.monitored) {
-      const monitor = button('Monitor commits', 'btn small', (event) => {
+      const monitor = button('Monitor commits', 'btn monitor small', (event) => {
         event.stopPropagation();
         setMonitoring(repo, true, monitor);
       });
