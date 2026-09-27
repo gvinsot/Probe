@@ -47,6 +47,9 @@ window.addEventListener('DOMContentLoaded', async () => {
     assert(document.querySelectorAll('#commit-tree img').length === 0, 'commit content must be text');
     assert(document.querySelectorAll('#commit-tree .chip.unknown').length === 6, 'gray unknown badge for uncached variants');
     assert(document.getElementById('commit-tree').textContent.includes('Human review required'), 'cached verdict badge');
+    assert(!document.getElementById('commit-tree').textContent.includes('Normal'), 'the analysis badge has no mode prefix');
+    assert(document.getElementById('commit-tree').textContent.includes('Plan: '), 'the plan badge keeps its prefix');
+    assert(document.querySelector('#commit-tree .chip.warn').classList.contains('tone-high'), 'review badge tinted by the most severe alert');
     assert(fixtureCalls.every((call) => !call.path.endsWith('/analyze')), 'browsing must not run analyses');
     const firstCommit = document.querySelector('.commit-open');
     assert(!firstCommit.textContent.includes('aaaaaaaa') && firstCommit.title.includes(fixtureSHA('a')), 'commit id only on hover');
@@ -93,6 +96,8 @@ window.addEventListener('DOMContentLoaded', async () => {
     assert(cards.length === 2 && cards[1].contains(document.getElementById('plan-intent')), 'both mode cards, intent in the Plan card');
     assert(!document.getElementById('filters').classList.contains('hidden'), 'cached report shown on commit click');
     assert(document.querySelector('#report-head .verdict').textContent === 'Human review required', 'report verdict rendered');
+    assert(document.querySelector('#report-head .verdict').classList.contains('tone-high'), 'report verdict tinted by the most severe alert');
+    assert(cards[0].querySelector('h3').textContent === 'Analysis', 'analysis card title');
     cards[1].querySelectorAll('button')[1].click();
     await settle();
     assert(document.querySelector('#plan-result a').href.endsWith('?variant=plan'), 'download selected variant');

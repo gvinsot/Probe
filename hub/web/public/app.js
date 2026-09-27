@@ -109,6 +109,15 @@ function timeAgo(value) {
   return Math.round(seconds / 86400) + 'd ago';
 }
 
+// A review verdict takes the color of the most severe alert in the report; a
+// review requested without any alert (incomplete checks, unverified areas)
+// keeps the medium tone.
+function reviewTone(summary) {
+  const counts = summary.counts || {};
+  const top = LEVELS.slice().reverse().find((level) => counts[level] > 0);
+  return 'tone-' + (top || 'medium');
+}
+
 function verdictChip(run) {
   if (!run) { const unknown = chip('?', 'unknown'); unknown.title = 'No cached result'; return unknown; }
   if (run.status === 'queued') return chip('queued', 'busy');
@@ -117,7 +126,7 @@ function verdictChip(run) {
   const summary = run.summary || {};
   switch (summary.verdict) {
     case 'blocked': return chip('reproduced issue', 'bad');
-    case 'review': return chip('Human review required', 'warn');
+    case 'review': return chip('Human review required', 'warn ' + reviewTone(summary));
     case 'clear': return chip(run.variant === 'plan' ? 'No plan category flagged' : 'no blocker', 'ok');
     default: return chip(summary.verdict || 'unknown');
   }
@@ -530,7 +539,7 @@ function renderGraph() {
     const meta = document.createElement('div'); meta.className = 'row commit-meta';
     for (const variant of ['normal', 'plan']) {
       const result = verdictChip(displayedRun(commit.sha, variant));
-      result.prepend(document.createTextNode((variant === 'plan' ? 'Plan' : 'Normal') + ': '));
+      if (variant === 'plan') result.prepend(document.createTextNode('Plan: '));
       meta.appendChild(result);
     }
     const who = document.createElement('span'); who.className = 'note';
@@ -560,7 +569,7 @@ function renderCommitActions(resetIntent = false) {
   for (const variant of ['normal', 'plan']) {
     const run = displayedRun(state.commit, variant);
     const card = document.createElement('div'); card.className = 'comparison-card';
-    const title = document.createElement('h3'); title.textContent = variant === 'plan' ? 'Plan' : 'Normal analysis'; card.appendChild(title);
+    const title = document.createElement('h3'); title.textContent = variant === 'plan' ? 'Plan' : 'Analysis'; card.appendChild(title);
     card.appendChild(verdictChip(run));
     if (run) {
       const detail = document.createElement('p'); detail.className = 'note';
@@ -569,7 +578,7 @@ function renderCommitActions(resetIntent = false) {
     }
     if (variant === 'plan') card.appendChild(planIntentField);
     const actions = document.createElement('div'); actions.className = 'row';
-    const launch = button('Run ' + (variant === 'plan' ? 'plan' : 'normal analysis'), 'btn small', () => analyzeCommit(variant));
+    const launch = button('Run ' + (variant === 'plan' ? 'plan' : 'analysis'),'btn small', () => analyzeCommit(variant));
     launch.disabled = run && ['queued', 'running'].includes(run.status);
     actions.appendChild(launch);
     const view = button('View cached result', 'btn quiet small', () => { state.variant = variant; loadReport(); });
@@ -683,6 +692,7 @@ function renderReport() {
   title.appendChild(h2);
   const verdict = document.createElement('span');
   verdict.className = 'verdict ' + (view.summary.verdict || 'failed');
+  if (view.summary.verdict === 'review') verdict.classList.add(reviewTone(view.summary));
   verdict.textContent = verdictLabel(view.summary.verdict);
   title.appendChild(verdict);
   if (run && run.status === 'failed') title.appendChild(chip('analysis failed', 'bad'));

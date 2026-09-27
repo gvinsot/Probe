@@ -181,7 +181,7 @@ h1, h2, h3 { line-height: 1.25; }
   white-space: nowrap;
 }
 .chip.ok { color: var(--ok); border-color: color-mix(in srgb, var(--ok) 45%, var(--line)); }
-.chip.warn { color: var(--medium); border-color: color-mix(in srgb, var(--medium) 45%, var(--line)); }
+.chip.warn { color: var(--tone, var(--medium)); border-color: color-mix(in srgb, var(--tone, var(--medium)) 45%, var(--line)); }
 .chip.bad { color: var(--critical); border-color: color-mix(in srgb, var(--critical) 45%, var(--line)); }
 .chip.busy { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 45%, var(--line)); }
 .dot { width: 8px; height: 8px; border-radius: 50%; background: currentColor; flex: none; }
@@ -190,6 +190,12 @@ h1, h2, h3 { line-height: 1.25; }
 .sev-medium { color: var(--medium); }
 .sev-high { color: var(--high); }
 .sev-critical { color: var(--critical); }
+
+/* A review verdict is tinted by the most severe alert of its report. */
+.tone-low { --tone: var(--low); }
+.tone-medium { --tone: var(--medium); }
+.tone-high { --tone: var(--high); }
+.tone-critical { --tone: var(--critical); }
 
 /* Report */
 .report-head { display: grid; gap: 10px; padding: 14px; border-bottom: 1px solid var(--line); }
@@ -210,7 +216,7 @@ h1, h2, h3 { line-height: 1.25; }
 
 .verdict { padding: 3px 10px; border-radius: 999px; font-size: 0.8rem; font-weight: 600; border: 1px solid; }
 .verdict.clear { color: var(--ok); border-color: var(--ok); background: var(--accent-soft); }
-.verdict.review { color: var(--medium); border-color: var(--medium); }
+.verdict.review { color: var(--tone, var(--medium)); border-color: var(--tone, var(--medium)); }
 .verdict.blocked { color: var(--critical); border-color: var(--critical); }
 .verdict.failed { color: var(--muted); border-color: var(--line); }
 
