@@ -547,7 +547,6 @@ function renderCommitActions(resetIntent = false) {
   if (!repo || !state.commit) return;
   el('commit-actions').classList.remove('hidden');
   const node = (state.graphs.get(repo.key)?.commits || []).find((c) => c.sha === state.commit);
-  el('selected-commit').textContent = shortSha(state.commit) + (node ? ' · ' + node.message : '');
   if (resetIntent) el('plan-intent').value = cachedRun(state.commit, 'plan')?.intent || node?.message || '';
   const comparison = el('comparison'); comparison.textContent = '';
   for (const variant of ['normal', 'plan']) {
@@ -591,11 +590,24 @@ async function analyzeCommit(variant) {
   }
 }
 
+function renderReportCommit(repo, run) {
+  const commit = run?.commit || state.commit;
+  if (!commit) return;
+  const node = (state.graphs.get(repo?.key)?.commits || []).find((c) => c.sha === commit);
+  const message = run?.message || node?.message;
+  const heading = document.createElement('p');
+  heading.id = 'selected-commit';
+  heading.className = 'report-commit';
+  heading.textContent = shortSha(commit) + (message ? ' · ' + message : '');
+  el('report-head').appendChild(heading);
+}
+
 function clearReport(repo) {
   state.view = null; state.run = null;
   el('report-head').textContent = '';
   const title = document.createElement('h2'); title.id = 'report-repo'; title.textContent = repo?.full_name || 'Select a repository';
   el('report-head').appendChild(title);
+  renderReportCommit(repo);
   const sub = document.createElement('p'); sub.id = 'report-sub'; sub.className = 'report-sub'; el('report-head').appendChild(sub);
   el('filters').classList.add('hidden');
   el('alerts').textContent = '';
@@ -666,12 +678,12 @@ function renderReport() {
   if (run && run.status === 'failed') title.appendChild(chip('analysis failed', 'bad'));
   head.appendChild(title);
 
+  renderReportCommit(repo, run);
+
   const sub = document.createElement('p');
   sub.className = 'report-sub';
   const parts = [];
   if (run) {
-    parts.push(shortSha(run.commit));
-    if (run.message) parts.push(run.message);
     if (run.author) parts.push('by ' + run.author);
     if (run.ref) parts.push(run.ref.replace('refs/heads/', ''));
     if (run.finished_at) parts.push(timeAgo(run.finished_at));

@@ -71,7 +71,7 @@ window.addEventListener('DOMContentLoaded', async () => {
     assert(Math.round(column.getBoundingClientRect().width) === 340, 'double-click resets the width');
     document.querySelectorAll('.commit-open')[1].click();
     await settle();
-    assert(document.getElementById('commit-actions').textContent.includes('cccccccc'), 'uncached commit stays selected');
+    assert(document.getElementById('report-head').textContent.includes('cccccccc'), 'uncached commit stays selected');
     assert(document.getElementById('filters').classList.contains('hidden'), 'previous report cleared');
     for (const card of document.querySelectorAll('.comparison-card')) {
       card.querySelector('button').click();
@@ -86,7 +86,7 @@ window.addEventListener('DOMContentLoaded', async () => {
     }
     fixtureStream.onmessage({ data: JSON.stringify({ type: 'report', repo_key: 'repo', commit: fixtureSHA('a'), run: fixtureRun('normal') }) });
     await settle();
-    assert(document.getElementById('commit-actions').textContent.includes('cccccccc'), 'live results do not steal selection');
+    assert(document.getElementById('report-head').textContent.includes('cccccccc'), 'live results do not steal selection');
     document.querySelector('.commit-open').click();
     await settle();
     const cards = document.querySelectorAll('.comparison-card');
