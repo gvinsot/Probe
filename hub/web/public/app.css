@@ -134,7 +134,22 @@ h1, h2, h3 { line-height: 1.25; }
   padding: 18px 20px 40px;
   align-items: start;
 }
-@media (max-width: 960px) { .layout { grid-template-columns: 1fr; } }
+/* Like the commit tree, the repository panel stays under the top bar and its
+   list scrolls on its own, independently of the report and the page. */
+.repo-panel {
+  position: sticky;
+  top: 76px;
+  display: flex;
+  flex-direction: column;
+  max-height: calc(100vh - 94px);
+}
+.repo-panel > * { flex: none; }
+.repo-panel > .repo-list { flex: 1 1 auto; min-height: 0; max-height: none; overscroll-behavior: contain; }
+@media (max-width: 960px) {
+  .layout { grid-template-columns: 1fr; }
+  .repo-panel { position: static; max-height: none; }
+  .repo-panel > .repo-list { max-height: 420px; }
+}
 
 .panel {
   min-width: 0;

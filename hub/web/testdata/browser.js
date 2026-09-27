@@ -44,6 +44,10 @@ window.addEventListener('DOMContentLoaded', async () => {
   const assert = (condition, message) => { if (!condition) throw new Error(message); };
   try {
     await settle();
+    const repoPanel = document.querySelector('.repo-panel');
+    assert(getComputedStyle(repoPanel).position === 'sticky', 'repository panel does not scroll with the page');
+    assert(getComputedStyle(document.getElementById('repos')).overflowY === 'auto', 'repository list scrolls on its own');
+    assert(parseFloat(getComputedStyle(repoPanel).top) >= document.querySelector('.topbar').getBoundingClientRect().height, 'repository panel stays below the top bar: ' + document.querySelector('.topbar').getBoundingClientRect().height);
     document.querySelector('.repo-name').click();
     await settle();
     assert(document.querySelectorAll('.commit-row').length === 4, 'all graph commits rendered');
