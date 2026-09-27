@@ -26,20 +26,23 @@ const maxHookBytes = 5 << 20
 func (s *Server) handleWebhook(w http.ResponseWriter, r *http.Request) {
 	hookKey := r.PathValue("hook")
 	// A malformed routing key cannot name an installation: refused before it
-	// costs a limiter entry, a lookup or any crypto, like every other refusal.
+	// costs a lookup or any crypto, like every other refusal.
 	if len(hookKey) > maxHookKeyBytes || !store.ValidKey(hookKey) {
 		writeError(w, http.StatusUnauthorized, "unauthorized webhook")
-		return
-	}
-	// Bounded before any lookup, so a flood costs neither disk nor crypto.
-	if !s.hookLimit.Allow(hookKey) {
-		w.Header().Set("Retry-After", "60")
-		writeError(w, http.StatusTooManyRequests, "too many deliveries")
 		return
 	}
 	route, repo, ok := s.hookInstallation(hookKey, r.URL.Query().Get(hookTokenParam))
 	if !ok {
 		writeError(w, http.StatusUnauthorized, "unauthorized webhook")
+		return
+	}
+	// Counted only once the installation token matched: the routing key is a
+	// path segment anybody can choose, so a caller without the token must not
+	// be able to spend a genuine key's budget nor fill the limiter. Before
+	// this point a refusal costs one small file read and no payload is read.
+	if !s.hookLimit.Allow(hookKey) {
+		w.Header().Set("Retry-After", "60")
+		writeError(w, http.StatusTooManyRequests, "too many deliveries")
 		return
 	}
 	provider, err := s.accounts.Provider(repo.Provider)

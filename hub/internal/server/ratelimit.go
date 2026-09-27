@@ -10,7 +10,9 @@ import (
 // active of a few sampled entries instead of growing the map. Refusing unseen
 // keys outright would let anyone spraying random keys lock every legitimate
 // caller out; evicting lets the flood only compete with itself, since its keys
-// sit at the lowest counts while an active caller keeps its own budget.
+// sit at the lowest counts while an active caller keeps its own budget. The
+// webhook handler goes further and only counts keys whose installation token
+// matched, so an unverifiable key never reaches the limiter at all.
 const maxLimiterKeys = 10000
 
 // evictionSample is how many entries a full limiter inspects to pick the one

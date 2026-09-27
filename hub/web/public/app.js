@@ -138,6 +138,8 @@ function renderRepos() {
   list.textContent = '';
   el('repo-count').textContent = String(state.repos.size);
   el('repos-empty').classList.toggle('hidden', repos.length > 0);
+  renderOutdatedNotice();
+  renderRepoInfo();
 
   for (const repo of repos) {
     const item = document.createElement('li');
@@ -154,7 +156,7 @@ function renderRepos() {
     meta.className = 'repo-meta';
     meta.appendChild(chip(repo.default_branch || 'no branch'));
     meta.appendChild(repo.has_policy ? chip('.swiftproof.json', 'ok') : chip('no policy', 'warn'));
-    if (repo.monitored) meta.appendChild(chip('monitored', 'ok'));
+    if (repo.monitored) meta.appendChild(repo.hook_outdated ? chip('webhook to reinstall', 'warn') : chip('monitored', 'ok'));
     meta.appendChild(verdictChip(repo.latest));
     if (repo.latest && repo.latest.summary && repo.latest.summary.counts && repo.latest.status === 'done') {
       const counts = repo.latest.summary.counts;
@@ -179,6 +181,15 @@ function renderRepos() {
       if (!repo.admin) monitor.title = 'Your account cannot manage webhooks on this repository';
       actions.appendChild(monitor);
     } else {
+      if (repo.hook_outdated) {
+        const reinstall = button('Reinstall webhook', 'btn small', (event) => {
+          event.stopPropagation();
+          setMonitoring(repo, true, reinstall);
+        });
+        reinstall.disabled = !repo.admin;
+        if (!repo.admin) reinstall.title = 'Your account cannot manage webhooks on this repository';
+        actions.appendChild(reinstall);
+      }
       actions.appendChild(button('Stop monitoring', 'btn quiet small', (event) => {
         event.stopPropagation();
         setMonitoring(repo, false);
@@ -199,6 +210,83 @@ function renderRepos() {
     });
     list.appendChild(item);
   }
+}
+
+// renderOutdatedNotice tells the owner which webhooks predate installation
+// tokens: the forge still delivers them but the hub refuses every one.
+function renderOutdatedNotice() {
+  const notice = el('hooks-outdated');
+  const outdated = Array.from(state.repos.values()).filter((repo) => repo.hook_outdated);
+  notice.classList.toggle('hidden', outdated.length === 0);
+  if (outdated.length === 0) return;
+  const names = outdated.map((repo) => repo.full_name).sort();
+  notice.textContent = (outdated.length === 1 ? 'The webhook of ' : 'The webhooks of ') + names.join(', ') +
+    (outdated.length === 1 ? ' was' : ' were') + ' installed by an earlier version of the hub and every push it delivers is now refused. ' +
+    'Use “Reinstall webhook” to resume analyses and get a badge URL.';
+}
+
+// badgeURL is the public address of a repository badge, served by this hub.
+function badgeURL(repo) {
+  return window.location.origin + '/badge/' + encodeURIComponent(repo.badge_key) + '.svg';
+}
+
+// renderRepoInfo shows, for the selected repository, the action its webhook
+// needs, or the badge URL and README snippet once it is monitored.
+function renderRepoInfo() {
+  const box = el('repo-info');
+  const repo = state.repos.get(state.repoKey);
+  box.textContent = '';
+  if (!repo || !repo.monitored) {
+    box.classList.add('hidden');
+    return;
+  }
+  box.classList.remove('hidden');
+  if (repo.hook_outdated) {
+    const notice = document.createElement('p');
+    notice.className = 'notice';
+    notice.textContent = 'This webhook predates installation tokens: the hub refuses its deliveries and its old badge URL ' +
+      'no longer renders. Reinstall it from the repository list to resume analyses and get a new badge.';
+    box.appendChild(notice);
+    return;
+  }
+  if (!repo.badge_key) {
+    box.classList.add('hidden');
+    return;
+  }
+  const url = badgeURL(repo);
+  const markdown = '[![SwiftProof](' + url + ')](' + (repo.web_url || url) + ')';
+  const row = document.createElement('div');
+  row.className = 'badge-row';
+  const label = document.createElement('span');
+  label.className = 'note';
+  label.textContent = 'Badge';
+  row.appendChild(label);
+  const img = document.createElement('img');
+  img.src = url;
+  img.alt = 'SwiftProof badge of ' + repo.full_name;
+  img.height = 20;
+  row.appendChild(img);
+  const field = document.createElement('input');
+  field.type = 'text';
+  field.readOnly = true;
+  field.value = url;
+  field.setAttribute('aria-label', 'Badge URL');
+  field.addEventListener('focus', () => field.select());
+  row.appendChild(field);
+  row.appendChild(copyButton('Copy URL', url));
+  row.appendChild(copyButton('Copy Markdown', markdown));
+  box.appendChild(row);
+}
+
+function copyButton(label, text) {
+  return button(label, 'btn quiet small', async () => {
+    try {
+      await navigator.clipboard.writeText(text);
+      toast('Copied to the clipboard.');
+    } catch (err) {
+      toast('Copy failed: select the text and copy it by hand.', true);
+    }
+  });
 }
 
 function worstSeverity(counts) {

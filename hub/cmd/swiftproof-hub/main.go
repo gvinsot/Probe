@@ -124,6 +124,13 @@ func run() error {
 		}
 		log.Info("session key rotation", "resealed", moved)
 	}
+	// Hooks installed before installation tokens are refused: say so once at
+	// start-up; each owner sees the action to take on the dashboard.
+	if outdated, err := st.OutdatedHooks(); err != nil {
+		log.Warn("count outdated webhooks", "error", err)
+	} else if outdated > 0 {
+		log.Warn("webhooks predate installation tokens and are refused until reinstalled", "repositories", outdated)
+	}
 	providers := map[string]forge.Provider{}
 	for kind, f := range cfg.Forges {
 		switch kind {

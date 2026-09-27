@@ -252,3 +252,34 @@ func TestHistoryOfAnUnknownRepositoryIsEmpty(t *testing.T) {
 		t.Fatalf("History = %d, %v; want an empty listing and no error", len(runs), err)
 	}
 }
+
+// TestHookInstalledBeforeTokensIsFlagged covers the upgrade: a webhook from
+// before installation tokens is refused, so its owner must be told to act.
+func TestHookInstalledBeforeTokensIsFlagged(t *testing.T) {
+	s := open(t)
+	user := Key("github", "1")
+	if err := s.PutUser(&User{Key: user, Login: "octocat"}); err != nil {
+		t.Fatalf("PutUser: %v", err)
+	}
+	legacy := &Repo{Key: Key("github", "10"), FullName: "acme/legacy", Monitored: true, HookKey: "old-key", HookSecret: "sealed"}
+	current := &Repo{Key: Key("github", "11"), FullName: "acme/current", Monitored: true,
+		HookKey: "key", HookSecret: "sealed", HookToken: "sealed-token", BadgeKey: "badge"}
+	idle := &Repo{Key: Key("github", "12"), FullName: "acme/idle"}
+	for _, repo := range []*Repo{legacy, current, idle} {
+		if err := s.PutRepo(user, repo); err != nil {
+			t.Fatalf("PutRepo: %v", err)
+		}
+	}
+	if !legacy.Public().HookOutdated {
+		t.Error("a monitored repository without an installation token must be flagged")
+	}
+	if current.Public().HookOutdated || idle.Public().HookOutdated {
+		t.Error("a current or unmonitored repository must not be flagged")
+	}
+	if current.Public().BadgeKey != "badge" {
+		t.Error("a monitored repository exposes its badge key to its owner")
+	}
+	if n, err := s.OutdatedHooks(); err != nil || n != 1 {
+		t.Errorf("OutdatedHooks = %d, %v; want 1", n, err)
+	}
+}

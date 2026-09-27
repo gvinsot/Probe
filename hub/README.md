@@ -79,7 +79,7 @@ webhooks there.
 | `SWIFTPROOF_HUB_WORKERS` | `2` | Concurrent analyses. |
 | `SWIFTPROOF_HUB_QUEUE_SIZE` | `256` | Pending analyses before webhooks are asked to retry. |
 | `SWIFTPROOF_HUB_USER_QUOTA` | `8` | Analyses one account may have queued or running; beyond it the hub answers `429`, so one account cannot fill the shared queue. |
-| `SWIFTPROOF_HUB_HOOK_RATE` | `30` | Webhook deliveries accepted per routing key and minute, checked before any lookup; beyond it `429`. |
+| `SWIFTPROOF_HUB_HOOK_RATE` | `30` | Webhook deliveries accepted per routing key and minute, counted only once the installation token matched; beyond it `429`. |
 | `SWIFTPROOF_HUB_ANALYSIS_TIMEOUT` | `10m` | Hard limit per analysis. |
 | `SWIFTPROOF_HUB_CLONE_DEPTH` | `50` | Shallow fetch depth. |
 | `SWIFTPROOF_HUB_MAX_REPOS` | `500` | Repositories listed per account. |
@@ -154,8 +154,12 @@ builds and smoke-tests the image, it just does not publish.
   comparison for GitLab. The routing key alone authorizes nothing, and every
   refusal is the same `401`. The installation dies with the account and when
   monitoring is switched off. The payload's repository identity is matched
-  before anything is queued. Deliveries are rate limited per routing key, and
-  analyses are bounded per account (`429`).
+  before anything is queued. Deliveries are rate limited per routing key,
+  counted only after the installation token matched — the key is a path
+  segment anybody can choose, so random keys can neither exhaust a genuine
+  key's budget nor fill the limiter — and analyses are bounded per account
+  (`429`). Refusing an unauthenticated delivery costs one small file read and
+  no payload read; volumetric floods are the edge's rate limiter's job.
 * **Public surface**: only the badge and a bare `/healthz` (`{"status":"ok"}`)
   are anonymous. A badge has its own random key, distinct from the webhook's,
   and an unknown or unpublished badge key gets the same plain `404` as any
@@ -172,10 +176,47 @@ builds and smoke-tests the image, it just does not publish.
   `Content-Security-Policy` without `unsafe-inline`.
 * **The analyzed code is never executed in `lint` mode.**
 
-Upgrading from a hub that predates installation tokens: existing webhooks carry
-no token and are refused, and badges addressed by the webhook key stop
-rendering. Switch monitoring off and on for each repository to reinstall the
-hook and obtain the new badge URL.
+### Proxy access logs
+
+The webhook URL registered on the forge is `/hooks/<key>?token=<installation
+token>`: GitHub cannot add a custom header to a delivery, so the token travels
+in the query. The hub logs only the path, never the query. A reverse proxy in
+front of it logs the full request line by default, which would write every
+installation token to its logs. Configure the edge so that it does not:
+
+```yaml
+# Traefik v3 static configuration (the common format cannot be filtered)
+accessLog:
+  format: json
+  fields:
+    queryParameters:
+      defaultMode: drop      # drops the ?token=… of every request
+```
+
+or, on the command line, `--accesslog.format=json
+--accesslog.fields.queryparameters.defaultmode=drop`. On a Traefik version
+without `queryParameters`, drop the whole request path instead
+(`fields.names.RequestPath: drop` and `RequestLine: drop`). Other proxies need
+the same treatment (for nginx, a `log_format` using `$uri` instead of
+`$request`). If a token did reach a log, switch monitoring off and on for the
+repository: a reinstall issues a fresh token and the old one stops working. A
+token alone still cannot forge a delivery — the forge signature, whose secret
+never appears in a URL, is checked as well.
+
+### Upgrading from a hub without installation tokens
+
+Webhooks installed before installation tokens carry none and every delivery is
+refused with `401`, and badges addressed by the webhook key stop rendering. The
+hub does not re-register them behind the owner's back; instead:
+
+* at start-up it logs how many monitored repositories need a reinstall;
+* the API marks each of them with `"hook_outdated": true`;
+* the dashboard shows a notice listing them, a "webhook to reinstall" chip and
+  a **Reinstall webhook** button, which replaces the hook on the forge and
+  issues the new badge URL.
+
+Once reinstalled, the dashboard shows the badge URL and a README snippet for
+the selected repository.
 
 ## Endpoints
 
@@ -192,7 +233,7 @@ hook and obtain the new badge URL.
 | `GET` | `/api/repos/{repo}/reports/{commit}` · `/raw` | Rendered view, or the stored JSON report. |
 | `GET` | `/api/events` | Server-sent analysis updates of the signed-in account. |
 | `POST` | `/hooks/{key}?token=…` | Webhook receiver; needs the installation token and the forge signature. |
-| `GET` | `/badge/{badge_key}.svg` | Latest verdict as a badge; `badge_key` is returned with a monitored repository. |
+| `GET` | `/badge/{badge_key}.svg` | Latest verdict as a badge; `badge_key` is returned with a monitored repository, and the dashboard shows the full URL. |
 
 ## Development
 

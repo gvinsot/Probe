@@ -721,17 +721,18 @@ func TestWebhookIsRateLimitedAndQuotaBound(t *testing.T) {
 		t.Errorf("a manual analysis over the quota = %d, want 429", manual.Code)
 	}
 
-	// Two deliveries already counted; the limit of 4 per minute is reached
-	// with two more, whatever they carry, and unknown keys have their own.
-	h.deliver(hookKey, "", secret, push(7))
-	h.deliver(hookKey, "", secret, push(7))
+	// Two deliveries already counted. Deliveries without the token are
+	// refused before the limiter and spend none of the key's budget.
+	for i := 0; i < 10; i++ {
+		if got := h.deliver(hookKey, "", secret, push(7)); got.Code != http.StatusUnauthorized {
+			t.Fatalf("a delivery without the token = %d, want 401", got.Code)
+		}
+	}
+	h.deliver(hookKey, token, secret, push(7))
+	h.deliver(hookKey, token, secret, push(7))
 	if got := h.deliver(hookKey, token, secret, push(7)); got.Code != http.StatusTooManyRequests {
 		t.Errorf("a flooded routing key = %d, want 429", got.Code)
 	}
-	if got := h.deliver("another-key", "", secret, push(7)); got.Code != http.StatusUnauthorized {
-		t.Errorf("another routing key has its own budget, got %d", got.Code)
-	}
-
 	// Malformed keys are refused before the limiter: flooding them leaves no
 	// trace in it, so a genuine key keeps its own budget.
 	for i := 0; i < maxLimiterKeys+10; i++ {
@@ -749,6 +750,35 @@ func TestWebhookIsRateLimitedAndQuotaBound(t *testing.T) {
 	if got := h.deliver("genuinehookkey", "", secret, push(7)); got.Code != http.StatusUnauthorized {
 		t.Errorf("a valid unknown key after the flood = %d, want 401 (not 429)", got.Code)
 	}
+}
+
+// TestUnverifiableKeyStormCannotBlockDeliveries covers a denial of service of
+// the whole hook surface: spraying random routing keys, with no token nor
+// signature, must neither exhaust the limiter nor refuse a genuine delivery.
+func TestUnverifiableKeyStormCannotBlockDeliveries(t *testing.T) {
+	h := newHarnessWith(t, func(c *config.Config) { c.HookRate = 2 })
+	h.signIn()
+	repo := h.addRepo(func(r *store.Repo) { r.HasPolicy = true; r.Admin = true })
+	hookKey, token, secret := h.monitored(repo)
+	push := forge.Push{RepoID: "10", Ref: "refs/heads/main", Before: strings.Repeat("1", 40), After: strings.Repeat("8", 40)}
+
+	for i := 0; i < maxLimiterKeys+500; i++ {
+		key := fmt.Sprintf("storm%07d", i)
+		if got := h.deliver(key, "forged-token", "forged-secret", push); got.Code != http.StatusUnauthorized {
+			t.Fatalf("an unverifiable key = %d, want 401", got.Code)
+		}
+	}
+	// A bogus token on the genuine key is refused too, without spending it.
+	for i := 0; i < 5; i++ {
+		h.deliver(hookKey, "forged-token", secret, push)
+	}
+	if got := h.deliver(hookKey, token, secret, push); got.Code != http.StatusAccepted {
+		t.Fatalf("a genuine delivery after the storm = %d, want 202: %s", got.Code, got.Body)
+	}
+	if n := len(h.server.hookLimit.counts); n != 1 {
+		t.Errorf("only the authenticated key may be counted, found %d keys", n)
+	}
+
 }
 
 func TestReportViewAndDownload(t *testing.T) {
@@ -1029,3 +1059,84 @@ const storedReport = `{"version":1,"tool_version":"v0.3.1","generated_at":"2026-
 "review_targets":[],"review_surface":{"changed_lines":2,"focused_lines":1,"note":"prioritization"},
 "coverage":{"status":"not_configured","added_lines":0,"executed_lines":0,"not_executed_lines":0,"no_block_lines":0,"not_measured_lines":0,"removed_lines":0,"files":[],"note":""},
 "artifacts":[],"audit":[],"exit_code":2}`
+
+// TestWebhookFromBeforeTokensAsksForAction covers the upgrade: a hook
+// installed before installation tokens is refused, so the owner is told on
+// the dashboard, and reinstalling it restores deliveries and the badge.
+func TestWebhookFromBeforeTokensAsksForAction(t *testing.T) {
+	h := newHarness(t)
+	h.signIn()
+	repo := h.addRepo(func(r *store.Repo) {
+		r.HasPolicy, r.Monitored, r.HookID, r.HookKey = true, true, "7", "legacykey000000000000000"
+		r.HookSecret, _ = h.server.keys.Seal("legacy-secret")
+	})
+	if err := h.store.PutHook(repo.HookKey, store.HookRoute{UserKey: h.userKey, RepoKey: repo.Key, Provider: repo.Provider}); err != nil {
+		t.Fatalf("PutHook: %v", err)
+	}
+	flag := func() (bool, string) {
+		list := h.decode(h.do(http.MethodGet, "/api/repos", nil))
+		repos, _ := list["repos"].([]any)
+		if len(repos) != 1 {
+			t.Fatalf("repos = %v", list["repos"])
+		}
+		item := repos[0].(map[string]any)
+		outdated, _ := item["hook_outdated"].(bool)
+		badge, _ := item["badge_key"].(string)
+		return outdated, badge
+	}
+	if outdated, _ := flag(); !outdated {
+		t.Fatal("a webhook from before installation tokens must be flagged for the owner")
+	}
+	push := forge.Push{RepoID: "10", Ref: "refs/heads/main", Before: strings.Repeat("1", 40), After: strings.Repeat("9", 40)}
+	if got := h.deliver(repo.HookKey, "", "legacy-secret", push); got.Code != http.StatusUnauthorized {
+		t.Fatalf("a legacy delivery = %d, want 401", got.Code)
+	}
+
+	hookKey, token, secret := h.monitored(repo)
+	outdated, badge := flag()
+	if outdated || badge == "" {
+		t.Fatalf("a reinstalled webhook = outdated %v, badge %q; want a clear flag and a badge key", outdated, badge)
+	}
+	if got := h.deliver(hookKey, token, secret, push); got.Code != http.StatusAccepted {
+		t.Errorf("a delivery after the reinstall = %d, want 202: %s", got.Code, got.Body)
+	}
+}
+
+// TestDashboardShowsTheBadgeAndPendingActions guards the UI contract: the
+// dashboard renders the badge URL and the reinstall action from the API.
+func TestDashboardShowsTheBadgeAndPendingActions(t *testing.T) {
+	h := newHarness(t)
+	script := h.do(http.MethodGet, "/app.js", nil).Body.String()
+	for _, want := range []string{"repo.badge_key", "'/badge/'", "repo.hook_outdated", "Reinstall webhook"} {
+		if !strings.Contains(script, want) {
+			t.Errorf("app.js does not use %s", want)
+		}
+	}
+	page := h.do(http.MethodGet, "/app.html", nil).Body.String()
+	for _, id := range []string{`id="repo-info"`, `id="hooks-outdated"`} {
+		if !strings.Contains(page, id) {
+			t.Errorf("app.html lacks %s", id)
+		}
+	}
+}
+
+// TestInstallationTokenNeverReachesTheLogs checks the hub side of the token
+// leak: accepted or refused, a delivery logs its path, never its query.
+func TestInstallationTokenNeverReachesTheLogs(t *testing.T) {
+	h := newHarness(t)
+	h.signIn()
+	repo := h.addRepo(func(r *store.Repo) { r.HasPolicy = true; r.Admin = true })
+	hookKey, token, secret := h.monitored(repo)
+	var logs bytes.Buffer
+	h.server.log = slog.New(slog.NewTextHandler(&logs, &slog.HandlerOptions{Level: slog.LevelDebug}))
+	push := forge.Push{RepoID: "10", Ref: "refs/heads/main", Before: strings.Repeat("1", 40), After: strings.Repeat("a", 40)}
+	h.deliver(hookKey, token, secret, push)
+	h.deliver(hookKey, token, "wrong-secret", push)
+	h.deliver("unknown-routing-key", token, secret, push)
+	if !strings.Contains(logs.String(), "/hooks/"+hookKey) {
+		t.Fatalf("the request log is expected to record the path: %s", logs.String())
+	}
+	if strings.Contains(logs.String(), token) || strings.Contains(logs.String(), url.QueryEscape(token)) {
+		t.Fatalf("the installation token reached the logs: %s", logs.String())
+	}
+}

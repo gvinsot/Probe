@@ -112,18 +112,29 @@ type Repo struct {
 // omits the webhook secret, token and routing key, which are credentials. The
 // badge key is not one: it only reads the verdict the owner chose to publish.
 type PublicRepo struct {
-	Key           string    `json:"key"`
-	Provider      string    `json:"provider"`
-	FullName      string    `json:"full_name"`
-	WebURL        string    `json:"web_url,omitempty"`
-	DefaultBranch string    `json:"default_branch"`
-	Private       bool      `json:"private"`
-	Admin         bool      `json:"admin"`
-	HasPolicy     bool      `json:"has_policy"`
-	Monitored     bool      `json:"monitored"`
-	BadgeKey      string    `json:"badge_key,omitempty"`
-	Latest        *Run      `json:"latest,omitempty"`
-	UpdatedAt     time.Time `json:"updated_at"`
+	Key           string `json:"key"`
+	Provider      string `json:"provider"`
+	FullName      string `json:"full_name"`
+	WebURL        string `json:"web_url,omitempty"`
+	DefaultBranch string `json:"default_branch"`
+	Private       bool   `json:"private"`
+	Admin         bool   `json:"admin"`
+	HasPolicy     bool   `json:"has_policy"`
+	Monitored     bool   `json:"monitored"`
+	BadgeKey      string `json:"badge_key,omitempty"`
+	// HookOutdated flags a monitored repository whose webhook predates the
+	// installation token: the forge still delivers, the hub refuses, and the
+	// owner has to reinstall the hook to get pushes and a badge back.
+	HookOutdated bool      `json:"hook_outdated,omitempty"`
+	Latest       *Run      `json:"latest,omitempty"`
+	UpdatedAt    time.Time `json:"updated_at"`
+}
+
+// HookOutdated reports a monitored repository installed before webhooks
+// carried an installation token and badges their own key. Every delivery of
+// such a hook is refused until monitoring is switched on again.
+func (r *Repo) HookOutdated() bool {
+	return r.Monitored && (r.HookToken == "" || r.HookKey == "" || r.BadgeKey == "")
 }
 
 // Public projects a repository for the API.
@@ -136,6 +147,7 @@ func (r *Repo) Public() PublicRepo {
 	if r.Monitored {
 		p.BadgeKey = r.BadgeKey
 	}
+	p.HookOutdated = r.HookOutdated()
 	return p
 }
 
@@ -444,6 +456,28 @@ func (s *Store) deleteRoute(kind, key string) error {
 		return err
 	}
 	return nil
+}
+
+// OutdatedHooks counts the monitored repositories, across every account,
+// whose webhook must be reinstalled (see Repo.HookOutdated).
+func (s *Store) OutdatedHooks() (int, error) {
+	userKeys, err := s.UserKeys()
+	if err != nil {
+		return 0, err
+	}
+	count := 0
+	for _, userKey := range userKeys {
+		repos, err := s.Repos(userKey)
+		if err != nil {
+			return count, err
+		}
+		for _, repo := range repos {
+			if repo.HookOutdated() {
+				count++
+			}
+		}
+	}
+	return count, nil
 }
 
 // UserKeys lists every stored account, for maintenance such as a key rewrap.

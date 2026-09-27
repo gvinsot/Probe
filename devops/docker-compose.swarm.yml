@@ -123,6 +123,12 @@ services:
         - "traefik.docker.network=proxy"
         - "traefik.http.services.swiftproof-app.loadbalancer.server.port=8080"
 
+        # The webhook URL carries the installation token in its query
+        # (/hooks/<key>?token=...): GitHub cannot send a custom header. The
+        # edge's access log must not record query strings — see "Proxy access
+        # logs" in hub/README.md (accesslog.format=json with
+        # accesslog.fields.queryparameters.defaultmode=drop). This is static
+        # edge configuration; labels cannot set it.
         # HTTPS router
         - "traefik.http.routers.swiftproof-app.rule=Host(`${SWIFTPROOF_APP_DOMAIN:-app.swiftproof.net}`)"
         - "traefik.http.routers.swiftproof-app.entrypoints=websecure"

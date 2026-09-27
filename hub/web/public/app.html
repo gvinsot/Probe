@@ -36,6 +36,7 @@
           <label class="note"><input type="checkbox" id="only-nopolicy"> Missing policy only</label>
         </div>
       </div>
+      <div class="notice hidden" id="hooks-outdated" role="alert"></div>
       <ul class="repo-list" id="repos"></ul>
       <div class="empty hidden" id="repos-empty">No repository yet. Use “Refresh repositories”.</div>
     </section>
@@ -50,6 +51,8 @@
           Monitored repositories are analyzed on every new commit, and their report opens here automatically.
         </p>
       </div>
+
+      <div class="repo-info hidden" id="repo-info"></div>
 
       <div class="filters hidden" id="filters">
         <div class="filter-row">
