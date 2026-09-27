@@ -265,7 +265,9 @@ h1, h2, h3 { line-height: 1.25; }
   cursor: pointer;
 }
 .alert-head:hover { background: var(--surface-alt); }
-.alert-title { font-weight: 600; font-size: 0.9rem; }
+/* Centre the dot on the first title line, whatever the title wraps to. */
+.alert-head > .dot { margin-top: calc((0.9rem * 1.4 - 8px) / 2); }
+.alert-title { font-weight: 600; font-size: 0.9rem; line-height: 1.4; }
 .alert-where { color: var(--muted); font-size: 0.78rem; word-break: break-all; }
 .alert-tags { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
 .alert-body { padding: 0 14px 14px 36px; display: grid; gap: 12px; }
