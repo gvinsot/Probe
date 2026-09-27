@@ -614,8 +614,17 @@ function renderCommitActions(resetIntent = false) {
   for (const variant of ['normal', 'plan']) {
     const run = displayedRun(state.commit, variant);
     const card = document.createElement('div'); card.className = 'comparison-card';
-    const title = document.createElement('h3'); title.textContent = variant === 'plan' ? 'Plan' : 'Analysis'; card.appendChild(title);
-    card.appendChild(verdictChip(run));
+    // Title, verdict and (for plans) the intent prompt share one line.
+    const head = document.createElement('div'); head.className = 'card-head';
+    const title = document.createElement('h3'); title.textContent = variant === 'plan' ? 'Plan' : 'Analysis'; head.appendChild(title);
+    head.appendChild(verdictChip(run));
+    if (variant === 'plan') {
+      const label = document.createElement('label'); label.className = 'note'; label.htmlFor = 'plan-intent';
+      label.textContent = 'Describe the task to see what impacts where planned';
+      label.title = 'Editable; the plan starts from this commit’s first parent';
+      head.appendChild(label);
+    }
+    card.appendChild(head);
     if (run) {
       const detail = document.createElement('p'); detail.className = 'note';
       detail.textContent = [run.mode, run.base_commit ? 'Base ' + shortSha(run.base_commit) : '', run.finished_at ? timeAgo(run.finished_at) : '', run.error].filter(Boolean).join(' · ');

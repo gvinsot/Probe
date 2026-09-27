@@ -94,6 +94,8 @@ window.addEventListener('DOMContentLoaded', async () => {
     await settle();
     const cards = document.querySelectorAll('.comparison-card');
     assert(cards.length === 2 && cards[1].contains(document.getElementById('plan-intent')), 'both mode cards, intent in the Plan card');
+    assert(cards[0].querySelector('.card-head .chip') && cards[1].querySelector('.card-head .chip'), 'verdict on the title line');
+    assert(cards[1].querySelector('.card-head label[for="plan-intent"]').textContent === 'Describe the task to see what impacts where planned', 'intent prompt beside the Plan title');
     assert(!document.getElementById('filters').classList.contains('hidden'), 'cached report shown on commit click');
     assert(document.querySelector('#report-head .verdict').textContent === 'Human review required', 'report verdict rendered');
     assert(document.querySelector('#report-head .verdict').classList.contains('tone-high'), 'report verdict tinted by the most severe alert');
