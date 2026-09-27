@@ -57,6 +57,7 @@
         <h2>Repositories</h2>
         <span class="spacer"></span>
         <span class="chip" id="repo-count">0</span>
+        <button class="btn quiet small jump-next" id="jump-from-repos" aria-label="Scroll to the next panel" title="Next panel">↓</button>
       </div>
       <div class="panel-body">
         <input class="search" id="repo-search" type="search" placeholder="Filter by name…" autocomplete="off">
@@ -70,17 +71,17 @@
       <div class="empty hidden" id="repos-empty">No repository yet. Use “Refresh repositories”.</div>
     </section>
 
-    <section class="panel" aria-label="Report">
+    <section class="panel" id="report-panel" aria-label="Report">
       <!-- Commit tree on the left; the selected commit and its report on the right. -->
       <div class="workspace">
         <section class="commit-column hidden" id="commit-browser" aria-label="Commit history">
-          <div class="row"><h3>Commit tree</h3><span class="spacer"></span><button class="btn quiet small" id="refresh-commits">Refresh</button></div>
+          <div class="row"><h3>Commit tree</h3><span class="spacer"></span><button class="btn quiet small" id="refresh-commits">Refresh</button><button class="btn quiet small jump-next" id="jump-from-commits" aria-label="Scroll to the report" title="Next panel">↓</button></div>
           <p class="note" id="graph-note" role="status"></p>
           <div class="row branch-list" id="branches"></div>
           <div class="commit-tree" id="commit-tree"></div>
         </section>
         <div class="splitter hidden" id="splitter" role="separator" aria-orientation="vertical" aria-controls="commit-browser" aria-label="Resize the commit tree" aria-valuemin="220" tabindex="0" title="Drag to resize; double-click to reset"></div>
-        <div class="report-pane">
+        <div class="report-pane" id="report-pane">
           <div class="report-head" id="report-head">
             <div class="report-title">
               <h2 id="report-repo">Select a repository</h2>

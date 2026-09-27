@@ -145,8 +145,12 @@ h1, h2, h3 { line-height: 1.25; }
 }
 .repo-panel > * { flex: none; }
 .repo-panel > .repo-list { flex: 1 1 auto; min-height: 0; max-height: none; overscroll-behavior: contain; }
+/* On mobile the panels stack; a button at the top right of the repository
+   and commit tree panels jumps to the next one. */
+.jump-next { display: none; }
 @media (max-width: 960px) {
-  .layout { grid-template-columns: 1fr; }
+  .layout { grid-template-columns: minmax(0, 1fr); }
+  .jump-next { display: inline-block; flex: none; min-width: 34px; font-size: 0.95rem; line-height: 1.2; }
   .repo-panel { position: static; max-height: none; }
   .repo-panel > .repo-list { max-height: 420px; }
 }

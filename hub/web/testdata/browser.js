@@ -93,6 +93,18 @@ window.addEventListener('DOMContentLoaded', async () => {
     const repoHead = document.querySelector('.repo-head');
     assert(repoHead.textContent.includes('Analyze now') && repoHead.textContent.includes('Activate monitoring'), 'repository actions next to the name');
     assert(!document.getElementById('repos').textContent.includes('.swiftproof.json'), 'no policy tag');
+    for (const id of ['jump-from-repos', 'jump-from-commits']) {
+      assert(getComputedStyle(document.getElementById(id)).display === 'none', id + ' only on mobile');
+    }
+    const scrolls = [];
+    const realScrollTo = window.scrollTo;
+    window.scrollTo = (options) => scrolls.push(options.top);
+    const expectedTop = (node) => Math.max(0, node.getBoundingClientRect().top + window.scrollY - document.querySelector('.topbar').offsetHeight - 8);
+    document.getElementById('jump-from-repos').click();
+    document.getElementById('jump-from-commits').click();
+    window.scrollTo = realScrollTo;
+    assert(scrolls[0] === expectedTop(document.getElementById('commit-browser')), 'repositories jump to the commit tree');
+    assert(scrolls[1] === expectedTop(document.getElementById('report-pane')), 'commit tree jumps to the report');
     const splitter = document.getElementById('splitter');
     const column = document.getElementById('commit-browser');
     assert(!splitter.classList.contains('hidden'), 'splitter shown with the commit tree');

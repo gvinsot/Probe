@@ -1458,6 +1458,7 @@ async function boot() {
   renderSeverity();
   el('severity').addEventListener('input', (event) => setMinSeverity(Number(event.target.value)));
   initSplitter();
+  initPanelJumps();
   el('refresh-commits').addEventListener('click', () => {
     state.graphs.delete(state.repoKey);
     loadHistory();
@@ -1555,6 +1556,24 @@ function initSplitter() {
     try { preferred = Number(localStorage.getItem(SPLIT_KEY)); } catch (err) { /* storage disabled */ }
     setSplit(preferred > 0 ? preferred : SPLIT_DEFAULT, false);
   });
+}
+
+// Scrolls a stacked (mobile) panel just under the sticky top bar.
+function scrollToPanel(target) {
+  const offset = document.querySelector('.topbar')?.offsetHeight || 0;
+  const top = target.getBoundingClientRect().top + window.scrollY - offset - 8;
+  const smooth = !window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  window.scrollTo({ top: Math.max(0, top), behavior: smooth ? 'smooth' : 'auto' });
+}
+
+function initPanelJumps() {
+  // The repository panel leads to the commit tree once a repository is open,
+  // otherwise to the report panel; the commit tree leads to the report.
+  el('jump-from-repos').addEventListener('click', () => {
+    const tree = el('commit-browser');
+    scrollToPanel(tree.classList.contains('hidden') ? el('report-panel') : tree);
+  });
+  el('jump-from-commits').addEventListener('click', () => scrollToPanel(el('report-pane')));
 }
 
 document.addEventListener('DOMContentLoaded', boot);
