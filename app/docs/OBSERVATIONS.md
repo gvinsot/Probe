@@ -164,3 +164,11 @@ Values are redacted before they are parsed, compared, displayed or sent to a pro
 - No subtest observations, no candidate-side repeat, no tolerance for floating-point noise, no order-insensitive collections and no normalization of error text. A reordered struct field or a reworded error is a real, recorded difference that a human may judge uninteresting.
 - A value that is identical in both baseline runs but depends on the build (for example a heap address on a toolchain that does not randomize it) can still diverge; the address and source-position heuristics catch only common forms.
 - An older binary that re-renders a newer report silently drops `divergences`; render with the binary that produced the report. Consumers that validate reports against an older schema reject the new fields.
+
+## See also
+
+- [Differential fuzzing](FUZZ.md): the other source of Behavior Divergences, without a model.
+- [Execution cache](EXECUTION_CACHE.md): the baseline repeat always runs live.
+- [Intent criteria](INTENT.md): the labelled `intent_judgment` a DIVERGED hypothesis may carry.
+- [Exports](EXPORTS.md): the `observed_divergence` class.
+- [Security boundaries](SECURITY.md) and [CI integration](CI.md).

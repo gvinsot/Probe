@@ -255,3 +255,10 @@ The Impact Analysis section lists, under `price.Total`:
 
 `TestTotalZero` passed inside the failed candidate run of `./price` and got a run pair of its own. The two failing tests are high targets in Suggested Human Review; there is no reproduced issue.
 <!-- F6b:end -->
+
+## See also
+
+- [Changed baseline tests](BASE_TESTS.md): the other `FAILS_ON_CANDIDATE` source.
+- [Execution cache](EXECUTION_CACHE.md): the live-baseline rule for impacted tests.
+- [Exports](EXPORTS.md): the `impacted_test_fails_on_candidate` class (always unanchored in SARIF).
+- [Security boundaries](SECURITY.md).

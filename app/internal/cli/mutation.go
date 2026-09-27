@@ -9,6 +9,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"strings"
 
 	"github.com/gvinsot/SwiftProof/app/internal/config"
 	"github.com/gvinsot/SwiftProof/app/internal/coverage"
@@ -118,8 +119,11 @@ func mutationLine(m *model.Mutation) string {
 		status, len(m.Mutants), m.Generated, m.Killed, m.Survived, m.Invalid, m.TimedOut, m.Inconclusive, m.NotRun)
 }
 
+// orNoReason is a reason for a stdout sentence its caller ends itself: an
+// empty reason gets a fixed text, and a final period is dropped (harness
+// texts such as budgetReservedText end with one).
 func orNoReason(s string) string {
-	if s == "" {
+	if s = strings.TrimSuffix(strings.TrimSpace(s), "."); s == "" {
 		return "no reason was recorded"
 	}
 	return s

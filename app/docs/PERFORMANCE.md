@@ -19,9 +19,26 @@ The implementation caps concurrent Go source readers at eight, indexes report li
 
 Future end-to-end evaluation should measure small/large real PRs with and without checks/reviewer, memory peaks, useful findings, false positives, missed regressions and developer review duration. Any caching must key on immutable commits, policy and image identity without letting one untrusted run poison another.
 
+## Worst-case wall clock of a v0.4 review
+
+This is a bound derived from the budget rules, not a measurement. Every sandbox run of a review is charged to the one budget `sandbox.max_runtime_seconds`, except dependency preparation, which has its own `prepare.timeout_seconds`. The v0.4 stages have sub-caps inside that budget, and when a reviewer will run, half of it is reserved for the reviewer's experiments. The worst-case wall-clock time is approximately:
+
+```text
+T ≈ Git comparison + snapshots + prepare.timeout_seconds + S + reviewer.timeout_seconds
+    + N_runs × 5 s (bounded container cleanup) + report write
+```
+
+- S is the sandbox time spent before the reviewer. It never exceeds `sandbox.max_runtime_seconds`, and it exceeds `max_runtime_seconds` minus the reviewer reserve only when the initial checks and coverage alone use more.
+- The reviewer's own sandbox runs fall inside `reviewer.timeout_seconds`.
+- With the default policy and a reviewer: 600 + 300 + 600 s plus overheads when the initial checks and coverage take less than 300 s, and at most 600 + 600 + 600 s plus overheads.
+- With `--deadline D`: at most D plus up to 5 s of cleanup per run in flight, unless the Git comparison, static analysis and snapshot export alone, which the deadline does not interrupt, take longer than D − 30 s. An in-flight preparation can take up to 20 s of cleanup instead of 5 s.
+- `--parallel` changes wall-clock time, not S: every concurrent launch reserves its per-run timeout from what remains of the budget.
+
+[CI integration](CI.md#runtime-bounds-deadline-and-report-size) gives the `--deadline` recommendation that follows from it.
+
 ## v0.4 stage costs
 
-Each block below records measured costs of one v0.4 stage, and nothing that was not measured. The worst-case wall-clock formula for a whole review is in [CI integration](CI.md#runtime-bounds-deadline-and-report-size).
+Each block below records measured costs of one v0.4 stage, and nothing that was not measured. The worst-case bound for a whole review is in the section above.
 
 <!-- F2:begin -->
 ### Differential fuzzing (F2)

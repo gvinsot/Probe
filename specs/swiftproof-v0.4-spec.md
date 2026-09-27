@@ -344,7 +344,7 @@ Headings are exact:
 17. `## Recorded Evidence`: an `intent_test` record prints "Candidate check: X (candidate-only; no baseline control)"; a `base_test_differential` record prints "Hybrid-tree check: X; baseline check: Y"; a record with a repeat check adds "; baseline repeat: Z". A stored status other than `UNVERIFIED` that `Finalize` did not re-derive from the recorded checks (or withdrew) is followed by "; as stored; not accepted as evidence".
 18. `## Artifacts`, then the attribution
 
-`intent_judgment` is rendered only after the hypothesis's evidence line, with the fixed label "Model judgment (not evidence): expected change | unexpected change". Every repository or model string goes through the inline escaper, with no code spans and no links.
+`intent_judgment` is rendered only after the hypothesis's evidence line, with the fixed label "Model judgment (not evidence): expected change | unexpected change". Every repository or model string goes through the inline escaper, with no code spans and no links: it replaces control and bidirectional characters, HTML-escapes `&`, `<` and `>`, and backslash-escapes the Markdown punctuation; quotes and apostrophes stay as text.
 
 ### 6.3 Console lines
 
@@ -379,8 +379,10 @@ An execution-only flag (`--base-tests`, `--fuzz`, `--impacted-tests`, `--cache-d
 
 Mandatory, and repeated in the CI documentation and the v0.4.0 release notes:
 
-1. Any of `fuzz`, `mutation` or `prepare` makes every binary before v0.4.0 exit 3. Do not add them to the repository's own `.swiftproof.json`, to `app/examples/swiftproof.go.json`, or to any base-branch policy until a release that accepts them is published and the workflows are re-pinned (URL and sha256).
-2. The new CLI flags (§6.5) make older binaries exit 3 at flag parsing. Do not add them to `review.yml` or `pr-review.yml` before re-pinning.
+1. Any of `fuzz`, `mutation` or `prepare` makes a binary built from v0.3.4 or earlier exit 3. Do not add them to the repository's own `.swiftproof.json`, to `app/examples/swiftproof.go.json`, or to any base-branch policy until a release that accepts them is published and the workflows are re-pinned (URL and sha256).
+2. The new CLI flags (§6.5) make those older binaries exit 3 at flag parsing. Do not add them to `review.yml` or `pr-review.yml` before re-pinning.
+
+The deployment pipeline tagged `main` as v0.3.5 to v0.3.12 during the v0.4 integration. Binaries built from those tags accept the new keys and flags without implementing v0.4 (v0.3.5 to v0.3.9: the foundation, whose stages record `not_run`; v0.3.10 to v0.3.12: the stages without the final integration fixes). They MUST NOT be presented or pinned as v0.4 releases; the rules above apply to v0.4.0 and later.
 3. An older binary's `swiftproof report` silently drops the new report fields, because it decodes with plain `json.Unmarshal`. Render with the producing binary.
 4. Consumers validating against the old schema reject new reports. Publish the schema with the release.
 
@@ -437,6 +439,27 @@ v0.4 is acceptable when, in addition to the v0.2 criteria and the acceptance bul
 
 Product validation remains open, as in v0.2: whether these parts save review time or catch important changes must be measured on representative pull requests.
 
+## 10. Later work
+
+This section replaces the list of v0.2 §12 for v0.4. v0.4 delivers some of those extensions, in the bounded forms this specification describes, and only those forms:
+
+- symbol indexes: a static Go index parsed and type-checked from committed source, approximate (§F6);
+- mutation testing: single-change mutants of added lines of Go files (§F4);
+- property-style testing, in the narrow form of deterministic differential fuzzing of changed Go functions and exported TS/JS functions of basic types (§F2);
+- differential existing suites: Go only, as baseline versions of changed tests (§F3) and, opt-in, impacted existing tests (§F6);
+- commit-, policy- and image-keyed caching: baseline-side runs only, opt-in, local (§F7);
+- SARIF: evidence-only files, never uploaded by SwiftProof (§F9).
+
+These remain future extensions, not current capabilities:
+
+- semantic TypeScript/JavaScript analysis (every TS/JS part of v0.4 is lexical);
+- mutation of TypeScript/JavaScript and other non-Go code, and differential existing suites for languages other than Go;
+- shrinking of fuzz counterexamples, coverage-guided fuzzing, and fuzzing of methods, generic functions and composite parameter types;
+- non-Go coverage formats, base-side coverage comparison and coverage regression detection on unchanged code;
+- signed attestations of reports, exports or prepared images;
+- PR platform adapters that post comments or upload SARIF;
+- remote or shared caches, and incremental re-review against a previous report (`--previous-report`) or an interdiff target (`--since`).
+
 ## F1. Observation oracle
 
 A generated test may record values instead of asserting them: Go through `testing.T.Attr` (Go 1.25 or later in the image), Vitest through `task.meta.swiftproof`; Jest is not supported. When the test passes on both revisions and a recorded key differs, the harness runs exactly one live baseline repeat. Evidence kind `differential_observation`, hypothesis status `DIVERGED`. There is no policy key and no flag.
@@ -480,7 +503,7 @@ A generated test may record values instead of asserting them: Go through `testin
 
 ## F2. Deterministic differential fuzzing
 
-Opt-in through the `fuzz` policy object, review only; `--fuzz=false` disables it for a run. Changed package-level Go functions whose signature is unchanged and whose parameters can be generated run on identical seeded inputs (seed scheme `swiftproof-fuzz/v1`) on both revisions, with one confirmation pair when the first pair differs. No model is involved. TS/JS support follows §1.2 decision 2 and the rules below. Evidence kind `differential_fuzz`; check kinds `fuzz_base`, `fuzz_candidate`, `fuzz_base_confirm` and `fuzz_candidate_confirm`.
+Opt-in through the `fuzz` policy object, review only; `--fuzz=false` disables it for a run. Changed package-level Go functions, and changed exported TS/JS functions (§F2.8), whose signature is unchanged and whose parameters can be generated run on identical seeded inputs (seed scheme `swiftproof-fuzz/v1`) on both revisions, with one confirmation pair when the first pair differs. No model is involved. TS/JS support follows §1.2 decision 2 and §F2.8. Evidence kind `differential_fuzz`; check kinds `fuzz_base`, `fuzz_candidate`, `fuzz_base_confirm` and `fuzz_candidate_confirm`.
 
 <!-- F2:begin -->
 ### F2.1 Selection (Go)

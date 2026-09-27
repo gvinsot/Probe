@@ -111,6 +111,7 @@ func recordBaseTestsSkipped(sc stageContext, requested bool, r *model.Report) {
 		return
 	}
 	r.BaseTests = baseTestsSection(model.BaseTestsNotRun, skippedReason(sc))
+	r.Unverified = append(r.Unverified, baseTestsUnverifiedPrefix+r.BaseTests.Reason)
 }
 
 // baseTestsLine is the stdout line of the base-tests section, printed whenever

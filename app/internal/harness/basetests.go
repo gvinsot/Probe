@@ -677,9 +677,11 @@ func (r *baseTestRun) stopReason() string {
 
 // exec records one run of the stage with what remains of the sub-cap as its
 // timeout ceiling. Callers check stopReason first, so that timeout is positive.
+// The cache key holds the fixed sub-cap, not the remainder, so that it does
+// not depend on how long the stage's earlier runs took (runOptions.remaining).
 func (r *baseTestRun) exec(kind, dir string, command []string, live bool) model.Check {
 	started := time.Now()
-	c, _, _ := r.h.runWithOptions(r.ctx, kind, dir, command, runOptions{timeout: baseTestSubCap - r.spent, ceiling: r.ceiling, live: live})
+	c, _, _ := r.h.runWithOptions(r.ctx, kind, dir, command, runOptions{timeout: baseTestSubCap, remaining: baseTestSubCap - r.spent, ceiling: r.ceiling, live: live})
 	if !c.Replayed() {
 		r.spent += time.Since(started)
 	}
@@ -880,11 +882,12 @@ func (r *baseTestRun) pair(u baseTestUnit, names []string, narrowBase bool, reco
 	}
 	// §1.11: a replayed baseline never supports FAILS_ON_CANDIDATE. The
 	// baseline runs again live with the same kind and command; the replayed
-	// check stays in the ledger.
+	// check stays in the ledger, and a live run that does not reproduce it
+	// evicts the entry it was replayed from.
 	reason := r.stopReason()
 	var live model.Check
 	if reason == "" {
-		live = record(r.exec(model.CheckBaseTestBase, h.base, command, true))
+		live = h.settleReplayedGoBaseline(base, record(r.exec(model.CheckBaseTestBase, h.base, command, true)), names)
 	}
 	for _, n := range names {
 		if verdicts[n].status != model.StatusFailsOnCandidate {

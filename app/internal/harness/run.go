@@ -20,13 +20,20 @@ import (
 // the execution cache consulted when the run is eligible.
 type runOptions struct {
 	capture     string        // fixed in-container payload path; "" = none
-	timeout     time.Duration // > 0 tightens the per-run timeout, never loosens it
+	timeout     time.Duration // > 0 tightens the per-run timeout, never loosens it; part of the cache key
+	remaining   time.Duration // > 0 further bounds the launch timeout and the served duration, never the cache key; see below
 	ceiling     time.Duration // > 0: budget limit for this run instead of MaxRuntime (§1.7.1)
 	tee         io.Writer     // optional log copy, capped at teeLimit; see below
 	teeOverflow *bool         // set to true when the tee cap was hit
 	ledger      string        // "" -> h.checks, "check-N"; ledgerMutation -> h.mutationChecks, "mutation-check-N", artifact kind mutation_check_output
 	live        bool          // never served from the execution cache; write-through still allowed (§1.11)
 }
+
+// runOptions.remaining is what remains of a stage's sub-cap (§1.7.1 rule 3).
+// It varies with the time the stage's earlier runs took, so, like budget
+// clamping, it stays out of the cache key: a stage passes its fixed sub-cap
+// as timeout and the remainder as remaining, and the key of a run then
+// repeats across reviews (§1.11 timeout_ms, Appendix C F2).
 
 // ledgerMutation names the separate mutation check ledger.
 const ledgerMutation = "mutation"
@@ -88,14 +95,17 @@ func (h *Harness) runWith(ctx context.Context, kind, dir string, command []strin
 // It is plan, executePlan and record in sequence; RunChecks (batch.go) is the
 // only caller that runs several plans' executions at the same time.
 //
-// Budget (§1.7.1): the run reserves min(policy timeout, o.timeout, what the
-// limit leaves after spent and reserved time) before launch, and releases the
-// reservation and charges the elapsed time afterwards. The limit is MaxRuntime,
-// or o.ceiling when that is lower. A replay reserves and charges nothing.
+// Budget (§1.7.1): the run reserves min(policy timeout, o.timeout,
+// o.remaining, what the limit leaves after spent and reserved time) before
+// launch, and releases the reservation and charges the elapsed time
+// afterwards. The limit is MaxRuntime, or o.ceiling when that is lower. A
+// replay reserves and charges nothing.
 //
 // Cache (§1.11): a baseline-side kind run on h.base without network, with a
-// cache configured, is keyed by h.exec. Unless o.live, a servable entry is
-// replayed instead of executed. A live result that may be stored is written
+// cache configured, is keyed by h.exec with min(policy timeout, o.timeout).
+// Unless o.live, a servable entry is replayed instead of executed; its
+// recorded duration must be below the launch timeout, which also honors
+// o.remaining. A live result that may be stored is written
 // through, which updates the entry's agreement count or evicts a contradicted
 // entry.
 func (h *Harness) runWithOptions(ctx context.Context, kind, dir string, command []string, o runOptions) (model.Check, []byte, bool) {
@@ -161,8 +171,17 @@ func (h *Harness) plan(ctx context.Context, kind, dir string, command []string, 
 	if o.timeout > 0 && o.timeout < effective {
 		effective = o.timeout
 	}
+	launch := effective // effective is keyed; launch also honors o.remaining
+	if o.remaining > 0 && o.remaining < launch {
+		launch = o.remaining
+	}
 	script := wrapperScript
-	if o.capture != "" {
+	switch {
+	case o.capture != "" && !logDecidesError(kind):
+		// A candidate-side command may pass the tested code's exit code
+		// through; the script keeps 125 and above for sandbox failures.
+		script = candidateCaptureScript(o.capture)
+	case o.capture != "":
 		script = captureScript(o.capture)
 	}
 	switch {
@@ -181,13 +200,13 @@ func (h *Harness) plan(ctx context.Context, kind, dir string, command []string, 
 	default:
 		key := h.cacheKey(kind, dir, command, script, effective)
 		if key != "" && !o.live {
-			if e, found := h.exec.cache.Get(key); found && e.Key == key && servable(e, effective) {
+			if e, found := h.exec.cache.Get(key); found && e.Key == key && servable(e, launch) {
 				p.replay, p.key, p.finished = &e, key, time.Now()
 				return p
 			}
 			h.cacheCounts.Misses++
 		}
-		timeout, skipped := h.reserveRun(effective, o.ceiling)
+		timeout, skipped := h.reserveRun(launch, o.ceiling)
 		if skipped != "" {
 			c.Status, c.Output = "SKIPPED", skipped
 			break
@@ -300,7 +319,12 @@ func (h *Harness) record(p *runPlan) (model.Check, []byte, bool) {
 // not listed: candidate code writes their logs, so for them ERROR comes only
 // from an infrastructure cause (a Docker or executor error, exit code 125 or
 // above, a lost log artifact) and a compile, setup or run failure stays FAIL.
-// Candidate content can then never force exit 4 through them (§1.17).
+// Exit code 125 or above then means a sandbox failure: a capture run of such a
+// kind uses candidateCaptureScript, which reports a command status of 125 or
+// above as 124 (a TS/JS runner passes a process.exit code through), and the
+// other runs of these kinds are go test, which never passes a test binary's
+// exit code through. Candidate content can then never force exit 4 through
+// them (§1.17).
 func logDecidesError(kind string) bool {
 	switch kind {
 	case model.CheckTest, model.CheckTypecheck, model.CheckBuild, model.CheckCoverage, model.CheckExistingTest,

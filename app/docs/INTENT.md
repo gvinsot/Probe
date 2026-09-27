@@ -205,3 +205,10 @@ The sections appear only when an intent was supplied. With an intent but no crit
 - A change confined to a function body whose name is not on an added line cannot support `INTENT_TEST_FAILED` (see Referenced symbols).
 - There is no baseline run of an intent test, so SwiftProof never says that a change delivered a criterion.
 - Criteria IDs are positional; editing the list renumbers them.
+
+## See also
+
+- [Observation experiments](OBSERVATIONS.md): the DIVERGED hypotheses that may carry an `intent_judgment`.
+- [Exports](EXPORTS.md): the `intent_test_failed` class and the PR comment that must never be pasted into the intent.
+- [Agent workflow](AGENT_WORKFLOW.md) and [CI integration](CI.md).
+- [Security boundaries](SECURITY.md).

@@ -173,3 +173,9 @@ Changed Go files that were not mutated:
 ```
 
 The survivors record only that no test this command ran for `./price` failed, and both of its named tests passed, with `total < 0` changed to `total <= 0`, with `0` changed to `(0+1)`, with `total >= 100` changed to `total > 100`, and with `100` changed to `(100+1)`, one change at a time. Whether that matters is for a human to decide.
+
+## See also
+
+- [Exports](EXPORTS.md): the `surviving_mutant` class, read only after verification.
+- [Security boundaries](SECURITY.md): who can write the logs the outcomes are read from.
+- [Performance measurements](PERFORMANCE.md#mutation-of-added-lines).

@@ -150,3 +150,9 @@ Preparation runs before the harness exists and is **not charged** to `sandbox.ma
 - A sandbox image that declares a `VOLUME` cannot be used with `prepare`: the stage fails before the command starts.
 - Nothing the command writes is discarded before the commit, including `/tmp` and `/swiftproof/home`.
 - Only the Docker CLI is supported; no claim is made for Podman.
+
+## See also
+
+- [Execution cache](EXECUTION_CACHE.md): prepared images are used by ID, and the cache key includes it.
+- [CI integration](CI.md#dependency-preparation-in-ci) and [security boundaries](SECURITY.md).
+- [Performance measurements](PERFORMANCE.md#dependency-preparation).
