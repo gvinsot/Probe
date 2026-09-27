@@ -30,6 +30,10 @@ var ErrNotFound = errors.New("not found")
 // MaxHistory is the default history listing limit; cached results are retained.
 const MaxHistory = 50
 
+// RecentWindow bounds the runs sent with the repository list: the dashboard
+// aggregates the most severe status over a period chosen up to this length.
+const RecentWindow = 10 * 24 * time.Hour
+
 // maxRecordBytes bounds a stored report; the CLI truncates its own outputs, so
 // a larger file means something is wrong and must not be loaded into memory.
 const maxRecordBytes = 32 << 20
@@ -127,9 +131,12 @@ type PublicRepo struct {
 	// HookOutdated flags a monitored repository whose webhook predates the
 	// installation token: the forge still delivers, the hub refuses, and the
 	// owner has to reinstall the hook to get pushes and a badge back.
-	HookOutdated bool      `json:"hook_outdated,omitempty"`
-	Latest       *Run      `json:"latest,omitempty"`
-	UpdatedAt    time.Time `json:"updated_at"`
+	HookOutdated bool `json:"hook_outdated,omitempty"`
+	Latest       *Run `json:"latest,omitempty"`
+	// Recent lists the normal analyses queued within RecentWindow, newest
+	// first, so the dashboard can show the most severe status of a period.
+	Recent    []Run     `json:"recent,omitempty"`
+	UpdatedAt time.Time `json:"updated_at"`
 }
 
 // HookOutdated reports a monitored repository installed before webhooks
@@ -597,6 +604,24 @@ func (s *Store) History(userKey, repoKey string, limit int) ([]Run, error) {
 		runs = runs[:limit]
 	}
 	return runs, nil
+}
+
+// Recent lists the normal analyses of a repository queued since the given
+// time, newest first, without their raw reports. Plan artifacts are left out:
+// they answer a different question than the commit's verdict.
+func (s *Store) Recent(userKey, repoKey string, since time.Time) ([]Run, error) {
+	runs, err := s.History(userKey, repoKey, 0)
+	if err != nil {
+		return nil, err
+	}
+	recent := runs[:0]
+	for _, run := range runs {
+		if run.Variant == "plan" || run.QueuedAt.Before(since) {
+			continue
+		}
+		recent = append(recent, run)
+	}
+	return recent, nil
 }
 
 func recordName(commit, variant string) string {

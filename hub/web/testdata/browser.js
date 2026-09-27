@@ -4,6 +4,11 @@ const fixtureSHA = (letter) => letter.repeat(40);
 const fixtureRepo = { key: 'repo', full_name: 'acme/shop', provider: 'github', default_branch: 'main', has_policy: true, admin: true };
 const fixtureCounts = { total: 1, high: 1, critical: 0, medium: 0, low: 0 };
 const fixtureRun = (variant) => ({ commit: fixtureSHA('a'), variant, status: 'done', mode: 'lint', summary: { verdict: 'review', counts: fixtureCounts, reproduced: 0, unverified: 1, focused_lines: 2, changed_lines: 5, changed_files: 1, additions: 4, deletions: 1 } });
+const fixtureAgo = (hours) => new Date(Date.now() - hours * 3600 * 1000).toISOString();
+fixtureRepo.recent = [
+  Object.assign(fixtureRun('normal'), { queued_at: fixtureAgo(2) }),
+  { commit: fixtureSHA('e'), variant: 'normal', status: 'done', queued_at: fixtureAgo(80), summary: { verdict: 'blocked', counts: { total: 2, critical: 1, high: 1, medium: 0, low: 0 } } },
+];
 const fixtureCalls = [];
 let fixtureStream;
 let fixtureRuns = [fixtureRun('normal'), fixtureRun('plan')];
@@ -103,7 +108,19 @@ window.addEventListener('DOMContentLoaded', async () => {
     const severity = document.getElementById('severity');
     assert(document.querySelector('.topbar').contains(severity), 'severity threshold in the top bar');
     assert(severity.type === 'range', 'severity threshold uses a horizontal slider');
-    assert(document.getElementById('review-count').textContent === '0 repositories · 1 commit to review', 'review count at low: ' + document.getElementById('review-count').textContent);
+    const period = document.getElementById('period');
+    const repoMeta = () => document.querySelector('.repo-meta').textContent;
+    assert(period.type === 'range' && period.compareDocumentPosition(severity) & Node.DOCUMENT_POSITION_FOLLOWING, 'period slider before the review threshold');
+    assert(document.getElementById('period-value').textContent === '1d', 'default period is one day');
+    assert(repoMeta().includes('Human review required') && repoMeta().includes('1 commit · 1d'), 'worst status of the day: ' + repoMeta());
+    period.value = '6'; period.dispatchEvent(new Event('input'));
+    assert(repoMeta().includes('reproduced issue') && repoMeta().includes('2 commits · 7d'), 'worst status of the week: ' + repoMeta());
+    assert(localStorage.getItem('swiftproof.hub.period') === '6', 'period remembered');
+    period.value = '0'; period.dispatchEvent(new Event('input'));
+    assert(repoMeta().includes('no commit in 1h'), 'empty period: ' + repoMeta());
+    assert(document.getElementById('review-count').textContent.startsWith('0 repositories'), 'review count follows the period');
+    period.value = '3'; period.dispatchEvent(new Event('input'));
+    assert(document.getElementById('review-count').textContent === '1 repository · 1 commit to review', 'review count at low: ' + document.getElementById('review-count').textContent);
     severity.value = '3'; severity.dispatchEvent(new Event('input'));
     assert(document.querySelector('#report-head .verdict').textContent === 'Review below critical', 'high review not flagged at critical');
     assert(!document.getElementById('commit-tree').textContent.includes('Human review required'), 'tree badges follow the threshold');

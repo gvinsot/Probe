@@ -1230,3 +1230,32 @@ func TestStaticAssetsRevalidate(t *testing.T) {
 		t.Error("distinct assets share an ETag")
 	}
 }
+
+func TestRepoListCarriesRecentNormalRuns(t *testing.T) {
+	h := newHarness(t)
+	h.signIn()
+	repo := h.addRepo(func(r *store.Repo) { r.HasPolicy = true })
+	now := time.Now().UTC()
+	for _, run := range []store.Run{
+		{Commit: "recent", Variant: "normal", Status: store.StatusDone, QueuedAt: now.Add(-2 * time.Hour)},
+		{Commit: "recent", Variant: "plan", Status: store.StatusDone, QueuedAt: now.Add(-time.Hour)},
+		{Commit: "old", Variant: "normal", Status: store.StatusDone, QueuedAt: now.Add(-store.RecentWindow - time.Hour)},
+	} {
+		if err := h.store.PutRecord(&store.Record{UserKey: h.userKey, RepoKey: repo.Key, Run: run, Raw: json.RawMessage(`{}`)}); err != nil {
+			t.Fatalf("PutRecord: %v", err)
+		}
+	}
+	list := h.decode(h.do(http.MethodGet, "/api/repos", nil))
+	repos, _ := list["repos"].([]any)
+	if len(repos) != 1 {
+		t.Fatalf("repos = %v", list["repos"])
+	}
+	recent, _ := repos[0].(map[string]any)["recent"].([]any)
+	if len(recent) != 1 {
+		t.Fatalf("recent = %v, want only the normal run of the window", recent)
+	}
+	run := recent[0].(map[string]any)
+	if run["commit"] != "recent" || run["variant"] != "normal" || run["raw"] != nil {
+		t.Errorf("recent run = %v", run)
+	}
+}

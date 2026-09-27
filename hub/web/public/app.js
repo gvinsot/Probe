@@ -18,6 +18,21 @@ const KINDS = [
 // repository and survives reloads.
 const SEVERITY_KEY = 'swiftproof.hub.minSeverity';
 
+// The period is the other account-wide preference: each repository shows the
+// most severe status among the commits analyzed during it. The server sends
+// the runs of the longest period with the repository list.
+const PERIODS = [
+  { label: '1h', hours: 1 },
+  { label: '6h', hours: 6 },
+  { label: '12h', hours: 12 },
+  { label: '1d', hours: 24 },
+  { label: '2d', hours: 48 },
+  { label: '3d', hours: 72 },
+  { label: '7d', hours: 168 },
+  { label: '10d', hours: 240 },
+];
+const PERIOD_KEY = 'swiftproof.hub.period';
+
 const state = {
   me: null,
   csrf: '',
@@ -33,6 +48,10 @@ const state = {
   loadID: 0,
   reportID: 0,
   minSeverity: loadMinSeverity(),
+  period: loadPeriod(),
+  // Recent normal runs per repository key, keyed by commit, kept up to date
+  // by the live events.
+  recent: new Map(),
   plan: null,
   kind: 'all',
   query: '',
@@ -162,6 +181,56 @@ function verdictChip(run) {
 
 /* ------------------------------------------------------- repository list -- */
 
+// statusRank orders run statuses by gravity so the worst of a period wins:
+// a reproduced issue, then flagged reviews by level, a failed analysis,
+// reviews under the threshold, pending analyses and finally clear results.
+function statusRank(run) {
+  if (run.status === 'queued' || run.status === 'running') return 1;
+  if (run.status === 'failed') return 20;
+  const summary = run.summary || {};
+  switch (summary.verdict) {
+    case 'blocked': return 40;
+    case 'review': {
+      const level = LEVELS.indexOf(reviewLevel(summary));
+      return belowThreshold(summary) ? 10 + level : 30 + level;
+    }
+    case 'clear': return 0;
+    default: return 2;
+  }
+}
+
+// rememberRun keeps a normal run in the repository's recent cache.
+function rememberRun(repoKey, run) {
+  if (!run || !run.commit || (run.variant && run.variant !== 'normal')) return;
+  if (!state.recent.has(repoKey)) state.recent.set(repoKey, new Map());
+  const runs = state.recent.get(repoKey);
+  // An update keeps the fields it does not carry, such as the queue time.
+  runs.set(run.commit, Object.assign({}, runs.get(run.commit), run));
+}
+
+// periodRuns lists the runs of a repository queued within the selected period.
+function periodRuns(repo) {
+  const since = Date.now() - PERIODS[state.period].hours * 3600 * 1000;
+  const runs = state.recent.get(repo.key);
+  if (!runs) return [];
+  return Array.from(runs.values()).filter((run) => {
+    const at = new Date(run.queued_at || run.finished_at || 0).getTime();
+    return !Number.isNaN(at) && at >= since;
+  });
+}
+
+// worstRun returns the most severe run of the period; among equals, the newest.
+function worstRun(repo) {
+  let worst = null;
+  for (const run of periodRuns(repo)) {
+    if (!worst || statusRank(run) > statusRank(worst) ||
+        (statusRank(run) === statusRank(worst) && (run.queued_at || '') > (worst.queued_at || ''))) {
+      worst = run;
+    }
+  }
+  return worst;
+}
+
 function visibleRepos() {
   const query = state.query.trim().toLowerCase();
   return Array.from(state.repos.values()).filter((repo) => {
@@ -206,12 +275,30 @@ function renderRepos() {
     meta.className = 'repo-meta';
     meta.appendChild(chip(repo.default_branch || 'no branch'));
     if (repo.hook_outdated) meta.appendChild(chip('webhook to reinstall', 'warn'));
-    meta.appendChild(verdictChip(repo.latest));
-    if (repo.latest && repo.latest.summary && repo.latest.summary.counts && repo.latest.status === 'done') {
-      const counts = repo.latest.summary.counts;
-      if (counts.total > 0) meta.appendChild(dotChip(counts.total + ' alerts', worstSeverity(counts)));
+    // The status is the most severe one among the commits of the period.
+    const runs = periodRuns(repo);
+    const worst = worstRun(repo);
+    const period = PERIODS[state.period].label;
+    if (worst) {
+      meta.appendChild(verdictChip(worst));
+      if (worst.summary && worst.summary.counts && worst.status === 'done') {
+        const counts = worst.summary.counts;
+        if (counts.total > 0) meta.appendChild(dotChip(counts.total + ' alerts', worstSeverity(counts)));
+      }
+      const scope = chip(runs.length + (runs.length === 1 ? ' commit' : ' commits') + ' · ' + period);
+      scope.title = 'Most severe status among the commits analyzed in the last ' + period +
+        (worst.commit ? ' (' + shortSha(worst.commit) + ')' : '');
+      meta.appendChild(scope);
+    } else {
+      const none = chip('no commit in ' + period, 'unknown');
+      none.title = 'No analysis in the selected period';
+      meta.appendChild(none);
     }
-    if (repo.latest && repo.latest.finished_at) meta.appendChild(chip(timeAgo(repo.latest.finished_at)));
+    if (repo.latest && repo.latest.finished_at) {
+      const last = chip(timeAgo(repo.latest.finished_at));
+      last.title = 'Latest analysis';
+      meta.appendChild(last);
+    }
     item.appendChild(meta);
 
     const open = () => selectRepo(repo.key);
@@ -223,11 +310,11 @@ function renderRepos() {
   }
 }
 
-// renderReviewCount shows, in the top bar, how many repositories have a latest
-// result the threshold flags, and how many commits of the selected repository
-// (among its cached results) do.
+// renderReviewCount shows, in the top bar, how many repositories have a result
+// the threshold flags in the selected period, and how many commits of the
+// selected repository (among its cached results) do.
 function renderReviewCount() {
-  const repos = Array.from(state.repos.values()).filter((repo) => needsReview(repo.latest)).length;
+  const repos = Array.from(state.repos.values()).filter((repo) => periodRuns(repo).some(needsReview)).length;
   const parts = [repos + (repos === 1 ? ' repository' : ' repositories')];
   if (state.repoKey && state.graphs.has(state.repoKey)) {
     const commits = new Set(state.runs.filter(needsReview).map((run) => run.commit)).size;
@@ -878,6 +965,31 @@ function loadMinSeverity() {
   return Number.isInteger(saved) && saved >= 0 && saved < LEVELS.length ? saved : 0;
 }
 
+function loadPeriod() {
+  let saved = NaN;
+  try {
+    const raw = localStorage.getItem(PERIOD_KEY);
+    if (raw !== null) saved = Number(raw);
+  } catch (err) { /* storage disabled */ }
+  return Number.isInteger(saved) && saved >= 0 && saved < PERIODS.length ? saved : 3; // default: 1d
+}
+
+// renderPeriod keeps the period slider and its accessible value in sync.
+function renderPeriod() {
+  const label = PERIODS[state.period].label;
+  el('period').value = String(state.period);
+  el('period').setAttribute('aria-valuetext', label);
+  el('period-value').textContent = label;
+}
+
+// setPeriod changes the aggregation period of every repository.
+function setPeriod(index) {
+  state.period = index;
+  renderPeriod();
+  try { localStorage.setItem(PERIOD_KEY, String(index)); } catch (err) { /* storage disabled */ }
+  renderRepos();
+}
+
 // renderSeverity keeps the slider and its accessible value in sync with the preference.
 function renderSeverity() {
   el('severity').value = String(state.minSeverity);
@@ -1203,6 +1315,7 @@ function connectEvents() {
     try { event = JSON.parse(message.data); } catch (err) { return; }
     if (event.type === 'repo' && event.repo) {
       state.repos.set(event.repo.key, event.repo);
+      rememberRun(event.repo.key, event.repo.latest);
       renderRepos();
       if (event.repo.latest) {
         const run = event.repo.latest;
@@ -1213,12 +1326,16 @@ function connectEvents() {
       if (event.repo.key === state.repoKey) { renderGraph(); renderCommitActions(); }
     } else if (event.type === 'run') {
       const run = event.run;
+      rememberRun(event.repo_key, run);
+      renderRepos();
       const key = pendingKey(event.repo_key, run.commit, run.variant || 'normal');
       if (['queued', 'running'].includes(run.status)) state.pending.set(key, run);
       else state.pending.delete(key);
       if (event.repo_key === state.repoKey) { renderGraph(); renderCommitActions(); }
     } else if (event.type === 'report') {
       state.pending.delete(pendingKey(event.repo_key, event.commit, event.run.variant || 'normal'));
+      rememberRun(event.repo_key, Object.assign({ commit: event.commit }, event.run));
+      renderRepos();
       const repo = state.repos.get(event.repo_key);
       if (event.repo_key === state.repoKey) {
         loadHistory();
@@ -1240,6 +1357,11 @@ function connectEvents() {
 async function loadRepos() {
   const payload = await api('/api/repos');
   state.repos = new Map((payload.repos || []).map((repo) => [repo.key, repo]));
+  state.recent = new Map();
+  for (const repo of state.repos.values()) {
+    for (const run of repo.recent || []) rememberRun(repo.key, run);
+    rememberRun(repo.key, repo.latest);
+  }
   renderRepos();
 }
 
@@ -1300,6 +1422,8 @@ async function boot() {
     state.onlyMissing = event.target.checked;
     renderRepos();
   });
+  renderPeriod();
+  el('period').addEventListener('input', (event) => setPeriod(Number(event.target.value)));
   renderSeverity();
   el('severity').addEventListener('input', (event) => setMinSeverity(Number(event.target.value)));
   initSplitter();

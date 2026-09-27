@@ -17,6 +17,22 @@
       <small id="mode-label"></small>
     </a>
     <span class="spacer"></span>
+    <!-- Shared by every repository: each one shows the most severe status of the commits analyzed in this period. -->
+    <div class="severity-picker" title="Each repository shows the most severe status among the commits analyzed during this period.">
+      <label for="period">Period</label>
+      <input type="range" id="period" min="0" max="7" step="1" value="3" list="period-ticks" aria-valuetext="1d">
+      <datalist id="period-ticks">
+        <option value="0" label="1h"></option>
+        <option value="1" label="6h"></option>
+        <option value="2" label="12h"></option>
+        <option value="3" label="1d"></option>
+        <option value="4" label="2d"></option>
+        <option value="5" label="3d"></option>
+        <option value="6" label="7d"></option>
+        <option value="7" label="10d"></option>
+      </datalist>
+      <output id="period-value" for="period">1d</output>
+    </div>
     <!-- Shared by every repository: it sets which reviews are flagged and filters report alerts. -->
     <div class="severity-picker" title="A review verdict is flagged only when its most severe alert reaches this level; a review without alerts counts as medium.">
       <label for="severity">Review from</label>
