@@ -199,24 +199,52 @@ function statusRank(run) {
   }
 }
 
-// rememberRun keeps a normal run in the repository's recent cache.
+// Zero Go timestamps, absent values and invalid dates are not activity dates.
+function runTimestamp(value) {
+  if (!value) return 0;
+  const at = new Date(value).getTime();
+  return Number.isFinite(at) && at > 0 ? at : 0;
+}
+
+function runActivity(run) {
+  return Math.max(runTimestamp(run.queued_at), runTimestamp(run.finished_at));
+}
+
+function runInPeriod(run, since) {
+  const at = runActivity(run);
+  return run.status === 'queued' || run.status === 'running' || !at || at >= since;
+}
+
+// Store only the projection needed by the repository list, even for full SSE
+// reports. A partial/zero timestamp must not erase a known date.
+function mergeRecentRun(previous = {}, run) {
+  const merged = { ...previous };
+  for (const key of ['commit', 'status', 'variant']) {
+    if (run[key] !== undefined && run[key] !== null) merged[key] = run[key];
+  }
+  for (const key of ['queued_at', 'finished_at']) {
+    if (runTimestamp(run[key])) merged[key] = run[key];
+  }
+  if (run.summary) {
+    merged.summary = { ...previous.summary };
+    if (run.summary.verdict !== undefined) merged.summary.verdict = run.summary.verdict;
+    if (run.summary.counts) merged.summary.counts = { ...previous.summary?.counts, ...run.summary.counts };
+  }
+  return merged;
+}
+
 function rememberRun(repoKey, run) {
   if (!run || !run.commit || (run.variant && run.variant !== 'normal')) return;
   if (!state.recent.has(repoKey)) state.recent.set(repoKey, new Map());
   const runs = state.recent.get(repoKey);
-  // An update keeps the fields it does not carry, such as the queue time.
-  runs.set(run.commit, Object.assign({}, runs.get(run.commit), run));
+  runs.set(run.commit, mergeRecentRun(runs.get(run.commit), run));
 }
 
-// periodRuns lists the runs of a repository queued within the selected period.
+// Undated results and pending work stay visible at every period. Completed
+// runs use their latest activity, including a finish after an old queue time.
 function periodRuns(repo) {
   const since = Date.now() - PERIODS[state.period].hours * 3600 * 1000;
-  const runs = state.recent.get(repo.key);
-  if (!runs) return [];
-  return Array.from(runs.values()).filter((run) => {
-    const at = new Date(run.queued_at || run.finished_at || 0).getTime();
-    return !Number.isNaN(at) && at >= since;
-  });
+  return Array.from(state.recent.get(repo.key)?.values() || []).filter((run) => runInPeriod(run, since));
 }
 
 // worstRun returns the most severe run of the period; among equals, the newest.
@@ -224,7 +252,7 @@ function worstRun(repo) {
   let worst = null;
   for (const run of periodRuns(repo)) {
     if (!worst || statusRank(run) > statusRank(worst) ||
-        (statusRank(run) === statusRank(worst) && (run.queued_at || '') > (worst.queued_at || ''))) {
+        (statusRank(run) === statusRank(worst) && runActivity(run) > runActivity(worst))) {
       worst = run;
     }
   }
@@ -289,6 +317,11 @@ function renderRepos() {
       scope.title = 'Most severe status among the commits analyzed in the last ' + period +
         (worst.commit ? ' (' + shortSha(worst.commit) + ')' : '');
       meta.appendChild(scope);
+      if (runs.some((run) => !runActivity(run))) {
+        const undated = chip('analysis date unknown', 'warn');
+        undated.title = 'Undated results remain visible in every period.';
+        meta.appendChild(undated);
+      }
     } else {
       const none = chip('no commit in ' + period, 'unknown');
       none.title = 'No analysis in the selected period';
@@ -993,7 +1026,7 @@ function setPeriod(index) {
   state.period = index;
   renderPeriod();
   try { localStorage.setItem(PERIOD_KEY, String(index)); } catch (err) { /* storage disabled */ }
-  renderRepos();
+  renderDashboard();
 }
 
 // renderSeverity keeps the slider and its accessible value in sync with the preference.
@@ -1009,6 +1042,10 @@ function setMinSeverity(level) {
   state.minSeverity = level;
   renderSeverity();
   try { localStorage.setItem(SEVERITY_KEY, String(level)); } catch (err) { /* storage disabled */ }
+  renderDashboard();
+}
+
+function renderDashboard() {
   renderRepos();
   renderGraph();
   renderCommitActions();
@@ -1380,20 +1417,59 @@ function connectEvents() {
       toast(event.error || 'The repository sync failed.', true);
     }
   };
+  let connected = false;
+  stream.onopen = () => {
+    if (connected) refreshDashboard(true); // Recover events missed during a disconnect.
+    connected = true;
+  };
   stream.onerror = () => { /* EventSource retries on its own. */ };
 }
 
 /* ------------------------------------------------------------------ boot -- */
 
+let reposLoadID = 0;
 async function loadRepos() {
+  const loadID = ++reposLoadID;
+  const beforeRepos = new Map(state.repos);
+  const beforeRuns = new Map(Array.from(state.recent, ([key, runs]) => [key, new Map(runs)]));
   const payload = await api('/api/repos');
+  if (loadID !== reposLoadID) return;
+  // Preserve live updates received while the snapshot request was in flight.
+  const liveRepos = Array.from(state.repos).filter(([key, repo]) => repo !== beforeRepos.get(key));
+  const liveRuns = [];
+  for (const [key, runs] of state.recent) {
+    for (const [commit, run] of runs) {
+      if (run !== beforeRuns.get(key)?.get(commit)) liveRuns.push([key, run]);
+    }
+  }
   state.repos = new Map((payload.repos || []).map((repo) => [repo.key, repo]));
   state.recent = new Map();
   for (const repo of state.repos.values()) {
-    for (const run of repo.recent || []) rememberRun(repo.key, run);
-    rememberRun(repo.key, repo.latest);
+    for (const run of repo.recent || []) {
+      rememberRun(repo.key, mergeRecentRun(beforeRuns.get(repo.key)?.get(run.commit), run));
+    }
+    if (repo.latest) rememberRun(repo.key, mergeRecentRun(beforeRuns.get(repo.key)?.get(repo.latest.commit), repo.latest));
+    delete repo.recent; // Avoid keeping a duplicate account-wide run cache.
   }
+  for (const [key, repo] of liveRepos) state.repos.set(key, repo);
+  for (const [key, run] of liveRuns) rememberRun(key, run);
   renderRepos();
+}
+
+let refreshingDashboard = false;
+async function refreshDashboard(refreshHistory = false) {
+  if (refreshingDashboard || document.hidden) return;
+  refreshingDashboard = true;
+  try {
+    await loadRepos();
+    if (refreshHistory && state.repoKey) await loadHistory();
+    renderDashboard();
+  } catch (err) {
+    toast('Could not refresh results: ' + err.message, true);
+    renderRepos(); // Still age the current snapshot while offline.
+  } finally {
+    refreshingDashboard = false;
+  }
 }
 
 function readHash() {
@@ -1479,6 +1555,8 @@ async function boot() {
 
   await loadRepos();
   connectEvents();
+  setInterval(refreshDashboard, 60000);
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) refreshDashboard(true); });
   const route = readHash();
   if (route && state.repos.has(route.repoKey)) {
     selectRepo(route.repoKey, route.commit);

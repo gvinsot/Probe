@@ -131,12 +131,12 @@ type PublicRepo struct {
 	// HookOutdated flags a monitored repository whose webhook predates the
 	// installation token: the forge still delivers, the hub refuses, and the
 	// owner has to reinstall the hook to get pushes and a badge back.
-	HookOutdated bool `json:"hook_outdated,omitempty"`
-	Latest       *Run `json:"latest,omitempty"`
-	// Recent lists the normal analyses queued within RecentWindow, newest
-	// first, so the dashboard can show the most severe status of a period.
-	Recent    []Run     `json:"recent,omitempty"`
-	UpdatedAt time.Time `json:"updated_at"`
+	HookOutdated bool       `json:"hook_outdated,omitempty"`
+	Latest       *RecentRun `json:"latest,omitempty"`
+	// Recent lists compact normal results active within RecentWindow, plus
+	// undated results which must not silently disappear from the dashboard.
+	Recent    []RecentRun `json:"recent,omitempty"`
+	UpdatedAt time.Time   `json:"updated_at"`
 }
 
 // HookOutdated reports a monitored repository installed before webhooks
@@ -151,7 +151,11 @@ func (r *Repo) Public() PublicRepo {
 	p := PublicRepo{
 		Key: r.Key, Provider: r.Provider, FullName: r.FullName, WebURL: r.WebURL,
 		DefaultBranch: r.DefaultBranch, Private: r.Private, Admin: r.Admin,
-		HasPolicy: r.HasPolicy, Monitored: r.Monitored, Latest: r.Latest, UpdatedAt: r.UpdatedAt,
+		HasPolicy: r.HasPolicy, Monitored: r.Monitored, UpdatedAt: r.UpdatedAt,
+	}
+	if r.Latest != nil {
+		latest := projectRecent(r.Latest)
+		p.Latest = &latest
 	}
 	if r.Monitored {
 		p.BadgeKey = r.BadgeKey
@@ -178,8 +182,9 @@ type HookRoute struct {
 
 // Store is a concurrency-safe directory of JSON records.
 type Store struct {
-	dir string
-	mu  sync.RWMutex
+	dir    string
+	mu     sync.RWMutex
+	recent map[recentKey]map[string]RecentRun
 }
 
 // Open prepares the data directory.
@@ -189,7 +194,11 @@ func Open(dir string) (*Store, error) {
 			return nil, fmt.Errorf("data directory: %w", err)
 		}
 	}
-	return &Store{dir: dir}, nil
+	s := &Store{dir: dir, recent: make(map[recentKey]map[string]RecentRun)}
+	if err := s.loadRecent(); err != nil {
+		return nil, fmt.Errorf("recent index: %w", err)
+	}
+	return s, nil
 }
 
 var keyPattern = regexp.MustCompile(`^[A-Za-z0-9._-]{1,120}$`)
@@ -374,6 +383,10 @@ func (s *Store) UpdateRepo(userKey, repoKey string, mutate func(*Repo) error) (*
 func (s *Store) Repos(userKey string) ([]*Repo, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
+	return s.reposLocked(userKey)
+}
+
+func (s *Store) reposLocked(userKey string) ([]*Repo, error) {
 	if !ValidKey(userKey) {
 		return nil, fmt.Errorf("invalid key %q", userKey)
 	}
@@ -545,6 +558,13 @@ func (s *Store) PutRecord(rec *Record) error {
 	if err := writeJSON(path, rec); err != nil {
 		return err
 	}
+	since := time.Now().Add(-RecentWindow)
+	for commit, run := range s.recent[recentKey{rec.UserKey, rec.RepoKey}] {
+		if !run.inWindow(since) {
+			delete(s.recent[recentKey{rec.UserKey, rec.RepoKey}], commit)
+		}
+	}
+	s.indexRecent(rec.UserKey, rec.RepoKey, projectRecent(&rec.Run), since)
 	return nil
 }
 
@@ -604,24 +624,6 @@ func (s *Store) History(userKey, repoKey string, limit int) ([]Run, error) {
 		runs = runs[:limit]
 	}
 	return runs, nil
-}
-
-// Recent lists the normal analyses of a repository queued since the given
-// time, newest first, without their raw reports. Plan artifacts are left out:
-// they answer a different question than the commit's verdict.
-func (s *Store) Recent(userKey, repoKey string, since time.Time) ([]Run, error) {
-	runs, err := s.History(userKey, repoKey, 0)
-	if err != nil {
-		return nil, err
-	}
-	recent := runs[:0]
-	for _, run := range runs {
-		if run.Variant == "plan" || run.QueuedAt.Before(since) {
-			continue
-		}
-		recent = append(recent, run)
-	}
-	return recent, nil
 }
 
 func recordName(commit, variant string) string {

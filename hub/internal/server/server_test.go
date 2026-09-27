@@ -1237,10 +1237,16 @@ func TestRepoListCarriesRecentNormalRuns(t *testing.T) {
 	repo := h.addRepo(func(r *store.Repo) { r.HasPolicy = true })
 	now := time.Now().UTC()
 	for _, run := range []store.Run{
-		{Commit: "recent", Variant: "normal", Status: store.StatusDone, QueuedAt: now.Add(-2 * time.Hour)},
+		{Commit: "recent", Variant: "normal", Status: store.StatusDone, QueuedAt: now.Add(-2 * time.Hour), Error: "private error", Message: "private message", Author: "private author", Intent: "private intent", Ref: "private ref", ToolVersion: "private version"},
 		{Commit: "recent", Variant: "plan", Status: store.StatusDone, QueuedAt: now.Add(-time.Hour)},
 		{Commit: "old", Variant: "normal", Status: store.StatusDone, QueuedAt: now.Add(-store.RecentWindow - time.Hour)},
 	} {
+		if run.Variant == "normal" && run.Commit == "recent" {
+			repo.Latest = &run
+			if err := h.store.PutRepo(h.userKey, repo); err != nil {
+				t.Fatal(err)
+			}
+		}
 		if err := h.store.PutRecord(&store.Record{UserKey: h.userKey, RepoKey: repo.Key, Run: run, Raw: json.RawMessage(`{}`)}); err != nil {
 			t.Fatalf("PutRecord: %v", err)
 		}
@@ -1254,6 +1260,20 @@ func TestRepoListCarriesRecentNormalRuns(t *testing.T) {
 	if len(recent) != 1 {
 		t.Fatalf("recent = %v, want only the normal run of the window", recent)
 	}
+	for _, projection := range []map[string]any{recent[0].(map[string]any), repos[0].(map[string]any)["latest"].(map[string]any)} {
+		allowed := map[string]bool{"commit": true, "status": true, "variant": true, "queued_at": true, "finished_at": true, "summary": true}
+		for key := range projection {
+			if !allowed[key] {
+				t.Errorf("private or unnecessary run field %q in /api/repos", key)
+			}
+		}
+		for key := range projection["summary"].(map[string]any) {
+			if key != "verdict" && key != "counts" {
+				t.Errorf("unnecessary summary field %q", key)
+			}
+		}
+	}
+
 	run := recent[0].(map[string]any)
 	if run["commit"] != "recent" || run["variant"] != "normal" || run["raw"] != nil {
 		t.Errorf("recent run = %v", run)

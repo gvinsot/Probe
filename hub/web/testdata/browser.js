@@ -11,13 +11,17 @@ fixtureRepo.recent = [
 ];
 const fixtureCalls = [];
 let fixtureStream;
+let fixtureReposGate;
 let fixtureRuns = [fixtureRun('normal'), fixtureRun('plan')];
 window.EventSource = class { constructor() { fixtureStream = this; } };
 window.fetch = async (path, init) => {
   fixtureCalls.push({ path, init });
   let data;
   if (path === '/api/me') data = { authenticated: true, csrf: 'csrf', user: { login: 'octocat', provider: 'github' } };
-  else if (path === '/api/repos') data = { repos: [fixtureRepo] };
+  else if (path === '/api/repos') {
+    if (fixtureReposGate) await fixtureReposGate;
+    data = { repos: [fixtureRepo] };
+  }
   else if (path.endsWith('/commits')) data = { limited: false, branches: [{name:'main',sha:fixtureSHA('a')},{name:'feature/ui',sha:fixtureSHA('c')}], commits: [
     { sha: fixtureSHA('a'), parents: [fixtureSHA('b'), fixtureSHA('c')], branches: ['main'], message: 'Merge feature', author: 'Ada' },
     { sha: fixtureSHA('c'), parents: [fixtureSHA('d')], branches: ['feature/ui'], message: '<img src=x onerror=alert(1)>', author: 'Grace' },
@@ -192,6 +196,54 @@ window.addEventListener('DOMContentLoaded', async () => {
     assert(lineDiff.querySelectorAll('tr.focus').length === 1 && !lineDiff.querySelector('.diff-note'), 'a line alert highlights its line');
     const outside = renderDiff(diffFile, { ...lineAlert, line: 40, end_line: 40 });
     assert(!outside.querySelector('tr.focus') && outside.querySelector('.diff-note').textContent.startsWith('Line 40 is outside the recorded diff'), 'a line outside the diff is named');
+    // A partial SSE payload must not erase the known queue date or verdict.
+    const liveCommit = fixtureSHA('f');
+    const queued = fixtureAgo(0.1);
+    rememberRun('repo', { commit: liveCommit, status: 'done', queued_at: queued, summary: { verdict: 'blocked' } });
+    rememberRun('repo', { commit: liveCommit, queued_at: undefined });
+    assert(state.recent.get('repo').get(liveCommit).queued_at === queued, 'undefined queue time preserves the known date');
+    for (const missing of [null, '', 0, '0001-01-01T00:00:00Z', 'invalid']) {
+      fixtureStream.onmessage({ data: JSON.stringify({ type: 'run', repo_key: 'repo', run: { commit: liveCommit, status: 'done', queued_at: missing, error: 'private error', message: 'private message', author: 'private author', intent: 'private intent' } }) });
+      const remembered = state.recent.get('repo').get(liveCommit);
+      assert(remembered.queued_at === queued && remembered.summary.verdict === 'blocked', 'SSE preserves date and verdict');
+      assert(!('error' in remembered) && !('message' in remembered) && !('author' in remembered) && !('intent' in remembered), 'recent browser cache only keeps aggregation fields');
+    }
+    setPeriod(0);
+    assert(repoMeta().includes('reproduced issue'), 'dated blocking SSE update stays visible');
+    state.recent.get('repo').delete(liveCommit);
+    fixtureStream.onmessage({ data: JSON.stringify({ type: 'run', repo_key: 'repo', run: { commit: liveCommit, status: 'done', queued_at: '0001-01-01T00:00:00Z', summary: { verdict: 'blocked' } } }) });
+    assert(repoMeta().includes('reproduced issue') && repoMeta().includes('analysis date unknown'), 'undated blocker remains visible with an explicit warning');
+    assert(!repoMeta().includes('no commit in'), 'undated result never becomes an empty period');
+    state.recent.get('repo').delete(liveCommit);
+    rememberRun('repo', { commit: liveCommit, status: 'running', queued_at: fixtureAgo(300) });
+    assert(periodRuns(fixtureRepo).some((run) => run.commit === liveCommit), 'old pending work remains visible');
+    rememberRun('repo', { commit: liveCommit, status: 'done', finished_at: fixtureAgo(0.1), summary: { verdict: 'blocked' } });
+    renderRepos();
+    assert(repoMeta().includes('reproduced issue'), 'recent finish of an old run stays in the period');
+
+    // A reconnect/periodic refresh catches results whose SSE was missed.
+    fixtureRepo.recent.push({ commit: fixtureSHA('g'), status: 'done', queued_at: fixtureAgo(0.1), summary: { verdict: 'review', counts: fixtureCounts } });
+    await refreshDashboard();
+    assert(repoMeta().includes('Human review required') && document.getElementById('review-count').textContent.startsWith('1 repository'), 'refresh reconciles missed events and review counts');
+    assert(!state.repos.get('repo').recent, 'repository snapshot does not duplicate the recent cache');
+    const realNow = Date.now;
+    try {
+      Date.now = () => realNow() + 2 * 3600 * 1000;
+      renderRepos();
+      assert(repoMeta().includes('no commit in 1h'), 'period expires as the clock advances');
+      assert(document.getElementById('review-count').textContent.startsWith('0 repositories'), 'review count ages with the window');
+    } finally { Date.now = realNow; }
+
+    // A snapshot started before a live event cannot roll that event back.
+    let releaseRepos;
+    fixtureReposGate = new Promise((resolve) => { releaseRepos = resolve; });
+    const loading = loadRepos();
+    fixtureStream.onmessage({ data: JSON.stringify({ type: 'run', repo_key: 'repo', run: { commit: fixtureSHA('g'), status: 'done', summary: { verdict: 'blocked' } } }) });
+    releaseRepos();
+    await loading;
+    fixtureReposGate = null;
+    assert(repoMeta().includes('reproduced issue'), 'in-flight snapshot preserves the newer SSE verdict');
+    assert(state.recent.get('repo').get(fixtureSHA('g')).queued_at, 'in-flight merge preserves queue time');
     assert(!document.body.dataset.testResult, document.body.dataset.testResult);
     document.body.dataset.testResult = 'PASS';
   } catch (err) { fixtureFail(err); }

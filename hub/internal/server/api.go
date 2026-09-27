@@ -27,22 +27,11 @@ func (s *Server) handleRepos(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	repos, err := s.store.Repos(sess.UserKey)
+	out, err := s.store.ReposWithRecent(sess.UserKey, time.Now().Add(-store.RecentWindow))
 	if err != nil {
 		s.log.Error("list repositories", "error", err)
 		writeError(w, http.StatusInternalServerError, "could not list the repositories")
 		return
-	}
-	since := time.Now().Add(-store.RecentWindow)
-	out := make([]store.PublicRepo, 0, len(repos))
-	for _, repo := range repos {
-		public := repo.Public()
-		if recent, err := s.store.Recent(sess.UserKey, repo.Key, since); err != nil {
-			s.log.Warn("list recent runs", "repo", repo.FullName, "error", err)
-		} else {
-			public.Recent = recent
-		}
-		out = append(out, public)
 	}
 	// Repositories that need attention come first: monitored ones with a
 	// verdict, then the ones still waiting for a policy.
