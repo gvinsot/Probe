@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -83,6 +84,17 @@ func TestPrivateCopyIsIsolatedAndRemovable(t *testing.T) {
 	}
 	if filepath.Dir(dir) != h.root || !strings.HasPrefix(filepath.Base(dir), "hybrid-") {
 		t.Fatalf("private copy at %s, want a hybrid- directory under %s", dir, h.root)
+	}
+	// The sandbox user is not the host user on native Linux Docker: the
+	// copy it mounts as /source must be readable like the candidate snapshot.
+	if runtime.GOOS != "windows" {
+		info, err := os.Stat(dir)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if info.Mode().Perm() != 0755 {
+			t.Fatalf("private copy mode %v, want 0755", info.Mode().Perm())
+		}
 	}
 	b, err := os.ReadFile(filepath.Join(dir, "pkg", "main.go"))
 	if err != nil || !strings.Contains(string(b), "return 42") {
