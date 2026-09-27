@@ -98,6 +98,17 @@ window.addEventListener('DOMContentLoaded', async () => {
     assert(document.querySelector('#report-head .verdict').textContent === 'Human review required', 'report verdict rendered');
     assert(document.querySelector('#report-head .verdict').classList.contains('tone-high'), 'report verdict tinted by the most severe alert');
     assert(cards[0].querySelector('h3').textContent === 'Analysis', 'analysis card title');
+    const severity = document.getElementById('severity');
+    assert(document.querySelector('.topbar').contains(severity), 'severity threshold in the top bar');
+    assert(document.getElementById('review-count').textContent === '0 repositories · 1 commit to review', 'review count at low: ' + document.getElementById('review-count').textContent);
+    severity.value = '3'; severity.dispatchEvent(new Event('change'));
+    assert(document.querySelector('#report-head .verdict').textContent === 'Review below critical', 'high review not flagged at critical');
+    assert(!document.getElementById('commit-tree').textContent.includes('Human review required'), 'tree badges follow the threshold');
+    assert(document.getElementById('review-count').textContent === '0 repositories · 0 commits to review', 'review count follows the threshold');
+    assert(localStorage.getItem('swiftproof.hub.minSeverity') === '3', 'threshold remembered');
+    severity.value = '2'; severity.dispatchEvent(new Event('change'));
+    assert(document.querySelector('#report-head .verdict').textContent === 'Human review required', 'high review flagged at high');
+    severity.value = '0'; severity.dispatchEvent(new Event('change'));
     cards[1].querySelectorAll('button')[1].click();
     await settle();
     assert(document.querySelector('#plan-result a').href.endsWith('?variant=plan'), 'download selected variant');

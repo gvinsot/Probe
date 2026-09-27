@@ -14,6 +14,10 @@ const KINDS = [
   { key: 'focus', label: 'Review plan' },
 ];
 
+// The review threshold is one account-wide preference: it applies to every
+// repository and survives reloads.
+const SEVERITY_KEY = 'swiftproof.hub.minSeverity';
+
 const state = {
   me: null,
   csrf: '',
@@ -28,7 +32,8 @@ const state = {
   pending: new Map(),
   loadID: 0,
   reportID: 0,
-  minSeverity: 0,
+  minSeverity: loadMinSeverity(),
+  plan: null,
   kind: 'all',
   query: '',
   onlyMonitored: false,
@@ -109,13 +114,34 @@ function timeAgo(value) {
   return Math.round(seconds / 86400) + 'd ago';
 }
 
-// A review verdict takes the color of the most severe alert in the report; a
+// A review verdict takes the level of the most severe alert in the report; a
 // review requested without any alert (incomplete checks, unverified areas)
-// keeps the medium tone.
-function reviewTone(summary) {
+// counts as medium.
+function reviewLevel(summary) {
   const counts = summary.counts || {};
   const top = LEVELS.slice().reverse().find((level) => counts[level] > 0);
-  return 'tone-' + (top || 'medium');
+  return top || 'medium';
+}
+
+function reviewTone(summary) { return 'tone-' + reviewLevel(summary); }
+
+// belowThreshold tells whether a review verdict stays under the selected
+// severity, in which case the hub does not flag it for a human. The verdict
+// itself is the CLI's; only its presentation follows the preference.
+function belowThreshold(summary) {
+  return LEVELS.indexOf(reviewLevel(summary)) < state.minSeverity;
+}
+
+// needsReview is true for a finished run the current threshold flags.
+function needsReview(run) {
+  const summary = run && run.status === 'done' && run.summary;
+  return Boolean(summary && summary.verdict === 'review' && !belowThreshold(summary));
+}
+
+function belowThresholdChip(summary) {
+  const quiet = chip('review below ' + LEVELS[state.minSeverity], 'below-threshold');
+  quiet.title = 'Human review was requested at ' + reviewLevel(summary) + ' level, under the selected threshold.';
+  return quiet;
 }
 
 function verdictChip(run) {
@@ -126,7 +152,9 @@ function verdictChip(run) {
   const summary = run.summary || {};
   switch (summary.verdict) {
     case 'blocked': return chip('reproduced issue', 'bad');
-    case 'review': return chip('Human review required', 'warn ' + reviewTone(summary));
+    case 'review':
+      if (belowThreshold(summary)) return belowThresholdChip(summary);
+      return chip('Human review required', 'warn ' + reviewTone(summary));
     case 'clear': return chip(run.variant === 'plan' ? 'No plan category flagged' : 'no blocker', 'ok');
     default: return chip(summary.verdict || 'unknown');
   }
@@ -155,6 +183,7 @@ function renderRepos() {
   el('repos-empty').classList.toggle('hidden', repos.length > 0);
   renderOutdatedNotice();
   renderRepoInfo();
+  renderReviewCount();
 
   for (const repo of repos) {
     const item = document.createElement('li');
@@ -192,6 +221,21 @@ function renderRepos() {
     });
     list.appendChild(item);
   }
+}
+
+// renderReviewCount shows, in the top bar, how many repositories have a latest
+// result the threshold flags, and how many commits of the selected repository
+// (among its cached results) do.
+function renderReviewCount() {
+  const repos = Array.from(state.repos.values()).filter((repo) => needsReview(repo.latest)).length;
+  const parts = [repos + (repos === 1 ? ' repository' : ' repositories')];
+  if (state.repoKey && state.graphs.has(state.repoKey)) {
+    const commits = new Set(state.runs.filter(needsReview).map((run) => run.commit)).size;
+    parts.push(commits + (commits === 1 ? ' commit' : ' commits'));
+  }
+  const count = el('review-count');
+  count.textContent = parts.join(' · ') + ' to review';
+  count.classList.toggle('warn', repos > 0);
 }
 
 // repoActions builds the buttons shown to the right of a repository name.
@@ -493,6 +537,7 @@ function graphLayout(commits) {
 }
 
 function renderGraph() {
+  renderReviewCount();
   const graph = state.graphs.get(state.repoKey);
   if (!graph) return;
   const commits = graph.commits || [];
@@ -622,7 +667,7 @@ function renderReportCommit(repo, run) {
 }
 
 function clearReport(repo) {
-  state.view = null; state.run = null;
+  state.view = null; state.run = null; state.plan = null;
   el('report-head').textContent = '';
   const title = document.createElement('h2'); title.id = 'report-repo'; title.textContent = repo?.full_name || 'Select a repository';
   el('report-head').appendChild(title);
@@ -648,7 +693,7 @@ async function loadReport() {
     const payload = await api('/api/repos/' + encodeURIComponent(repo.key)
       + '/reports/' + encodeURIComponent(commit) + '?variant=' + variant);
     if (reportID !== state.reportID || repo.key !== state.repoKey || commit !== state.commit || variant !== state.variant) return;
-    if (variant === 'plan') { renderPlan(payload); return; }
+    if (variant === 'plan') { state.plan = payload; renderPlan(payload); return; }
     state.view = payload.view;
     state.run = payload.run;
     renderReport();
@@ -694,6 +739,11 @@ function renderReport() {
   verdict.className = 'verdict ' + (view.summary.verdict || 'failed');
   if (view.summary.verdict === 'review') verdict.classList.add(reviewTone(view.summary));
   verdict.textContent = verdictLabel(view.summary.verdict);
+  if (view.summary.verdict === 'review' && belowThreshold(view.summary)) {
+    verdict.className = 'verdict below-threshold';
+    verdict.textContent = 'Review below ' + LEVELS[state.minSeverity];
+    verdict.title = 'Human review was requested at ' + reviewLevel(view.summary) + ' level, under the selected threshold.';
+  }
   title.appendChild(verdict);
   if (run && run.status === 'failed') title.appendChild(chip('analysis failed', 'bad'));
   head.appendChild(title);
@@ -810,6 +860,28 @@ function filteredAlerts() {
     if (state.kind !== 'all' && alert.kind !== state.kind) return false;
     return true;
   });
+}
+
+// loadMinSeverity restores the shared review threshold, defaulting to low.
+function loadMinSeverity() {
+  let saved = 0;
+  try { saved = Number(localStorage.getItem(SEVERITY_KEY) || 0); } catch (err) { /* storage disabled */ }
+  return Number.isInteger(saved) && saved >= 0 && saved < LEVELS.length ? saved : 0;
+}
+
+// setMinSeverity changes the threshold for every repository and redraws each
+// place that flags a review: the list, the tree, the commit cards and the report.
+function setMinSeverity(level) {
+  state.minSeverity = level;
+  try { localStorage.setItem(SEVERITY_KEY, String(level)); } catch (err) { /* storage disabled */ }
+  renderRepos();
+  renderGraph();
+  renderCommitActions();
+  if (state.variant === 'plan') {
+    if (state.plan && state.plan.run && state.plan.run.commit === state.commit) renderPlan(state.plan);
+  } else if (state.view) {
+    renderReport();
+  }
 }
 
 function renderAlerts() {
@@ -1211,11 +1283,8 @@ async function boot() {
     state.onlyMissing = event.target.checked;
     renderRepos();
   });
-  el('severity').addEventListener('input', (event) => {
-    state.minSeverity = Number(event.target.value);
-    el('severity-value').textContent = LEVELS[state.minSeverity];
-    renderAlerts();
-  });
+  el('severity').value = String(state.minSeverity);
+  el('severity').addEventListener('change', (event) => setMinSeverity(Number(event.target.value)));
   initSplitter();
   el('refresh-commits').addEventListener('click', () => {
     state.graphs.delete(state.repoKey);

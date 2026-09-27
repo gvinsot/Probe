@@ -95,6 +95,8 @@ h1, h2, h3 { line-height: 1.25; }
 .brand { display: flex; align-items: center; gap: 10px; font-weight: 700; color: var(--text); text-decoration: none; }
 .brand small { font-weight: 500; color: var(--muted); }
 .spacer { flex: 1; }
+.severity-picker { display: flex; align-items: center; gap: 8px; font-size: 0.85rem; color: var(--muted); }
+.severity-picker select { font: inherit; color: var(--text); background: var(--surface-alt); border: 1px solid var(--line); border-radius: 6px; padding: 3px 6px; }
 .who { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 0.9rem; }
 .who img { width: 26px; height: 26px; border-radius: 50%; border: 1px solid var(--line); }
 
@@ -219,6 +221,8 @@ h1, h2, h3 { line-height: 1.25; }
 .verdict.review { color: var(--tone, var(--medium)); border-color: var(--tone, var(--medium)); }
 .verdict.blocked { color: var(--critical); border-color: var(--critical); }
 .verdict.failed { color: var(--muted); border-color: var(--line); }
+.verdict.below-threshold { color: var(--muted); border-color: var(--line); border-style: dashed; }
+.chip.below-threshold { color: var(--muted); border-style: dashed; }
 
 /* Repository information: pending actions */
 .notice {
@@ -236,10 +240,6 @@ h1, h2, h3 { line-height: 1.25; }
 .filters { display: grid; gap: 10px; padding: 12px 14px; border-bottom: 1px solid var(--line); background: var(--surface-alt); }
 .filter-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
 .filter-row label { font-size: 0.82rem; color: var(--muted); }
-.slider { display: flex; align-items: center; gap: 10px; flex: 1; min-width: 240px; }
-.slider input[type="range"] { flex: 1; accent-color: var(--accent); }
-.slider output { font-weight: 700; font-size: 0.85rem; min-width: 74px; text-align: right; }
-.scale { display: flex; justify-content: space-between; font-size: 0.7rem; color: var(--muted); letter-spacing: 0.03em; }
 .kinds { display: flex; gap: 6px; flex-wrap: wrap; }
 .kinds button { border: 1px solid var(--line); background: transparent; color: var(--muted); border-radius: 999px; padding: 3px 11px; font: inherit; font-size: 0.78rem; cursor: pointer; }
 .kinds button.on { border-color: var(--accent); color: var(--accent); background: var(--accent-soft); }

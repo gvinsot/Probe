@@ -17,6 +17,17 @@
       <small id="mode-label"></small>
     </a>
     <span class="spacer"></span>
+    <!-- Shared by every repository: it sets which reviews are flagged and filters report alerts. -->
+    <div class="severity-picker" title="A review verdict is flagged only when its most severe alert reaches this level; a review without alerts counts as medium.">
+      <label for="severity">Review from</label>
+      <select id="severity">
+        <option value="0">low</option>
+        <option value="1">medium</option>
+        <option value="2">high</option>
+        <option value="3">critical</option>
+      </select>
+    </div>
+    <span class="chip review-count" id="review-count" role="status"></span>
     <button class="btn quiet small" id="sync">Refresh repositories</button>
     <span class="who" id="who"></span>
     <button class="btn quiet small" id="signout">Sign out</button>
@@ -74,22 +85,6 @@
           <div class="panel-body hidden" id="plan-result"></div>
 
           <div class="filters hidden" id="filters">
-            <div class="filter-row">
-              <div class="slider">
-                <label for="severity">Minimum severity</label>
-                <input type="range" id="severity" min="0" max="3" step="1" value="0" list="severity-ticks">
-                <output id="severity-value" for="severity">low</output>
-              </div>
-            </div>
-            <datalist id="severity-ticks">
-              <option value="0" label="low"></option>
-              <option value="1" label="medium"></option>
-              <option value="2" label="high"></option>
-              <option value="3" label="critical"></option>
-            </datalist>
-            <div class="scale" aria-hidden="true">
-              <span>low</span><span>medium</span><span>high</span><span>critical</span>
-            </div>
             <div class="filter-row">
               <div class="kinds" id="kinds" role="group" aria-label="Alert kinds"></div>
               <span class="spacer"></span>
