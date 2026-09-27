@@ -600,3 +600,12 @@ func (s *Server) handleCommits(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusOK, graph)
 }
+
+// handleAnalyses exposes only this account's in-memory analysis attempts.
+func (s *Server) handleAnalyses(w http.ResponseWriter, r *http.Request) {
+	sess, _, ok := s.require(w, r)
+	if !ok {
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"analyses": s.runner.Activity(sess.UserKey)})
+}

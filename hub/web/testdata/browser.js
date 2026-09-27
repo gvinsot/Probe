@@ -11,6 +11,13 @@ fixtureRepo.recent = [
 ];
 const fixtureCalls = [];
 let fixtureStream;
+let fixtureActivityError = false;
+let fixtureActivityGate;
+let fixtureActivities = [
+  { repo_key: 'repo', commit: fixtureSHA('a'), variant: 'normal', status: 'queued', queued_at: fixtureAgo(1) },
+  { repo_key: 'repo', commit: fixtureSHA('c'), variant: 'plan', status: 'running', queued_at: fixtureAgo(2), started_at: fixtureAgo(1) },
+  { repo_key: 'repo', commit: fixtureSHA('a'), variant: 'normal', status: 'failed', queued_at: fixtureAgo(3), finished_at: fixtureAgo(2), error: '<img src=x onerror=alert(1)>' },
+];
 let fixtureReposGate;
 let fixtureRuns = [fixtureRun('normal'), fixtureRun('plan')];
 window.EventSource = class { constructor() { fixtureStream = this; } };
@@ -18,6 +25,11 @@ window.fetch = async (path, init) => {
   fixtureCalls.push({ path, init });
   let data;
   if (path === '/api/me') data = { authenticated: true, mode: 'review-read-only', csrf: 'csrf', user: { login: 'octocat', provider: 'github' } };
+  else if (path === '/api/analyses') {
+    if (fixtureActivityGate) await fixtureActivityGate;
+    if (fixtureActivityError) throw new Error('temporary failure');
+    data = { analyses: fixtureActivities };
+  }
   else if (path === '/api/repos') {
     if (fixtureReposGate) await fixtureReposGate;
     data = { repos: [fixtureRepo] };
@@ -48,6 +60,41 @@ window.addEventListener('DOMContentLoaded', async () => {
   const assert = (condition, message) => { if (!condition) throw new Error(message); };
   try {
     await settle();
+    const activityButton = document.getElementById('analyses');
+    assert(activityButton.nextElementSibling.id === 'sync', 'analyses button beside repository refresh');
+    activityButton.click();
+    await settle();
+    const activityText = () => document.getElementById('activity-list').textContent;
+    assert(activityText().includes('Queued (1)') && activityText().includes('Running (1)') && activityText().includes('Past analyses (1)'), 'all activity groups rendered');
+    assert(activityText().includes('acme/shop') && activityText().includes('Plan') && activityText().includes('Failed'), 'repository, variant and failure visible');
+    assert(document.querySelectorAll('#activity-list img').length === 0 && activityText().includes('<img'), 'activity error rendered as text');
+    fixtureActivities[0].status = 'done';
+    fixtureActivities[0].finished_at = fixtureAgo(0);
+    fixtureStream.onmessage({ data: JSON.stringify({ type: 'run', repo_key: 'repo', run: { ...fixtureRun('normal'), queued_at: fixtureAgo(1) } }) });
+    await settle();
+    assert(activityText().includes('Queued (0)') && activityText().includes('Past analyses (2)'), 'activity updates after a run event');
+    fixtureActivityError = true;
+    document.querySelector('#modal-footer button').click();
+    await settle();
+    assert(document.getElementById('activity-status').textContent.includes('temporary failure') && activityText().includes('Past analyses (2)'), 'refresh failure preserves previous results');
+    fixtureActivityError = false;
+    fixtureActivities = [];
+    document.querySelector('#modal-footer button').click();
+    await settle();
+    assert(activityText().includes('Queued (0)') && activityText().includes('No analyses.'), 'empty history rendered');
+    document.getElementById('modal-close').focus();
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', shiftKey: true, bubbles: true }));
+    assert(document.activeElement === document.querySelector('#modal-footer button'), 'modal focus stays inside');
+    let releaseActivity;
+    fixtureActivityGate = new Promise((resolve) => { releaseActivity = resolve; });
+    document.querySelector('#modal-footer button').click();
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    assert(document.getElementById('modal').classList.contains('hidden') && document.activeElement === activityButton, 'Escape closes modal and restores focus');
+    document.getElementById('modal-body').textContent = 'Another dialog';
+    releaseActivity();
+    fixtureActivityGate = null;
+    await settle();
+    assert(document.getElementById('modal-body').textContent === 'Another dialog', 'late activity response cannot replace another dialog');
     const repoPanel = document.querySelector('.repo-panel');
     assert(getComputedStyle(repoPanel).position === 'sticky', 'repository panel does not scroll with the page');
     assert(getComputedStyle(document.getElementById('repos')).overflowY === 'auto', 'repository list scrolls on its own');

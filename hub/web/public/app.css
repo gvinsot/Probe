@@ -87,6 +87,7 @@ h1, h2, h3 { line-height: 1.25; }
   display: flex;
   align-items: center;
   gap: 16px;
+  flex-wrap: wrap;
   padding: 10px 20px;
   background: color-mix(in srgb, var(--bg) 92%, transparent);
   backdrop-filter: blur(8px);
@@ -138,10 +139,10 @@ h1, h2, h3 { line-height: 1.25; }
    list scrolls on its own, independently of the report and the page. */
 .repo-panel {
   position: sticky;
-  top: 76px;
+  top: var(--panel-top, 76px);
   display: flex;
   flex-direction: column;
-  max-height: calc(100vh - 94px);
+  max-height: calc(100vh - var(--panel-top, 76px) - 18px);
 }
 .repo-panel > * { flex: none; }
 .repo-panel > .repo-list { flex: 1 1 auto; min-height: 0; max-height: none; overscroll-behavior: contain; }
@@ -364,7 +365,7 @@ pre.policy { margin: 0; background: var(--code-bg); color: var(--code-text); pad
 .workspace { display: flex; align-items: flex-start; }
 .commit-column {
   position: sticky;
-  top: 58px;
+  top: var(--panel-top, 58px);
   align-self: flex-start;
   flex: 0 0 var(--commit-column-width, 340px);
   min-width: 0;
@@ -374,7 +375,7 @@ pre.policy { margin: 0; background: var(--code-bg); color: var(--code-text); pad
 /* Draggable separator between the commit tree and the report. */
 .splitter {
   position: sticky;
-  top: 58px;
+  top: var(--panel-top, 58px);
   align-self: stretch;
   flex: none;
   width: 8px;
@@ -429,3 +430,8 @@ body.resizing { cursor: col-resize; user-select: none; }
   .topbar { flex-wrap: wrap; gap: 8px; padding: 10px; }
   .layout { padding: 12px 10px 30px; }
 }
+
+.activity-row { padding: 12px 0; border-bottom: 1px solid var(--line); overflow-wrap: anywhere; }
+.activity-row .row { flex-wrap: wrap; }
+.activity-row p { margin: 6px 0; }
+.activity-error { white-space: pre-wrap; }

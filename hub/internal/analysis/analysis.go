@@ -82,20 +82,36 @@ type Runner struct {
 	mu       sync.Mutex
 	active   map[string]struct{}
 	perUser  map[string]int
+	activity map[activityKey]Activity
 }
 
 // New builds a runner. Start must be called to process jobs.
 func New(cfg config.Config, s *store.Store, a *accounts.Manager, b *events.Broker, log *slog.Logger) *Runner {
 	return &Runner{
 		cfg: cfg, store: s, accounts: a, events: b, log: log,
-		queue:   make(chan Job, cfg.QueueSize),
-		active:  map[string]struct{}{},
-		perUser: map[string]int{},
+		queue:    make(chan Job, cfg.QueueSize),
+		active:   map[string]struct{}{},
+		perUser:  map[string]int{},
+		activity: map[activityKey]Activity{},
 	}
 }
 
 // Start launches the workers and returns immediately.
 func (r *Runner) Start(ctx context.Context) {
+	go func() {
+		ticker := time.NewTicker(time.Minute)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case now := <-ticker.C:
+				r.mu.Lock()
+				r.pruneActivity(now)
+				r.mu.Unlock()
+			}
+		}
+	}()
 	for i := 0; i < r.cfg.Workers; i++ {
 		go func() {
 			for {
@@ -186,6 +202,7 @@ func (r *Runner) markQueued(j Job) {
 
 // publishRun stores the run as the repository's latest state and streams it.
 func (r *Runner) publishRun(j Job, run store.Run) {
+	r.rememberActivity(j, run)
 	r.events.Publish(j.UserKey, map[string]any{"type": "run", "repo_key": j.RepoKey, "run": run})
 	// A proposal must never become the repository badge or commit status.
 	if j.Variant == "plan" {

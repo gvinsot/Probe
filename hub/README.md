@@ -347,3 +347,11 @@ The hub suite (`go test ./hub/...`) includes local Git HTTP integration fixtures
 for both variants and a dashboard interaction test. The latter uses an installed
 `chromium` in headless mode and skips explicitly if Chromium is unavailable;
 its API fixtures need no forge or model credentials.
+
+The **Analyses** button beside **Refresh repositories** opens the account's
+queued and running analyses and completed/failed attempts from the last 48
+hours. Each rerun is listed separately, including plan analyses, with timestamps
+and failure details. The modal refreshes on live updates and every five seconds.
+This activity history is kept only in server memory and resets on restart;
+existing cached report storage is unchanged. Active attempts remain visible
+regardless of age; completed attempts expire 48 hours after finishing.

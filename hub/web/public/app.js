@@ -471,6 +471,7 @@ function button(label, className, onClick) {
 /* ----------------------------------------------------- repository actions -- */
 
 async function openPolicyDialog(repo) {
+  closeModal();
   const body = el('modal-body');
   const footer = el('modal-footer');
   el('modal-title').textContent = 'Activate monitoring on ' + repo.full_name;
@@ -550,7 +551,110 @@ async function openPolicyDialog(repo) {
   loadPreview();
 }
 
-function closeModal() { el('modal').classList.add('hidden'); }
+let activityTimer;
+let activityDialogID = 0;
+let activityRequestID = 0;
+let activityOpen = false;
+
+function closeModal() {
+  el('modal').classList.add('hidden');
+  clearInterval(activityTimer);
+  activityDialogID++;
+  if (activityOpen) el('analyses').focus();
+  activityOpen = false;
+}
+
+function openActivityDialog() {
+  closeModal();
+  activityOpen = true;
+  el('modal-title').textContent = 'Analyses · last 48 hours';
+  el('modal-body').textContent = '';
+  const note = document.createElement('p');
+  note.className = 'note';
+  note.textContent = 'Queued and running analyses, plus results from the last 48 hours. History is cleared when the hub restarts.';
+  const status = document.createElement('p');
+  status.id = 'activity-status';
+  status.className = 'note';
+  status.setAttribute('role', 'status');
+  status.textContent = 'Loading analyses…';
+  const list = document.createElement('div');
+  list.id = 'activity-list';
+  el('modal-body').append(note, status, list);
+  el('modal-footer').replaceChildren(button('Refresh', 'btn small', refreshActivity));
+  el('modal').classList.remove('hidden');
+  el('modal-close').focus();
+  refreshActivity();
+  activityTimer = setInterval(refreshActivity, 5000);
+}
+
+async function refreshActivity() {
+  if (!activityOpen) return;
+  const dialogID = activityDialogID, requestID = ++activityRequestID;
+  try {
+    const data = await api('/api/analyses');
+    if (!activityOpen || dialogID !== activityDialogID || requestID !== activityRequestID) return;
+    renderActivity(data.analyses || []);
+    el('activity-status').textContent = 'Updated ' + new Date().toLocaleTimeString() + ' · refreshes every 5 seconds';
+  } catch (err) {
+    if (activityOpen && dialogID === activityDialogID && requestID === activityRequestID) {
+      el('activity-status').textContent = 'Could not refresh analyses: ' + err.message;
+    }
+  }
+}
+
+function renderActivity(items) {
+  const list = el('activity-list');
+  list.textContent = '';
+  for (const [label, statuses] of [['Queued', ['queued']], ['Running', ['running']], ['Past analyses', ['done', 'failed']]]) {
+    const group = items.filter((item) => statuses.includes(item.status));
+    const section = document.createElement('section');
+    const heading = document.createElement('h4');
+    heading.textContent = label + ' (' + group.length + ')';
+    section.appendChild(heading);
+    if (!group.length) {
+      const empty = document.createElement('p');
+      empty.className = 'note';
+      empty.textContent = 'No analyses.';
+      section.appendChild(empty);
+    }
+    for (const item of group) {
+      const row = document.createElement('article');
+      row.className = 'activity-row';
+      const title = document.createElement('div');
+      title.className = 'row';
+      const repo = state.repos.get(item.repo_key);
+      const name = document.createElement('strong');
+      name.textContent = (repo ? repo.full_name : item.repo_key) + ' · ' + shortSha(item.commit);
+      name.title = item.commit;
+      const statusLabel = { queued: 'Queued', running: 'Running', done: 'Completed', failed: 'Failed' }[item.status];
+      title.append(name, chip(item.variant === 'plan' ? 'Plan' : 'Analysis'), chip(statusLabel, item.status === 'failed' ? 'bad' : ''));
+      const dates = document.createElement('p');
+      dates.className = 'note';
+      dates.textContent = [['Queued', item.queued_at], ['Started', item.started_at], ['Finished', item.finished_at]]
+        .filter(([, value]) => value && !value.startsWith('0001-'))
+        .map(([label, value]) => label + ' ' + new Date(value).toLocaleString()).join(' · ');
+      row.append(title, dates);
+      if (item.mode || item.trigger) {
+        const detail = document.createElement('p');
+        detail.className = 'note';
+        detail.textContent = [item.mode ? analysisModeLabel(item.mode) : '', item.trigger].filter(Boolean).join(' · ');
+        row.appendChild(detail);
+      }
+      if (item.error) {
+        const error = document.createElement('p');
+        error.className = 'activity-error';
+        error.textContent = item.error;
+        row.appendChild(error);
+      }
+      if (repo) row.appendChild(button('Open commit', 'btn quiet small', () => {
+        closeModal();
+        selectRepo(item.repo_key, item.commit);
+      }));
+      section.appendChild(row);
+    }
+    list.appendChild(section);
+  }
+}
 
 async function setMonitoring(repo, on, trigger) {
   if (trigger) trigger.disabled = true;
@@ -1412,6 +1516,7 @@ function connectEvents() {
   stream.onmessage = (message) => {
     let event;
     try { event = JSON.parse(message.data); } catch (err) { return; }
+    if (event.type === 'run' || event.type === 'report') refreshActivity();
     if (event.type === 'repo' && event.repo) {
       const previous = state.repos.get(event.repo.key);
       if (previous && previous.recent_incomplete) event.repo.recent_incomplete = true;
@@ -1452,6 +1557,7 @@ function connectEvents() {
   };
   let connected = false;
   stream.onopen = () => {
+    refreshActivity();
     if (connected) refreshDashboard(true); // Recover events missed during a disconnect.
     connected = true;
   };
@@ -1540,6 +1646,7 @@ async function boot() {
     try { await api('/auth/logout', { method: 'POST' }); } catch (err) { /* ignore */ }
     window.location.replace('/index.html');
   });
+  el('analyses').addEventListener('click', openActivityDialog);
   el('sync').addEventListener('click', async (event) => {
     event.target.disabled = true;
     try {
@@ -1566,6 +1673,11 @@ async function boot() {
   el('period').addEventListener('input', (event) => setPeriod(Number(event.target.value)));
   renderSeverity();
   el('severity').addEventListener('input', (event) => setMinSeverity(Number(event.target.value)));
+  // Keep sticky panels below a header that can wrap as controls are added.
+  const topbar = document.querySelector('.topbar');
+  const sizeTopbar = () => document.documentElement.style.setProperty('--panel-top', (topbar.offsetHeight + 8) + 'px');
+  sizeTopbar();
+  new ResizeObserver(sizeTopbar).observe(topbar);
   initSplitter();
   initPanelJumps();
   el('refresh-commits').addEventListener('click', () => {
@@ -1578,6 +1690,12 @@ async function boot() {
   });
   document.addEventListener('keydown', (event) => {
     if (event.key === 'Escape') closeModal();
+    if (event.key === 'Tab' && !el('modal').classList.contains('hidden')) {
+      const focusable = [...el('modal').querySelectorAll('button:not(:disabled), input:not(:disabled), textarea:not(:disabled), a[href], select:not(:disabled)')];
+      const first = focusable[0], last = focusable[focusable.length - 1];
+      if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+      else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+    }
   });
   window.addEventListener('hashchange', () => {
     const route = readHash();
