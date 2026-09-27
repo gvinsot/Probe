@@ -542,12 +542,20 @@ function renderGraph() {
   tree.appendChild(list);
 }
 
+// The intent field lives in the Plan card, which is rebuilt on every render, so
+// keep a reference to the element itself: once detached, getElementById misses it.
+let planIntentField = null;
+const planIntent = () => (planIntentField ||= el('plan-intent-field')).querySelector('textarea');
+
 function renderCommitActions(resetIntent = false) {
   const repo = state.repos.get(state.repoKey);
   if (!repo || !state.commit) return;
   el('commit-actions').classList.remove('hidden');
   const node = (state.graphs.get(repo.key)?.commits || []).find((c) => c.sha === state.commit);
-  if (resetIntent) el('plan-intent').value = cachedRun(state.commit, 'plan')?.intent || node?.message || '';
+  if (resetIntent) planIntent().value = cachedRun(state.commit, 'plan')?.intent || node?.message || '';
+  // Rebuilding the cards detaches the textarea; restore focus if the user was typing.
+  const intent = planIntent();
+  const typing = document.activeElement === intent && [intent.selectionStart, intent.selectionEnd];
   const comparison = el('comparison'); comparison.textContent = '';
   for (const variant of ['normal', 'plan']) {
     const run = displayedRun(state.commit, variant);
@@ -559,6 +567,7 @@ function renderCommitActions(resetIntent = false) {
       detail.textContent = [run.mode, run.base_commit ? 'Base ' + shortSha(run.base_commit) : '', run.finished_at ? timeAgo(run.finished_at) : '', run.error].filter(Boolean).join(' · ');
       card.appendChild(detail);
     }
+    if (variant === 'plan') card.appendChild(planIntentField);
     const actions = document.createElement('div'); actions.className = 'row';
     const launch = button('Run ' + (variant === 'plan' ? 'plan' : 'normal analysis'), 'btn small', () => analyzeCommit(variant));
     launch.disabled = run && ['queued', 'running'].includes(run.status);
@@ -569,12 +578,13 @@ function renderCommitActions(resetIntent = false) {
     card.appendChild(actions);
     comparison.appendChild(card);
   }
+  if (typing) { intent.focus(); intent.setSelectionRange(...typing); }
 }
 
 async function analyzeCommit(variant) {
   const repoKey = state.repoKey, commit = state.commit;
   const key = pendingKey(repoKey, commit, variant);
-  const intent = el('plan-intent').value.trim();
+  const intent = planIntent().value.trim();
   if (variant === 'plan' && !intent) { toast('Enter an intent for the plan.', true); return; }
   state.pending.set(key, { status: 'queued', variant });
   renderCommitActions(); renderGraph();

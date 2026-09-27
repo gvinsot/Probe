@@ -386,6 +386,7 @@ body.resizing { cursor: col-resize; user-select: none; }
 .comparison-card { border: 1px solid var(--line); border-radius: 8px; padding: 14px; overflow-wrap: anywhere; }
 .comparison-card h3 { margin-top: 0; }
 #plan-intent { display: block; width: 100%; resize: vertical; margin-top: 8px; }
+.plan-intent-field { margin: 10px 0; }
 #plan-result pre { max-height: 500px; overflow: auto; }
 @media (max-width: 700px) {
   .comparison { grid-template-columns: 1fr; }
