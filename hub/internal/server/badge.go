@@ -27,7 +27,7 @@ func (s *Server) handleBadge(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	label := "swiftproof"
+	label := "swiftproof latest"
 	value, color := badgeState(repo)
 	w.Header().Set("Content-Type", "image/svg+xml; charset=utf-8")
 	// A badge must never be cached across a new report.

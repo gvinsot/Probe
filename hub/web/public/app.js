@@ -238,6 +238,19 @@ function rememberRun(repoKey, run) {
   if (!state.recent.has(repoKey)) state.recent.set(repoKey, new Map());
   const runs = state.recent.get(repoKey);
   runs.set(run.commit, mergeRecentRun(runs.get(run.commit), run));
+  const cutoff = Date.now() - PERIODS[PERIODS.length - 1].hours * 3600 * 1000;
+  for (const [commit, item] of runs) {
+    if (!runInPeriod(item, cutoff)) runs.delete(commit);
+  }
+  // Mirror the API cap for long-lived event streams, keeping undated/pending
+  // results first and explicitly marking any omitted history.
+  if (runs.size > 200) {
+    const always = (item) => item.status === 'queued' || item.status === 'running' || !runActivity(item);
+    const newest = Array.from(runs.values()).sort((a, b) => Number(always(b)) - Number(always(a)) || runActivity(b) - runActivity(a) || a.commit.localeCompare(b.commit));
+    state.recent.set(repoKey, new Map(newest.slice(0, 200).map((item) => [item.commit, item])));
+    const repo = state.repos.get(repoKey);
+    if (repo) repo.recent_incomplete = true;
+  }
 }
 
 // Undated results and pending work stay visible at every period. Completed
@@ -327,6 +340,11 @@ function renderRepos() {
       none.title = 'No analysis in the selected period';
       meta.appendChild(none);
     }
+    if (repo.recent_incomplete) {
+      const partial = chip('partial history', 'warn');
+      partial.title = 'Only retained recent analyses are shown; older results may be missing. The displayed status is not exhaustive.';
+      meta.appendChild(partial);
+    }
     if (repo.latest && repo.latest.finished_at) {
       const last = chip(timeAgo(repo.latest.finished_at));
       last.title = 'Latest analysis';
@@ -347,7 +365,7 @@ function renderRepos() {
 // the threshold flags in the selected period, and how many commits of the
 // selected repository (among its cached results) do.
 function renderReviewCount() {
-  const repos = Array.from(state.repos.values()).filter((repo) => periodRuns(repo).some(needsReview)).length;
+  const repos = Array.from(state.repos.values()).filter((repo) => needsReview(worstRun(repo))).length;
   const parts = [repos + (repos === 1 ? ' repository' : ' repositories')];
   if (state.repoKey && state.graphs.has(state.repoKey)) {
     const commits = new Set(state.runs.filter(needsReview).map((run) => run.commit)).size;
@@ -355,6 +373,7 @@ function renderReviewCount() {
   }
   const count = el('review-count');
   count.textContent = parts.join(' · ') + ' to review';
+  if (Array.from(state.repos.values()).some((repo) => repo.recent_incomplete)) count.textContent += ' · partial history';
   count.classList.toggle('warn', repos > 0);
 }
 
@@ -593,7 +612,7 @@ async function loadHistory(resetIntent = false) {
   const results = await Promise.allSettled([
     state.graphs.has(repo.key) ? Promise.resolve(state.graphs.get(repo.key))
       : api('/api/repos/' + encodeURIComponent(repo.key) + '/commits'),
-    api('/api/repos/' + encodeURIComponent(repo.key) + '/runs?limit=0'),
+    api('/api/repos/' + encodeURIComponent(repo.key) + '/runs'),
   ]);
   if (loadID !== state.loadID || repo.key !== state.repoKey) return;
   const [graphResult, runsResult] = results;
@@ -1382,6 +1401,8 @@ function connectEvents() {
     let event;
     try { event = JSON.parse(message.data); } catch (err) { return; }
     if (event.type === 'repo' && event.repo) {
+      const previous = state.repos.get(event.repo.key);
+      if (previous && previous.recent_incomplete) event.repo.recent_incomplete = true;
       state.repos.set(event.repo.key, event.repo);
       rememberRun(event.repo.key, event.repo.latest);
       renderRepos();

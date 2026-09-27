@@ -93,17 +93,20 @@ func TestRecentIndexReplacesResultsAndExpiresOldEntries(t *testing.T) {
 	if err != nil || len(repos[0].Recent) != 1 || repos[0].Recent[0].Summary.Verdict != report.VerdictClear {
 		t.Fatalf("replacement: %v %v", repos, err)
 	}
-	// Simulate an index entry aging out without deleting its persisted report.
-	key := recentKey{"user", "repo"}
-	expired := s.recent[key]["commit"]
-	expired.QueuedAt = now.Add(-RecentWindow - time.Hour)
-	s.recent[key]["commit"] = expired
-	rec.Commit = "new"
+	// Backdate the completed run: its artifact remains retained, while the
+	// recent projection excludes it from the window.
+	rec.QueuedAt = now.Add(-RecentWindow - time.Hour)
 	if err := s.PutRecord(rec); err != nil {
 		t.Fatal(err)
 	}
-	if len(s.recent[key]) != 1 {
-		t.Fatal("expired projection retained in the rolling index")
+	rec.Commit = "new"
+	rec.QueuedAt = now
+	if err := s.PutRecord(rec); err != nil {
+		t.Fatal(err)
+	}
+	repos, err = s.ReposWithRecent("user", now.Add(-RecentWindow))
+	if err != nil || len(repos[0].Recent) != 1 || repos[0].Recent[0].Commit != "new" {
+		t.Fatal("expired projection retained in the recent snapshot")
 	}
 	if _, err := s.Record("user", "repo", "commit"); err != nil {
 		t.Fatal("archived report was lost:", err)
@@ -124,9 +127,15 @@ func BenchmarkReposWithRecent(b *testing.B) {
 				if err := s.PutRepo("user", &Repo{Key: repo}); err != nil {
 					b.Fatal(err)
 				}
-				for j := 0; j < 240; j++ {
-					s.indexRecent("user", repo, RecentRun{Commit: fmt.Sprint(j), QueuedAt: now, Status: StatusDone}, now.Add(-RecentWindow))
+				idx, _, err := s.index("user", repo)
+				if err != nil {
+					b.Fatal(err)
 				}
+				idx.loaded = true
+				for j := 0; j < 240; j++ {
+					idx.Runs = append(idx.Runs, Run{Commit: fmt.Sprint(j), QueuedAt: now, Status: StatusDone})
+				}
+				idx.refreshRecent()
 			}
 			// Archive size must not affect dashboard cost. Seed files directly: they
 			// deliberately cannot be parsed as reports, so reading them would fail.

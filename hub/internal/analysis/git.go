@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -47,10 +48,11 @@ func (g *gitRunner) run(ctx context.Context, args ...string) (string, error) {
 	cmd := exec.CommandContext(ctx, "git", args...)
 	cmd.Dir = g.dir
 	cmd.Env = g.env
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout, cmd.Stderr = &stdout, &stderr
+	var stdout bytes.Buffer
+	// Remote diagnostics may echo credentials; discard them at the source.
+	cmd.Stdout, cmd.Stderr = &stdout, io.Discard
 	if err := cmd.Run(); err != nil {
-		return stdout.String(), fmt.Errorf("git %s: %w: %s", args[0], err, tail(stderr.String()))
+		return "", fmt.Errorf("git %s: %w", args[0], err)
 	}
 	return strings.TrimSpace(stdout.String()), nil
 }
@@ -61,10 +63,11 @@ func (g *gitRunner) blob(ctx context.Context, commit, path string) ([]byte, erro
 	cmd := exec.CommandContext(ctx, "git", "cat-file", "blob", commit+":"+path)
 	cmd.Dir = g.dir
 	cmd.Env = g.env
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout, cmd.Stderr = &stdout, &stderr
+	var stdout bytes.Buffer
+	// Remote diagnostics may echo credentials; discard them at the source.
+	cmd.Stdout, cmd.Stderr = &stdout, io.Discard
 	if err := cmd.Run(); err != nil {
-		return nil, fmt.Errorf("git cat-file: %w: %s", err, tail(stderr.String()))
+		return nil, fmt.Errorf("git cat-file: %w", err)
 	}
 	if stdout.Len() > maxPolicyBytes {
 		return nil, fmt.Errorf("%s exceeds %d bytes", path, maxPolicyBytes)

@@ -27,7 +27,7 @@ import (
 // ErrNotFound is returned when a record does not exist.
 var ErrNotFound = errors.New("not found")
 
-// MaxHistory is the default history listing limit; cached results are retained.
+// MaxHistory is the maximum public history listing size.
 const MaxHistory = 50
 
 // RecentWindow bounds the runs sent with the repository list: the dashboard
@@ -133,10 +133,11 @@ type PublicRepo struct {
 	// owner has to reinstall the hook to get pushes and a badge back.
 	HookOutdated bool       `json:"hook_outdated,omitempty"`
 	Latest       *RecentRun `json:"latest,omitempty"`
-	// Recent lists compact normal results active within RecentWindow, plus
-	// undated results which must not silently disappear from the dashboard.
-	Recent    []RecentRun `json:"recent,omitempty"`
-	UpdatedAt time.Time   `json:"updated_at"`
+	// Recent lists the normal analyses queued within RecentWindow, newest
+	// first, so the dashboard can show the most severe status of a period.
+	Recent           []RecentRun `json:"recent,omitempty"`
+	RecentIncomplete bool        `json:"recent_incomplete,omitempty"`
+	UpdatedAt        time.Time   `json:"updated_at"`
 }
 
 // HookOutdated reports a monitored repository installed before webhooks
@@ -154,8 +155,8 @@ func (r *Repo) Public() PublicRepo {
 		HasPolicy: r.HasPolicy, Monitored: r.Monitored, UpdatedAt: r.UpdatedAt,
 	}
 	if r.Latest != nil {
-		latest := projectRecent(r.Latest)
-		p.Latest = &latest
+		run := projectRecent(r.Latest)
+		p.Latest = &run
 	}
 	if r.Monitored {
 		p.BadgeKey = r.BadgeKey
@@ -182,9 +183,10 @@ type HookRoute struct {
 
 // Store is a concurrency-safe directory of JSON records.
 type Store struct {
-	dir    string
-	mu     sync.RWMutex
-	recent map[recentKey]map[string]RecentRun
+	dir       string
+	mu        sync.RWMutex
+	indexesMu sync.Mutex
+	indexes   map[string]*recordIndex
 }
 
 // Open prepares the data directory.
@@ -194,9 +196,9 @@ func Open(dir string) (*Store, error) {
 			return nil, fmt.Errorf("data directory: %w", err)
 		}
 	}
-	s := &Store{dir: dir, recent: make(map[recentKey]map[string]RecentRun)}
-	if err := s.loadRecent(); err != nil {
-		return nil, fmt.Errorf("recent index: %w", err)
+	s := &Store{dir: dir, indexes: make(map[string]*recordIndex)}
+	if err := s.loadIndexes(); err != nil {
+		return nil, fmt.Errorf("report indexes: %w", err)
 	}
 	return s, nil
 }
@@ -383,10 +385,6 @@ func (s *Store) UpdateRepo(userKey, repoKey string, mutate func(*Repo) error) (*
 func (s *Store) Repos(userKey string) ([]*Repo, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	return s.reposLocked(userKey)
-}
-
-func (s *Store) reposLocked(userKey string) ([]*Repo, error) {
 	if !ValidKey(userKey) {
 		return nil, fmt.Errorf("invalid key %q", userKey)
 	}
@@ -541,33 +539,6 @@ func (s *Store) UpdateUser(key string, mutate func(*User) error) error {
 	return writeJSON(path, &u)
 }
 
-// PutRecord retains the latest result per commit and variant without eviction.
-func (s *Store) PutRecord(rec *Record) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if rec.Variant != "" && rec.Variant != "normal" && rec.Variant != "plan" {
-		return fmt.Errorf("invalid analysis variant")
-	}
-	if !ValidKey(rec.Commit) {
-		return fmt.Errorf("invalid commit %q", rec.Commit)
-	}
-	path, err := s.path("reports", rec.UserKey, rec.RepoKey, recordName(rec.Commit, rec.Variant))
-	if err != nil {
-		return err
-	}
-	if err := writeJSON(path, rec); err != nil {
-		return err
-	}
-	since := time.Now().Add(-RecentWindow)
-	for commit, run := range s.recent[recentKey{rec.UserKey, rec.RepoKey}] {
-		if !run.inWindow(since) {
-			delete(s.recent[recentKey{rec.UserKey, rec.RepoKey}], commit)
-		}
-	}
-	s.indexRecent(rec.UserKey, rec.RepoKey, projectRecent(&rec.Run), since)
-	return nil
-}
-
 // Record loads one stored report.
 func (s *Store) Record(userKey, repoKey, commit string) (*Record, error) {
 	return s.RecordVariant(userKey, repoKey, commit, "normal")
@@ -578,8 +549,6 @@ func (s *Store) RecordVariant(userKey, repoKey, commit, variant string) (*Record
 	if variant != "" && variant != "normal" && variant != "plan" {
 		return nil, fmt.Errorf("invalid analysis variant")
 	}
-	s.mu.RLock()
-	defer s.mu.RUnlock()
 	path, err := s.path("reports", userKey, repoKey, recordName(commit, variant))
 	if err != nil {
 		return nil, err
@@ -588,42 +557,8 @@ func (s *Store) RecordVariant(userKey, repoKey, commit, variant string) (*Record
 	if err := readJSON(path, &rec); err != nil {
 		return nil, err
 	}
+	rec.Error = SafeError(rec.Error)
 	return &rec, nil
-}
-
-// History lists the stored runs of a repository, newest first, without their
-// raw reports.
-func (s *Store) History(userKey, repoKey string, limit int) ([]Run, error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	if !ValidKey(userKey) || !ValidKey(repoKey) {
-		return nil, fmt.Errorf("invalid key")
-	}
-	dir := filepath.Join(s.dir, "reports", userKey, repoKey)
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil, nil
-		}
-		return nil, err
-	}
-	runs := make([]Run, 0, len(entries))
-	for _, e := range entries {
-		if e.IsDir() || !strings.HasSuffix(e.Name(), ".json") {
-			continue
-		}
-		var rec Record
-		if err := readJSON(filepath.Join(dir, e.Name()), &rec); err != nil {
-			continue
-		}
-		rec.Raw = nil
-		runs = append(runs, rec.Run)
-	}
-	sort.Slice(runs, func(i, j int) bool { return runs[i].QueuedAt.After(runs[j].QueuedAt) })
-	if limit > 0 && len(runs) > limit {
-		runs = runs[:limit]
-	}
-	return runs, nil
 }
 
 func recordName(commit, variant string) string {

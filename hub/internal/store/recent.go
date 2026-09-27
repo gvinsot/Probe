@@ -1,10 +1,6 @@
 package store
 
 import (
-	"io/fs"
-	"path/filepath"
-	"sort"
-	"strings"
 	"time"
 
 	"github.com/gvinsot/SwiftProof/hub/internal/report"
@@ -28,13 +24,15 @@ type RecentSummary struct {
 	Counts  report.Counts `json:"counts"`
 }
 
-type recentKey struct{ user, repo string }
-
 func projectRecent(run *Run) RecentRun {
+	variant := run.Variant
+	if variant == "" {
+		variant = "normal"
+	}
 	return RecentRun{
-		Commit: run.Commit, Status: run.Status, Variant: run.Variant,
+		Commit: bounded(run.Commit, 120), Status: bounded(run.Status, 16), Variant: bounded(variant, 16),
 		QueuedAt: run.QueuedAt, FinishedAt: run.FinishedAt,
-		Summary: RecentSummary{Verdict: run.Summary.Verdict, Counts: run.Summary.Counts},
+		Summary: RecentSummary{Verdict: bounded(run.Summary.Verdict, 16), Counts: run.Summary.Counts},
 	}
 }
 
@@ -51,87 +49,22 @@ func (r RecentRun) inWindow(since time.Time) bool {
 	return r.Status == StatusQueued || r.Status == StatusRunning || at.IsZero() || !at.Before(since)
 }
 
-// loadRecent builds the rolling index once, before the store is shared. Old
-// installations need no migration. Full reports are never parsed on dashboard
-// requests; only the compact, current-window projections are retained here.
-func (s *Store) loadRecent() error {
-	root := filepath.Join(s.dir, "reports")
-	since := time.Now().Add(-RecentWindow)
-	return filepath.WalkDir(root, func(path string, entry fs.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		if entry.IsDir() {
-			return nil
-		}
-		rel, err := filepath.Rel(root, path)
-		if err != nil {
-			return err
-		}
-		parts := strings.Split(rel, string(filepath.Separator))
-		if len(parts) != 3 || !ValidKey(parts[0]) || !ValidKey(parts[1]) ||
-			!strings.HasSuffix(parts[2], ".json") || strings.HasSuffix(parts[2], ".plan.json") {
-			return nil
-		}
-		var run RecentRun
-		if err := readJSON(path, &run); err != nil {
-			return nil // Same tolerance as History.
-		}
-		if !ValidKey(run.Commit) {
-			return nil
-		}
-		s.indexRecent(parts[0], parts[1], run, since)
-		return nil
-	})
-}
-
-// indexRecent runs under the write lock (or during Open). Updating one commit
-// replaces its earlier result, just like the persisted report cache.
-func (s *Store) indexRecent(user, repo string, run RecentRun, since time.Time) {
-	if run.Variant != "" && run.Variant != "normal" {
-		return
-	}
-	key := recentKey{user, repo}
-	if !run.inWindow(since) {
-		delete(s.recent[key], run.Commit)
-		return
-	}
-	if s.recent[key] == nil {
-		s.recent[key] = make(map[string]RecentRun)
-	}
-	s.recent[key][run.Commit] = run
-}
-
-// ReposWithRecent snapshots the account's repos and rolling index under one
-// read lock. Its report work depends on the recent window, never on archived
-// history, and performs no report-file reads. The returned values are copies.
+// ReposWithRecent snapshots repository metadata, then copies bounded per-repo
+// indexes. Report work never holds the account metadata lock or reads artifacts.
 func (s *Store) ReposWithRecent(userKey string, since time.Time) ([]PublicRepo, error) {
-	s.mu.RLock()
-	repos, err := s.reposLocked(userKey)
+	repos, err := s.Repos(userKey)
 	if err != nil {
-		s.mu.RUnlock()
 		return nil, err
 	}
 	out := make([]PublicRepo, 0, len(repos))
 	for _, repo := range repos {
 		public := repo.Public()
-		for _, run := range s.recent[recentKey{userKey, repo.Key}] {
-			if run.inWindow(since) {
-				public.Recent = append(public.Recent, run)
-			}
+		recent, incomplete, err := s.Recent(userKey, repo.Key, since)
+		if err != nil {
+			return nil, err
 		}
+		public.Recent, public.RecentIncomplete = recent, incomplete
 		out = append(out, public)
-	}
-	s.mu.RUnlock()
-	// Sorting detached snapshots must not hold up analysis writers.
-	for _, public := range out {
-		sort.Slice(public.Recent, func(i, j int) bool {
-			a, b := public.Recent[i], public.Recent[j]
-			if a.activityAt().Equal(b.activityAt()) {
-				return a.Commit < b.Commit
-			}
-			return a.activityAt().After(b.activityAt())
-		})
 	}
 	return out, nil
 }

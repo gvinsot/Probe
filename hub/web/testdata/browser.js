@@ -166,6 +166,16 @@ window.addEventListener('DOMContentLoaded', async () => {
     period.value = '6'; period.dispatchEvent(new Event('input'));
     assert(repoMeta().includes('reproduced issue') && repoMeta().includes('2 commits · 7d'), 'worst status of the week: ' + repoMeta());
     assert(localStorage.getItem('swiftproof.hub.period') === '6', 'period remembered');
+    assert(document.getElementById('review-count').textContent.startsWith('0 repositories'), 'repository count follows the displayed blocked verdict');
+    const recentCount = state.recent.get('repo').size;
+    rememberRun('repo', { ...fixtureRun('plan'), commit: fixtureSHA('f'), queued_at: fixtureAgo(0) });
+    assert(state.recent.get('repo').size === recentCount, 'plans never enter normal period aggregation');
+    const selectedRepo = state.repos.get('repo');
+    selectedRepo.recent_incomplete = true;
+    renderRepos();
+    assert(repoMeta().includes('partial history') && document.getElementById('review-count').textContent.includes('partial history'), 'truncation is visible in status and count');
+    selectedRepo.recent_incomplete = false;
+
     period.value = '0'; period.dispatchEvent(new Event('input'));
     assert(repoMeta().includes('no commit in 1h'), 'empty period: ' + repoMeta());
     assert(document.getElementById('review-count').textContent.startsWith('0 repositories'), 'review count follows the period');

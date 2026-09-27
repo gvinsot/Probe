@@ -60,7 +60,8 @@ type Job struct {
 	Variant string
 	Intent  string
 	// ready orders the queued event before workers can publish running/done.
-	ready chan struct{}
+	ready    chan struct{}
+	queuedAt time.Time
 }
 
 // ErrBusy is returned when the queue is saturated; the caller should retry.
@@ -149,6 +150,7 @@ func (r *Runner) Enqueue(j Job) error {
 	r.perUser[j.UserKey]++
 	r.mu.Unlock()
 	j.ready = make(chan struct{})
+	j.queuedAt = time.Now().UTC()
 	select {
 	case r.queue <- j:
 		r.markQueued(j)
@@ -177,7 +179,7 @@ func (r *Runner) Pending() int { return len(r.queue) }
 func (r *Runner) markQueued(j Job) {
 	run := store.Run{
 		Commit: j.Commit, BaseCommit: j.Before, Ref: j.Ref, Message: firstLine(j.Message),
-		Variant: j.Variant, Intent: j.Intent, Author: j.Author, Status: store.StatusQueued, Trigger: j.Trigger, QueuedAt: time.Now().UTC(),
+		Variant: j.Variant, Intent: j.Intent, Author: j.Author, Status: store.StatusQueued, Trigger: j.Trigger, QueuedAt: j.queuedAt,
 	}
 	r.publishRun(j, run)
 }
@@ -209,7 +211,10 @@ func (r *Runner) process(ctx context.Context, j Job) {
 	run := store.Run{
 		Commit: j.Commit, BaseCommit: j.Before, Ref: j.Ref, Message: firstLine(j.Message),
 		Variant: j.Variant, Intent: j.Intent, Author: j.Author, Status: store.StatusRunning, Trigger: j.Trigger,
-		QueuedAt: started, StartedAt: started,
+		QueuedAt: j.queuedAt, StartedAt: started,
+	}
+	if run.QueuedAt.IsZero() {
+		run.QueuedAt = started
 	}
 	r.publishRun(j, run)
 
@@ -221,8 +226,8 @@ func (r *Runner) process(ctx context.Context, j Job) {
 	run.DurationMS = run.FinishedAt.Sub(started).Milliseconds()
 	if err != nil {
 		run.Status = store.StatusFailed
-		run.Error = err.Error()
-		r.log.Error("analysis failed", "repo", j.RepoKey, "commit", short(j.Commit), "error", err)
+		run.Error = store.SafeError(err.Error())
+		r.log.Error("analysis failed", "repo", j.RepoKey, "commit", short(j.Commit), "error", run.Error)
 	} else {
 		run.Status = store.StatusDone
 	}
@@ -241,7 +246,7 @@ func (r *Runner) process(ctx context.Context, j Job) {
 }
 
 // analyze does the work and returns the stored record when a report exists.
-func (r *Runner) analyze(ctx context.Context, j Job, run *store.Run) (*store.Record, error) {
+func (r *Runner) analyze(ctx context.Context, j Job, run *store.Run) (record *store.Record, resultErr error) {
 	repo, err := r.store.Repo(j.UserKey, j.RepoKey)
 	if err != nil {
 		return nil, fmt.Errorf("repository: %w", err)
@@ -259,6 +264,19 @@ func (r *Runner) analyze(ctx context.Context, j Job, run *store.Run) (*store.Rec
 		return nil, err
 	}
 
+	// Remove known credentials even if an upstream error prints a bare token.
+	defer func() {
+		if resultErr == nil {
+			return
+		}
+		message := resultErr.Error()
+		for _, secret := range []string{provider.GitAuthHeader(token), token.AccessToken, token.RefreshToken} {
+			if secret != "" {
+				message = strings.ReplaceAll(message, secret, "[redacted]")
+			}
+		}
+		resultErr = errors.New(store.SafeError(message))
+	}()
 	work, err := os.MkdirTemp("", "swiftproof-hub-")
 	if err != nil {
 		return nil, fmt.Errorf("workspace: %w", err)

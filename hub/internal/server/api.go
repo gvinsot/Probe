@@ -41,7 +41,7 @@ func (s *Server) handleRepos(w http.ResponseWriter, r *http.Request) {
 		}
 		return out[i].FullName < out[j].FullName
 	})
-	writeJSON(w, http.StatusOK, map[string]any{"repos": out})
+	writeRepoList(w, r, out)
 }
 
 func (s *Server) handleRepo(w http.ResponseWriter, r *http.Request) {
@@ -431,7 +431,7 @@ func (s *Server) handleRuns(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	limit := store.MaxHistory
-	if v, err := strconv.Atoi(r.URL.Query().Get("limit")); err == nil && v >= 0 && v < store.MaxHistory {
+	if v, err := strconv.Atoi(r.URL.Query().Get("limit")); err == nil && v > 0 && v < store.MaxHistory {
 		limit = v
 	}
 	runs, err := s.store.History(sess.UserKey, repo.Key, limit)
