@@ -69,6 +69,7 @@ Start with the flagged lines and the reason for each review target. These signal
 
 - Immutable Git comparisons: renames, deletions, binaries and merge-base semantics.
 - Go AST comparison of exported declarations and changed security/payment function bodies, plus labelled lexical risk signals and branch-growth heuristics across text files.
+- Security checks without a model on added lines of every text file (configuration included): hard-coded credentials and private keys (masked in the report), credentials or secrets in URLs, hard-coded e-mail and IP addresses, TLS verification disabled, debug mode, excessive Linux permissions or container privileges, and disabled protections (CSRF, CORS, cookies, JWT, SELinux/firewall, public cloud resources). They are regex heuristics: medium in tests, and low for configuration patterns quoted in documentation ([security checks](docs/SECURITY_CHECKS.md)).
 - Signals for sensitive paths, dependencies, network/DB calls, authentication, removed validation/error handling, unsafe constructs, missing associated changed tests, and added Go lines that a recorded coverage run did not execute.
 - Configured test, typecheck and build commands executed as argv arrays in disposable containers.
 - An optional reviewer with bounded source/search/test tools and temporary generated tests.

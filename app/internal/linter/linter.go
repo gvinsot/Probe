@@ -158,6 +158,7 @@ func analyzeFile(ctx context.Context, repo *gitrepo.Repository, change model.Cha
 		add("binary_change", "medium", "Binary content requires separate inspection", "Git reports a binary change; text analysis is unavailable")
 		return signals
 	}
+	signals = append(signals, securitySignals(f)...)
 	if isTest(f.Path) {
 		signals = append(signals, testWeakeningSignals(f)...)
 	}

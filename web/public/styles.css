@@ -295,6 +295,7 @@ th { font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.04em; colo
 td code { white-space: nowrap; }
 td.desc { color: var(--muted); min-width: 260px; }
 .sev { display: inline-block; font: 700 0.75rem ui-monospace, Menlo, Consolas, monospace; padding: 2px 8px; border-radius: 999px; }
+.sev-critical { background: color-mix(in srgb, var(--high) 40%, transparent); color: color-mix(in srgb, var(--high) 85%, var(--text)); font-weight: 700; }
 .sev-high { background: color-mix(in srgb, var(--high) 20%, transparent); color: color-mix(in srgb, var(--high) 70%, var(--text)); }
 .sev-medium { background: color-mix(in srgb, var(--low) 25%, transparent); color: color-mix(in srgb, var(--low) 50%, var(--text)); }
 .sev-low { background: var(--bg-alt); color: var(--muted); }
