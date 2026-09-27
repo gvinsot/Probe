@@ -152,7 +152,8 @@ webhooks there.
 | `SWIFTPROOF_HUB_SESSION_KEY_PREVIOUS` | — | Keys retired by a rotation (comma separated). They still open stored credentials, which are resealed under the current key at start-up. |
 | `SWIFTPROOF_HUB_INSTANCE` | `public` | `public` or `private`. A public instance allows lint and read-only AI review; it refuses full review. |
 | `SWIFTPROOF_HUB_MODE` | `auto` | `auto`, `lint`, `review-read-only`, or `review` on a private instance only. |
-| `SWIFTPROOF_REVIEWER_ENDPOINT` / `SWIFTPROOF_REVIEWER_MODEL` | — | Set both to enable read-only AI review in `auto`. Endpoint follows the CLI's HTTPS rules (HTTP only on loopback). |
+| `SWIFTPROOF_REVIEWER_ENDPOINT` / `SWIFTPROOF_REVIEWER_MODEL` | — | Set both to enable read-only AI review in `auto`. HTTPS required by default, except on loopback. |
+| `SWIFTPROOF_REVIEWER_ALLOW_INSECURE_HTTP` | `false` | Explicitly permit the deployment-configured HTTP endpoint, for example on a trusted internal network. Source and API key travel unencrypted. Applies to normal analysis and plan. |
 | `SWIFTPROOF_API_KEY` / `SWIFTPROOF_API_KEY_FILE` | — | Optional provider credential; mounted `/run/secrets/SWIFTPROOF_API_KEY` is also supported. |
 | `SWIFTPROOF_HUB_REVIEW_POLICIES` | — | Required with `review`. Entries `<github\|gitlab>:<owner/repo>@sha256:<digest>`, separated by commas or white space: the repositories and base-branch `.swiftproof.json` digests (`sha256sum .swiftproof.json`) the operator validated. Every other repository, and any other version of a listed policy, is analyzed in lint mode. |
 | `SWIFTPROOF_HUB_WORKERS` | `2` | Concurrent analyses. |

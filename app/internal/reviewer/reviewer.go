@@ -21,6 +21,8 @@ import (
 )
 
 type Options struct {
+	// AllowInsecureHTTP is an explicit deployment exception, never a policy setting.
+	AllowInsecureHTTP bool
 	// ReadOnly offers source inspection only; model claims cannot establish execution.
 	ReadOnly      bool
 	Endpoint      string
@@ -54,7 +56,8 @@ const systemPrompt = `You are an independent code-change investigator. Look for 
 Submit every investigated hypothesis using submit_hypothesis. Use REPRODUCED only with a differential_test evidence ID for the SAME generated test passing on baseline and failing on candidate. Use NOT_REPRODUCED only for a recorded differential test passing on both. Neither means a general correctness guarantee. Use DIVERGED only with a differential_observation or differential_fuzz evidence ID whose status is DIVERGED; it records that baseline and candidate recorded different values, not which revision is correct, and it is never a reproduced issue. Use DISMISSED only with a specific source_observation and a clear rationale. Otherwise use UNVERIFIED. Failed builds, timeouts, absent tools, and inconclusive baseline failures are UNVERIFIED. Evidence status is independently checked after your response. Do not fabricate IDs, tests, artifacts, or approvals. Keep hypotheses concise, actionable, and anchored to a path and line. End with a brief plain-text summary when finished; only submitted structured hypotheses become findings.`
 
 // Validate checks provider settings without network access. Endpoint may be a /v1
-// base URL or the full /chat/completions URL. Plain HTTP is limited to loopback.
+// base URL or the full /chat/completions URL. Non-loopback HTTP requires an
+// explicit deployment exception.
 func Validate(o Options) error {
 	_, _, err := normalize(o)
 	return err
@@ -71,8 +74,8 @@ func normalize(o Options) (Options, string, error) {
 	host := u.Hostname()
 	ip := net.ParseIP(host)
 	loopback := strings.EqualFold(host, "localhost") || ip != nil && ip.IsLoopback()
-	if u.Scheme != "https" && !(u.Scheme == "http" && loopback) {
-		return o, "", errors.New("reviewer endpoint requires HTTPS; HTTP is allowed only on loopback")
+	if u.Scheme != "https" && !(u.Scheme == "http" && (loopback || o.AllowInsecureHTTP)) {
+		return o, "", errors.New("reviewer endpoint requires HTTPS; for an operator-configured HTTP endpoint, explicitly set SWIFTPROOF_REVIEWER_ALLOW_INSECURE_HTTP=true (source and API key will be sent unencrypted)")
 	}
 	// Resolve the special local hostname without consulting DNS or proxy settings.
 	if u.Scheme == "http" && strings.EqualFold(host, "localhost") {

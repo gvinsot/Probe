@@ -34,7 +34,7 @@ The planner receives the intent, its extracted criteria, the base ref and commit
 - `find_references`, `inspect_symbol`, `find_callers`, answered by the same static index as [impact analysis](IMPACT.md), built over the whole base tree;
 - `submit_plan`, called once.
 
-No tool writes, executes, builds or reaches the network: the harness behind the planner has no sandbox image and no command, and any other tool name is refused and audited as a rejected call. Repository text, tool output and the intent are untrusted data, and the prompt says so. Requests go through the same bounded Chat Completions client as the reviewer (HTTPS, or HTTP on loopback only; no proxy; no redirect; redaction of every message).
+No tool writes, executes, builds or reaches the network: the harness behind the planner has no sandbox image and no command, and any other tool name is refused and audited as a rejected call. Repository text, tool output and the intent are untrusted data, and the prompt says so. Requests go through the same bounded Chat Completions client as the reviewer (HTTPS by default; HTTP on loopback or with the explicit deployment exception documented in [Security](SECURITY.md); no proxy; no redirect; redaction of every message).
 
 `submit_plan` is validated strictly (unknown fields refused); an invalid plan is returned to the model as a tool error so it can correct it:
 

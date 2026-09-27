@@ -21,8 +21,11 @@ run, and the job token is read from `SWIFTPROOF_API_KEY`, from the file named by
 `SWIFTPROOF_API_KEY_FILE`, or from the Docker secret the cluster mounts at
 `/run/secrets/SWIFTPROOF_API_KEY` — the `_KEY` suffix makes that conversion
 automatic, so the value never appears in the compose file or in
-`docker service inspect`. Only these three settings come from the environment;
-image, commands and budgets stay with the deployed commit's policy.
+`docker service inspect`. Provider settings come from the environment;
+image, commands and budgets stay with the deployed commit's policy. For a
+direct internal HTTP endpoint instead of the loopback bridge, the operator can
+also set `SWIFTPROOF_REVIEWER_ALLOW_INSECURE_HTTP=true`; this requires an explicit
+endpoint variable and sends source and the API key unencrypted.
 
 Deployment reviews compare the **exact deployed commit** against the candidate
 using `--exact --ci`, with policy from the deployed commit. Reports are tied to

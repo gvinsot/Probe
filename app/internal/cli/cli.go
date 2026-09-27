@@ -281,6 +281,7 @@ func analyze(ctx context.Context, mode string, args []string, out, errOut io.Wri
 	}
 	reviewerOptions := reviewer.Options{Endpoint: provider.Endpoint, Model: provider.Model, APIKey: provider.APIKey, MaxIterations: cfg.Reviewer.MaxIterations, Timeout: time.Duration(cfg.Reviewer.TimeoutSeconds) * time.Second, MaxInputBytes: cfg.Reviewer.MaxInputBytes}
 	reviewerOptions.ReadOnly = *readOnly
+	reviewerOptions.AllowInsecureHTTP = provider.AllowInsecureHTTP
 	if *useReviewer {
 		if err := reviewer.Validate(reviewerOptions); err != nil {
 			return fail(errOut, 3, "%v", err)

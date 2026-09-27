@@ -201,7 +201,7 @@ Set the following fields in `.swiftproof.json`, using the model identifier and e
 }
 ```
 
-Commit the policy to the trusted base branch, or use `--config .swiftproof.json` to explicitly select your local policy. Candidate PR changes cannot activate or redirect the reviewer. The provider must support Chat Completions function calling. Both a `/v1` base URL and a full `/chat/completions` URL are accepted. Remote endpoints require HTTPS; local servers may use HTTP on loopback (for example `http://127.0.0.1:1234/v1`). Local providers may work without an API key. Redirects are refused.
+Commit the policy to the trusted base branch, or use `--config .swiftproof.json` to explicitly select your local policy. Candidate PR changes cannot activate or redirect the reviewer. The provider must support Chat Completions function calling. Both a `/v1` base URL and a full `/chat/completions` URL are accepted. Remote endpoints require HTTPS by default; local servers may use HTTP on loopback (for example `http://127.0.0.1:1234/v1`). For an internal HTTP server, see the explicit deployment exception below. Local providers may work without an API key. Redirects are refused.
 
 ```sh
 # Set SWIFTPROOF_API_KEY using your shell or CI secret store.
@@ -250,9 +250,10 @@ The provider belongs to the deployment rather than to the reviewed repository, s
 |---------|--------|-------|
 | `reviewer.endpoint` | `SWIFTPROOF_REVIEWER_ENDPOINT` | Overrides the policy value; the same URL rules apply. |
 | `reviewer.model` | `SWIFTPROOF_REVIEWER_MODEL` | Overrides the policy value and enables `review` on its own. |
+| HTTP exception (deployment only) | `SWIFTPROOF_REVIEWER_ALLOW_INSECURE_HTTP=false` | Set `true` for an explicitly configured HTTP endpoint on a trusted network. Requires `SWIFTPROOF_REVIEWER_ENDPOINT`; source and API key travel unencrypted. Applies to review and plan. |
 | API key | `SWIFTPROOF_API_KEY`, else `SWIFTPROOF_API_KEY_FILE`, else `/run/secrets/SWIFTPROOF_API_KEY` | The variable name is `reviewer.api_key_env`; `<NAME>_FILE` and `/run/secrets/<NAME>` follow it. |
 
-A blank variable counts as unset and leaves the policy value in place. The key file is read whole, with surrounding whitespace stripped; a file named by `<NAME>_FILE` must be readable, and any mounted key file that cannot be used fails the run with exit 3 instead of silently sending an unauthenticated request. Only these three settings come from the environment: the sandbox image, commands, budgets and sensitive paths stay decisions of the trusted policy. When the reviewer runs, the run log names each value's source — the variable or file name, never the credential.
+A blank variable counts as unset and leaves the policy value in place. The key file is read whole, with surrounding whitespace stripped; a file named by `<NAME>_FILE` must be readable, and any mounted key file that cannot be used fails the run with exit 3 instead of silently sending an unauthenticated request. Provider settings and the HTTP exception come from the environment; execution settings stay decisions of the trusted policy. Read-only review uses built-in reviewer budgets. When the reviewer runs, the run log names each value's source — the variable or file name, never the credential.
 
 In a Docker Swarm deployment the key is a [Docker secret](https://docs.docker.com/engine/swarm/secrets/), mounted as a file and never present in `docker service inspect`:
 

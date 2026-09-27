@@ -9,6 +9,7 @@ import (
 	"io"
 	"io/fs"
 	"path"
+	"strconv"
 	"strings"
 
 	"github.com/gvinsot/SwiftProof/app/internal/coverage"
@@ -34,12 +35,13 @@ type Sandbox struct {
 // The provider belongs to the deployment, not to the reviewed repository: one
 // image and one committed policy are pointed at the operator's endpoint and
 // model through these variables, and at its credential through a Docker
-// secret. Everything else — image, commands, budgets, sensitive paths — stays
-// a decision of the trusted baseline policy. Neither name ends in a suffix the
-// Swarm deployment treats as sensitive, so both stay plain variables.
+// secret. The HTTP exception is deployment-only. Execution settings stay with
+// trusted baseline policy; read-only review uses built-in reviewer budgets.
+// These names remain ordinary environment variables in the Swarm deployment.
 const (
-	EndpointEnv = "SWIFTPROOF_REVIEWER_ENDPOINT"
-	ModelEnv    = "SWIFTPROOF_REVIEWER_MODEL"
+	EndpointEnv          = "SWIFTPROOF_REVIEWER_ENDPOINT"
+	ModelEnv             = "SWIFTPROOF_REVIEWER_MODEL"
+	AllowInsecureHTTPEnv = "SWIFTPROOF_REVIEWER_ALLOW_INSECURE_HTTP"
 )
 
 // The credential follows the cluster's secret convention: the deployment turns
@@ -268,10 +270,11 @@ func (c Config) Validate() error {
 // Sources records where each value that did not come from the policy was
 // taken from — the variable or file name, never the value itself.
 type Runtime struct {
-	Endpoint string
-	Model    string
-	APIKey   string
-	Sources  []string
+	AllowInsecureHTTP bool
+	Endpoint          string
+	Model             string
+	APIKey            string
+	Sources           []string
 }
 
 // ResolveReviewer applies the deployment environment over the trusted policy.
@@ -293,6 +296,21 @@ func (c Config) ResolveReviewer(getenv func(string) string, readFile func(string
 		readFile = func(string) ([]byte, error) { return nil, fs.ErrNotExist }
 	}
 	r := Runtime{Endpoint: c.Reviewer.Endpoint, Model: c.Reviewer.Model}
+	if v := strings.TrimSpace(getenv(AllowInsecureHTTPEnv)); v != "" {
+		allowed, err := strconv.ParseBool(v)
+		if err != nil {
+			return Runtime{}, fmt.Errorf("%s must be true or false", AllowInsecureHTTPEnv)
+		}
+		// This exception belongs only to an endpoint explicitly selected by
+		// the operator; repository policy cannot inherit HTTP permission.
+		if allowed && strings.TrimSpace(getenv(EndpointEnv)) == "" {
+			return Runtime{}, fmt.Errorf("%s requires an explicit %s", AllowInsecureHTTPEnv, EndpointEnv)
+		}
+		r.AllowInsecureHTTP = allowed
+		if allowed {
+			r.Sources = append(r.Sources, "unencrypted HTTP permitted by "+AllowInsecureHTTPEnv)
+		}
+	}
 	if v := strings.TrimSpace(getenv(EndpointEnv)); v != "" {
 		r.Endpoint = v
 		r.Sources = append(r.Sources, "endpoint from "+EndpointEnv)

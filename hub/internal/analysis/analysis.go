@@ -477,7 +477,7 @@ func cliEnv(work string) []string {
 		"GIT_TERMINAL_PROMPT=0",
 		"GIT_CONFIG_NOSYSTEM=1",
 	}
-	for _, name := range []string{"DOCKER_HOST", "DOCKER_CERT_PATH", "DOCKER_TLS_VERIFY", config.EndpointEnvName, config.ModelEnvName, "SWIFTPROOF_API_KEY", "SWIFTPROOF_API_KEY_FILE"} {
+	for _, name := range []string{"DOCKER_HOST", "DOCKER_CERT_PATH", "DOCKER_TLS_VERIFY", config.EndpointEnvName, config.ModelEnvName, config.AllowInsecureHTTPEnvName, "SWIFTPROOF_API_KEY", "SWIFTPROOF_API_KEY_FILE"} {
 		if v := os.Getenv(name); v != "" {
 			env = append(env, name+"="+v)
 		}

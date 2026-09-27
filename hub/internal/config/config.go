@@ -48,8 +48,9 @@ const (
 // Provider settings belong to the deployment, exactly as for the CLI: the hub
 // holds no API key of its own and only forwards these to the binary it runs.
 const (
-	EndpointEnvName = "SWIFTPROOF_REVIEWER_ENDPOINT"
-	ModelEnvName    = "SWIFTPROOF_REVIEWER_MODEL"
+	EndpointEnvName          = "SWIFTPROOF_REVIEWER_ENDPOINT"
+	ModelEnvName             = "SWIFTPROOF_REVIEWER_MODEL"
+	AllowInsecureHTTPEnvName = "SWIFTPROOF_REVIEWER_ALLOW_INSECURE_HTTP"
 )
 
 // Forge holds the OAuth application and host of one code forge.

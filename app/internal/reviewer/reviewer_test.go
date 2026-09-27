@@ -97,7 +97,7 @@ func TestRedirectDoesNotForwardCredentials(t *testing.T) {
 		http.Redirect(w, r, destination.URL, http.StatusTemporaryRedirect)
 	}))
 	defer server.Close()
-	err := Run(context.Background(), Options{Endpoint: server.URL, Model: "test", APIKey: "top-secret"}, &model.Report{}, &fakeHarness{})
+	err := Run(context.Background(), Options{Endpoint: server.URL, Model: "test", APIKey: "top-secret", AllowInsecureHTTP: true}, &model.Report{}, &fakeHarness{})
 	if err == nil || reached.Load() {
 		t.Fatal("redirect followed")
 	}
