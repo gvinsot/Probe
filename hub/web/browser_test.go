@@ -46,7 +46,7 @@ func TestCommitGraphInBrowser(t *testing.T) {
 	defer server.Close()
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, chromium, "--headless", "--no-sandbox", "--disable-gpu", "--disable-dev-shm-usage", "--user-data-dir="+t.TempDir(), "--dump-dom", "--virtual-time-budget=5000", server.URL+"/app.html")
+	cmd := exec.CommandContext(ctx, chromium, "--headless", "--no-sandbox", "--disable-gpu", "--disable-dev-shm-usage", "--window-size=1440,900", "--user-data-dir="+t.TempDir(), "--dump-dom", "--virtual-time-budget=5000", server.URL+"/app.html")
 	output, err := cmd.Output()
 	if err != nil {
 		t.Fatalf("Chromium: %v", err)

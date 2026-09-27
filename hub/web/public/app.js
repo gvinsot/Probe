@@ -461,6 +461,7 @@ async function loadHistory(resetIntent = false) {
   if (!repo) return;
   const loadID = ++state.loadID;
   el('commit-browser').classList.remove('hidden');
+  el('splitter').classList.remove('hidden');
   el('graph-note').textContent = 'Loading commits…';
   // History remains useful if fetching Git temporarily fails.
   const results = await Promise.allSettled([
@@ -1230,6 +1231,7 @@ async function boot() {
     el('severity-value').textContent = LEVELS[state.minSeverity];
     renderAlerts();
   });
+  initSplitter();
   el('refresh-commits').addEventListener('click', () => {
     state.graphs.delete(state.repoKey);
     loadHistory();
@@ -1258,6 +1260,75 @@ async function boot() {
     // A fresh account has nothing yet; the sign-in already started a sync.
     toast('Listing your repositories…');
   }
+}
+
+// The commit tree column can be resized by dragging (or with the arrow keys
+// on) the separator; the width is remembered across visits.
+const SPLIT_KEY = 'swiftproof.commitColumnWidth';
+const SPLIT_DEFAULT = 340;
+const SPLIT_MIN = 220;
+
+function clampSplit(width) {
+  const workspace = document.querySelector('.workspace');
+  const max = Math.max(SPLIT_MIN, (workspace ? workspace.clientWidth : window.innerWidth) - 360);
+  return Math.round(Math.min(max, Math.max(SPLIT_MIN, width)));
+}
+
+function setSplit(width, persist) {
+  const value = clampSplit(width);
+  const splitter = el('splitter');
+  document.documentElement.style.setProperty('--commit-column-width', value + 'px');
+  splitter.setAttribute('aria-valuenow', String(value));
+  if (persist) {
+    try { localStorage.setItem(SPLIT_KEY, String(value)); } catch (err) { /* storage disabled */ }
+  }
+  return value;
+}
+
+function initSplitter() {
+  const splitter = el('splitter');
+  const column = el('commit-browser');
+  let saved = NaN;
+  try { saved = Number(localStorage.getItem(SPLIT_KEY)); } catch (err) { /* storage disabled */ }
+  setSplit(saved > 0 ? saved : SPLIT_DEFAULT, false);
+
+  splitter.addEventListener('pointerdown', (event) => {
+    if (event.button !== 0) return;
+    event.preventDefault();
+    const startX = event.clientX;
+    const startWidth = column.getBoundingClientRect().width;
+    try { splitter.setPointerCapture(event.pointerId); } catch (err) { /* synthetic pointer */ }
+    splitter.classList.add('dragging');
+    document.body.classList.add('resizing');
+    const move = (e) => setSplit(startWidth + e.clientX - startX, false);
+    const stop = (e) => {
+      splitter.removeEventListener('pointermove', move);
+      splitter.removeEventListener('pointerup', stop);
+      splitter.removeEventListener('pointercancel', stop);
+      splitter.classList.remove('dragging');
+      document.body.classList.remove('resizing');
+      setSplit(startWidth + e.clientX - startX, true);
+    };
+    splitter.addEventListener('pointermove', move);
+    splitter.addEventListener('pointerup', stop);
+    splitter.addEventListener('pointercancel', stop);
+  });
+  splitter.addEventListener('dblclick', () => setSplit(SPLIT_DEFAULT, true));
+  splitter.addEventListener('keydown', (event) => {
+    const step = event.shiftKey ? 80 : 20;
+    const current = column.getBoundingClientRect().width;
+    if (event.key === 'ArrowLeft') setSplit(current - step, true);
+    else if (event.key === 'ArrowRight') setSplit(current + step, true);
+    else if (event.key === 'Home') setSplit(SPLIT_MIN, true);
+    else if (event.key === 'End') setSplit(Number.MAX_SAFE_INTEGER, true);
+    else return;
+    event.preventDefault();
+  });
+  window.addEventListener('resize', () => {
+    let preferred = NaN;
+    try { preferred = Number(localStorage.getItem(SPLIT_KEY)); } catch (err) { /* storage disabled */ }
+    setSplit(preferred > 0 ? preferred : SPLIT_DEFAULT, false);
+  });
 }
 
 document.addEventListener('DOMContentLoaded', boot);
