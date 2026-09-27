@@ -131,6 +131,17 @@ func fullyPopulatedReport() Report {
 	r.Prepare.Network = true
 	r.ReproducedIssues[0].CriterionID = "AC-1"
 	r.Hypotheses[0].CriterionID = "AC-1"
+	r.PlanDrift = &PlanDrift{
+		Status: PlanDriftDrifted, PlanSHA256: strings.Repeat("a", 64), IntentSHA256: strings.Repeat("b", 64), BaseMatches: true,
+		CriticalGlobs: []string{"**/auth/**"},
+		Contract: PlanContract{
+			BaseCommit: strings.Repeat("c", 40), Files: []string{"calc/calc.go", "go.mod"},
+			Symbols:       []PlanContractSymbol{{Path: "calc/calc.go", Name: "Discount", Change: PlanSymbolSignature}},
+			CriticalFiles: []string{"calc/auth/token.go"}, Manifests: []string{"go.mod"}, Dependencies: true, NewPackages: []string{"calc/rules"},
+		},
+		Items: []PlanDriftItem{{Kind: DriftUnannouncedExported, Severity: "high", Path: "calc/calc.go", Symbol: "Scale", Summary: "Exported declaration changed although the plan did not announce it"}},
+		Note:  PlanDriftNote,
+	}
 	return r
 }
 

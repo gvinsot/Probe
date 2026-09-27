@@ -581,3 +581,28 @@ func sensitiveBodySignal(path, name, kind, side string, line, end int) model.Sig
 	}
 	return model.Signal{Kind: kind, Path: path, Line: line, EndLine: end, Side: side, Symbol: name, Severity: "high", Summary: domain + " function body changed", Evidence: "Go AST locates changed statements in " + name + "; the function or receiver name suggests sensitive behavior. Name/context heuristic, not a verified vulnerability; formatting and comment-only body changes are ignored"}
 }
+
+// MatchSensitive reports the first configured sensitive-path glob that p
+// matches, with the same glob semantics as the sensitive_path signal. An
+// invalid glob is an error.
+func MatchSensitive(globs []string, p string) (string, bool, error) {
+	for _, glob := range globs {
+		re, err := compileGlob(glob)
+		if err != nil {
+			return "", false, fmt.Errorf("sensitive path: %w", err)
+		}
+		if re.MatchString(p) {
+			return glob, true, nil
+		}
+	}
+	return "", false, nil
+}
+
+// FunctionRisk classifies a function or "T.M" method name with the name
+// heuristic of the auth_change and sensitive_function_change signals: it
+// returns one of those kinds, or "" when the name suggests neither.
+func FunctionRisk(name string) string { return functionRisk(name) }
+
+// IsTestPath reports a test file by the name rules the linter uses to pair
+// changed code with changed tests.
+func IsTestPath(p string) bool { return isTest(p) }

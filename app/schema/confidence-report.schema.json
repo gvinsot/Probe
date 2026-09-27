@@ -39,6 +39,7 @@
     "fuzz": {"$ref": "#/$defs/fuzz"},
     "impact": {"$ref": "#/$defs/impact"},
     "execution": {"$ref": "#/$defs/execution"},
+    "plan_drift": {"$ref": "#/$defs/planDrift"},
     "artifacts": {"type": "array", "items": {"$ref": "#/$defs/artifact"}},
     "audit": {"type": "array", "items": {"$ref": "#/$defs/auditEvent"}},
     "exit_code": {
@@ -48,6 +49,37 @@
     }
   },
   "$defs": {
+    "planContract": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["base_commit", "files", "symbols", "critical_files", "manifests", "dependencies", "new_packages"],
+      "description": "The contract a PLAN.json declared: planned paths (old paths of renames included), announced symbol changes, planned files matching a critical path at plan time, dependency manifests and new Go packages.",
+      "properties": {
+        "base_commit": {"type": "string"},
+        "files": {"type": "array", "items": {"$ref": "#/$defs/path"}},
+        "symbols": {"type": "array", "items": {"type": "object", "additionalProperties": false, "required": ["path", "name", "change"], "properties": {"path": {"$ref": "#/$defs/path"}, "name": {"type": "string", "minLength": 1}, "change": {"type": "string", "enum": ["add", "body", "signature", "remove"]}}}},
+        "critical_files": {"type": "array", "items": {"$ref": "#/$defs/path"}},
+        "manifests": {"type": "array", "items": {"$ref": "#/$defs/path"}},
+        "dependencies": {"type": "boolean"},
+        "new_packages": {"type": "array", "items": {"type": "string"}}
+      }
+    },
+    "planDrift": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "plan_sha256", "base_matches", "critical_globs", "contract", "items", "note"],
+      "description": "Scope drift of the change against a plan (review --plan). Finalize recomputes status and items from the contract, the critical globs, the diff and the public_api_change signals; it checks that the change stays within what was announced, not that it is correct.",
+      "properties": {
+        "status": {"type": "string", "enum": ["conforming", "drifted"]},
+        "plan_sha256": {"type": "string"},
+        "intent_sha256": {"type": "string"},
+        "base_matches": {"type": "boolean"},
+        "critical_globs": {"type": "array", "items": {"type": "string"}},
+        "contract": {"$ref": "#/$defs/planContract"},
+        "items": {"type": "array", "items": {"type": "object", "additionalProperties": false, "required": ["kind", "severity", "path", "summary"], "properties": {"kind": {"type": "string", "enum": ["unplanned_file", "unplanned_test_file", "planned_file_untouched", "unannounced_exported_change", "unannounced_critical_path", "unannounced_dependency_change"]}, "severity": {"$ref": "#/$defs/severity"}, "path": {"$ref": "#/$defs/path"}, "symbol": {"type": "string"}, "summary": {"type": "string"}}}},
+        "note": {"type": "string"}
+      }
+    },
     "id": {"type": "string", "minLength": 1},
     "path": {"type": "string", "minLength": 1, "description": "Repository-relative Git path, unless the containing artifact explicitly records an output filesystem path."},
     "severity": {"type": "string", "enum": ["low", "medium", "high", "critical"]},

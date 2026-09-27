@@ -109,6 +109,9 @@ func conclude(r *model.Report, l *ledger, ci bool, divergences func(*model.Repor
 	if finalizeImpact(r, l) { // F6a/F6b
 		needsHuman = true
 	}
+	if finalizePlanDrift(r) { // review --plan: recomputed from the contract and the diff
+		needsHuman = true
+	}
 	finalizeExecution(r, l) // F7a: replay_backed + note normalization
 	finalizePrepare(r)      // F8: note normalization only
 	// The mutation ledger is excluded: mutants are expected to fail.
@@ -396,6 +399,9 @@ func renderMarkdown(r *model.Report) []byte {
 	writeDivergences(&b, r, verified) // F0: "## Behavior Divergences", always rendered
 	if r.Intent != "" || len(r.IntentCriteria) > 0 || len(r.IntentTestFailures) > 0 {
 		writeIntentSections(&b, r) // F5: "## Intent Test Failures" and "## Intent Criteria"
+	}
+	if r.PlanDrift != nil {
+		writePlanDrift(&b, r) // review --plan: "## Plan Conformance"
 	}
 	line(&b, "\n## Unverified Areas\n")
 	n := 0

@@ -83,6 +83,7 @@ Start with the flagged lines and the reason for each review target. These signal
 - Optional mutation of added Go lines (`mutation` policy object): surviving mutants are reported for review, killed mutants are only counted, and no mutation score is computed ([mutation of added lines](docs/MUTATION.md)).
 - Observation experiments: a generated test may record values instead of asserting them, and a value that differs between revisions, after a live baseline repeat agreed with the first baseline run, is shown with both values as a behavior divergence for a human to judge ([observations](docs/OBSERVATIONS.md)).
 - Acceptance criteria from `--intent` or `--intent-file`: the reviewer may write a candidate-only test for one quoted criterion, and a failure is reported as `INTENT_TEST_FAILED`, apart from reproduced issues and without a baseline control ([intent criteria](docs/INTENT.md)).
+- Pre-change plans (`swiftproof plan --intent-file FILE`, provider required): the model simulates the implementation read-only and submits a plan; SwiftProof evaluates it with fixed rules (critical paths, callers and reaching tests, exported signatures, dependency manifests, new packages) into `PLAN.json` and `PLAN.md`, and `review --plan` / `lint --plan` report every file, exported signature, critical path or manifest the diff changes outside the plan ([plans and scope drift](docs/PLAN.md)).
 - Evidence-only exports: `--format sarif,pr-comment` writes only findings backed by recorded evidence, and an empty export is not approval ([exports](docs/EXPORTS.md)).
 
 Go risk signals come from syntactic analysis. Impact analysis builds a static index of the repository's own Go packages on the host from committed source, without running repository code or loading imports from outside the repository, so its call graph is approximate and partial: interface edges are possible dispatch only, and an absent caller is not proof of absence. TypeScript support is lexical in this version. Signals are reasons to investigate, not confirmed bugs. Missing test changes do not establish missing coverage. A recorded coverage run establishes only which added lines ran and which did not; neither establishes that a line is tested.
@@ -102,6 +103,8 @@ swiftproof lint --base main --impact=false        # skip the static impact index
 swiftproof review --base main --cache-dir "$HOME/.cache/swiftproof" --parallel 2
 swiftproof review --base main --deadline 25m      # overall bound for execution stages
 swiftproof review --base main --format markdown,json,sarif,pr-comment
+swiftproof plan --intent-file demande.md          # pre-change plan: PLAN.json, PLAN.md (provider required)
+swiftproof review --base main --plan .swiftproof/PLAN.json  # scope drift against the plan
 swiftproof report --input .swiftproof/confidence-report.json
 swiftproof review --help
 ```
@@ -116,6 +119,7 @@ swiftproof review --help
 | `--base-tests` | review | off | Runs the baseline versions of changed Go tests on candidate code. |
 | `--fuzz` | review | on | `--fuzz=false` skips differential fuzzing configured in policy. |
 | `--impact` | lint, review | on | `--impact=false` skips the static impact index. |
+| `--plan FILE` | lint, review | none | Checks the diff against the contract of a PLAN.json written by `swiftproof plan` and adds the `plan_drift` section ([plans and scope drift](docs/PLAN.md)). |
 | `--impacted-tests` | review | off | Runs the existing Go tests that reach changed functions on both revisions. |
 | `--cache-dir DIR` | review | none: no cache | Enables the baseline execution cache in DIR, which must be outside the repository and the report directory. |
 | `--parallel N` | review | 1 | Runs up to N (at most 4) initial checks at a time. The runtime budget is unchanged. |

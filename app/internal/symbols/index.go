@@ -87,6 +87,7 @@ type Index struct {
 	ifaces       map[int32]*types.Interface
 	ifaceByName  map[string][]int32
 	changed      map[int32]string // declaration -> change class, set by Analyze
+	mods         modules          // Go modules of the indexed tree, for test packages
 	indexedFiles int
 
 	mu    sync.Mutex

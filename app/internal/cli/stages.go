@@ -136,6 +136,7 @@ func stdoutLines(r *model.Report) []string {
 		mutationLine(r.Mutation),   // F4
 		impactLine(r.Impact),       // F6a
 		executionLine(r.Execution), // F7a
+		planDriftLine(r.PlanDrift), // review --plan
 	} {
 		if s = consoleText(s); s != "" {
 			out = append(out, s)

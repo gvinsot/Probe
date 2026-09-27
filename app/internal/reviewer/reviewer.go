@@ -9,9 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"net"
-	"net/http"
 	"net/url"
 	"strings"
 	"time"
@@ -122,16 +120,9 @@ func Run(ctx context.Context, o Options, r *model.Report, h toolHarness) error {
 	}
 	ctx, cancel := context.WithTimeout(ctx, o.Timeout)
 	defer cancel()
-	transport := &http.Transport{Proxy: nil, DialContext: (&net.Dialer{Timeout: 10 * time.Second}).DialContext, TLSHandshakeTimeout: 10 * time.Second, ResponseHeaderTimeout: 60 * time.Second, MaxIdleConns: 1, MaxIdleConnsPerHost: 1, IdleConnTimeout: 30 * time.Second}
-	defer transport.CloseIdleConnections()
-	client := &http.Client{Transport: transport, Timeout: o.Timeout, CheckRedirect: func(*http.Request, []*http.Request) error { return errors.New("reviewer redirects are prohibited") }}
-	clean := func(s string) string {
-		s = harness.Redact(s)
-		if o.APIKey != "" {
-			s = strings.ReplaceAll(s, o.APIKey, "[REDACTED]")
-		}
-		return s
-	}
+	c := newChat(o, endpoint)
+	defer c.close()
+	clean := c.clean
 	safe := reviewerView(reports.Sanitize(r))
 	input := struct {
 		Intent         string                  `json:"intent"`
@@ -164,63 +155,16 @@ func Run(ctx context.Context, o Options, r *model.Report, h toolHarness) error {
 		if err := ctx.Err(); err != nil {
 			return fmt.Errorf("reviewer deadline or cancellation: %w", err)
 		}
-		body, err := json.Marshal(struct {
-			Model               string           `json:"model"`
-			Messages            []message        `json:"messages"`
-			Tools               []map[string]any `json:"tools"`
-			MaxCompletionTokens int              `json:"max_completion_tokens"`
-			ParallelToolCalls   bool             `json:"parallel_tool_calls"`
-		}{o.Model, messages, definitions, 4096, false})
-		if err != nil {
-			return err
-		}
-		if len(body) > o.MaxInputBytes {
+		choice, event, err := c.complete(ctx, messages, definitions, iteration)
+		if errors.Is(err, errInputBudget) {
 			r.Unverified = append(r.Unverified, "Reviewer input budget exhausted; investigation is incomplete.")
 			return nil
 		}
-		req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(body))
-		if err != nil {
-			return errors.New("cannot construct reviewer request")
-		}
-		req.Header.Set("Content-Type", "application/json")
-		if o.APIKey != "" {
-			req.Header.Set("Authorization", "Bearer "+o.APIKey)
-		}
-		started := time.Now()
-		res, err := client.Do(req)
-		event := model.AuditEvent{Time: started.UTC(), Tool: "reviewer_completion", Arguments: fmt.Sprintf("iteration=%d", iteration+1), Status: "ERROR", DurationMS: time.Since(started).Milliseconds()}
-		if err != nil {
-			r.Audit = append(r.Audit, event)
-			return errors.New("reviewer request failed (transport, timeout, or prohibited redirect)")
-		}
-		data, readErr := io.ReadAll(io.LimitReader(res.Body, 1024*1024+1))
-		res.Body.Close()
-		if res.StatusCode < 200 || res.StatusCode >= 300 {
-			r.Audit = append(r.Audit, event)
-			return fmt.Errorf("reviewer endpoint returned HTTP %d", res.StatusCode)
-		}
-		if readErr != nil || len(data) > 1024*1024 {
-			r.Audit = append(r.Audit, event)
-			return errors.New("reviewer response exceeded size limit or could not be read")
-		}
-		var response struct {
-			Choices []struct {
-				Message      message `json:"message"`
-				FinishReason string  `json:"finish_reason"`
-			} `json:"choices"`
-		}
-		if err := json.Unmarshal(data, &response); err != nil || len(response.Choices) != 1 {
-			r.Audit = append(r.Audit, event)
-			return errors.New("reviewer returned an invalid completion")
-		}
-		event.Status = "OK"
-		event.DurationMS = time.Since(started).Milliseconds()
 		r.Audit = append(r.Audit, event)
-		choice := response.Choices[0]
+		if err != nil {
+			return err
+		}
 		m := choice.Message
-		m.Role = "assistant"
-		m.ToolCallID = ""
-		m.Content = clean(m.Content)
 		if choice.FinishReason == "length" || choice.FinishReason == "content_filter" {
 			r.Unverified = append(r.Unverified, "Reviewer response was truncated or filtered; investigation is incomplete.")
 			return nil

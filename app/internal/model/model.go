@@ -191,10 +191,11 @@ type Report struct {
 	ReviewTargets      []ReviewTarget    `json:"review_targets"`
 	ReviewSurface      ReviewSurface     `json:"review_surface"`
 	Coverage           Coverage          `json:"coverage"`
-	Mutation           *Mutation         `json:"mutation,omitempty"`  // F4
-	Fuzz               *FuzzReport       `json:"fuzz,omitempty"`      // F2
-	Impact             *Impact           `json:"impact,omitempty"`    // F6a
-	Execution          *Execution        `json:"execution,omitempty"` // F7a
+	Mutation           *Mutation         `json:"mutation,omitempty"`   // F4
+	Fuzz               *FuzzReport       `json:"fuzz,omitempty"`       // F2
+	Impact             *Impact           `json:"impact,omitempty"`     // F6a
+	Execution          *Execution        `json:"execution,omitempty"`  // F7a
+	PlanDrift          *PlanDrift        `json:"plan_drift,omitempty"` // review --plan
 	Artifacts          []Artifact        `json:"artifacts"`
 	Audit              []AuditEvent      `json:"audit"`
 	ExitCode           int               `json:"exit_code"`

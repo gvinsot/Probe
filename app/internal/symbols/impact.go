@@ -198,6 +198,7 @@ func Analyze(ctx context.Context, repo *gitrepo.Repository, change model.Change,
 		a.impact.Note = model.ImpactNoteFor(a.impact.Languages)
 	}
 	x := g.b.finish(g.content, indexed)
+	x.mods = g.mods
 	a.impact.IndexedFiles = indexed
 	if err := a.describe(ctx, x, g.mods, deadline); err != nil {
 		return nil, err

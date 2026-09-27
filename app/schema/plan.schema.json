@@ -1,0 +1,805 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/gvinsot/SwiftProof/schema/plan.schema.json",
+  "title": "SwiftProof plan v1",
+  "description": "A pre-change plan written by a model and evaluated deterministically by SwiftProof (swiftproof plan). It is a proposal and a contract for review --plan, not a prediction or a proof of safety.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "format",
+    "version",
+    "tool_version",
+    "generated_at",
+    "intent",
+    "intent_sha256",
+    "base_ref",
+    "base_commit",
+    "policy",
+    "model",
+    "proposal",
+    "assessment",
+    "contract",
+    "unverified",
+    "audit",
+    "note",
+    "exit_code"
+  ],
+  "properties": {
+    "format": {
+      "const": "swiftproof-plan"
+    },
+    "version": {
+      "const": 1
+    },
+    "tool_version": {
+      "type": "string"
+    },
+    "generated_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "intent": {
+      "type": "string"
+    },
+    "intent_sha256": {
+      "type": "string"
+    },
+    "base_ref": {
+      "type": "string"
+    },
+    "base_commit": {
+      "type": "string"
+    },
+    "policy": {
+      "$ref": "#/$defs/policy"
+    },
+    "model": {
+      "type": "string"
+    },
+    "proposal": {
+      "$ref": "#/$defs/proposal"
+    },
+    "assessment": {
+      "$ref": "#/$defs/assessment"
+    },
+    "contract": {
+      "$ref": "#/$defs/planContract"
+    },
+    "unverified": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "audit": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/auditEvent"
+      }
+    },
+    "note": {
+      "type": "string"
+    },
+    "exit_code": {
+      "type": "integer",
+      "enum": [
+        0,
+        2,
+        4
+      ]
+    }
+  },
+  "$defs": {
+    "assessment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "major",
+        "categories",
+        "signals",
+        "critical_paths",
+        "symbols",
+        "manifests",
+        "new_packages",
+        "index",
+        "thresholds",
+        "inconsistencies"
+      ],
+      "description": "SwiftProof's deterministic evaluation of the proposal with fixed rules; the model did not judge risk.",
+      "properties": {
+        "major": {
+          "type": "boolean"
+        },
+        "categories": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/category"
+          }
+        },
+        "signals": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/signal"
+          }
+        },
+        "critical_paths": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "path",
+              "pattern"
+            ],
+            "properties": {
+              "path": {
+                "$ref": "#/$defs/path"
+              },
+              "pattern": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "symbols": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/symbolImpact"
+          }
+        },
+        "manifests": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/path"
+          }
+        },
+        "new_packages": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "index": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "status"
+          ],
+          "properties": {
+            "status": {
+              "type": "string",
+              "enum": [
+                "not_applicable",
+                "indexed",
+                "limited",
+                "unavailable"
+              ]
+            },
+            "reason": {
+              "type": "string"
+            }
+          }
+        },
+        "thresholds": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "wide_impact_callers",
+            "large_scope_files"
+          ],
+          "properties": {
+            "wide_impact_callers": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "large_scope_files": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
+        },
+        "inconsistencies": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "auditEvent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "time",
+        "tool",
+        "arguments",
+        "status",
+        "duration_ms"
+      ],
+      "properties": {
+        "time": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "tool": {
+          "type": "string",
+          "minLength": 1
+        },
+        "arguments": {
+          "type": "string",
+          "description": "Bounded, redacted arguments or operation metadata."
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "OK",
+            "ERROR",
+            "PASS",
+            "FAIL",
+            "SKIPPED",
+            "TIMEOUT",
+            "HIT"
+          ],
+          "description": "HIT marks the stage:execution_cache event of a run replayed from the execution cache; a replay is not a fresh execution."
+        },
+        "duration_ms": {
+          "$ref": "#/$defs/count"
+        }
+      }
+    },
+    "category": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "flagged",
+        "signal_ids"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "enum": [
+            "critical_parts",
+            "architecture",
+            "regression_risk",
+            "other_major"
+          ]
+        },
+        "flagged": {
+          "type": "boolean"
+        },
+        "signal_ids": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/id"
+          }
+        }
+      }
+    },
+    "count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "impactCaller": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "path",
+        "line",
+        "symbol",
+        "depth",
+        "resolution"
+      ],
+      "description": "A reference to a changed function from unchanged, non-test code. A place to review, not a defect; interface resolution is possible dispatch only, and name resolution is a lexical match by name only.",
+      "properties": {
+        "path": {
+          "$ref": "#/$defs/path"
+        },
+        "line": {
+          "$ref": "#/$defs/line"
+        },
+        "symbol": {
+          "type": "string"
+        },
+        "depth": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 3
+        },
+        "resolution": {
+          "type": "string",
+          "enum": [
+            "static",
+            "interface",
+            "name"
+          ]
+        }
+      }
+    },
+    "impactTest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "path",
+        "line",
+        "package",
+        "depth",
+        "resolution"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "path": {
+          "$ref": "#/$defs/path"
+        },
+        "line": {
+          "$ref": "#/$defs/line"
+        },
+        "package": {
+          "type": "string"
+        },
+        "depth": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 3
+        },
+        "resolution": {
+          "type": "string",
+          "enum": [
+            "static",
+            "interface",
+            "name"
+          ]
+        },
+        "evidence_id": {
+          "$ref": "#/$defs/id"
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "FAILS_ON_CANDIDATE",
+            "PASSES_ON_CANDIDATE",
+            "UNVERIFIED"
+          ]
+        },
+        "reason": {
+          "type": "string"
+        },
+        "via": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 4,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "description": "Declarations from the test to the changed function, as found by the static index."
+        },
+        "file_changed": {
+          "type": "boolean"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "required": [
+              "status"
+            ],
+            "properties": {
+              "status": {
+                "enum": [
+                  "FAILS_ON_CANDIDATE",
+                  "PASSES_ON_CANDIDATE"
+                ]
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "evidence_id"
+            ]
+          }
+        }
+      ]
+    },
+    "line": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "location": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "One-based line number; 0 denotes a file-level location."
+    },
+    "path": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Repository-relative Git path, unless the containing artifact explicitly records an output filesystem path."
+    },
+    "planContract": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "base_commit",
+        "files",
+        "symbols",
+        "critical_files",
+        "manifests",
+        "dependencies",
+        "new_packages"
+      ],
+      "description": "The contract a PLAN.json declared: planned paths (old paths of renames included), announced symbol changes, planned files matching a critical path at plan time, dependency manifests and new Go packages.",
+      "properties": {
+        "base_commit": {
+          "type": "string"
+        },
+        "files": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/path"
+          }
+        },
+        "symbols": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "path",
+              "name",
+              "change"
+            ],
+            "properties": {
+              "path": {
+                "$ref": "#/$defs/path"
+              },
+              "name": {
+                "type": "string",
+                "minLength": 1
+              },
+              "change": {
+                "type": "string",
+                "enum": [
+                  "add",
+                  "body",
+                  "signature",
+                  "remove"
+                ]
+              }
+            }
+          }
+        },
+        "critical_files": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/path"
+          }
+        },
+        "manifests": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/path"
+          }
+        },
+        "dependencies": {
+          "type": "boolean"
+        },
+        "new_packages": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "plannedDependency": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "manifest",
+        "name",
+        "change"
+      ],
+      "properties": {
+        "manifest": {
+          "$ref": "#/$defs/path"
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "change": {
+          "type": "string",
+          "enum": [
+            "add",
+            "upgrade",
+            "remove"
+          ]
+        },
+        "version": {
+          "type": "string"
+        }
+      }
+    },
+    "plannedFile": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "path",
+        "change"
+      ],
+      "properties": {
+        "path": {
+          "$ref": "#/$defs/path"
+        },
+        "old_path": {
+          "$ref": "#/$defs/path"
+        },
+        "change": {
+          "type": "string",
+          "enum": [
+            "add",
+            "modify",
+            "delete",
+            "rename"
+          ]
+        },
+        "reason": {
+          "type": "string"
+        }
+      }
+    },
+    "plannedSymbol": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "path",
+        "name",
+        "change"
+      ],
+      "properties": {
+        "path": {
+          "$ref": "#/$defs/path"
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "change": {
+          "type": "string",
+          "enum": [
+            "add",
+            "body",
+            "signature",
+            "remove"
+          ]
+        },
+        "reason": {
+          "type": "string"
+        }
+      }
+    },
+    "policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "source"
+      ],
+      "description": "Where the trusted policy of the run came from.",
+      "properties": {
+        "source": {
+          "type": "string",
+          "enum": [
+            "base_ref",
+            "explicit",
+            "default"
+          ]
+        },
+        "commit": {
+          "type": "string",
+          "description": "Commit the policy was read from (base_ref) or looked up at (default)."
+        },
+        "path": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Repository-relative policy path for base_ref; the local file path for explicit."
+        }
+      }
+    },
+    "proposal": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "summary",
+        "steps",
+        "files",
+        "symbols",
+        "dependencies",
+        "assumptions"
+      ],
+      "description": "The model-written plan: untrusted data whose shape SwiftProof validated. Nothing in it is evidence.",
+      "properties": {
+        "summary": {
+          "type": "string",
+          "minLength": 1
+        },
+        "steps": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "files": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/plannedFile"
+          }
+        },
+        "symbols": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/plannedSymbol"
+          }
+        },
+        "dependencies": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/plannedDependency"
+          }
+        },
+        "assumptions": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "severity": {
+      "type": "string",
+      "enum": [
+        "low",
+        "medium",
+        "high",
+        "critical"
+      ]
+    },
+    "side": {
+      "type": "string",
+      "enum": [
+        "old",
+        "new"
+      ]
+    },
+    "signal": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "kind",
+        "path",
+        "line",
+        "severity",
+        "summary",
+        "evidence"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/id"
+        },
+        "kind": {
+          "type": "string",
+          "minLength": 1
+        },
+        "path": {
+          "$ref": "#/$defs/path"
+        },
+        "line": {
+          "$ref": "#/$defs/location"
+        },
+        "end_line": {
+          "$ref": "#/$defs/line"
+        },
+        "side": {
+          "$ref": "#/$defs/side"
+        },
+        "symbol": {
+          "type": "string"
+        },
+        "severity": {
+          "$ref": "#/$defs/severity"
+        },
+        "summary": {
+          "type": "string"
+        },
+        "evidence": {
+          "type": "string",
+          "description": "Deterministic observation or heuristic explanation; a signal is not a reproduced defect."
+        }
+      }
+    },
+    "symbolImpact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "path",
+        "name",
+        "change",
+        "found",
+        "exported",
+        "callers_total",
+        "callers",
+        "tests_total",
+        "tests",
+        "complete"
+      ],
+      "description": "Static reach of a planned symbol at the base commit: approximate, and an empty list is not proof of absence.",
+      "properties": {
+        "path": {
+          "$ref": "#/$defs/path"
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "change": {
+          "type": "string",
+          "enum": [
+            "add",
+            "body",
+            "signature",
+            "remove"
+          ]
+        },
+        "found": {
+          "type": "boolean"
+        },
+        "symbol": {
+          "type": "string"
+        },
+        "line": {
+          "$ref": "#/$defs/line"
+        },
+        "exported": {
+          "type": "boolean"
+        },
+        "signature": {
+          "type": "string"
+        },
+        "callers_total": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "callers": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/impactCaller"
+          }
+        },
+        "tests_total": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "tests": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/impactTest"
+          }
+        },
+        "complete": {
+          "type": "boolean"
+        },
+        "reason": {
+          "type": "string"
+        }
+      }
+    }
+  }
+}

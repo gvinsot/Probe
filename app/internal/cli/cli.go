@@ -32,6 +32,8 @@ Usage:
   swiftproof lint [--base main] [--head HEAD] [--ci]
   swiftproof review [--base main] [--reviewer=false] [--ci]
   swiftproof review [flags] BASE..HEAD
+  swiftproof plan --intent-file FILE [--base main] [--ci]
+  swiftproof review --plan .swiftproof/PLAN.json [flags]
   swiftproof report [--input .swiftproof/confidence-report.json] [--out DIR] [--format LIST] [--report-url URL]
   swiftproof version
 
@@ -44,6 +46,8 @@ SWIFTPROOF_REVIEWER_ENDPOINT and SWIFTPROOF_REVIEWER_MODEL override that policy,
 the API key comes from the api_key_env variable or its /run/secrets/<NAME> Docker secret.
 The reviewer sends bounded, redacted source context to its configured API.
 Use --reviewer=false to disable it. Lint never calls a provider.
+Plan asks the provider for an implementation plan (read-only, nothing runs) and
+evaluates it with fixed rules; review or lint --plan check the diff against it.
 
 Evidence stages (review only unless noted; policy keys fuzz, mutation and prepare
 are opt-in and need a v0.4 binary):
@@ -75,6 +79,8 @@ func Run(ctx context.Context, args []string, stdout, stderr io.Writer, version s
 		return analyze(ctx, args[0], args[1:], stdout, stderr, version)
 	case "report":
 		return render(args[1:], stdout, stderr)
+	case "plan":
+		return planCommand(ctx, args[1:], stdout, stderr, version)
 	default:
 		fmt.Fprintf(stderr, "unknown command %q\n%s", args[0], usage)
 		return 3
@@ -151,6 +157,7 @@ func analyze(ctx context.Context, mode string, args []string, out, errOut io.Wri
 	parallel := f.Int("parallel", 1, "review: number of initial checks run at a time (1..4)")
 	allowPrepareNetwork := f.Bool("allow-prepare-network", false, "review: permit network for the trusted prepare container only, if policy prepare.network also enables it")
 	deadline := f.Duration("deadline", 0, "review: overall time limit from 1m to 24h; 30s of it are kept for cleanup and the report")
+	planFile := f.String("plan", "", "PLAN.json written by swiftproof plan: check the diff against its contract (scope drift)")
 	if len(args) > 0 && !strings.HasPrefix(args[0], "-") {
 		args = append(append([]string{}, args[1:]...), args[0])
 	}
@@ -202,6 +209,12 @@ func analyze(ctx context.Context, mode string, args []string, out, errOut io.Wri
 	doc, err := parseIntent(*intent)
 	if err != nil {
 		return fail(errOut, 3, "intent: %v", err)
+	}
+	var drift *model.PlanDrift
+	if *planFile != "" {
+		if drift, err = loadPlanContract(*planFile); err != nil {
+			return fail(errOut, 3, "plan: %v", err)
+		}
 	}
 	repo, err := gitrepo.Open(ctx, *repoPath)
 	if err != nil {
@@ -289,6 +302,12 @@ func analyze(ctx context.Context, mode string, args []string, out, errOut io.Wri
 	signals = linter.Merge(signals, impact.signals)
 	r := model.Report{Version: 1, ToolVersion: version, GeneratedAt: time.Now().UTC(), Intent: doc.Text, IntentSHA256: doc.SHA256, IntentCriteria: doc.Criteria, Change: change, Policy: policy, Signals: signals, Impact: impact.report, Coverage: coverage.NotConfigured()}
 	r.Unverified = append(r.Unverified, doc.Notes...)
+	if drift != nil {
+		// The critical globs of this review's trusted policy; Finalize
+		// computes the items and status.
+		drift.CriticalGlobs = append([]string{}, cfg.SensitivePaths...)
+		r.PlanDrift = drift
+	}
 	operationalFailure := false
 	needExecution := mode == "review" && len(change.Files) > 0 && (*checks || *useReviewer)
 	sc := stageContext{mode: mode, checks: *checks, reason: noExecutionReason(mode, change, *checks, *useReviewer)}
