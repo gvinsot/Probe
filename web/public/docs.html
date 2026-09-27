@@ -17,6 +17,7 @@
         <span>SwiftProof</span>
       </a>
       <nav aria-label="Main">
+        <a href="index.html#process">Process</a>
         <a href="getting-started.html">Getting started</a>
         <a href="index.html#hub">Docker</a>
         <a href="download.html">Download</a>
@@ -48,7 +49,7 @@
           <li class="group">Commands</li>
           <li><a href="#lint">lint</a></li>
           <li><a href="#review">review</a></li>
-          <li><a href="#plan">plan</a></li>
+          <li><a href="#plan">plan &amp; plan gate</a></li>
           <li><a href="#init">init</a></li>
           <li><a href="#report">report</a></li>
           <li><a href="#version">version &amp; help</a></li>
@@ -240,10 +241,22 @@ swiftproof review --base main --format markdown,json,sarif,pr-comment --report-u
             </table>
           </div>
           <div class="code">
-<pre><code>swiftproof plan --intent-file task.md                          <span class="c"># before writing code</span>
-swiftproof review --base origin/main --plan .swiftproof/PLAN.json --ci   <span class="c"># after</span></code></pre>
+<pre><code>swiftproof plan --intent-file task.md --ci                     <span class="c"># 1. plan; exit 2: a human validates it</span>
+<span class="c"># 2. an agent implements the plan</span>
+swiftproof review --base origin/main --plan .swiftproof/PLAN.json --ci   <span class="c"># 3-4. exit 0: merge; exit 2: review</span></code></pre>
           </div>
-          <p>A plan that raises nothing is not proof that the change is safe, and drift does not check that the change implements the intent. See <a href="https://github.com/gvinsot/SwiftProof/blob/main/app/docs/PLAN.md">pre-change plans</a>.</p>
+          <h3 id="plan-gate">The plan gate</h3>
+          <p><code>review --plan</code> ends with a decision, <code>plan_drift.decision</code>, printed on stdout and at the top of the Plan Conformance section. With <code>--ci</code>, it is the exit code.</p>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Decision</th><th>When</th></tr></thead>
+              <tbody>
+                <tr id="gate-no-review"><td><code>no_human_review_required</code> (exit <code>0</code>)</td><td class="desc">All of: the plan, <strong>re-assessed by the review</strong> from its proposal at its base commit with this review's trusted policy, flags no category and has no measurement gap; the change conforms to the plan and to its base; at least one check ran and all passed; no reproduced issue, high or critical signal, unverified area or other section requesting review.</td></tr>
+                <tr id="gate-review"><td><code>human_review_required</code> (exit <code>2</code>)</td><td class="desc">Anything else. Every reason is listed in <code>plan_drift.decision_reasons</code>. <code>lint --plan</code> runs no check, so it always requires review.</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <p>The flags and contract stored in <code>PLAN.json</code> are never trusted: the contract is re-derived from the proposal, so an edited plan cannot widen the scope unassessed, and <code>swiftproof report</code> recomputes the decision from the recorded report. The gate is a process decision, not a verdict on correctness. A plan that raises nothing is not proof that the change is safe, and drift does not check that the change implements the intent. See <a href="https://github.com/gvinsot/SwiftProof/blob/main/app/docs/PLAN.md">pre-change plans</a> and the <a href="https://github.com/gvinsot/SwiftProof/blob/main/app/docs/CI.md#merging-without-review-behind-the-plan-gate">CI recipe</a>.</p>
         </section>
 
         <section id="init">
@@ -298,7 +311,7 @@ swiftproof review --base origin/main --plan .swiftproof/PLAN.json --ci   <span c
               <tbody>
                 <tr id="exit-0"><td><code>0</code></td><td class="desc">Report completed without a reproduced high or critical issue. Without <code>--ci</code>, unresolved areas do not change this code.</td></tr>
                 <tr id="exit-1"><td><code>1</code></td><td class="desc">A high or critical hypothesis is supported by a differential failure: a generated test passed on the base and failed on the candidate. Nothing else produces <code>1</code>: not a fuzzing divergence, a surviving mutant, a failing impacted or baseline test, nor plan drift.</td></tr>
-                <tr id="exit-2"><td><code>2</code></td><td class="desc">With <code>--ci</code> only: human review required, including high-risk signals, unverified areas, incomplete checks, a <code>FAILS_ON_CANDIDATE</code> test, a fuzzing divergence or inconclusive stage, plan drift, or (for <code>plan</code>) a flagged category.</td></tr>
+                <tr id="exit-2"><td><code>2</code></td><td class="desc">With <code>--ci</code> only: human review required, including high-risk signals, unverified areas, incomplete checks, a <code>FAILS_ON_CANDIDATE</code> test, a fuzzing divergence or inconclusive stage, plan drift, a plan that raised a category (the <a href="#plan-gate">plan gate</a>), or (for <code>plan</code>) a flagged category.</td></tr>
                 <tr id="exit-3"><td><code>3</code></td><td class="desc">Invalid arguments, Git comparison, or trusted configuration (including an unknown policy key or command name).</td></tr>
                 <tr id="exit-4"><td><code>4</code></td><td class="desc">Operational error in the harness, analysis or report writing, such as Docker or the sandbox image being unavailable, a check that could not run, a failed dependency preparation, or a provider failure during <code>plan</code>.</td></tr>
               </tbody>

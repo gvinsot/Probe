@@ -67,7 +67,7 @@
     "planDrift": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["status", "plan_sha256", "base_matches", "critical_globs", "contract", "items", "note"],
+      "required": ["status", "plan_sha256", "base_matches", "critical_globs", "contract", "items", "assessment", "decision", "decision_reasons", "note"],
       "description": "Scope drift of the change against a plan (review --plan). Finalize recomputes status and items from the contract, the critical globs, the diff and the public_api_change signals; it checks that the change stays within what was announced, not that it is correct.",
       "properties": {
         "status": {"type": "string", "enum": ["conforming", "drifted"]},
@@ -77,6 +77,9 @@
         "critical_globs": {"type": "array", "items": {"type": "string"}},
         "contract": {"$ref": "#/$defs/planContract"},
         "items": {"type": "array", "items": {"type": "object", "additionalProperties": false, "required": ["kind", "severity", "path", "summary"], "properties": {"kind": {"type": "string", "enum": ["unplanned_file", "unplanned_test_file", "planned_file_untouched", "unannounced_exported_change", "unannounced_critical_path", "unannounced_dependency_change"]}, "severity": {"$ref": "#/$defs/severity"}, "path": {"$ref": "#/$defs/path"}, "symbol": {"type": "string"}, "summary": {"type": "string"}}}},
+        "assessment": {"type": "object", "additionalProperties": false, "required": ["status", "major", "flagged_categories", "gaps"], "description": "The plan's risk re-assessed by the review from the plan's proposal at its base commit, with the review's trusted policy.", "properties": {"status": {"type": "string", "enum": ["assessed", "unavailable"]}, "major": {"type": "boolean"}, "flagged_categories": {"type": "array", "items": {"type": "string", "enum": ["critical_parts", "architecture", "regression_risk", "other_major"]}}, "gaps": {"type": "array", "items": {"type": "string"}, "description": "What the assessment could not measure; each gap keeps the plan's risk unknown and requires human review."}, "reason": {"type": "string"}}},
+        "decision": {"type": "string", "enum": ["human_review_required", "no_human_review_required"], "description": "The plan gate, recomputed by Finalize: no_human_review_required only when the plan raised no category, the change conforms to it, and nothing else in the report requests human review. A process decision, not a correctness verdict."},
+        "decision_reasons": {"type": "array", "items": {"type": "string"}},
         "note": {"type": "string"}
       }
     },

@@ -248,8 +248,45 @@ type PlanDrift struct {
 	CriticalGlobs []string        `json:"critical_globs"`
 	Contract      PlanContract    `json:"contract"`
 	Items         []PlanDriftItem `json:"items"`
-	Note          string          `json:"note"`
+	// Assessment is the plan's risk, re-assessed by this review from the
+	// plan's proposal at the plan's base commit, with this review's trusted
+	// policy: the flags stored in PLAN.json are never trusted.
+	Assessment PlanGateAssessment `json:"assessment"`
+	// Decision is the plan gate, recomputed by Finalize from the whole
+	// report: PlanDecisionNoReview only when the plan raised no category,
+	// the change conforms to it and nothing else in the report requests
+	// human review. DecisionReasons lists why review is required.
+	Decision        string   `json:"decision"`
+	DecisionReasons []string `json:"decision_reasons"`
+	Note            string   `json:"note"`
 }
+
+// PlanGateAssessment is the review-time assessment of a plan.
+type PlanGateAssessment struct {
+	Status            string   `json:"status"` // PlanAssessed or PlanUnassessed
+	Major             bool     `json:"major"`
+	FlaggedCategories []string `json:"flagged_categories"`
+	// Gaps are what the assessment could not measure: planned symbols
+	// without a measure, a plan inconsistent with its base commit, or a
+	// limited static index. Each one keeps the plan's risk unknown.
+	Gaps   []string `json:"gaps"`
+	Reason string   `json:"reason,omitempty"`
+}
+
+// Review-time plan assessment statuses.
+const (
+	PlanAssessed   = "assessed"
+	PlanUnassessed = "unavailable"
+)
+
+// Plan gate decisions.
+const (
+	PlanDecisionReviewRequired = "human_review_required"
+	PlanDecisionNoReview       = "no_human_review_required"
+)
+
+// PlanGateNote is the fixed caveat of the plan gate.
+const PlanGateNote = "The plan gate is a process decision, not a verdict on correctness: it says the change stayed within a plan whose fixed-rule assessment raised no category, that the checks passed, and that nothing else in this report requests human review. It does not establish that the change implements the intent or is free of defects."
 
 // PlanDriftItem is one difference between the diff and the plan.
 type PlanDriftItem struct {

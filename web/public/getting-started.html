@@ -17,6 +17,7 @@
         <span>SwiftProof</span>
       </a>
       <nav aria-label="Main">
+        <a href="index.html#process">Process</a>
         <a href="getting-started.html" aria-current="page">Getting started</a>
         <a href="index.html#hub">Docker</a>
         <a href="download.html">Download</a>
@@ -167,7 +168,7 @@ git add .swiftproof.json &amp;&amp; git commit -m "Add SwiftProof review policy"
 <span class="c"># then, on every pull request or before handing work over</span>
 swiftproof review --base main --ci</code></pre>
               </div>
-              <p>Working with a coding agent? Have it run <code>swiftproof plan --intent-file task.md</code> before writing code, then <code>swiftproof review --plan .swiftproof/PLAN.json</code>: the report lists every file or exported declaration the change touched without announcing it (<a href="docs.html#plan">pre-change plans</a>).</p>
+              <p>Working with a coding agent? Adopt the <a href="index.html#process">plan-first process</a>: the agent runs <code>swiftproof plan --intent-file task.md --ci</code> before writing code (a flagged plan goes to a human), implements the plan, and CI runs <code>swiftproof review --plan .swiftproof/PLAN.json --ci</code>. Exit <code>0</code> means the change conforms to a low-risk plan and passed its checks, so it can merge without a human review; exit <code>2</code> lists why a human must look (<a href="docs.html#plan-gate">plan gate</a>).</p>
               <p>Next steps: every flag, exit code and policy key is in the <a href="docs.html">reference</a>. To let an AI reviewer try to reproduce issues, configure a provider as described in <a href="docs.html#reviewer">AI reviewer</a>. For GitHub Actions, see the <a href="https://github.com/gvinsot/SwiftProof/blob/main/app/docs/CI.md">CI integration guide</a>.</p>
             </div>
           </li>

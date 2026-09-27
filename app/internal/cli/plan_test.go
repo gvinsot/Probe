@@ -169,10 +169,16 @@ func TestPlanThenReviewAgainstThePlan(t *testing.T) {
 	if code != 2 {
 		t.Fatalf("lint --plan exited %d\nstdout: %s\nstderr: %s", code, stdout, stderr)
 	}
-	if !strings.Contains(stdout, "Plan conformance: drifted") {
-		t.Errorf("stdout lacks the conformance line: %s", stdout)
+	if !strings.Contains(stdout, "Plan conformance: drifted") || !strings.Contains(stdout, "Plan gate: human review required") {
+		t.Errorf("stdout lacks the conformance and gate lines: %s", stdout)
 	}
 	r := readReport(t, filepath.Join(dir, "report", "confidence-report.json"))
+	if a := r.PlanDrift.Assessment; a.Status != model.PlanAssessed || !a.Major || strings.Join(a.FlaggedCategories, ",") != model.PlanCategoryArchitecture {
+		t.Errorf("review-time assessment = %+v", a)
+	}
+	if r.PlanDrift.Decision != model.PlanDecisionReviewRequired || !strings.Contains(strings.Join(r.PlanDrift.DecisionReasons, "|"), "the plan raised risk categories: architecture") {
+		t.Errorf("gate = %s %v", r.PlanDrift.Decision, r.PlanDrift.DecisionReasons)
+	}
 	if r.PlanDrift == nil || r.PlanDrift.Status != model.PlanDriftDrifted || !r.PlanDrift.BaseMatches {
 		t.Fatalf("plan_drift = %+v", r.PlanDrift)
 	}
@@ -265,5 +271,76 @@ func TestPlanWithoutSubmittedPlanIsOperational(t *testing.T) {
 	code, _, stderr := runCLI(t, "plan", "--repo", dir, "--config", policy, "--intent", "Add a rate")
 	if code != 4 || !strings.Contains(stderr, "no valid plan") {
 		t.Errorf("a model that submits no plan: exit %d, %s", code, stderr)
+	}
+}
+
+// lowRiskPlan changes the body of Discount, which one caller uses and one
+// test reaches: no category is flagged.
+const lowRiskPlan = `{"summary":"Take 11 off large totals.","steps":["Change the constant"],
+"files":[{"path":"calc/calc.go","change":"modify"}],
+"symbols":[{"path":"calc/calc.go","name":"Discount","change":"body"}],
+"dependencies":[],"assumptions":[]}`
+
+func TestPlanGateOfTheProcess(t *testing.T) {
+	dir := planFixture(t)
+	server := httptest.NewServer(&fakePlanner{plan: lowRiskPlan})
+	defer server.Close()
+	policy := planPolicy(t, server.URL)
+	intent := filepath.Join(t.TempDir(), "task.md")
+	write(t, filepath.Dir(intent), "task.md", "Take 11 off large totals.\n")
+
+	// 1. Plan: nothing is flagged.
+	if code, stdout, stderr := runCLI(t, "plan", "--repo", dir, "--config", policy, "--intent-file", intent, "--out", "out"); code != 0 || !strings.Contains(stdout, "Flagged categories: none") {
+		t.Fatalf("plan exited %d\nstdout: %s\nstderr: %s", code, stdout, stderr)
+	}
+	planPath := filepath.Join(dir, "out", "PLAN.json")
+
+	// 2. An agent implements the plan, and only the plan.
+	git(t, dir, "checkout", "-b", "candidate")
+	write(t, dir, "calc/calc.go", "package calc\n\n// Discount takes 11 off large totals.\nfunc Discount(total int) int {\n\tif total > 100 {\n\t\treturn total - 11\n\t}\n\treturn total\n}\n")
+	git(t, dir, "commit", "-am", "implementation")
+
+	// 3. Conformance: the change conforms to a low-risk plan. lint runs no
+	// check, so that is the one reason left for a human; review with passing
+	// checks would clear it.
+	code, stdout, stderr := runCLI(t, "lint", "--repo", dir, "--config", policy, "--head", "candidate", "--plan", planPath, "--out", "report", "--ci")
+	if code != 2 {
+		t.Fatalf("lint --plan exited %d\nstdout: %s\nstderr: %s", code, stdout, stderr)
+	}
+	r := readReport(t, filepath.Join(dir, "report", "confidence-report.json"))
+	d := r.PlanDrift
+	if d.Status != model.PlanDriftConforming || d.Assessment.Status != model.PlanAssessed || d.Assessment.Major || len(d.Assessment.Gaps) != 0 {
+		t.Fatalf("plan_drift = %+v", d)
+	}
+	if d.Decision != model.PlanDecisionReviewRequired || len(d.DecisionReasons) != 1 || !strings.HasPrefix(d.DecisionReasons[0], "no check ran") {
+		t.Errorf("gate = %s %q, want only the missing checks", d.Decision, d.DecisionReasons)
+	}
+
+	// A PLAN.json whose contract and assessment were edited after planning
+	// cannot widen the scope: the contract is re-derived from the proposal.
+	var raw map[string]any
+	data, _ := os.ReadFile(planPath)
+	_ = json.Unmarshal(data, &raw)
+	contract := raw["contract"].(map[string]any)
+	contract["files"] = []any{"calc/calc.go", "internal/auth/token.go"}
+	contract["critical_files"] = []any{"internal/auth/token.go"}
+	raw["assessment"].(map[string]any)["major"] = false
+	forged, _ := json.Marshal(raw)
+	forgedPath := filepath.Join(t.TempDir(), "PLAN.json")
+	if err := os.WriteFile(forgedPath, forged, 0600); err != nil {
+		t.Fatal(err)
+	}
+	write(t, dir, "internal/auth/token.go", "package auth\n\nfunc Valid(token string) bool { return true }\n")
+	git(t, dir, "commit", "-am", "widen")
+	if code, stdout, stderr = runCLI(t, "lint", "--repo", dir, "--config", policy, "--head", "candidate", "--plan", forgedPath, "--out", "forged", "--ci"); code != 2 {
+		t.Fatalf("lint --plan with a forged plan exited %d\nstdout: %s\nstderr: %s", code, stdout, stderr)
+	}
+	r = readReport(t, filepath.Join(dir, "forged", "confidence-report.json"))
+	kinds := map[string]bool{}
+	for _, it := range r.PlanDrift.Items {
+		kinds[it.Kind+" "+it.Path] = true
+	}
+	if !kinds["unplanned_file internal/auth/token.go"] || !kinds["unannounced_critical_path internal/auth/token.go"] || r.PlanDrift.Status != model.PlanDriftDrifted {
+		t.Errorf("the forged contract widened the scope: %+v", r.PlanDrift.Items)
 	}
 }

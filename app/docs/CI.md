@@ -255,6 +255,25 @@ jobs:
 Every value taken from the triggering run (branch, owner, SHA, URL) reaches the scripts through environment variables, never through `${{ }}` inside a script. The comment step updates SwiftProof's own earlier comment, identified by the begin marker and the bot account, instead of adding one per run.
 <!-- F9:end -->
 
+## Merging without review behind the plan gate
+
+With a plan produced before the work (`swiftproof plan`, see [pre-change plans](PLAN.md)), `review --plan --ci` decides whether the pull request needs a human: exit 0 means the change conforms to a low-risk, fully measured plan, its checks passed and nothing else in the report requests review; exit 2 means a human must review it. A pipeline can apply that decision, for example by enabling auto-merge only on exit 0:
+
+```yaml
+- name: SwiftProof plan gate
+  id: gate
+  run: swiftproof review --base origin/main --plan .swiftproof/PLAN.json --ci --reviewer=false
+  continue-on-error: true
+- name: Merge when no human review is required
+  if: steps.gate.outcome == 'success'
+  run: gh pr merge --auto --squash "$PR_NUMBER"
+- name: Otherwise request a review
+  if: steps.gate.outcome != 'success'
+  run: gh pr edit "$PR_NUMBER" --add-reviewer "$REVIEWERS"
+```
+
+Keep the trusted policy on the base branch (critical `sensitive_paths`, real test commands) and store the approved PLAN.json where the pull request cannot rewrite it unnoticed: the report records `plan_sha256`, which the pipeline can compare with the plan it approved. The gate never replaces the policy's judgment of what is critical: a plan touching a critical path always requires review.
+
 ## Runtime bounds, deadline and report size
 
 Every sandbox run of a review is charged to one budget, `sandbox.max_runtime_seconds`, except dependency preparation, which is bounded by `prepare.timeout_seconds` (600 s by default) instead. The v0.4 stages have sub-caps inside that budget, never in addition to it: `fuzz.max_runtime_seconds`, `mutation.max_runtime_seconds`, and 180 s each for changed baseline tests and impacted tests. When a reviewer will run, half of the budget is reserved for its experiments: changed baseline tests, impacted tests, fuzzing and mutation stop launching once the time spent reaches `max_runtime_seconds` minus that reserve. The initial checks and coverage are not limited by the reserve. `--parallel` changes wall-clock time, not the budget: every launch reserves its timeout from what remains.

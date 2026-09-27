@@ -91,6 +91,30 @@ The status is `drifted` when an item is medium or higher, `conforming` otherwise
 
 Drift checks that the change stays within what was announced. It does not check that the change implements the intent, that the plan was a good one, or that planned files were changed correctly.
 
+## The plan gate: when a human review is not required
+
+The point of planning first is to know the impact of a change **before** it is written, so that a predictable, low-risk change does not need a human to read its diff. `review --plan` ends with a **plan gate**, a decision recorded in `plan_drift.decision`, printed on stdout and at the top of the Plan Conformance section:
+
+- `no_human_review_required` only when **all** of the following hold:
+  1. **Low-risk plan.** The review re-assesses the plan itself: it re-applies the fixed rules to the plan's proposal at the plan's base commit, with the sensitive paths of **this review's** trusted policy, and no category is flagged. The flags and the contract stored in PLAN.json are never trusted: the contract is re-derived from the proposal, so a plan edited after planning cannot widen the scope without the wider scope being assessed.
+  2. **Fully measured.** No planned symbol is left unmeasured, the plan matches its base commit, the static index of the base commit is complete, and every planned symbol's callers and tests were fully searched (`assessment.gaps` is empty). An unknown risk is not a low risk.
+  3. **Conforming change.** The diff stays within the plan (status `conforming`) and the plan was made against the base the review compares from.
+  4. **Checks passed, nothing else to look at.** At least one check ran and every check passed, no issue was reproduced, no high or critical signal was raised, nothing is unverified, and no other section of the report (divergences, failing impacted or baseline tests, fuzzing, mutation) requests review.
+- `human_review_required` otherwise, with every reason listed in `plan_drift.decision_reasons`.
+
+With `--ci`, the decision is the exit code: `review --plan --ci` exits 0 only when the gate lets the change through, and 2 when a human must review it (1 still means a reproduced high or critical issue). `lint --plan` runs no check, so its gate always requires review; use it in the agent loop, and `review --plan` for the merge decision. `report` recomputes the gate from the recorded report, so an edited decision is corrected on re-render.
+
+The gate is a **process** decision, not a verdict on correctness: it says the change did what a low-risk, measured plan announced and that the automated checks found nothing to look at. It does not say that the change implements the intent or is free of defects. Keep critical paths in `sensitive_paths`, keep meaningful tests in the policy's commands, and let a human validate every plan that raises a category.
+
+### The process
+
+1. **Plan and check the intent**: `swiftproof plan --intent-file task.md --ci`. Exit 0: no category flagged. Exit 2: a human validates the plan (or the task is split or reworded) before any code is written.
+2. **Implement the plan**: an agent codes the plan, and only the plan.
+3. **Check conformance**: `swiftproof review --base origin/main --plan .swiftproof/PLAN.json --ci` runs the checks and the gate.
+4. **Merge or review**: exit 0 lets the pipeline merge without a human review; exit 2 requests a human review of the pull request, with the reasons in the report.
+
+See [CI integration](CI.md#merging-without-review-behind-the-plan-gate) for a workflow that applies the decision.
+
 ## Agent loop
 
 1. `swiftproof plan --intent-file task.md` before writing code; read `PLAN.md`, and raise a flagged category with a human when the task requires it.

@@ -233,28 +233,98 @@ func (t planTools) Call(ctx context.Context, name string, args json.RawMessage) 
 
 // loadPlanContract reads a PLAN.json for review --plan and returns the drift
 // section it seeds, before any Git analysis.
-func loadPlanContract(path string) (*model.PlanDrift, error) {
+func loadPlanContract(path string) (*model.PlanDrift, model.PlanProposal, error) {
 	data, err := readLimited(path, maxPlanBytes)
 	if err != nil {
-		return nil, err
+		return nil, model.PlanProposal{}, err
 	}
 	var p model.Plan
 	if err := json.Unmarshal(data, &p); err != nil {
-		return nil, fmt.Errorf("%s is not a plan document: %v", path, err)
+		return nil, model.PlanProposal{}, fmt.Errorf("%s is not a plan document: %v", path, err)
 	}
 	if p.Format != model.PlanFormat || p.Version != model.PlanVersion {
-		return nil, fmt.Errorf("%s is not a version %d %s document", path, model.PlanVersion, model.PlanFormat)
+		return nil, model.PlanProposal{}, fmt.Errorf("%s is not a version %d %s document", path, model.PlanVersion, model.PlanFormat)
 	}
 	if p.Contract.BaseCommit == "" || len(p.Contract.Files) == 0 {
-		return nil, fmt.Errorf("%s has no contract (base commit and planned files)", path)
+		return nil, model.PlanProposal{}, fmt.Errorf("%s has no contract (base commit and planned files)", path)
 	}
 	for _, f := range p.Contract.Files {
 		if gitrepo.SafePath(f) != nil {
-			return nil, fmt.Errorf("%s lists an invalid planned path %q", path, f)
+			return nil, model.PlanProposal{}, fmt.Errorf("%s lists an invalid planned path %q", path, f)
 		}
 	}
 	sum := sha256.Sum256(data)
-	return &model.PlanDrift{PlanSHA256: hex.EncodeToString(sum[:]), IntentSHA256: p.IntentSHA256, Contract: p.Contract}, nil
+	return &model.PlanDrift{PlanSHA256: hex.EncodeToString(sum[:]), IntentSHA256: p.IntentSHA256, Contract: p.Contract}, p.Proposal, nil
+}
+
+// reassessPlan re-applies the fixed plan rules to the plan's proposal at its
+// base commit, with the sensitive paths of this review's trusted policy, and
+// records the result in the drift section. The assessment and the contract
+// stored in PLAN.json are never trusted: the contract is re-derived from the
+// proposal, so a contract edited after planning cannot widen the scope
+// without the widened scope being assessed. A proposal that cannot be
+// re-assessed leaves the assessment unavailable, which requires human review.
+// It returns an error only when ctx is cancelled.
+func reassessPlan(ctx context.Context, repo *gitrepo.Repository, drift *model.PlanDrift, proposal model.PlanProposal, globs []string) error {
+	unavailable := func(reason string) error {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		drift.Assessment = model.PlanGateAssessment{Status: model.PlanUnassessed, FlaggedCategories: []string{}, Gaps: []string{}, Reason: reason}
+		return nil
+	}
+	normalized, err := plan.Normalize(proposal)
+	if err != nil {
+		return unavailable("the plan's proposal is invalid: " + err.Error())
+	}
+	commit := drift.Contract.BaseCommit
+	entries, err := repo.Tree(ctx, commit)
+	if err != nil {
+		return unavailable("the plan's base commit could not be read: " + err.Error())
+	}
+	tree := plan.Tree{}
+	for _, e := range entries {
+		if e.Type == "blob" && gitrepo.SafePath(e.Path) == nil {
+			tree[e.Path] = true
+		}
+	}
+	assessment, contract, _, err := plan.Evaluate(ctx, plan.Input{
+		BaseCommit: commit, Proposal: normalized, SensitiveGlobs: globs, Tree: tree,
+		Index: func(ctx context.Context) (*symbols.Index, *model.Impact, error) {
+			return planIndexer(ctx, repo, commit)
+		},
+	})
+	if err != nil {
+		return unavailable("the plan could not be evaluated: " + err.Error())
+	}
+	gate := model.PlanGateAssessment{Status: model.PlanAssessed, FlaggedCategories: []string{}, Gaps: []string{}}
+	for _, c := range assessment.Categories {
+		if c.Flagged {
+			gate.FlaggedCategories = append(gate.FlaggedCategories, c.Name)
+		}
+	}
+	gate.Major = len(gate.FlaggedCategories) > 0
+	counts := map[string]int{}
+	for _, s := range assessment.Signals {
+		counts[s.Kind]++
+	}
+	if n := counts[model.PlanSignalUnmeasured]; n > 0 {
+		gate.Gaps = append(gate.Gaps, fmt.Sprintf("%d planned symbols could not be measured on the static index", n))
+	}
+	if n := counts[model.PlanSignalInconsistent]; n > 0 {
+		gate.Gaps = append(gate.Gaps, fmt.Sprintf("%d statements of the plan do not match its base commit", n))
+	}
+	if s := assessment.Index.Status; s == model.ImpactLimited || s == model.ImpactUnavailable {
+		gate.Gaps = append(gate.Gaps, "the static index of the base commit is "+s)
+	}
+	for _, sym := range assessment.Symbols {
+		if sym.Found && !sym.Complete {
+			gate.Gaps = append(gate.Gaps, "the callers or reaching tests of "+sym.Name+" were not fully searched")
+		}
+	}
+	drift.Assessment = gate
+	drift.Contract = contract
+	return nil
 }
 
 // planDriftLine is the stdout line of the plan_drift section.
@@ -266,5 +336,9 @@ func planDriftLine(d *model.PlanDrift) string {
 	for _, it := range d.Items {
 		counts[it.Severity]++
 	}
-	return fmt.Sprintf("Plan conformance: %s; %d high, %d medium, %d low differences from the plan.", d.Status, counts["high"], counts["medium"], counts["low"])
+	line := fmt.Sprintf("Plan conformance: %s; %d high, %d medium, %d low differences from the plan.", d.Status, counts["high"], counts["medium"], counts["low"])
+	if d.Decision == model.PlanDecisionNoReview {
+		return line + "\nPlan gate: no human review required (low-risk plan, conforming change, checks passed, nothing else requests review)."
+	}
+	return line + fmt.Sprintf("\nPlan gate: human review required (%d reasons; see the report).", len(d.DecisionReasons))
 }

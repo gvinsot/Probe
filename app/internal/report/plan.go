@@ -90,9 +90,9 @@ func renderPlanMarkdown(p *model.Plan) []byte {
 		fmt.Fprintf(&b, "Policy: built-in defaults; no policy file at %s\n\n", inline(p.BaseRef))
 	}
 	fmt.Fprintf(&b, "Planner model: %s · intent SHA-256 %s\n\n", inline(p.Model), inline(shortHash(p.IntentSHA256)))
-	verdict := "No category is flagged."
+	verdict := "No category is flagged. If the implementation conforms to this plan, its checks pass and nothing else in its report requests review, `review --plan` can lift the human review of the change (plan gate)."
 	if a.Major {
-		verdict = "**Major change**: at least one category is flagged."
+		verdict = "**Major change**: at least one category is flagged. A human should validate this plan before the work starts, and `review --plan` will require human review of the change whatever it does."
 	}
 	fmt.Fprintf(&b, "Exit code: %d. %s The model did not judge risk; the categories come from fixed rules applied to the plan.\n\n", p.ExitCode, verdict)
 

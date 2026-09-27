@@ -20,6 +20,7 @@
         <span>SwiftProof</span>
       </a>
       <nav aria-label="Main">
+        <a href="index.html#process">Process</a>
         <a href="getting-started.html">Getting started</a>
         <a href="index.html#hub">Docker</a>
         <a href="download.html">Download</a>
@@ -41,7 +42,7 @@
             <a class="btn" href="download.html" data-download-latest>Download SwiftProof</a>
             <a class="btn btn-ghost" href="getting-started.html">Try it in 2 minutes</a>
           </div>
-          <p class="note">Latest <a href="download.html"><span data-version>v0.3.9</span></a> · Works without an AI provider · Never auto-approves a pull request.</p>
+          <p class="note">Latest <a href="download.html"><span data-version>v0.3.9</span></a> · Works without an AI provider · <a href="#process">Plan first, review less</a>.</p>
         </div>
         <div class="code" aria-label="Running SwiftProof on the last commit of a repository">
 <pre><code><span class="p">$ </span>swiftproof lint HEAD~1..HEAD
@@ -54,6 +55,60 @@ Reports: /home/you/shop/.swiftproof</span>
 <span class="c"># Read the flagged lines first</span>
 <span class="p">$ </span>cat .swiftproof/CONFIDENCE_REPORT.md</code></pre>
         </div>
+      </div>
+    </section>
+
+    <section id="process" class="section alt">
+      <div class="wrap">
+        <span class="kicker">The process</span>
+        <h2>Know the impact before the code exists. Review only what needs you.</h2>
+        <p class="lead" style="max-width:820px">AI-written code gets predictable when the agent announces its work first. SwiftProof measures the risk of the plan <strong>before</strong> any code is written, then checks that the change did exactly what was announced. A change that follows a low-risk plan and passes its checks can merge without a human reading the diff; everything else goes to review, with the reasons.</p>
+        <ol class="steps">
+          <li>
+            <h3>Plan and check the intent</h3>
+            <p><code>swiftproof plan</code> has the agent simulate the change read-only. Fixed rules, not the model, flag critical paths, public API and dependency changes, widely used or untested code. A flagged plan goes to a human before any code is written.</p>
+          </li>
+          <li>
+            <h3>An agent codes the plan</h3>
+            <p>The plan becomes a contract: the files, symbols and dependencies the agent may touch. It implements that, and only that.</p>
+          </li>
+          <li>
+            <h3>Check conformance</h3>
+            <p><code>swiftproof review --plan</code> re-assesses the plan, runs the checks in the sandbox and compares the diff with the contract: every unplanned file, unannounced API change, critical path or dependency is reported.</p>
+          </li>
+          <li>
+            <h3>Merge, or review</h3>
+            <p>Conforming change, low-risk plan, checks passed, nothing else flagged: <strong>no human review required</strong>, exit <code>0</code>, the pipeline merges. Otherwise exit <code>2</code>: a human reviews the pull request, starting from the listed reasons.</p>
+          </li>
+        </ol>
+        <div class="compare">
+          <div class="with">
+            <h3>Exit 0 <span class="tag">merge</span></h3>
+            <ol>
+              <li>The plan, re-assessed at review time, raised no risk category and was fully measured.</li>
+              <li>The diff stays within the plan: no unplanned file, API, critical path or dependency.</li>
+              <li>Every check passed; no high signal, reproduced issue or unverified area.</li>
+            </ol>
+          </div>
+          <div>
+            <h3>Exit 2 <span class="tag">human review</span></h3>
+            <ol>
+              <li>The plan touches something critical, public or widely used, or could not be measured.</li>
+              <li>The change drifted from the plan.</li>
+              <li>A check failed or the report found something to look at. Every reason is listed.</li>
+            </ol>
+          </div>
+        </div>
+        <div class="code" style="margin-top:28px">
+<pre><code><span class="c"># 1. before coding: plan, and let a human validate a flagged plan</span>
+swiftproof plan --intent-file task.md --ci
+<span class="c"># 2. the agent implements .swiftproof/PLAN.json</span>
+<span class="c"># 3-4. in CI: conformance, checks and the gate (exit 0 = merge, 2 = review)</span>
+swiftproof review --base origin/main --plan .swiftproof/PLAN.json --ci
+<span class="o">Plan conformance: conforming; 0 high, 0 medium, 0 low differences from the plan.
+Plan gate: no human review required (low-risk plan, conforming change, checks passed, nothing else requests review).</span></code></pre>
+        </div>
+        <p class="note">The gate is a process decision, not a proof of correctness: your trusted policy decides what is critical and which tests run, and any doubt sends the change to a human. <a href="docs.html#plan-gate">How the gate decides</a>.</p>
       </div>
     </section>
 
@@ -284,13 +339,14 @@ Reports open by themselves, filtered by severity.</span></code></pre>
       <div class="wrap two-col">
         <div>
           <h2>What SwiftProof does not claim</h2>
-          <p>A review tool earns trust by being precise about its limits. SwiftProof assigns no confidence percentages and never approves a pull request on its own.</p>
+          <p>A review tool earns trust by being precise about its limits. SwiftProof assigns no confidence percentages and never approves a pull request on a model's word. It lifts human review only through the plan gate, when a low-risk plan was followed and every automated check came back clean.</p>
         </div>
         <ul class="checks">
           <li>Signals are reasons to investigate, not confirmed bugs.</li>
           <li>Passing tests and a small review surface are not correctness guarantees.</li>
           <li>An executed line is an observation, not proof that it is tested.</li>
           <li>A model's assertion is never evidence; only a reproduced difference is.</li>
+          <li>The plan gate says the announced, low-risk scope was respected, not that the code is correct.</li>
           <li>Execution never falls back to your host when Docker is missing.</li>
         </ul>
       </div>

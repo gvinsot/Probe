@@ -43,7 +43,9 @@ To make an agent announce its work before doing it, add:
 > task requires it. After committing, run `swiftproof lint --plan
 > .swiftproof/PLAN.json` (and `review --plan` before PR review) and report every
 > plan-conformance difference in the handoff: files outside the plan, unannounced
-> exported changes, critical paths and dependency manifests.
+> exported changes, critical paths and dependency manifests, and the plan gate
+> decision with its reasons. Never edit PLAN.json to make the change conform:
+> update the plan with `swiftproof plan` and have it approved again.
 
 `plan` needs the configured provider; the plan is the model's proposal and its
 assessment comes from fixed rules, so neither is proof that the change is safe.

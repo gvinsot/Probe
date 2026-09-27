@@ -139,8 +139,11 @@ func fullyPopulatedReport() Report {
 			Symbols:       []PlanContractSymbol{{Path: "calc/calc.go", Name: "Discount", Change: PlanSymbolSignature}},
 			CriticalFiles: []string{"calc/auth/token.go"}, Manifests: []string{"go.mod"}, Dependencies: true, NewPackages: []string{"calc/rules"},
 		},
-		Items: []PlanDriftItem{{Kind: DriftUnannouncedExported, Severity: "high", Path: "calc/calc.go", Symbol: "Scale", Summary: "Exported declaration changed although the plan did not announce it"}},
-		Note:  PlanDriftNote,
+		Items:           []PlanDriftItem{{Kind: DriftUnannouncedExported, Severity: "high", Path: "calc/calc.go", Symbol: "Scale", Summary: "Exported declaration changed although the plan did not announce it"}},
+		Assessment:      PlanGateAssessment{Status: PlanAssessed, Major: true, FlaggedCategories: []string{PlanCategoryArchitecture}, Gaps: []string{"1 planned symbols could not be measured on the static index"}, Reason: "r"},
+		Decision:        PlanDecisionReviewRequired,
+		DecisionReasons: []string{"the plan raised risk categories: architecture"},
+		Note:            PlanDriftNote,
 	}
 	return r
 }

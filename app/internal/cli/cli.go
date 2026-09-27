@@ -211,8 +211,9 @@ func analyze(ctx context.Context, mode string, args []string, out, errOut io.Wri
 		return fail(errOut, 3, "intent: %v", err)
 	}
 	var drift *model.PlanDrift
+	var proposal model.PlanProposal
 	if *planFile != "" {
-		if drift, err = loadPlanContract(*planFile); err != nil {
+		if drift, proposal, err = loadPlanContract(*planFile); err != nil {
 			return fail(errOut, 3, "plan: %v", err)
 		}
 	}
@@ -306,6 +307,9 @@ func analyze(ctx context.Context, mode string, args []string, out, errOut io.Wri
 		// The critical globs of this review's trusted policy; Finalize
 		// computes the items and status.
 		drift.CriticalGlobs = append([]string{}, cfg.SensitivePaths...)
+		if err := reassessPlan(ctx, repo, drift, proposal, cfg.SensitivePaths); err != nil {
+			return fail(errOut, 4, "plan assessment: %v", err)
+		}
 		r.PlanDrift = drift
 	}
 	operationalFailure := false

@@ -141,6 +141,9 @@ func conclude(r *model.Report, l *ledger, ci bool, divergences func(*model.Repor
 	if len(r.Change.Files) > 0 && len(r.Checks) == 0 {
 		needsHuman = true
 	}
+	if decidePlanGate(r, needsHuman) { // review --plan: the gate over the whole report
+		needsHuman = true
+	}
 	if r.ExitCode == 0 && ci && needsHuman {
 		r.ExitCode = 2
 	}
