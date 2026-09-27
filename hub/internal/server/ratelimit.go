@@ -6,9 +6,16 @@ import (
 )
 
 // maxLimiterKeys bounds the memory of a limiter. Once that many distinct keys
-// were seen within one window, every further unseen key is refused until the
-// window rolls: spraying random keys cannot grow the map or bypass the limit.
+// were seen within one window, an unseen key takes the place of the least
+// active of a few sampled entries instead of growing the map. Refusing unseen
+// keys outright would let anyone spraying random keys lock every legitimate
+// caller out; evicting lets the flood only compete with itself, since its keys
+// sit at the lowest counts while an active caller keeps its own budget.
 const maxLimiterKeys = 10000
+
+// evictionSample is how many entries a full limiter inspects to pick the one
+// to forget. Map iteration order is random, so this is a random sample.
+const evictionSample = 8
 
 // windowLimiter counts events per key in fixed windows. It is deliberately
 // simple: it only has to keep one caller from flooding an endpoint, not to be
@@ -37,11 +44,26 @@ func (l *windowLimiter) Allow(key string) bool {
 	}
 	count, seen := l.counts[key]
 	if !seen && len(l.counts) >= maxLimiterKeys {
-		return false
+		l.evict()
 	}
 	if count >= l.limit {
 		return false
 	}
 	l.counts[key] = count + 1
 	return true
+}
+
+// evict forgets the least active of a random sample of keys. A forgotten key
+// only regains its budget: no key ever loses budget to another one.
+func (l *windowLimiter) evict() {
+	victim, lowest, sampled := "", 0, 0
+	for key, count := range l.counts {
+		if sampled == 0 || count < lowest {
+			victim, lowest = key, count
+		}
+		if sampled++; sampled == evictionSample {
+			break
+		}
+	}
+	delete(l.counts, victim)
 }

@@ -25,6 +25,12 @@ const maxHookBytes = 5 << 20
 // could guess or scrape, authorizes nothing. Every refusal looks the same.
 func (s *Server) handleWebhook(w http.ResponseWriter, r *http.Request) {
 	hookKey := r.PathValue("hook")
+	// A malformed routing key cannot name an installation: refused before it
+	// costs a limiter entry, a lookup or any crypto, like every other refusal.
+	if len(hookKey) > maxHookKeyBytes || !store.ValidKey(hookKey) {
+		writeError(w, http.StatusUnauthorized, "unauthorized webhook")
+		return
+	}
 	// Bounded before any lookup, so a flood costs neither disk nor crypto.
 	if !s.hookLimit.Allow(hookKey) {
 		w.Header().Set("Retry-After", "60")
@@ -96,6 +102,9 @@ func (s *Server) handleWebhook(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusAccepted, map[string]string{"status": "queued", "commit": push.After})
 }
+
+// maxHookKeyBytes bounds a routing key before it is even pattern-matched.
+const maxHookKeyBytes = 128
 
 // hookTokenParam names the installation token in the webhook URL.
 const hookTokenParam = "token"

@@ -129,7 +129,8 @@ func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"status": "signed out"})
 }
 
-// handleMe describes the session and the deployment to the UI.
+// handleMe describes the session to the UI. An anonymous visitor only learns
+// the forges it can sign in with; the deployment details need a session.
 func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) {
 	forges := make([]string, 0, len(s.accounts.Providers()))
 	for kind := range s.accounts.Providers() {
@@ -140,14 +141,13 @@ func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]any{
 			"authenticated": false,
 			"forges":        forges,
-			"version":       s.version,
 		})
 		return
 	}
 	user, err := s.store.User(sess.UserKey)
 	if err != nil {
 		s.clearSession(w)
-		writeJSON(w, http.StatusOK, map[string]any{"authenticated": false, "forges": forges, "version": s.version})
+		writeJSON(w, http.StatusOK, map[string]any{"authenticated": false, "forges": forges})
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{

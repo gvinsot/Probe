@@ -305,6 +305,11 @@ func TestAnonymousAccess(t *testing.T) {
 	if forges, ok := me["forges"].([]any); !ok || len(forges) != 1 {
 		t.Errorf("/api/me must advertise the configured forges, got %v", me["forges"])
 	}
+	for _, field := range []string{"version", "cli", "mode", "instance"} {
+		if _, ok := me[field]; ok {
+			t.Errorf("/api/me discloses %q without a session", field)
+		}
+	}
 
 	page := h.do(http.MethodGet, "/", nil)
 	if page.Code != http.StatusOK || !strings.Contains(page.Body.String(), "SwiftProof Hub") {
@@ -725,6 +730,24 @@ func TestWebhookIsRateLimitedAndQuotaBound(t *testing.T) {
 	}
 	if got := h.deliver("another-key", "", secret, push(7)); got.Code != http.StatusUnauthorized {
 		t.Errorf("another routing key has its own budget, got %d", got.Code)
+	}
+
+	// Malformed keys are refused before the limiter: flooding them leaves no
+	// trace in it, so a genuine key keeps its own budget.
+	for i := 0; i < maxLimiterKeys+10; i++ {
+		bad := fmt.Sprintf("bad..%d", i)
+		if i%2 == 1 {
+			bad = strings.Repeat("k", maxHookKeyBytes+1)
+		}
+		if got := h.deliver(bad, "x", secret, push(7)); got.Code != http.StatusUnauthorized {
+			t.Fatalf("a malformed routing key = %d, want 401", got.Code)
+		}
+	}
+	if n := len(h.server.hookLimit.counts); n > 2 {
+		t.Errorf("malformed keys reached the limiter: %d entries", n)
+	}
+	if got := h.deliver("genuinehookkey", "", secret, push(7)); got.Code != http.StatusUnauthorized {
+		t.Errorf("a valid unknown key after the flood = %d, want 401 (not 429)", got.Code)
 	}
 }
 
