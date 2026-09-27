@@ -755,11 +755,23 @@ function renderReportCommit(repo, run) {
   if (!commit) return;
   const node = (state.graphs.get(repo?.key)?.commits || []).find((c) => c.sha === commit);
   const message = run?.message || node?.message;
+  const line = document.createElement('div');
+  line.className = 'report-commit-line';
   const heading = document.createElement('p');
   heading.id = 'selected-commit';
   heading.className = 'report-commit';
   heading.textContent = shortSha(commit) + (message ? ' · ' + message : '');
-  el('report-head').appendChild(heading);
+  line.appendChild(heading);
+  if (repo?.web_url) {
+    const forgeLink = document.createElement('a');
+    forgeLink.className = 'btn quiet small';
+    forgeLink.href = commitURL(repo, commit);
+    forgeLink.target = '_blank';
+    forgeLink.rel = 'noopener noreferrer';
+    forgeLink.textContent = 'Open the commit';
+    line.appendChild(forgeLink);
+  }
+  el('report-head').appendChild(line);
 }
 
 function clearReport(repo) {
@@ -878,23 +890,6 @@ function renderReport() {
     stats.appendChild(stat(s.checks_passed + ' / ' + (s.checks_passed + s.checks_failed), 'checks passed'));
   }
   head.appendChild(stats);
-
-  const links = document.createElement('div');
-  links.className = 'row';
-  if (repo.web_url && run) {
-    const forgeLink = document.createElement('a');
-    forgeLink.className = 'btn quiet small';
-    forgeLink.href = commitURL(repo, run.commit);
-    forgeLink.target = '_blank';
-    forgeLink.rel = 'noopener noreferrer';
-    forgeLink.textContent = 'Open the commit';
-    links.appendChild(forgeLink);
-  }
-  const note = document.createElement('span');
-  note.className = 'note';
-  note.textContent = 'A report states what was observed and what was reproduced. It never approves a change.';
-  links.appendChild(note);
-  head.appendChild(links);
 
   el('download').href = '/api/repos/' + encodeURIComponent(repo.key)
     + '/reports/' + encodeURIComponent(state.commit) + '/raw';

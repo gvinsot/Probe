@@ -204,7 +204,9 @@ h1, h2, h3 { line-height: 1.25; }
 .report-head { display: grid; gap: 10px; padding: 14px; border-bottom: 1px solid var(--line); }
 .report-title { display: flex; align-items: baseline; flex-wrap: wrap; gap: 10px; }
 .report-title h2 { margin: 0; font-size: 1.05rem; }
-.report-commit { margin: 0; font-size: 1.15rem; font-weight: 600; overflow-wrap: anywhere; }
+.report-commit-line { display: flex; align-items: center; gap: 10px; }
+.report-commit-line .btn { flex: none; }
+.report-commit { flex: 1; min-width: 0; margin: 0; font-size: 1.15rem; font-weight: 600; overflow-wrap: anywhere; }
 .report-sub { color: var(--muted); font-size: 0.85rem; word-break: break-word; }
 .stats { display: flex; flex-wrap: wrap; gap: 8px; }
 .stat {

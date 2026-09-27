@@ -1,7 +1,7 @@
 'use strict';
 
 const fixtureSHA = (letter) => letter.repeat(40);
-const fixtureRepo = { key: 'repo', full_name: 'acme/shop', provider: 'github', default_branch: 'main', has_policy: true, admin: true };
+const fixtureRepo = { key: 'repo', full_name: 'acme/shop', provider: 'github', default_branch: 'main', web_url: 'https://github.com/acme/shop', has_policy: true, admin: true };
 const fixtureCounts = { total: 1, high: 1, critical: 0, medium: 0, low: 0 };
 const fixtureRun = (variant) => ({ commit: fixtureSHA('a'), variant, status: 'done', mode: 'lint', summary: { verdict: 'review', counts: fixtureCounts, reproduced: 0, unverified: 1, focused_lines: 2, changed_lines: 5, changed_files: 1, additions: 4, deletions: 1 } });
 const fixtureAgo = (hours) => new Date(Date.now() - hours * 3600 * 1000).toISOString();
@@ -102,6 +102,9 @@ window.addEventListener('DOMContentLoaded', async () => {
     assert(cards[0].querySelector('.card-head .chip') && cards[1].querySelector('.card-head .chip'), 'verdict on the title line');
     assert(cards[1].querySelector('.card-head label[for="plan-intent"]').textContent === 'Describe the task to see what impacts where planned', 'intent prompt beside the Plan title');
     assert(!document.getElementById('filters').classList.contains('hidden'), 'cached report shown on commit click');
+    const commitLine = document.querySelector('#report-head .report-commit-line');
+    assert(commitLine.querySelector('#selected-commit') && commitLine.querySelector('a').textContent === 'Open the commit', 'Open the commit beside the commit title');
+    assert(!document.getElementById('report-head').textContent.includes('never approves'), 'no disclaimer line');
     assert(document.querySelector('#report-head .verdict').textContent === 'Human review required', 'report verdict rendered');
     assert(document.querySelector('#report-head .verdict').classList.contains('tone-high'), 'report verdict tinted by the most severe alert');
     assert(cards[0].querySelector('h3').textContent === 'Analysis', 'analysis card title');
