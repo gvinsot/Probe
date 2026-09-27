@@ -50,7 +50,7 @@
                 </div>
                 <div class="tabpanel" role="tabpanel" id="panel-unix" aria-labelledby="tab-unix">
                   <div class="code">
-<pre><code>VERSION=<span data-version>v0.3.0</span>
+<pre><code>VERSION=<span data-version>v0.3.9</span>
 OS=$(uname -s | tr '[:upper:]' '[:lower:]')                 <span class="c"># linux or darwin</span>
 ARCH=$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/')  <span class="c"># amd64 or arm64</span>
 NAME=swiftproof-$VERSION-$OS-$ARCH
@@ -63,7 +63,7 @@ swiftproof version</code></pre>
                 </div>
                 <div class="tabpanel" role="tabpanel" id="panel-win" aria-labelledby="tab-win">
                   <div class="code">
-<pre><code>$v = "<span data-version>v0.3.0</span>"
+<pre><code>$v = "<span data-version>v0.3.9</span>"
 $arch = if ($env:PROCESSOR_ARCHITECTURE -eq "ARM64") { "arm64" } else { "amd64" }
 $name = "swiftproof-$v-windows-$arch"
 Invoke-WebRequest "https://github.com/gvinsot/SwiftProof/releases/download/$v/$name.zip" -OutFile "$name.zip"
@@ -78,7 +78,7 @@ swiftproof version</code></pre>
                   </div>
                 </div>
               </div>
-              <p>The last command prints the installed version, for example <code>swiftproof <span data-version>v0.3.0</span></code>. To check the archive against the published checksums, see <a href="download.html#verify">Verify a download</a>.</p>
+              <p>The last command prints the installed version, for example <code>swiftproof <span data-version>v0.3.9</span></code>. To check the archive against the published checksums, see <a href="download.html#verify">Verify a download</a>.</p>
             </div>
           </li>
 
@@ -151,7 +151,7 @@ Focused review: 19 / 125 changed lines (a prioritization aid, not a correctness 
 Changed-line execution: 44 executed, 0 not executed, 23 outside any instrumented block, 0 not measured, of 67 added Go lines.
 Reports: /home/you/shop/.swiftproof</span></code></pre>
               </div>
-              <p>For Node.js and Python projects, stock images do not contain your dependencies: build an image that does, then point <code>sandbox.image</code> at it in a policy (next step). If Docker or the image is missing, SwiftProof stops with exit code <code>4</code> and never falls back to running code on your machine.</p>
+              <p>For Node.js, Python and Rust projects, stock images do not contain your dependencies: build an image that does and point <code>sandbox.image</code> at it in a policy (next step), or let the trusted policy build that layer with a <a href="docs.html#policy-prepare"><code>prepare</code></a> object. If Docker or the image is missing, SwiftProof stops with exit code <code>4</code> and never falls back to running code on your machine.</p>
             </div>
           </li>
 
@@ -160,13 +160,14 @@ Reports: /home/you/shop/.swiftproof</span></code></pre>
               <h2>Adopt it in your repository</h2>
               <p>Generate a policy, review its commands and sandbox image, and commit it to your base branch. From then on, every comparison reads the policy from the base branch, never from the change under review.</p>
               <div class="code">
-<pre><code>swiftproof init                                   <span class="c"># writes .swiftproof.json</span>
+<pre><code>swiftproof init                                   <span class="c"># writes .swiftproof.json (Go, TS/JS, Python or Rust, detected)</span>
 swiftproof review --base main --config .swiftproof.json   <span class="c"># try it before committing</span>
 git add .swiftproof.json &amp;&amp; git commit -m "Add SwiftProof review policy"
 
 <span class="c"># then, on every pull request or before handing work over</span>
 swiftproof review --base main --ci</code></pre>
               </div>
+              <p>Working with a coding agent? Have it run <code>swiftproof plan --intent-file task.md</code> before writing code, then <code>swiftproof review --plan .swiftproof/PLAN.json</code>: the report lists every file or exported declaration the change touched without announcing it (<a href="docs.html#plan">pre-change plans</a>).</p>
               <p>Next steps: every flag, exit code and policy key is in the <a href="docs.html">reference</a>. To let an AI reviewer try to reproduce issues, configure a provider as described in <a href="docs.html#reviewer">AI reviewer</a>. For GitHub Actions, see the <a href="https://github.com/gvinsot/SwiftProof/blob/main/app/docs/CI.md">CI integration guide</a>.</p>
             </div>
           </li>

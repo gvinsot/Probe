@@ -151,7 +151,7 @@ func analyze(ctx context.Context, mode string, args []string, out, errOut io.Wri
 	reportURL := f.String("report-url", "", "https link to the full report, cited by the pr-comment format")
 	baseTests := f.Bool("base-tests", false, "review: run the baseline versions of changed Go tests on candidate code")
 	fuzzFlag := f.Bool("fuzz", true, "review: run the differential fuzzing that trusted policy configures; --fuzz=false records it as disabled")
-	impactFlag := f.Bool("impact", true, "build the static impact index of changed Go functions (lint and review)")
+	impactFlag := f.Bool("impact", true, "build the static impact index of changed functions: Go type-checked, TS/JS, Python and Rust lexical (lint and review)")
 	impactedTests := f.Bool("impacted-tests", false, "review: run unchanged Go tests that statically reach changed code on baseline and candidate")
 	cacheDir := f.String("cache-dir", "", "review: opt-in baseline execution cache directory, outside the repository and the output directory")
 	parallel := f.Int("parallel", 1, "review: number of initial checks run at a time (1..4)")

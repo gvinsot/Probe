@@ -40,7 +40,7 @@
       <div class="wrap">
         <div class="dl-hero" id="dl-hero">
           <div>
-            <h2 id="dl-version">SwiftProof <span data-version>v0.3.0</span></h2>
+            <h2 id="dl-version">SwiftProof <span data-version>v0.3.9</span></h2>
             <p class="dl-meta" id="dl-meta">Loading release information…</p>
             <a class="btn btn-big" id="dl-main" href="https://github.com/gvinsot/SwiftProof/releases/latest">Download the latest release</a>
             <p class="dl-sub" id="dl-file"></p>
@@ -73,11 +73,11 @@
         <p>Every release publishes a <code>SHA256SUMS</code> file. Download it next to the archive, then check the archive's digest:</p>
         <div class="code">
 <pre><code><span class="c"># Linux</span>
-grep swiftproof-<span data-version>v0.3.0</span>-linux-amd64.tar.gz SHA256SUMS | sha256sum --check
+grep swiftproof-<span data-version>v0.3.9</span>-linux-amd64.tar.gz SHA256SUMS | sha256sum --check
 <span class="c"># macOS</span>
-grep swiftproof-<span data-version>v0.3.0</span>-darwin-arm64.tar.gz SHA256SUMS | shasum -a 256 --check
+grep swiftproof-<span data-version>v0.3.9</span>-darwin-arm64.tar.gz SHA256SUMS | shasum -a 256 --check
 <span class="c"># Windows (PowerShell): compare with the matching line of SHA256SUMS</span>
-Get-FileHash .\swiftproof-<span data-version>v0.3.0</span>-windows-amd64.zip -Algorithm SHA256</code></pre>
+Get-FileHash .\swiftproof-<span data-version>v0.3.9</span>-windows-amd64.zip -Algorithm SHA256</code></pre>
         </div>
         <p>Checksums detect corrupted or mismatched files. The archives are not signed or notarized, which is why macOS quarantines a copy downloaded with a browser: remove the flag with <code>xattr -d com.apple.quarantine swiftproof</code>.</p>
 

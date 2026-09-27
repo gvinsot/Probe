@@ -41,7 +41,7 @@
             <a class="btn" href="download.html" data-download-latest>Download SwiftProof</a>
             <a class="btn btn-ghost" href="getting-started.html">Try it in 2 minutes</a>
           </div>
-          <p class="note">Latest <a href="download.html"><span data-version>v0.3.0</span></a> · Works without an AI provider · Never auto-approves a pull request.</p>
+          <p class="note">Latest <a href="download.html"><span data-version>v0.3.9</span></a> · Works without an AI provider · Never auto-approves a pull request.</p>
         </div>
         <div class="code" aria-label="Running SwiftProof on the last commit of a repository">
 <pre><code><span class="p">$ </span>swiftproof lint HEAD~1..HEAD
@@ -253,12 +253,24 @@ Reports open by themselves, filtered by severity.</span></code></pre>
             <p>Optionally measure which added Go lines a recorded run executed — reported as an observation, never as proof of testing.</p>
           </article>
           <article class="card">
+            <h3>Impact analysis</h3>
+            <p>A static index of Go, TypeScript/JavaScript, Python and Rust lists the unchanged callers of each changed function and the existing tests that reach it.</p>
+          </article>
+          <article class="card">
+            <h3>Tests on both revisions</h3>
+            <p>Impacted and changed baseline tests, differential fuzzing and mutation of added lines run on base and candidate, recorded as evidence, never as a verdict.</p>
+          </article>
+          <article class="card">
+            <h3>Plan, then check the scope</h3>
+            <p><code>swiftproof plan</code> assesses an agent's plan before any code exists; <code>--plan</code> then flags every file or exported API the change touched without announcing it.</p>
+          </article>
+          <article class="card">
             <h3>Bounded AI reviewer</h3>
             <p>Bring any OpenAI-compatible provider. Tools are bounded: redacted file reads, search and test runs. No shell, no URL fetcher.</p>
           </article>
           <article class="card">
             <h3>CI ready</h3>
-            <p>A reusable GitHub Actions workflow, meaningful exit codes, and JSON reports with commit IDs, evidence and artifact hashes.</p>
+            <p>A reusable GitHub Actions workflow, meaningful exit codes, JSON reports with commit IDs, evidence and artifact hashes, plus SARIF and a PR comment holding only evidence-backed findings.</p>
           </article>
           <article class="card">
             <h3>Agent friendly</h3>

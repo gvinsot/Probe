@@ -32,7 +32,7 @@
       <div class="wrap">
         <p class="eyebrow">Reference</p>
         <h1>Command-line reference</h1>
-        <p class="lead">Every command, flag, exit code, environment variable, policy key and risk signal of SwiftProof <span data-version>v0.3.0</span>. Press <kbd>/</kbd> to search.</p>
+        <p class="lead">Every command, flag, exit code, environment variable, policy key and risk signal of the current SwiftProof (latest release: <span data-version>v0.3.9</span>). Entries marked <span class="tag">v0.4</span> make a binary older than v0.4.0 exit <code>3</code>; see <a href="https://github.com/gvinsot/SwiftProof/blob/main/app/docs/CI.md#release-ordering-for-v04">release ordering</a> before pinning one in CI. Press <kbd>/</kbd> to search.</p>
       </div>
     </section>
 
@@ -48,6 +48,7 @@
           <li class="group">Commands</li>
           <li><a href="#lint">lint</a></li>
           <li><a href="#review">review</a></li>
+          <li><a href="#plan">plan</a></li>
           <li><a href="#init">init</a></li>
           <li><a href="#report">report</a></li>
           <li><a href="#version">version &amp; help</a></li>
@@ -56,12 +57,17 @@
           <li><a href="#environment">Environment variables</a></li>
           <li><a href="#outputs">Output files</a></li>
           <li><a href="#signals">Risk signals</a></li>
+          <li><a href="#impact">Impact analysis</a></li>
+          <li><a href="#languages">Languages</a></li>
           <li class="group">Policy</li>
           <li><a href="#policy">.swiftproof.json</a></li>
           <li><a href="#policy-commands">commands</a></li>
           <li><a href="#policy-sandbox">sandbox</a></li>
           <li><a href="#policy-reviewer">reviewer</a></li>
           <li><a href="#policy-sensitive">sensitive_paths</a></li>
+          <li><a href="#policy-fuzz">fuzz</a></li>
+          <li><a href="#policy-mutation">mutation</a></li>
+          <li><a href="#policy-prepare">prepare</a></li>
           <li><a href="#defaults">Language defaults</a></li>
           <li><a href="#reviewer">AI reviewer</a></li>
         </ul>
@@ -71,16 +77,19 @@
         <section id="synopsis">
           <h2>Synopsis</h2>
           <div class="code">
-<pre><code>swiftproof init [--repo PATH] [--language go|typescript|javascript|python]
+<pre><code>swiftproof init [--repo PATH] [--language go|typescript|javascript|python|rust]
 swiftproof lint [--base main] [--head HEAD] [--ci] [flags]
 swiftproof review [--base main] [--reviewer=false] [--ci] [flags]
 swiftproof review [flags] BASE..HEAD
-swiftproof report [--input .swiftproof/confidence-report.json] [--out DIR]
+swiftproof plan --intent-file FILE [--base main] [--ci]
+swiftproof review --plan .swiftproof/PLAN.json [flags]
+swiftproof report [--input .swiftproof/confidence-report.json] [--out DIR] [--format LIST] [--report-url URL]
 swiftproof version</code></pre>
           </div>
           <ul>
             <li><strong>lint</strong> analyzes a change statically. It never executes repository code and never calls an AI provider.</li>
-            <li><strong>review</strong> adds sandboxed checks in Docker and, when a model is configured, an AI investigation.</li>
+            <li><strong>review</strong> adds sandboxed checks in Docker, the opt-in evidence stages (changed baseline tests, impacted tests, differential fuzzing, mutation, dependency preparation) and, when a model is configured, an AI investigation.</li>
+            <li><strong>plan</strong> asks the configured provider for an implementation plan before any code is written, evaluates it with fixed rules, and turns it into a contract that <code>lint --plan</code> and <code>review --plan</code> check the diff against.</li>
             <li>Only <strong>committed</strong> files are analyzed; uncommitted edits and untracked files are ignored.</li>
             <li>Reports are written to <code>.swiftproof/</code> in the repository by default. Console output stays short.</li>
             <li>Flags accept one or two dashes (<code>-ci</code> or <code>--ci</code>). Booleans are set with <code>--ci</code> or <code>--ci=true</code> and cleared with <code>--checks=false</code>. A value is given as <code>--base main</code> or <code>--base=main</code>.</li>
@@ -120,18 +129,22 @@ swiftproof version</code></pre>
                 <tr id="lint-repo"><td><code>--repo PATH</code></td><td><code>.</code></td><td class="desc">Repository directory. Any directory inside the work tree works.</td></tr>
                 <tr id="lint-config"><td><code>--config PATH</code></td><td>policy of the base</td><td class="desc">Use this local policy file instead of <code>.swiftproof.json</code> from the base branch. Only pass a file you trust.</td></tr>
                 <tr id="lint-out"><td><code>--out DIR</code></td><td><code>.swiftproof</code></td><td class="desc">Report directory, relative to the repository root. The path may not contain symbolic links.</td></tr>
-                <tr id="lint-format"><td><code>--format LIST</code></td><td><code>markdown,json</code></td><td class="desc">Comma-separated report formats to write: <code>markdown</code>, <code>json</code>.</td></tr>
+                <tr id="lint-format"><td><code>--format LIST</code></td><td><code>markdown,json</code></td><td class="desc">Comma-separated report formats to write: <code>markdown</code>, <code>json</code>, <code>sarif</code> <span class="tag">v0.4</span>, <code>pr-comment</code> <span class="tag">v0.4</span>. See <a href="#outputs">Output files</a>.</td></tr>
+                <tr id="lint-report-url"><td><code>--report-url URL</code> <span class="tag">v0.4</span></td><td>—</td><td class="desc">An <code>https</code> link to the full report, cited in <code>PR_COMMENT.md</code>. Requires the <code>pr-comment</code> format; a URL that looks like it carries a credential is refused with exit <code>3</code>.</td></tr>
+                <tr id="lint-impact"><td><code>--impact</code></td><td><code>true</code></td><td class="desc">Build the static <a href="#impact">impact index</a> of changed functions. <code>--impact=false</code> skips it.</td></tr>
+                <tr id="lint-plan"><td><code>--plan PATH</code></td><td>—</td><td class="desc">A <code>PLAN.json</code> written by <a href="#plan"><code>swiftproof plan</code></a>: check the diff against its contract and add a <code>plan_drift</code> section and signals.</td></tr>
                 <tr id="lint-ci"><td><code>--ci</code></td><td><code>false</code></td><td class="desc">Exit with code <code>2</code> when human review is required. See <a href="#exit-codes">Exit codes</a>.</td></tr>
                 <tr id="lint-intent"><td><code>--intent TEXT</code></td><td>—</td><td class="desc">Pull request intent or acceptance criteria, recorded in the report (at most 64 KiB).</td></tr>
                 <tr id="lint-intent-file"><td><code>--intent-file PATH</code></td><td>—</td><td class="desc">Read the intent from a UTF-8 file. Cannot be combined with <code>--intent</code>.</td></tr>
-                <tr id="lint-checks"><td><code>--checks</code>, <code>--reviewer</code></td><td><code>false</code></td><td class="desc">Must stay false: <code>lint</code> exits with code <code>3</code> if either is enabled. Use <code>review</code>.</td></tr>
+                <tr id="lint-checks"><td><code>--checks</code>, <code>--reviewer</code></td><td><code>false</code></td><td class="desc">Must stay false: <code>lint</code> exits with code <code>3</code> if either is enabled. Use <code>review</code>. The review-only stage flags (<code>--base-tests</code>, <code>--impacted-tests</code>, <code>--fuzz</code>, <code>--cache-dir</code>, <code>--parallel</code>, <code>--deadline</code>, <code>--allow-prepare-network</code>) are refused the same way.</td></tr>
               </tbody>
             </table>
           </div>
           <div class="code">
 <pre><code>swiftproof lint HEAD~1..HEAD                 <span class="c"># the last commit</span>
 swiftproof lint --base origin/main --ci      <span class="c"># this branch as a pull request, for CI</span>
-swiftproof lint --base main --format json    <span class="c"># JSON report only</span></code></pre>
+swiftproof lint --base main --format json    <span class="c"># JSON report only</span>
+swiftproof lint --base main --plan .swiftproof/PLAN.json   <span class="c"># scope drift against an approved plan</span></code></pre>
           </div>
         </section>
 
@@ -149,7 +162,8 @@ swiftproof lint --base main --format json    <span class="c"># JSON report only<
                 <tr id="review-repo"><td><code>--repo PATH</code></td><td><code>.</code></td><td class="desc">Repository directory.</td></tr>
                 <tr id="review-config"><td><code>--config PATH</code></td><td>policy of the base</td><td class="desc">Use this local policy file instead of <code>.swiftproof.json</code> from the base branch, for example to try a policy before committing it. Only pass a file you trust: it decides what runs and where source is sent.</td></tr>
                 <tr id="review-out"><td><code>--out DIR</code></td><td><code>.swiftproof</code></td><td class="desc">Report directory, relative to the repository root. Artifacts go to <code>DIR/artifacts/</code>.</td></tr>
-                <tr id="review-format"><td><code>--format LIST</code></td><td><code>markdown,json</code></td><td class="desc">Comma-separated report formats to write: <code>markdown</code>, <code>json</code>.</td></tr>
+                <tr id="review-format"><td><code>--format LIST</code></td><td><code>markdown,json</code></td><td class="desc">Comma-separated report formats to write: <code>markdown</code>, <code>json</code>, <code>sarif</code> <span class="tag">v0.4</span>, <code>pr-comment</code> <span class="tag">v0.4</span>.</td></tr>
+                <tr id="review-report-url"><td><code>--report-url URL</code> <span class="tag">v0.4</span></td><td>—</td><td class="desc">An <code>https</code> link to the full report, cited in <code>PR_COMMENT.md</code>. Requires the <code>pr-comment</code> format.</td></tr>
                 <tr id="review-ci"><td><code>--ci</code></td><td><code>false</code></td><td class="desc">Exit with code <code>2</code> when human review is required, including high-risk signals, unverified areas or incomplete checks.</td></tr>
                 <tr id="review-checks"><td><code>--checks</code></td><td><code>true</code></td><td class="desc">Run the configured checks in the sandbox. <code>--checks=false</code> skips them; a configured reviewer may still run sandbox experiments.</td></tr>
                 <tr id="review-reviewer"><td><code>--reviewer</code></td><td>auto</td><td class="desc">AI investigation. Enabled automatically when a model is set in the trusted policy or <code>SWIFTPROOF_REVIEWER_MODEL</code>. <code>--reviewer=false</code> disables every provider call; <code>--reviewer</code> fails with exit <code>3</code> if no model is configured.</td></tr>
@@ -158,6 +172,15 @@ swiftproof lint --base main --format json    <span class="c"># JSON report only<
                 <tr id="review-intent-file"><td><code>--intent-file PATH</code></td><td>—</td><td class="desc">Read the intent from a UTF-8 file. Cannot be combined with <code>--intent</code>.</td></tr>
                 <tr id="review-allow-network"><td><code>--allow-network</code></td><td><code>false</code></td><td class="desc">Give sandbox containers network access. Takes effect only if the trusted policy also sets <code>sandbox.network: true</code>.</td></tr>
                 <tr id="review-no-network"><td><code>--no-network</code></td><td><code>false</code></td><td class="desc">Force sandbox networking off. Does not affect reviewer API calls; add <code>--reviewer=false</code> for that.</td></tr>
+                <tr id="review-plan"><td><code>--plan PATH</code></td><td>—</td><td class="desc">Check the diff against the contract of a <a href="#plan"><code>PLAN.json</code></a>. A drifted change requests human review (exit <code>2</code> with <code>--ci</code>), never exit <code>1</code>.</td></tr>
+                <tr id="review-impact"><td><code>--impact</code></td><td><code>true</code></td><td class="desc">Build the static <a href="#impact">impact index</a> of changed functions. <code>--impact=false</code> skips it (and cannot be combined with <code>--impacted-tests</code>).</td></tr>
+                <tr id="review-impacted-tests"><td><code>--impacted-tests</code> <span class="tag">v0.4</span></td><td><code>false</code></td><td class="desc">Run the unchanged Go tests that the impact index lists as reaching a changed function, on baseline and candidate. A test passing on the base and failing on the candidate is <code>FAILS_ON_CANDIDATE</code>: a reason to review, not a defect.</td></tr>
+                <tr id="review-base-tests"><td><code>--base-tests</code> <span class="tag">v0.4</span></td><td><code>false</code></td><td class="desc">Run the baseline version of each Go test function the change modified or removed, on baseline and candidate code.</td></tr>
+                <tr id="review-fuzz"><td><code>--fuzz</code> <span class="tag">v0.4</span></td><td><code>true</code></td><td class="desc">Run the differential fuzzing that the policy's <a href="#policy-fuzz"><code>fuzz</code></a> object configures. <code>--fuzz=false</code> records the stage as disabled.</td></tr>
+                <tr id="review-cache-dir"><td><code>--cache-dir DIR</code> <span class="tag">v0.4</span></td><td>—</td><td class="desc">Opt-in cache of baseline executions, outside the repository and the output directory. A replayed baseline run never supports a positive result.</td></tr>
+                <tr id="review-parallel"><td><code>--parallel N</code> <span class="tag">v0.4</span></td><td><code>1</code></td><td class="desc">Run the initial checks N at a time, 1 to 4.</td></tr>
+                <tr id="review-deadline"><td><code>--deadline D</code> <span class="tag">v0.4</span></td><td>—</td><td class="desc">Overall time limit of the run, from <code>1m</code> to <code>24h</code>; 30 seconds of it are kept for cleanup and the report.</td></tr>
+                <tr id="review-allow-prepare-network"><td><code>--allow-prepare-network</code> <span class="tag">v0.4</span></td><td><code>false</code></td><td class="desc">Give the <a href="#policy-prepare"><code>prepare</code></a> container network access, only if the policy's <code>prepare.network</code> also enables it. Checks stay offline.</td></tr>
               </tbody>
             </table>
           </div>
@@ -165,9 +188,62 @@ swiftproof lint --base main --format json    <span class="c"># JSON report only<
 <pre><code>swiftproof review --base main --ci                        <span class="c"># typical pull request run</span>
 swiftproof review HEAD~1..HEAD --reviewer=false           <span class="c"># checks only, no provider</span>
 swiftproof review --base main --checks=false --reviewer=false   <span class="c"># static only, like lint</span>
-swiftproof review --base main --intent-file PR.md         <span class="c"># give acceptance criteria</span></code></pre>
+swiftproof review --base main --intent-file PR.md         <span class="c"># give acceptance criteria</span>
+swiftproof review --base main --impacted-tests --base-tests --ci   <span class="c"># run tests on both revisions</span>
+swiftproof review --base main --format markdown,json,sarif,pr-comment --report-url "$RUN_URL"</code></pre>
           </div>
-          <p>Checks run in the order test, typecheck, build, then coverage. Each container is non-root, has a read-only root and source mount, no added capabilities, no network by default, and the CPU, memory, PID and time limits of the <a href="#policy-sandbox">sandbox policy</a>. The Docker socket, your working checkout and API keys are never mounted. If Docker or the image is missing, the run ends with exit <code>4</code>; nothing ever falls back to your host.</p>
+          <p>Dependency preparation runs first, when the policy has a <code>prepare</code> object. Checks then run in the order test, typecheck, build, then coverage, followed by the evidence stages and the reviewer. Each container is non-root, has a read-only root and source mount, no added capabilities, no network by default, and the CPU, memory, PID and time limits of the <a href="#policy-sandbox">sandbox policy</a>. The Docker socket, your working checkout and API keys are never mounted. If Docker or the image is missing, the run ends with exit <code>4</code>; nothing ever falls back to your host.</p>
+        </section>
+
+        <section id="plan">
+          <h2><code>swiftproof plan</code></h2>
+          <p class="synopsis">Before the change is written: the configured provider simulates, read-only, how it would implement an intent at the base commit and submits a structured plan (files, symbols, dependencies, steps). SwiftProof evaluates it with fixed rules and writes <code>PLAN.json</code> and <code>PLAN.md</code>. The model produces the plan; it never judges its risk. Nothing is modified or executed.</p>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Flag</th><th>Default</th><th>Description</th></tr></thead>
+              <tbody>
+                <tr id="plan-intent"><td><code>--intent-file PATH</code>, <code>--intent TEXT</code></td><td>—</td><td class="desc">The change to plan. Required; at most 64 KiB of UTF-8, read like the review intent.</td></tr>
+                <tr id="plan-base"><td><code>--base REV</code></td><td><code>main</code></td><td class="desc">The revision the plan starts from. Its tip supplies the trusted policy.</td></tr>
+                <tr id="plan-config"><td><code>--config PATH</code></td><td>policy of the base</td><td class="desc">Explicit trusted local policy.</td></tr>
+                <tr id="plan-out"><td><code>--out DIR</code></td><td><code>.swiftproof</code></td><td class="desc">Output directory, relative to the repository.</td></tr>
+                <tr id="plan-ci"><td><code>--ci</code></td><td><code>false</code></td><td class="desc">Exit <code>2</code> when a category is flagged or something was left unverified.</td></tr>
+                <tr id="plan-max-iterations"><td><code>--max-iterations N</code></td><td>policy</td><td class="desc">Override the provider iteration budget, 1 to 100.</td></tr>
+                <tr id="plan-reviewer"><td><code>--reviewer</code></td><td><code>true</code></td><td class="desc">A provider is mandatory: without a configured model, or with <code>--reviewer=false</code>, <code>plan</code> exits <code>3</code> and writes nothing.</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <p>The planner's tools are read-only and work on a snapshot of the base commit: <code>list_files</code>, <code>read_file</code>, <code>search_code</code> and the index-backed <code>find_references</code>, <code>inspect_symbol</code> and <code>find_callers</code>, then <code>submit_plan</code> once. The assessment flags four categories from the plan and the base commit only:</p>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Category</th><th>Signals</th></tr></thead>
+              <tbody>
+                <tr id="plan-cat-critical"><td>Critical parts</td><td class="desc"><code>plan_critical_path</code> (a planned path matches <code>sensitive_paths</code>), <code>plan_sensitive_symbol</code> (an authentication, authorization or payment name).</td></tr>
+                <tr id="plan-cat-architecture"><td>Architecture</td><td class="desc"><code>plan_exported_signature</code>, <code>plan_dependency_change</code>, <code>plan_new_package</code>.</td></tr>
+                <tr id="plan-cat-regression"><td>Regression risk</td><td class="desc"><code>plan_wide_impact</code> (10 or more callers), <code>plan_untested_impact</code> (callers and no reaching test), measured on the <a href="#impact">static index</a> of the base commit.</td></tr>
+                <tr id="plan-cat-other"><td>Other major change</td><td class="desc"><code>plan_file_deletion</code>, <code>plan_large_scope</code> (20 or more files), <code>plan_inconsistent</code>, <code>plan_unmeasured</code>.</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <p>Exit codes: <code>0</code>; <code>2</code> with <code>--ci</code> when a category is flagged; <code>3</code> usage or configuration; <code>4</code> provider failure or no accepted plan.</p>
+          <h3 id="plan-drift">Scope drift: <code>--plan</code></h3>
+          <p><code>lint --plan</code> and <code>review --plan</code> read the plan's contract and compare the real diff with it. Each difference in the diff also becomes a <code>plan_drift</code> signal. The section is <code>drifted</code> when an item is medium or higher.</p>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Item</th><th>Severity</th><th>When</th></tr></thead>
+              <tbody>
+                <tr id="drift-unplanned_file"><td><code>unplanned_file</code></td><td><span class="sev sev-medium">medium</span></td><td class="desc">A changed file the plan does not list (<code>unplanned_test_file</code>, low, for a test file).</td></tr>
+                <tr id="drift-unannounced_exported_change"><td><code>unannounced_exported_change</code></td><td><span class="sev sev-high">high</span></td><td class="desc">An exported Go declaration changed or removed without being announced as <code>signature</code> or <code>remove</code>.</td></tr>
+                <tr id="drift-unannounced_critical_path"><td><code>unannounced_critical_path</code></td><td><span class="sev sev-high">high</span></td><td class="desc">A changed path matches a critical glob of this review's policy and the plan did not list it.</td></tr>
+                <tr id="drift-unannounced_dependency_change"><td><code>unannounced_dependency_change</code></td><td><span class="sev sev-medium">medium</span></td><td class="desc">A dependency manifest changed without being declared.</td></tr>
+                <tr id="drift-planned_file_untouched"><td><code>planned_file_untouched</code></td><td><span class="sev sev-low">low</span></td><td class="desc">A planned file the change does not touch (section only).</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <div class="code">
+<pre><code>swiftproof plan --intent-file task.md                          <span class="c"># before writing code</span>
+swiftproof review --base origin/main --plan .swiftproof/PLAN.json --ci   <span class="c"># after</span></code></pre>
+          </div>
+          <p>A plan that raises nothing is not proof that the change is safe, and drift does not check that the change implements the intent. See <a href="https://github.com/gvinsot/SwiftProof/blob/main/app/docs/PLAN.md">pre-change plans</a>.</p>
         </section>
 
         <section id="init">
@@ -178,7 +254,7 @@ swiftproof review --base main --intent-file PR.md         <span class="c"># give
               <thead><tr><th>Flag</th><th>Default</th><th>Description</th></tr></thead>
               <tbody>
                 <tr id="init-repo"><td><code>--repo PATH</code></td><td><code>.</code></td><td class="desc">Directory in which to create <code>.swiftproof.json</code>.</td></tr>
-                <tr id="init-language"><td><code>--language NAME</code></td><td>detected</td><td class="desc"><code>go</code>, <code>typescript</code>, <code>javascript</code>, <code>python</code> or <code>unknown</code>. Detected from <code>go.mod</code>/<code>go.work</code>, <code>tsconfig.json</code>, <code>package.json</code>, then <code>pyproject.toml</code>/<code>setup.py</code>. Selects the <a href="#defaults">defaults</a>.</td></tr>
+                <tr id="init-language"><td><code>--language NAME</code></td><td>detected</td><td class="desc"><code>go</code>, <code>typescript</code>, <code>javascript</code>, <code>python</code>, <code>rust</code> or <code>unknown</code>. Detected from <code>go.mod</code>/<code>go.work</code>, <code>Cargo.toml</code>, <code>tsconfig.json</code>, <code>package.json</code>, then <code>pyproject.toml</code>/<code>setup.py</code>/<code>requirements.txt</code>. Selects the <a href="#defaults">defaults</a>.</td></tr>
               </tbody>
             </table>
           </div>
@@ -186,14 +262,15 @@ swiftproof review --base main --intent-file PR.md         <span class="c"># give
 
         <section id="report">
           <h2><code>swiftproof report</code></h2>
-          <p class="synopsis">Re-render a saved JSON report, for example to regenerate Markdown in CI. Nothing is re-run, and re-rendering does not authenticate the evidence it contains.</p>
+          <p class="synopsis">Re-render a saved JSON report, for example to regenerate Markdown or produce SARIF in CI. Nothing is re-run, and re-rendering does not authenticate the evidence it contains; every status is re-derived from the recorded checks, so an edited report is corrected rather than trusted.</p>
           <div class="table-wrap">
             <table>
               <thead><tr><th>Flag</th><th>Default</th><th>Description</th></tr></thead>
               <tbody>
                 <tr id="report-input"><td><code>--input PATH</code></td><td><code>.swiftproof/confidence-report.json</code></td><td class="desc">Saved JSON report (version 1, at most 64 MiB).</td></tr>
                 <tr id="report-out"><td><code>--out DIR</code></td><td><code>.swiftproof</code></td><td class="desc">Output directory, relative to the current directory.</td></tr>
-                <tr id="report-format"><td><code>--format LIST</code></td><td><code>markdown,json</code></td><td class="desc">Comma-separated formats to write: <code>markdown</code>, <code>json</code>.</td></tr>
+                <tr id="report-format"><td><code>--format LIST</code></td><td><code>markdown,json</code></td><td class="desc">Comma-separated formats to write: <code>markdown</code>, <code>json</code>, <code>sarif</code> <span class="tag">v0.4</span>, <code>pr-comment</code> <span class="tag">v0.4</span>.</td></tr>
+                <tr id="report-report-url"><td><code>--report-url URL</code> <span class="tag">v0.4</span></td><td>—</td><td class="desc">An <code>https</code> link to the full report, cited in <code>PR_COMMENT.md</code>.</td></tr>
               </tbody>
             </table>
           </div>
@@ -205,7 +282,7 @@ swiftproof review --base main --intent-file PR.md         <span class="c"># give
             <table>
               <thead><tr><th>Command</th><th>Prints</th></tr></thead>
               <tbody>
-                <tr id="cmd-version"><td><code>swiftproof version</code>, <code>--version</code></td><td class="desc">The version, for example <code>swiftproof <span data-version>v0.3.0</span></code>, and the license notice.</td></tr>
+                <tr id="cmd-version"><td><code>swiftproof version</code>, <code>--version</code></td><td class="desc">The version, for example <code>swiftproof <span data-version>v0.3.9</span></code>, and the license notice.</td></tr>
                 <tr id="cmd-help"><td><code>swiftproof help</code>, <code>-h</code>, <code>--help</code></td><td class="desc">The synopsis. With no argument, SwiftProof prints the same text.</td></tr>
                 <tr id="cmd-help-command"><td><code>swiftproof &lt;command&gt; --help</code></td><td class="desc">The flags of a command, with their defaults.</td></tr>
               </tbody>
@@ -220,10 +297,10 @@ swiftproof review --base main --intent-file PR.md         <span class="c"># give
               <thead><tr><th>Code</th><th>Meaning</th></tr></thead>
               <tbody>
                 <tr id="exit-0"><td><code>0</code></td><td class="desc">Report completed without a reproduced high or critical issue. Without <code>--ci</code>, unresolved areas do not change this code.</td></tr>
-                <tr id="exit-1"><td><code>1</code></td><td class="desc">A high or critical hypothesis is supported by a differential failure: a generated test passed on the base and failed on the candidate.</td></tr>
-                <tr id="exit-2"><td><code>2</code></td><td class="desc">With <code>--ci</code> only: human review required, including high-risk signals, unverified areas or incomplete checks.</td></tr>
+                <tr id="exit-1"><td><code>1</code></td><td class="desc">A high or critical hypothesis is supported by a differential failure: a generated test passed on the base and failed on the candidate. Nothing else produces <code>1</code>: not a fuzzing divergence, a surviving mutant, a failing impacted or baseline test, nor plan drift.</td></tr>
+                <tr id="exit-2"><td><code>2</code></td><td class="desc">With <code>--ci</code> only: human review required, including high-risk signals, unverified areas, incomplete checks, a <code>FAILS_ON_CANDIDATE</code> test, a fuzzing divergence or inconclusive stage, plan drift, or (for <code>plan</code>) a flagged category.</td></tr>
                 <tr id="exit-3"><td><code>3</code></td><td class="desc">Invalid arguments, Git comparison, or trusted configuration (including an unknown policy key or command name).</td></tr>
-                <tr id="exit-4"><td><code>4</code></td><td class="desc">Operational error in the harness, analysis or report writing, such as Docker or the sandbox image being unavailable, or a check that could not run.</td></tr>
+                <tr id="exit-4"><td><code>4</code></td><td class="desc">Operational error in the harness, analysis or report writing, such as Docker or the sandbox image being unavailable, a check that could not run, a failed dependency preparation, or a provider failure during <code>plan</code>.</td></tr>
               </tbody>
             </table>
           </div>
@@ -256,7 +333,10 @@ swiftproof review --base main --intent-file PR.md         <span class="c"># give
               <tbody>
                 <tr id="out-md"><td><code>.swiftproof/CONFIDENCE_REPORT.md</code></td><td class="desc">The report to read: change summary, automated checks, investigation summary, reproduced issues, unverified areas, suggested human review, review surface, changed-line execution, recorded evidence and artifacts.</td></tr>
                 <tr id="out-json"><td><code>.swiftproof/confidence-report.json</code></td><td class="desc">The same data for tools: commit IDs, changed lines, signals, checks, hypotheses, evidence, audit events and artifact hashes. See the <a href="https://github.com/gvinsot/SwiftProof/blob/main/app/schema/confidence-report.schema.json">JSON schema</a>.</td></tr>
-                <tr id="out-artifacts"><td><code>.swiftproof/artifacts/</code></td><td class="desc">Check logs, coverage profiles and generated test sources, each referenced by its SHA-256 hash in the report.</td></tr>
+                <tr id="out-sarif"><td><code>.swiftproof/confidence-report.sarif</code> <span class="tag">v0.4</span></td><td class="desc">With <code>--format sarif</code>: a SARIF 2.1.0 log for code-scanning tools, holding only findings backed by recorded sandbox evidence. No finding is not approval.</td></tr>
+                <tr id="out-pr-comment"><td><code>.swiftproof/PR_COMMENT.md</code> <span class="tag">v0.4</span></td><td class="desc">With <code>--format pr-comment</code>: a pull-request comment with a status block and every evidence-backed finding.</td></tr>
+                <tr id="out-plan"><td><code>.swiftproof/PLAN.json</code>, <code>PLAN.md</code></td><td class="desc">Written by <a href="#plan"><code>swiftproof plan</code></a>: the model-written proposal, the deterministic assessment and the contract (<a href="https://github.com/gvinsot/SwiftProof/blob/main/app/schema/plan.schema.json">schema</a>).</td></tr>
+                <tr id="out-artifacts"><td><code>.swiftproof/artifacts/</code></td><td class="desc">Check logs, coverage profiles, generated test sources, test results, mutant patches and fuzzing records, each referenced by its SHA-256 hash in the report.</td></tr>
               </tbody>
             </table>
           </div>
@@ -265,7 +345,7 @@ swiftproof review --base main --intent-file PR.md         <span class="c"># give
 
         <section id="signals">
           <h2>Risk signals</h2>
-          <p>Signals are reasons to look, not confirmed defects. Go files get syntax-aware analysis; other languages use labelled text heuristics. Signals on the same lines are merged into one review range in the report.</p>
+          <p>Signals are reasons to look, not confirmed defects. Go files get syntax-aware analysis; TypeScript/JavaScript, Python, Rust and other languages use labelled text heuristics. Signals on the same lines are merged into one review range in the report.</p>
           <div class="table-wrap">
             <table>
               <thead><tr><th>Kind</th><th>Severity</th><th>Raised when</th></tr></thead>
@@ -289,9 +369,48 @@ swiftproof review --base main --intent-file PR.md         <span class="c"># give
                 <tr id="sig-large_change"><td><code>large_change</code></td><td><span class="sev sev-medium">medium</span></td><td class="desc">More than 400 lines changed in one file.</td></tr>
                 <tr id="sig-file_deleted"><td><code>file_deleted</code></td><td><span class="sev sev-medium">medium</span></td><td class="desc">A tracked file was removed.</td></tr>
                 <tr id="sig-binary_change"><td><code>binary_change</code></td><td><span class="sev sev-medium">medium</span></td><td class="desc">A binary file changed and cannot be analyzed as text.</td></tr>
-                <tr id="sig-analysis_limited"><td><code>analysis_limited</code></td><td><span class="sev sev-medium">medium</span></td><td class="desc">Go declaration analysis could not complete for a file, for example because it does not parse.</td></tr>
+                <tr id="sig-analysis_limited"><td><code>analysis_limited</code></td><td><span class="sev sev-medium">medium</span></td><td class="desc">Go declaration analysis could not complete for a file, for example because it does not parse, or the <a href="#impact">impact index</a> was limited or unavailable for changed functions (symbol <code>impact_index</code>).</td></tr>
+                <tr id="sig-test_focus_added"><td><code>test_focus_added</code> <span class="tag">v0.4</span></td><td><span class="sev sev-high">high</span></td><td class="desc">A focus marker was added to a test file (<code>it.only</code>, <code>fdescribe</code>…).</td></tr>
+                <tr id="sig-test_assertion_removed"><td><code>test_assertion_removed</code>, <code>test_case_removed</code> <span class="tag">v0.4</span></td><td><span class="sev sev-medium">medium</span></td><td class="desc">A test file lost more assertion lines, or more test declarations, than it gained. Go, TS/JS, Python and Rust rules.</td></tr>
+                <tr id="sig-test_skip_added"><td><code>test_skip_added</code>, <code>test_expectation_relaxed</code> <span class="tag">v0.4</span></td><td><span class="sev sev-medium">medium</span></td><td class="desc">A skip marker was added (<code>t.Skip</code>, <code>it.skip</code>, <code>@pytest.mark.skip</code>, <code>#[ignore]</code>…), or exact expectations were replaced by looser ones in a hunk.</td></tr>
+                <tr id="sig-surviving_mutant"><td><code>surviving_mutant</code> <span class="tag">v0.4</span></td><td><span class="sev sev-medium">medium</span></td><td class="desc">A <a href="#policy-mutation">mutation</a> of an added Go line made no test of its package fail. The mutant may be equivalent.</td></tr>
+                <tr id="sig-prepare_input_changed"><td><code>prepare_input_changed</code> <span class="tag">v0.4</span></td><td><span class="sev sev-medium">medium</span></td><td class="desc">The change touches a file listed in the policy's <a href="#policy-prepare"><code>prepare.inputs</code></a>; the dependency layer was still built from the base commit.</td></tr>
+                <tr id="sig-plan_drift"><td><code>plan_drift</code></td><td><span class="sev sev-high">high</span> <span class="sev sev-medium">medium</span> <span class="sev sev-low">low</span></td><td class="desc">With <code>--plan</code>: the diff leaves the plan's contract. See <a href="#plan-drift">scope drift</a>.</td></tr>
+                <tr id="sig-impacted_caller"><td><code>impacted_caller</code></td><td><span class="sev sev-low">low</span></td><td class="desc">Unchanged code calls a changed function, according to the <a href="#impact">impact index</a>. At most 10 per function and 100 per run.</td></tr>
                 <tr id="sig-no_test_change"><td><code>no_test_change</code></td><td><span class="sev sev-low">low</span></td><td class="desc">A source file changed and no test file in the same directory or with the same name stem changed. Existing coverage is not measured.</td></tr>
                 <tr id="sig-todo_added"><td><code>todo_added</code></td><td><span class="sev sev-low">low</span></td><td class="desc">A <code>TODO</code>, <code>FIXME</code>, <code>HACK</code> or <code>XXX</code> marker was added.</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <section id="impact">
+          <h2>Impact analysis</h2>
+          <p>With <code>--impact</code> (the default), <code>lint</code> and <code>review</code> build a static index of the candidate commit on the host, from committed Git objects, without running repository code. For each changed function it lists the places in unchanged code that call it and the existing tests that reach it within 3 calls, adds low <code>impacted_caller</code> signals, and backs the reviewer's <code>find_references</code>, <code>inspect_symbol</code> and <code>find_callers</code> tools.</p>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Language</th><th>How it is indexed</th><th>Resolution</th></tr></thead>
+              <tbody>
+                <tr id="impact-go"><td>Go</td><td class="desc">Parsed and type-checked with the Go standard library, package by package, with <code>linux/amd64</code> build constraints. Interface calls are possible dispatch.</td><td><code>static</code>, <code>interface</code></td></tr>
+                <tr id="impact-lexical"><td>TypeScript/JavaScript, Python, Rust</td><td class="desc">Scanned lexically: functions, methods and tests are found from tokens, and a call is linked by name to the same-named declarations of the same language, preferring the caller's class, the qualifying module or type and the same file. <code>node_modules</code>, <code>dist</code>, <code>target</code>, <code>venv</code> and similar directories are skipped.</td><td><code>name</code></td></tr>
+              </tbody>
+            </table>
+          </div>
+          <p>Every answer is approximate: a listed caller is a place to review, and an absent caller is not proof that none exists. <code>--impacted-tests</code> runs reaching Go tests only. See <a href="https://github.com/gvinsot/SwiftProof/blob/main/app/docs/IMPACT.md">impact analysis</a>.</p>
+        </section>
+
+        <section id="languages">
+          <h2>Languages</h2>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Feature</th><th>Go</th><th>TS/JS</th><th>Python</th><th>Rust</th></tr></thead>
+              <tbody>
+                <tr id="lang-signals"><td>Risk signals and test-weakening rules</td><td>syntax-aware</td><td>text</td><td>text</td><td>text</td></tr>
+                <tr id="lang-impact"><td>Impact index and reviewer symbol tools</td><td>type-checked</td><td>lexical</td><td>lexical</td><td>lexical</td></tr>
+                <tr id="lang-checks"><td>Sandbox checks and <code>init</code> defaults</td><td>yes</td><td>yes</td><td>yes</td><td>yes</td></tr>
+                <tr id="lang-generated"><td>Verified generated tests</td><td>yes</td><td>yes (Jest/Vitest JSON)</td><td>run, not verified by name</td><td>no default command</td></tr>
+                <tr id="lang-fuzz"><td>Differential fuzzing</td><td>yes</td><td>yes</td><td>—</td><td>—</td></tr>
+                <tr id="lang-go-only"><td>Coverage, mutation, <code>--base-tests</code>, <code>--impacted-tests</code></td><td>yes</td><td>—</td><td>—</td><td>—</td></tr>
               </tbody>
             </table>
           </div>
@@ -307,6 +426,7 @@ swiftproof review --base main --intent-file PR.md         <span class="c"># give
               <tbody>
                 <tr id="policy-version"><td><code>version</code></td><td>integer</td><td><code>1</code></td><td class="desc">Policy format version. Must be <code>1</code>.</td></tr>
                 <tr id="policy-language"><td><code>language</code></td><td>string</td><td>detected</td><td class="desc">Language written by <code>init</code>. Informational.</td></tr>
+                <tr id="policy-optional"><td><code>fuzz</code>, <code>mutation</code>, <code>prepare</code> <span class="tag">v0.4</span></td><td>object</td><td>absent</td><td class="desc">Opt-in evidence stages: <a href="#policy-fuzz">differential fuzzing</a>, <a href="#policy-mutation">mutation of added lines</a> and <a href="#policy-prepare">trusted dependency preparation</a>. <code>init</code> never writes them.</td></tr>
               </tbody>
             </table>
           </div>
@@ -341,7 +461,7 @@ swiftproof review --base main --intent-file PR.md         <span class="c"># give
                 <tr id="policy-commands-test"><td><code>commands.test</code></td><td>—</td><td class="desc">Test suite, run by <code>review</code>.</td></tr>
                 <tr id="policy-commands-typecheck"><td><code>commands.typecheck</code></td><td>—</td><td class="desc">Type or static check, for example <code>go vet</code> or <code>tsc --noEmit</code>.</td></tr>
                 <tr id="policy-commands-build"><td><code>commands.build</code></td><td>—</td><td class="desc">Build command.</td></tr>
-                <tr id="policy-commands-generated_test"><td><code>commands.generated_test</code></td><td><code>{file}</code>, <code>{package}</code></td><td class="desc">How the AI reviewer's temporary tests are run on base and candidate. Go's default uses the test's package so it can exercise unexported code. Verified Go experiments need a single standalone target placeholder.</td></tr>
+                <tr id="policy-commands-generated_test"><td><code>commands.generated_test</code></td><td><code>{file}</code>, <code>{package}</code>, <code>{results_out}</code></td><td class="desc">How the AI reviewer's temporary tests (and <code>--impacted-tests</code>) are run on base and candidate. Go's default uses the test's package so it can exercise unexported code. Verified Go experiments need a single standalone target placeholder; a Jest or Vitest command writing a JSON report to <code>{results_out}</code> makes TS/JS experiments verifiable by test name.</td></tr>
                 <tr id="policy-commands-coverage"><td><code>commands.coverage</code></td><td><code>{coverage_out}</code> (exactly once)</td><td class="desc">Go only. Measures which added lines a sandbox run executed. Runs last, in addition to <code>test</code>, within <code>sandbox.max_runtime_seconds</code>. Add <code>-coverpkg=./...</code> to attribute execution across packages.</td></tr>
               </tbody>
             </table>
@@ -401,16 +521,78 @@ swiftproof review --base main --intent-file PR.md         <span class="c"># give
           </div>
         </section>
 
+        <section id="policy-fuzz">
+          <h2><code>fuzz</code> <span class="tag">v0.4</span></h2>
+          <p>Runs the same seeded inputs through each changed package-level Go function and changed exported TS/JS function (with an unchanged signature) on baseline and candidate, and compares what the two revisions recorded. A <code>diverged</code> function is an observation, never a defect: it requests review (exit <code>2</code> with <code>--ci</code>) and never produces exit <code>1</code>. <code>{}</code> enables it with the defaults.</p>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Key</th><th>Default</th><th>Allowed</th></tr></thead>
+              <tbody>
+                <tr id="policy-fuzz-max_functions"><td><code>fuzz.max_functions</code></td><td><code>8</code></td><td>1–32 functions per review</td></tr>
+                <tr id="policy-fuzz-max_packages"><td><code>fuzz.max_packages</code></td><td><code>4</code></td><td>1–16 Go packages and TS/JS modules</td></tr>
+                <tr id="policy-fuzz-max_inputs"><td><code>fuzz.max_inputs</code></td><td><code>64</code></td><td>1–256 inputs per function</td></tr>
+                <tr id="policy-fuzz-call_timeout_ms"><td><code>fuzz.call_timeout_ms</code></td><td><code>1000</code></td><td>10–10000, at most the command timeout</td></tr>
+                <tr id="policy-fuzz-max_runtime_seconds"><td><code>fuzz.max_runtime_seconds</code></td><td><code>240</code></td><td>1–7200, within <code>sandbox.max_runtime_seconds</code></td></tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <section id="policy-mutation">
+          <h2><code>mutation</code> <span class="tag">v0.4</span></h2>
+          <p>Makes small deterministic changes to the added lines of changed non-test Go files and runs the package's tests once per mutant. A mutant no test notices becomes a medium <code>surviving_mutant</code> signal; no score is computed. All four keys are required.</p>
+          <div class="code">
+<pre><code>"mutation": {
+  "command": ["go", "test", "-json", "-count=1", "-failfast", "{package}"],
+  "max_mutants": 20, "timeout_seconds": 60, "max_runtime_seconds": 300
+}</code></pre>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Key</th><th>Allowed</th></tr></thead>
+              <tbody>
+                <tr id="policy-mutation-command"><td><code>mutation.command</code></td><td class="desc"><code>go test</code> with exactly one <code>-json</code> and one standalone <code>{package}</code>; flags that change the selected tests or binary (<code>-run</code>, <code>-exec</code>, <code>-o</code>…) are refused.</td></tr>
+                <tr id="policy-mutation-max_mutants"><td><code>mutation.max_mutants</code></td><td class="desc">1–200.</td></tr>
+                <tr id="policy-mutation-timeout_seconds"><td><code>mutation.timeout_seconds</code></td><td class="desc">1 to <code>sandbox.timeout_seconds</code>, per run.</td></tr>
+                <tr id="policy-mutation-max_runtime_seconds"><td><code>mutation.max_runtime_seconds</code></td><td class="desc"><code>timeout_seconds</code> to <code>sandbox.max_runtime_seconds</code>, inside the shared budget.</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <section id="policy-prepare">
+          <h2><code>prepare</code> <span class="tag">v0.4</span></h2>
+          <p>Lets the trusted base-branch policy build the dependency layer: before any candidate code runs, its command runs once, in one bounded container, on dependency files exported from the <strong>base</strong> commit, and the container becomes the local image of every check. A later review of the same base and inputs reuses it. When it produces no image, the review exits <code>4</code>; it never falls back to the unprepared image.</p>
+          <div class="code">
+<pre><code>"prepare": { "command": ["go", "mod", "download"], "inputs": ["go.mod", "go.sum"], "network": true }</code></pre>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Key</th><th>Default</th><th>Description</th></tr></thead>
+              <tbody>
+                <tr id="policy-prepare-command"><td><code>prepare.command</code></td><td>required</td><td class="desc">Argv of 1 to 128 arguments; no placeholder is substituted.</td></tr>
+                <tr id="policy-prepare-inputs"><td><code>prepare.inputs</code></td><td>required</td><td class="desc">1 to 64 repository-relative patterns (<code>*</code> never crosses <code>/</code>, no <code>**</code>).</td></tr>
+                <tr id="policy-prepare-network"><td><code>prepare.network</code></td><td><code>false</code></td><td class="desc">Network for the build container, only with <code>--allow-prepare-network</code> and without <code>--no-network</code>.</td></tr>
+                <tr id="policy-prepare-user"><td><code>prepare.user</code></td><td><code>"sandbox"</code></td><td class="desc"><code>"sandbox"</code> (the identity of checks) or <code>"root"</code>.</td></tr>
+                <tr id="policy-prepare-timeout_seconds"><td><code>prepare.timeout_seconds</code></td><td><code>600</code></td><td class="desc">1–3600.</td></tr>
+                <tr id="policy-prepare-env"><td><code>prepare.env</code></td><td>none</td><td class="desc">Up to 32 variables baked into the derived image; names that would change what checks execute (<code>GOFLAGS</code>, <code>NODE_OPTIONS</code>, <code>LD_PRELOAD</code>, <code>SWIFTPROOF_*</code>…) are refused.</td></tr>
+                <tr id="policy-prepare-max_added_mb"><td><code>prepare.max_added_mb</code></td><td><code>4096</code></td><td class="desc">1–65536 MiB the derived image may add.</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+
         <section id="defaults">
           <h2>Language defaults</h2>
-          <p>Written by <code>swiftproof init</code>, and used when the base branch has no policy. Stock Node.js and Python images do not contain your dependencies: build an image that does and adapt the commands.</p>
+          <p>Written by <code>swiftproof init</code>, and used when the base branch has no policy. Stock Node.js, Python and Rust images do not contain your dependencies: build an image that does, or add a <a href="#policy-prepare"><code>prepare</code></a> object, and adapt the commands.</p>
           <div class="table-wrap">
             <table>
               <thead><tr><th>Language</th><th>Image</th><th>Commands</th></tr></thead>
               <tbody>
                 <tr id="defaults-go"><td><code>go</code></td><td><code>golang:1.26-bookworm</code></td><td class="desc">test <code>go test ./...</code> · typecheck <code>go vet ./...</code> · build <code>go build ./...</code> · generated_test <code>go test {package}</code> · coverage <code>go test -covermode=count -coverprofile={coverage_out} ./...</code></td></tr>
-                <tr id="defaults-typescript"><td><code>typescript</code>, <code>javascript</code></td><td><code>node:22-bookworm</code></td><td class="desc">test <code>npm test</code> · build <code>npm run build</code></td></tr>
+                <tr id="defaults-typescript"><td><code>typescript</code>, <code>javascript</code></td><td><code>node:22-bookworm</code></td><td class="desc">test <code>npm test</code> · build <code>npm run build</code> · generated_test <code>npx --no vitest run {file} --reporter=json --outputFile={results_out}</code></td></tr>
                 <tr id="defaults-python"><td><code>python</code></td><td><code>python:3.13-bookworm</code></td><td class="desc">test <code>python -m unittest discover</code> · generated_test <code>python -m unittest {file}</code></td></tr>
+                <tr id="defaults-rust"><td><code>rust</code></td><td><code>rust:1-bookworm</code></td><td class="desc">test <code>cargo test --workspace --offline</code> · typecheck <code>cargo check --workspace --all-targets --offline</code> · build <code>cargo build --workspace --offline</code> · no generated_test</td></tr>
                 <tr id="defaults-unknown"><td><code>unknown</code></td><td><code>golang:1.26-bookworm</code></td><td class="desc">No commands: <code>review</code> runs no checks until you add them.</td></tr>
               </tbody>
             </table>
@@ -419,7 +601,7 @@ swiftproof review --base main --intent-file PR.md         <span class="c"># give
 
         <section id="reviewer">
           <h2>AI reviewer</h2>
-          <p>Optional. When a model is configured, <code>review</code> lets it investigate the change with bounded tools: reading redacted files and diffs, searching source, running existing checks, and creating and running temporary tests on base and candidate. It has no shell and no URL fetcher. Its claims stay hypotheses until a test reproduces a difference.</p>
+          <p>Optional. When a model is configured, <code>review</code> lets it investigate the change with bounded tools: reading redacted files and diffs, searching source, looking up references and callers in the <a href="#impact">static index</a>, running existing checks, and creating and running temporary tests on base and candidate. It has no shell and no URL fetcher. Its claims stay hypotheses until a test reproduces a difference.</p>
           <div class="code">
 <pre><code>{
   "reviewer": {
