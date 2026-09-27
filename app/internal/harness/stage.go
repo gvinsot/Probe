@@ -105,6 +105,13 @@ func (h *Harness) privateCopy(prefix string) (dir string, cleanup func(), err er
 	}
 	var once sync.Once
 	cleanup = func() { once.Do(func() { _ = os.RemoveAll(dir) }) }
+	// MkdirTemp creates the directory 0700 and copySnapshot keeps an existing
+	// root as is; the non-root sandbox user must read it as /source, like the
+	// 0755 snapshots copySnapshot creates itself.
+	if err = os.Chmod(dir, 0755); err != nil {
+		cleanup()
+		return "", noop, fmt.Errorf("private candidate copy: %w", err)
+	}
 	if err = copySnapshot(h.candidate, dir); err != nil {
 		cleanup()
 		return "", noop, fmt.Errorf("private candidate copy: %w", err)
