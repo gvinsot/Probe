@@ -449,7 +449,7 @@ async function loadHistory(resetIntent = false) {
   const results = await Promise.allSettled([
     state.graphs.has(repo.key) ? Promise.resolve(state.graphs.get(repo.key))
       : api('/api/repos/' + encodeURIComponent(repo.key) + '/commits'),
-    api('/api/repos/' + encodeURIComponent(repo.key) + '/runs'),
+    api('/api/repos/' + encodeURIComponent(repo.key) + '/runs?limit=0'),
   ]);
   if (loadID !== state.loadID || repo.key !== state.repoKey) return;
   const [graphResult, runsResult] = results;

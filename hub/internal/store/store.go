@@ -1,6 +1,6 @@
 // Package store persists hub state as JSON files under one data directory.
 //
-// The hub tracks a few hundred repositories per user and a bounded history of
+// The hub tracks a few hundred repositories per user and a cache of
 // reports; a directory of atomically replaced files keeps the deployment free
 // of any database dependency, which matters for an on-premise install. Keys
 // are derived, never taken from user input, and every path is validated before
@@ -27,7 +27,7 @@ import (
 // ErrNotFound is returned when a record does not exist.
 var ErrNotFound = errors.New("not found")
 
-// MaxHistory bounds how many reports are kept per repository.
+// MaxHistory is the default history listing limit; cached results are retained.
 const MaxHistory = 50
 
 // maxRecordBytes bounds a stored report; the CLI truncates its own outputs, so
@@ -521,7 +521,7 @@ func (s *Store) UpdateUser(key string, mutate func(*User) error) error {
 	return writeJSON(path, &u)
 }
 
-// PutRecord stores a report and trims the history to MaxHistory entries.
+// PutRecord retains the latest result per commit and variant without eviction.
 func (s *Store) PutRecord(rec *Record) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -537,37 +537,6 @@ func (s *Store) PutRecord(rec *Record) error {
 	}
 	if err := writeJSON(path, rec); err != nil {
 		return err
-	}
-	return s.trimLocked(filepath.Dir(path))
-}
-
-// trimLocked keeps the most recent MaxHistory reports of one repository.
-func (s *Store) trimLocked(dir string) error {
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		return err
-	}
-	type aged struct {
-		name string
-		mod  time.Time
-	}
-	files := make([]aged, 0, len(entries))
-	for _, e := range entries {
-		if e.IsDir() || !strings.HasSuffix(e.Name(), ".json") {
-			continue
-		}
-		info, err := e.Info()
-		if err != nil {
-			continue
-		}
-		files = append(files, aged{e.Name(), info.ModTime()})
-	}
-	if len(files) <= MaxHistory {
-		return nil
-	}
-	sort.Slice(files, func(i, j int) bool { return files[i].mod.After(files[j].mod) })
-	for _, f := range files[MaxHistory:] {
-		os.Remove(filepath.Join(dir, f.name))
 	}
 	return nil
 }

@@ -172,7 +172,7 @@ func TestHookRouting(t *testing.T) {
 	}
 }
 
-func TestRecordHistoryIsTrimmedAndNewestFirst(t *testing.T) {
+func TestRecordCacheIsRetainedAndHistoryIsNewestFirst(t *testing.T) {
 	s := open(t)
 	userKey, repoKey := Key("github", "1"), Key("github", "10")
 	base := time.Now().UTC().Add(-time.Hour)
@@ -193,8 +193,8 @@ func TestRecordHistoryIsTrimmedAndNewestFirst(t *testing.T) {
 	if err != nil {
 		t.Fatalf("History: %v", err)
 	}
-	if len(runs) > MaxHistory {
-		t.Fatalf("history kept %d records, want at most %d", len(runs), MaxHistory)
+	if len(runs) != MaxHistory+5 {
+		t.Fatalf("cache kept %d records, want %d", len(runs), MaxHistory+5)
 	}
 	for i := 1; i < len(runs); i++ {
 		if runs[i-1].QueuedAt.Before(runs[i].QueuedAt) {
@@ -209,6 +209,9 @@ func TestRecordHistoryIsTrimmedAndNewestFirst(t *testing.T) {
 		if run.Commit == "" {
 			t.Error("a listed run must keep its commit")
 		}
+	}
+	if _, err := s.Record(userKey, repoKey, commitOf(0)); err != nil {
+		t.Fatalf("oldest cached result lost: %v", err)
 	}
 	latest, err := s.Record(userKey, repoKey, commitOf(MaxHistory+4))
 	if err != nil || len(latest.Raw) == 0 {

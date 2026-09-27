@@ -59,16 +59,20 @@ for this operation. Missing provider configuration appears as an analysis error.
 Results are stored on the hub data volume, scoped by account, repository,
 commit and variant. Normal reports written by earlier versions remain readable.
 The latest result of each variant replaces that variant's previous result;
-changing the plan intent requires an explicit rerun. The existing 50-record
-limit per repository applies to both variants together. Evicted results return
-to **?**. Failures are retained too, including runs that produced no artifact.
-Cached results do not auto-expire when the CLI, policy or provider changes.
+changing the plan intent requires an explicit rerun. Results remain cached
+without automatic eviction, including failures that produced no artifact, and
+survive restarts on the configured persistent data volume. Monitor volume usage
+as the cache grows. Cached results do not auto-expire when the CLI, policy or
+provider changes. Only fresh CLI output is accepted: tracked output files or
+symlinks in the checkout are removed before an analysis.
 
 The API adds `GET /api/repos/{repo}/commits`. `POST .../analyze` accepts
 `commit`, `variant` (`normal` or `plan`), and `intent` (required for plan, at most
 64 KiB). `GET .../reports/{commit}` and its `/raw` endpoint accept
 `?variant=plan`; the default remains the normal confidence report. Both variants
-are listed by `GET .../runs` and use the same account quota and queue.
+are listed by `GET .../runs` and use the same account quota and queue. History
+listings default to 50 records; `?limit=0` returns all cached summaries so graph
+badges can include older analyzed commits.
 
 ## Run it
 
@@ -296,3 +300,8 @@ needs no toolchain. Reports decode a subset of the version-1
 is not full JSON Schema validation. Unknown fields are ignored, and raw JSON
 keeps sections that have no dedicated dashboard panel. See the
 [current specification](../specs/swiftproof-hub-spec.md) for the supported scope.
+
+The hub suite (`go test ./hub/...`) includes local Git HTTP integration fixtures
+for both variants and a dashboard interaction test. The latter uses an installed
+`chromium` in headless mode and skips explicitly if Chromium is unavailable;
+its API fixtures need no forge or model credentials.

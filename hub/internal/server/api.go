@@ -435,7 +435,7 @@ func (s *Server) handleRuns(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	limit := store.MaxHistory
-	if v, err := strconv.Atoi(r.URL.Query().Get("limit")); err == nil && v > 0 && v < store.MaxHistory {
+	if v, err := strconv.Atoi(r.URL.Query().Get("limit")); err == nil && v >= 0 && v < store.MaxHistory {
 		limit = v
 	}
 	runs, err := s.store.History(sess.UserKey, repo.Key, limit)

@@ -281,6 +281,11 @@ func (r *Runner) analyze(ctx context.Context, j Job, run *store.Run) (*store.Rec
 	}
 	base := g.resolveBase(ctx, j.Before, j.Commit, r.cfg.CloneDepth)
 	run.BaseCommit = base
+	// Only artifacts freshly written by the trusted CLI may become results.
+	// Remove a tracked output directory or symlink before either variant runs.
+	if err := os.RemoveAll(filepath.Join(work, ".swiftproof")); err != nil {
+		return nil, fmt.Errorf("prepare analysis output: %w", err)
+	}
 	if j.Variant == "plan" {
 		return r.analyzePlan(ctx, work, base, j, run, repo.FullName)
 	}
