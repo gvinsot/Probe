@@ -20,12 +20,14 @@
     <!-- Shared by every repository: it sets which reviews are flagged and filters report alerts. -->
     <div class="severity-picker" title="A review verdict is flagged only when its most severe alert reaches this level; a review without alerts counts as medium.">
       <label for="severity">Review from</label>
-      <select id="severity">
-        <option value="0">low</option>
-        <option value="1">medium</option>
-        <option value="2">high</option>
-        <option value="3">critical</option>
-      </select>
+      <input type="range" id="severity" min="0" max="3" step="1" value="0" list="severity-ticks" aria-valuetext="low">
+      <datalist id="severity-ticks">
+        <option value="0" label="low"></option>
+        <option value="1" label="medium"></option>
+        <option value="2" label="high"></option>
+        <option value="3" label="critical"></option>
+      </datalist>
+      <output id="severity-value" for="severity">low</output>
     </div>
     <span class="chip review-count" id="review-count" role="status"></span>
     <button class="btn quiet small" id="sync">Refresh repositories</button>

@@ -878,10 +878,18 @@ function loadMinSeverity() {
   return Number.isInteger(saved) && saved >= 0 && saved < LEVELS.length ? saved : 0;
 }
 
+// renderSeverity keeps the slider and its accessible value in sync with the preference.
+function renderSeverity() {
+  el('severity').value = String(state.minSeverity);
+  el('severity').setAttribute('aria-valuetext', LEVELS[state.minSeverity]);
+  el('severity-value').textContent = LEVELS[state.minSeverity];
+}
+
 // setMinSeverity changes the threshold for every repository and redraws each
 // place that flags a review: the list, the tree, the commit cards and the report.
 function setMinSeverity(level) {
   state.minSeverity = level;
+  renderSeverity();
   try { localStorage.setItem(SEVERITY_KEY, String(level)); } catch (err) { /* storage disabled */ }
   renderRepos();
   renderGraph();
@@ -1292,8 +1300,8 @@ async function boot() {
     state.onlyMissing = event.target.checked;
     renderRepos();
   });
-  el('severity').value = String(state.minSeverity);
-  el('severity').addEventListener('change', (event) => setMinSeverity(Number(event.target.value)));
+  renderSeverity();
+  el('severity').addEventListener('input', (event) => setMinSeverity(Number(event.target.value)));
   initSplitter();
   el('refresh-commits').addEventListener('click', () => {
     state.graphs.delete(state.repoKey);
