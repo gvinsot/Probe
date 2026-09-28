@@ -222,8 +222,8 @@ window.addEventListener('DOMContentLoaded', async () => {
     state.view = Object.assign({}, plainView, {
       summary: Object.assign({}, plainView.summary, { suspicions: 1, dismissed: 1 }),
       reviewer_summary: '<img src=x onerror=alert(1)> Main risk: refunds.',
-      alerts: [{ id: 'signal:s1', kind: 'signal', severity: 'high', title: 'Refunds are no longer checked', original_title: 'validation removed', explanation: 'The guard was removed.', judgment: 'risk', status: 'OBSERVED', path: 'pay.go', line: 3, end_line: 3, side: 'new' }],
-      dismissed: [{ id: 'signal:s2', kind: 'signal', severity: 'low', title: 'Only a comment', original_title: 'comment only', explanation: 'A comment changed.', judgment: 'no_risk', rationale: 'Line 4 is a comment.', status: 'OBSERVED', path: 'pay.go', line: 4, end_line: 4, side: 'new' }],
+      alerts: [{ id: 'signal:s1', kind: 'signal', severity: 'high', title: 'Refunds are no longer checked', original_title: 'validation removed', explanation: 'The guard was removed.', judgment: 'risk', status: 'OBSERVED', path: 'pay.go', line: 3, end_line: 3, side: 'new' }, { id: 'signal:s3', kind: 'signal', severity: 'medium', original_severity: 'high', title: 'Harmless rename', explanation: 'A variable was renamed.', judgment: 'no_risk', rationale: 'Only the name changed.', status: 'OBSERVED', path: 'pay.go', line: 5, end_line: 5, side: 'new' }],
+      dismissed: [{ id: 'signal:s2', kind: 'signal', severity: 'low', title: 'Only a comment', original_title: 'comment only', explanation: 'A comment changed.', judgment: 'no_risk', rationale: 'Line 4 is a comment.', status: 'OBSERVED', set_aside: true, path: 'pay.go', line: 4, end_line: 4, side: 'new' }],
     });
     renderReport();
     const reportHead = document.getElementById('report-head');
@@ -231,6 +231,8 @@ window.addEventListener('DOMContentLoaded', async () => {
     assert(reportHead.textContent.includes('AI suspicions') && reportHead.textContent.includes('set aside by AI'), 'AI counters shown');
     const aiAlert = document.querySelector('#alerts .alert');
     assert(aiAlert.querySelector('.alert-title').textContent === 'Refunds are no longer checked' && aiAlert.textContent.includes('AI: risk'), 'plain title and judgment chip');
+    const lowered = document.querySelectorAll('#alerts .alert')[1];
+    assert(lowered.querySelector('.chip.lowered').textContent === 'was high' && lowered.textContent.includes('AI: no risk'), 'a lowered severity shows the linter one');
     aiAlert.querySelector('.alert-head').click();
     assert(document.querySelector('#alerts .ai-reading').textContent.includes('The guard was removed.') && document.querySelector('#alerts .alert-body').textContent.includes('Linter: validation removed'), 'AI reading and linter title in the alert body');
     const dismissedBox = document.querySelector('#extras details.dismissed');

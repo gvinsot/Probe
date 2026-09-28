@@ -37,10 +37,13 @@ approves a change and never turns a zero exit code into a claim of correctness.
   this mode cannot reproduce a bug. It is allowed on public instances.
   The report shows the model's suspicions as issues, its closing summary, and
   its reading of each linter signal: a plain-language title and explanation
-  replace the linter's terse one, which stays visible in the alert. Signals it
-  judged harmless from a recorded source read, and its dismissed hypotheses,
-  move to a folded "Set aside by the AI reviewer" list. This is model
-  judgment: the verdict still comes from the CLI exit code.
+  replace the linter's terse one, which stays visible in the alert. The CLI
+  runs with `--ai-impacts-criticity` (its default): a signal the model judged
+  harmless from a recorded source read loses one severity level (critical to
+  high, high to medium, medium to low), shown with a "was …" chip, and a low
+  one moves, with the dismissed hypotheses, to a folded "Set aside by the AI
+  reviewer" list. The CLI derives its exit code, and so the verdict, from
+  these adjusted severities; the hub only displays what the report records.
 * `review` — also runs the configured checks in the CLI's Docker sandbox and
   tries to reproduce issues with differential tests. It needs a Docker client and daemon access,
   which the operator must provide deliberately, and inherits the CLI's isolation

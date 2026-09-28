@@ -134,8 +134,9 @@ func decidePlanGate(r *model.Report, needsHuman bool) bool {
 		add("%d checks did not pass", failed)
 	}
 	high := 0
+	adjustments := signalAdjustments(r)
 	for _, s := range r.Signals {
-		if rank(s.Severity) >= rank("high") && s.Kind != model.SignalPlanDrift {
+		if sev, aside := effectiveSeverity(s, adjustments); !aside && rank(sev) >= rank("high") && s.Kind != model.SignalPlanDrift {
 			high++
 		}
 	}

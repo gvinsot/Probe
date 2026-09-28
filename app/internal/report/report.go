@@ -121,8 +121,9 @@ func conclude(r *model.Report, l *ledger, ci bool, divergences func(*model.Repor
 			needsHuman = true
 		}
 	}
+	adjustments := signalAdjustments(r)
 	for _, s := range r.Signals {
-		if rank(s.Severity) >= rank("high") {
+		if sev, aside := effectiveSeverity(s, adjustments); !aside && rank(sev) >= rank("high") {
 			needsHuman = true
 		}
 	}
@@ -268,12 +269,17 @@ func targets(r *model.Report) ([]model.ReviewTarget, model.ReviewSurface) {
 		t.Reasons = append(t.Reasons, reason)
 		t.SignalIDs = append(t.SignalIDs, id)
 	}
+	adjustments := signalAdjustments(r)
 	for _, s := range r.Signals {
-		if s.Scope == model.SignalScopeFile {
-			addFile(s.Path, s.Side, s.Severity, s.Summary, s.ID)
+		sev, aside := effectiveSeverity(s, adjustments)
+		if aside { // read as harmless by the reviewer (AIImpactsCriticity)
 			continue
 		}
-		add(s.Path, s.Side, s.Line, s.EndLine, s.Severity, s.Summary, s.ID)
+		if s.Scope == model.SignalScopeFile {
+			addFile(s.Path, s.Side, sev, s.Summary, s.ID)
+			continue
+		}
+		add(s.Path, s.Side, s.Line, s.EndLine, sev, s.Summary, s.ID)
 	}
 	for _, h := range r.Hypotheses {
 		switch h.Status {

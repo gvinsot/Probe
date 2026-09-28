@@ -31,7 +31,7 @@ Linter signals: the input lists deterministic linter signals (field "signals", e
 - explanation: one to three plain sentences for a reviewer who has not read the code: what changed, and what could go wrong or why nothing can;
 - judgment: "risk" when the signal points at a plausible problem, "no_risk" when the source shows it is harmless (a rename, a comment, a test-only or formatting change, a dependency bump with no behavioral effect), otherwise "uncertain";
 - "no_risk" requires a rationale and the evidence_id of a read_file observation of the relevant lines; without them it is recorded as "uncertain".
-Assessments are model judgment, never evidence: they change no status or exit code. A concrete defect you find, whether or not a signal points at it, must still be submitted with submit_hypothesis.`
+Assessments are model judgment, never evidence, and change no hypothesis status. A concrete defect you find, whether or not a signal points at it, must still be submitted with submit_hypothesis.`
 
 // assessTool is the assess_signals definition.
 func assessTool() map[string]any {

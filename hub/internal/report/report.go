@@ -185,6 +185,10 @@ type SignalAssessment struct {
 	Judgment    string   `json:"judgment"`
 	Rationale   string   `json:"rationale,omitempty"`
 	EvidenceIDs []string `json:"evidence_ids"`
+	// AdjustedSeverity and SetAside record how the CLI lowered the signal's
+	// severity after this reading (ai_impacts_criticity).
+	AdjustedSeverity string `json:"adjusted_severity,omitempty"`
+	SetAside         bool   `json:"set_aside,omitempty"`
 }
 
 // ReviewTarget mirrors one prioritized range of the review plan.
@@ -283,11 +287,15 @@ type Alert struct {
 	Reasons  []string      `json:"reasons,omitempty"`
 	Evidence []EvidenceRef `json:"evidence,omitempty"`
 	// The reviewer model's reading of a signal: Title then holds its plain
-	// title, and OriginalTitle the linter's.
-	OriginalTitle string `json:"original_title,omitempty"`
-	Explanation   string `json:"explanation,omitempty"`
-	Judgment      string `json:"judgment,omitempty"`
-	Rationale     string `json:"rationale,omitempty"`
+	// title, and OriginalTitle the linter's. When the CLI lowered the
+	// signal's severity, Severity holds the adjusted one and
+	// OriginalSeverity the linter's; SetAside moves it to View.Dismissed.
+	OriginalTitle    string `json:"original_title,omitempty"`
+	Explanation      string `json:"explanation,omitempty"`
+	Judgment         string `json:"judgment,omitempty"`
+	Rationale        string `json:"rationale,omitempty"`
+	OriginalSeverity string `json:"original_severity,omitempty"`
+	SetAside         bool   `json:"set_aside,omitempty"`
 }
 
 // Counts holds how many alerts each severity carries.
@@ -438,10 +446,11 @@ func (r *Report) Alerts() []Alert {
 	return active
 }
 
-// Dismissed lists what the reviewer model set aside: the signals it read as
-// no_risk, which the CLI keeps only with a rationale citing a verified source
-// observation, and its DISMISSED hypotheses. They are shown apart, never
-// deleted, and change neither the verdict nor the exit code.
+// Dismissed lists what the reviewer model set aside: the low signals the CLI
+// set aside after a no_risk reading (ai_impacts_criticity), and its DISMISSED
+// hypotheses. They are shown apart, never deleted. The hub decides nothing
+// here: it follows the set_aside and status fields the CLI recorded, and the
+// verdict still comes from the CLI exit code.
 func (r *Report) Dismissed() []Alert {
 	_, dismissed := r.alertLists()
 	return dismissed
@@ -453,7 +462,7 @@ func (r *Report) alertLists() (active, dismissed []Alert) {
 	all := r.allAlerts()
 	active = make([]Alert, 0, len(all))
 	for _, a := range all {
-		if a.Judgment == JudgmentNoRisk || a.Kind == KindIssue && strings.EqualFold(a.Status, "DISMISSED") {
+		if a.SetAside || a.Kind == KindIssue && strings.EqualFold(a.Status, "DISMISSED") {
 			dismissed = append(dismissed, a)
 			continue
 		}
@@ -537,6 +546,10 @@ func (r *Report) allAlerts() []Alert {
 			if a.Judgment != JudgmentRisk && a.Judgment != JudgmentNoRisk {
 				a.Judgment = JudgmentUncertain
 			}
+			if assessment.AdjustedSeverity != "" {
+				a.OriginalSeverity, a.Severity = a.Severity, Normalize(assessment.AdjustedSeverity)
+			}
+			a.SetAside = assessment.SetAside
 		}
 		if s.FileScoped() {
 			// Its anchor line would single out a line it says nothing about.

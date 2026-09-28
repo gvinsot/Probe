@@ -16,7 +16,7 @@ func assessed(t *testing.T) *Report {
 	}
 	raw["signal_assessments"] = []map[string]any{
 		{"signal_id": "s1", "title": "Refunds are no longer checked", "explanation": "The amount guard was removed.", "judgment": "risk", "evidence_ids": []string{}},
-		{"signal_id": "s2", "title": "Only a comment", "explanation": "The line is a comment.", "judgment": "no_risk", "rationale": "Line 12 is a comment.", "evidence_ids": []string{"e9"}},
+		{"signal_id": "s2", "title": "Only a comment", "explanation": "The line is a comment.", "judgment": "no_risk", "rationale": "Line 12 is a comment.", "evidence_ids": []string{"e9"}, "set_aside": true},
 	}
 	raw["hypotheses"] = append(raw["hypotheses"].([]any), map[string]any{"id": "h3", "title": "Loop may not end", "severity": "high", "status": "DISMISSED", "rationale": "The loop is bounded.", "evidence_ids": []string{"e9"}, "path": "pay/refund.go", "line": 12})
 	raw["reviewer_summary"] = "  The refund guard removal is the main risk.  "
@@ -88,11 +88,11 @@ func TestDismissedAlertsAreListedApartAndChangeNoVerdict(t *testing.T) {
 func TestDismissedAlertsHideNoLine(t *testing.T) {
 	r := &Report{
 		Signals: []Signal{
-			{ID: "s1", Kind: "sensitive", Path: "a.go", Line: 5, Side: "new", Severity: "high", Summary: "looks sensitive"},
+			{ID: "s1", Kind: "sensitive", Path: "a.go", Line: 5, Side: "new", Severity: "low", Summary: "looks sensitive"},
 			{ID: "s2", Kind: "style", Path: "a.go", Line: 5, Side: "new", Severity: "low", Summary: "trailing space"},
 		},
 		SignalAssessments: []SignalAssessment{
-			{SignalID: "s1", Title: "A log message changed", Explanation: "x", Judgment: JudgmentNoRisk, Rationale: "Only the message text changed."},
+			{SignalID: "s1", Title: "A log message changed", Explanation: "x", Judgment: JudgmentNoRisk, Rationale: "Only the message text changed.", SetAside: true},
 			{SignalID: "s2", Title: "Trailing space", Explanation: "y", Judgment: "odd"},
 		},
 	}
@@ -114,5 +114,37 @@ func TestDedupeLinesKeepsEveryIssue(t *testing.T) {
 	})
 	if len(alerts) != 2 || alerts[1].ID != "issue:u" || alerts[1].Line != 3 {
 		t.Fatalf("got %+v", alerts)
+	}
+}
+
+// The hub shows the severity the CLI adjusted, with the linter's beside it,
+// and keeps a no_risk signal that was not set aside among the alerts.
+func TestAdjustedSeverityComesFromTheCLI(t *testing.T) {
+	r := &Report{
+		Signals: []Signal{
+			{ID: "s1", Kind: "k", Path: "a.go", Line: 1, Side: "new", Severity: "high", Summary: "one"},
+			{ID: "s2", Kind: "k", Path: "a.go", Line: 2, Side: "new", Severity: "high", Summary: "two"},
+		},
+		SignalAssessments: []SignalAssessment{
+			{SignalID: "s1", Title: "Harmless rename", Explanation: "x", Judgment: JudgmentNoRisk, Rationale: "r", AdjustedSeverity: "medium"},
+			{SignalID: "s2", Title: "Harmless too", Explanation: "y", Judgment: JudgmentNoRisk, Rationale: "r"}, // ai_impacts_criticity=false
+		},
+	}
+	alerts := r.Alerts()
+	if len(alerts) != 2 {
+		t.Fatalf("alerts = %+v", alerts)
+	}
+	byID := map[string]Alert{}
+	for _, a := range alerts {
+		byID[a.ID] = a
+	}
+	if a := byID["signal:s1"]; a.Severity != SeverityMedium || a.OriginalSeverity != SeverityHigh {
+		t.Errorf("s1 = %+v", a)
+	}
+	if a := byID["signal:s2"]; a.Severity != SeverityHigh || a.OriginalSeverity != "" || a.Judgment != JudgmentNoRisk {
+		t.Errorf("s2 = %+v", a)
+	}
+	if s := r.Summarize(); s.Counts.High != 1 || s.Counts.Medium != 1 || s.Dismissed != 0 {
+		t.Errorf("counts = %+v", s.Counts)
 	}
 }

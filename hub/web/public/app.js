@@ -1369,6 +1369,12 @@ function alertItem(alert, rerender) {
   const tags = document.createElement('span');
   tags.className = 'alert-tags';
   tags.appendChild(dotChip(alert.severity, alert.severity));
+  if (alert.original_severity) {
+    // The CLI lowered it one level after the AI read the signal as harmless.
+    const lowered = chip('was ' + alert.original_severity, 'lowered');
+    lowered.title = 'The AI reviewer read this signal as harmless: its severity was lowered from ' + alert.original_severity + ' to ' + alert.severity + '.';
+    tags.appendChild(lowered);
+  }
   tags.appendChild(chip(alert.kind));
   if (alert.status) tags.appendChild(chip(alert.status.toLowerCase(), statusClass(alert.status)));
   if (alert.judgment) tags.appendChild(chip('AI: ' + judgmentLabel(alert.judgment), judgmentClass(alert.judgment)));
@@ -1647,7 +1653,7 @@ function renderExtras() {
   const dismissed = view.dismissed || [];
   if (dismissed.length > 0) {
     // What the AI reviewer set aside stays one click away: it is model
-    // judgment, and the verdict above still counts it.
+    // judgment, recorded by the CLI (ai_impacts_criticity).
     const box = document.createElement('details');
     box.className = 'dismissed';
     box.open = state.showDismissed;
@@ -1657,7 +1663,7 @@ function renderExtras() {
     box.appendChild(summary);
     const caveat = document.createElement('p');
     caveat.className = 'note';
-    caveat.textContent = 'The reviewer judged these harmless after reading the source. Model judgment, not evidence: the verdict is unchanged.';
+    caveat.textContent = 'Low signals the AI reviewer read as harmless after reading the source, and hypotheses it dismissed. Model judgment, not evidence.';
     box.appendChild(caveat);
     const list = document.createElement('ul');
     list.className = 'alerts';

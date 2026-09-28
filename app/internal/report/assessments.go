@@ -13,8 +13,9 @@ import (
 // assessment of an unknown or already assessed signal is dropped, an unknown
 // judgment becomes uncertain, and no_risk is kept only when a non-blank
 // rationale cites a source observation the ledger verified as OBSERVED. The
-// list follows the order of the signals. Assessments are model judgment:
-// nothing here changes a signal, a status, a review target or the exit code.
+// list follows the order of the signals. Assessments are model judgment and
+// change no hypothesis status; only adjustSeverities, when the run allowed it,
+// lets a kept no_risk lower its signal's severity.
 func finalizeAssessments(r *model.Report, l *ledger) {
 	order := make(map[string]int, len(r.Signals))
 	for i, s := range r.Signals {
@@ -46,6 +47,66 @@ func finalizeAssessments(r *model.Report, l *ledger) {
 	}
 	sort.SliceStable(kept, func(i, j int) bool { return order[kept[i].SignalID] < order[kept[j].SignalID] })
 	r.SignalAssessments = kept
+	adjustSeverities(r)
+}
+
+// adjustSeverities applies Report.AIImpactsCriticity. Each assessment is first
+// cleared, so that a re-rendered report is adjusted once. Then, when the run
+// allowed it, a kept no_risk reading lowers its signal's severity by one level
+// (critical to high, high to medium, medium to low) in AdjustedSeverity, and
+// sets a low signal aside. The signal keeps the linter's severity; review
+// targets, the review surface and the exit code use effectiveSeverity.
+func adjustSeverities(r *model.Report) {
+	linter := make(map[string]string, len(r.Signals))
+	for _, s := range r.Signals {
+		if _, dup := linter[s.ID]; !dup {
+			linter[s.ID] = s.Severity
+		}
+	}
+	for i := range r.SignalAssessments {
+		a := &r.SignalAssessments[i]
+		a.AdjustedSeverity, a.SetAside = "", false
+		if !r.AIImpactsCriticity || a.Judgment != model.AssessmentNoRisk {
+			continue
+		}
+		switch severity(linter[a.SignalID]) {
+		case "critical":
+			a.AdjustedSeverity = "high"
+		case "high":
+			a.AdjustedSeverity = "medium"
+		case "medium":
+			a.AdjustedSeverity = "low"
+		default:
+			a.SetAside = true
+		}
+	}
+}
+
+// signalAdjustment is how a no_risk reading changed one signal.
+type signalAdjustment struct {
+	severity string // "" when unchanged
+	setAside bool
+}
+
+// signalAdjustments indexes the adjustments of a finalized report by signal ID.
+func signalAdjustments(r *model.Report) map[string]signalAdjustment {
+	out := map[string]signalAdjustment{}
+	for _, a := range r.SignalAssessments {
+		if a.AdjustedSeverity != "" || a.SetAside {
+			out[a.SignalID] = signalAdjustment{a.AdjustedSeverity, a.SetAside}
+		}
+	}
+	return out
+}
+
+// effectiveSeverity is the severity conclusions use for s, and whether s was
+// set aside.
+func effectiveSeverity(s model.Signal, adjustments map[string]signalAdjustment) (string, bool) {
+	a := adjustments[s.ID]
+	if a.severity != "" {
+		return a.severity, a.setAside
+	}
+	return s.Severity, a.setAside
 }
 
 // citesObservation reports whether one cited ID is a source observation that
@@ -88,16 +149,28 @@ func writeReviewerReading(b *bytes.Buffer, r *model.Report) {
 	if len(r.SignalAssessments) == 0 {
 		return
 	}
-	summaries := make(map[string]string, len(r.Signals))
+	signals := make(map[string]model.Signal, len(r.Signals))
 	for _, s := range r.Signals {
-		if _, dup := summaries[s.ID]; !dup {
-			summaries[s.ID] = s.Summary
+		if _, dup := signals[s.ID]; !dup {
+			signals[s.ID] = s
 		}
 	}
 	line(b, "\n## Linter Signals Read by the Reviewer\n")
-	line(b, "Model judgment, not evidence: it changes no signal, status, review target or exit code. A no-risk reading cites a recorded source observation.\n")
+	if r.AIImpactsCriticity {
+		line(b, "Model judgment, not evidence. A no-risk reading cites a recorded source observation; it lowered its signal's severity by one level, and set a low signal aside, before review targets and the exit code were derived (--ai-impacts-criticity).\n")
+	} else {
+		line(b, "Model judgment, not evidence: it changes no signal, status, review target or exit code (--ai-impacts-criticity=false). A no-risk reading cites a recorded source observation.\n")
+	}
 	for _, a := range r.SignalAssessments {
-		fmt.Fprintf(b, "- **%s** %s (%s; linter: %s): %s\n", assessmentLabel(a.Judgment), inline(a.Title), inline(a.SignalID), inline(summaries[a.SignalID]), inline(a.Explanation))
+		s := signals[a.SignalID]
+		effect := ""
+		switch {
+		case a.SetAside:
+			effect = "; set aside"
+		case a.AdjustedSeverity != "":
+			effect = fmt.Sprintf("; severity %s, lowered from %s", inline(a.AdjustedSeverity), inline(s.Severity))
+		}
+		fmt.Fprintf(b, "- **%s** %s (%s; linter: %s%s): %s\n", assessmentLabel(a.Judgment), inline(a.Title), inline(a.SignalID), inline(s.Summary), effect, inline(a.Explanation))
 		if strings.TrimSpace(a.Rationale) != "" {
 			line(b, "  Rationale: "+inline(a.Rationale))
 		}
