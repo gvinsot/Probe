@@ -112,6 +112,26 @@ type Hypothesis struct {
 	CriterionID    string   `json:"criterion_id,omitempty"`    // F5
 	IntentJudgment string   `json:"intent_judgment,omitempty"` // F5: model judgment, never evidence; only on DIVERGED
 }
+
+// Signal assessment judgments.
+const (
+	AssessmentRisk      = "risk"
+	AssessmentNoRisk    = "no_risk"
+	AssessmentUncertain = "uncertain"
+)
+
+// SignalAssessment is the reviewer model's plain-language reading of one
+// linter signal. It is a model judgment, never evidence: it changes no
+// signal, status, review target or exit code. Finalize keeps no_risk only
+// when a non-blank rationale cites a verified source observation.
+type SignalAssessment struct {
+	SignalID    string   `json:"signal_id"`
+	Title       string   `json:"title"`
+	Explanation string   `json:"explanation"`
+	Judgment    string   `json:"judgment"`
+	Rationale   string   `json:"rationale,omitempty"`
+	EvidenceIDs []string `json:"evidence_ids"`
+}
 type ReviewTarget struct {
 	Path      string   `json:"path"`
 	StartLine int      `json:"start_line"`
@@ -177,34 +197,36 @@ type ReviewSurface struct {
 // says what happened. intent_criteria, divergences and intent_test_failures
 // always serialize as arrays.
 type Report struct {
-	Version            int               `json:"version"` // stays 1 (additive change)
-	ToolVersion        string            `json:"tool_version"`
-	AnalysisMode       string            `json:"analysis_mode,omitempty"`
-	GeneratedAt        time.Time         `json:"generated_at"`
-	Intent             string            `json:"intent,omitempty"`
-	IntentSHA256       string            `json:"intent_sha256,omitempty"` // F5
-	IntentCriteria     []IntentCriterion `json:"intent_criteria"`         // F5, always an array
-	Change             Change            `json:"change"`
-	Policy             Policy            `json:"policy"`
-	Prepare            *Prepare          `json:"prepare,omitempty"` // F8
-	Signals            []Signal          `json:"linter"`
-	Checks             []Check           `json:"checks"`
-	Hypotheses         []Hypothesis      `json:"hypotheses"`
-	Evidence           []Evidence        `json:"evidence"`
-	ReproducedIssues   []Hypothesis      `json:"reproduced_issues"`
-	BaseTests          *BaseTests        `json:"base_tests,omitempty"` // F3
-	Divergences        []Divergence      `json:"divergences"`          // F1/F2, always an array
-	IntentTestFailures []Hypothesis      `json:"intent_test_failures"` // F5, always an array
-	Unverified         []string          `json:"unverified"`
-	ReviewTargets      []ReviewTarget    `json:"review_targets"`
-	ReviewSurface      ReviewSurface     `json:"review_surface"`
-	Coverage           Coverage          `json:"coverage"`
-	Mutation           *Mutation         `json:"mutation,omitempty"`   // F4
-	Fuzz               *FuzzReport       `json:"fuzz,omitempty"`       // F2
-	Impact             *Impact           `json:"impact,omitempty"`     // F6a
-	Execution          *Execution        `json:"execution,omitempty"`  // F7a
-	PlanDrift          *PlanDrift        `json:"plan_drift,omitempty"` // review --plan
-	Artifacts          []Artifact        `json:"artifacts"`
-	Audit              []AuditEvent      `json:"audit"`
-	ExitCode           int               `json:"exit_code"`
+	Version            int                `json:"version"` // stays 1 (additive change)
+	ToolVersion        string             `json:"tool_version"`
+	AnalysisMode       string             `json:"analysis_mode,omitempty"`
+	GeneratedAt        time.Time          `json:"generated_at"`
+	Intent             string             `json:"intent,omitempty"`
+	IntentSHA256       string             `json:"intent_sha256,omitempty"` // F5
+	IntentCriteria     []IntentCriterion  `json:"intent_criteria"`         // F5, always an array
+	Change             Change             `json:"change"`
+	Policy             Policy             `json:"policy"`
+	Prepare            *Prepare           `json:"prepare,omitempty"` // F8
+	Signals            []Signal           `json:"linter"`
+	Checks             []Check            `json:"checks"`
+	Hypotheses         []Hypothesis       `json:"hypotheses"`
+	SignalAssessments  []SignalAssessment `json:"signal_assessments"`         // model judgment, always an array
+	ReviewerSummary    string             `json:"reviewer_summary,omitempty"` // the model's closing text, never evidence
+	Evidence           []Evidence         `json:"evidence"`
+	ReproducedIssues   []Hypothesis       `json:"reproduced_issues"`
+	BaseTests          *BaseTests         `json:"base_tests,omitempty"` // F3
+	Divergences        []Divergence       `json:"divergences"`          // F1/F2, always an array
+	IntentTestFailures []Hypothesis       `json:"intent_test_failures"` // F5, always an array
+	Unverified         []string           `json:"unverified"`
+	ReviewTargets      []ReviewTarget     `json:"review_targets"`
+	ReviewSurface      ReviewSurface      `json:"review_surface"`
+	Coverage           Coverage           `json:"coverage"`
+	Mutation           *Mutation          `json:"mutation,omitempty"`   // F4
+	Fuzz               *FuzzReport        `json:"fuzz,omitempty"`       // F2
+	Impact             *Impact            `json:"impact,omitempty"`     // F6a
+	Execution          *Execution         `json:"execution,omitempty"`  // F7a
+	PlanDrift          *PlanDrift         `json:"plan_drift,omitempty"` // review --plan
+	Artifacts          []Artifact         `json:"artifacts"`
+	Audit              []AuditEvent       `json:"audit"`
+	ExitCode           int                `json:"exit_code"`
 }

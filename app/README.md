@@ -242,6 +242,18 @@ that no code or tests ran. Suspicions are `UNVERIFIED`; only source-backed
 established by this mode. Existing CI rules still apply: an unresolved hypothesis
 requests human review (exit 2 with `--ci`), and exit 0 is no correctness guarantee.
 
+In both review modes, when the linter raised signals, the reviewer also reads
+them with the `assess_signals` tool: for each one, a plain-language title, a
+short explanation and a judgment (`risk`, `no_risk` or `uncertain`). They are
+recorded in `signal_assessments`, and the model's closing text in
+`reviewer_summary`; Markdown shows both. They are model judgment, never
+evidence: they change no signal, status, review target or exit code. A
+`no_risk` reading is kept only when a non-blank rationale cites a verified
+`read_file` source observation; otherwise it is recorded as `uncertain`. When
+the diff would take more than half of the reviewer's input budget, the model
+receives the list of changed files without their hunks and reads them with
+`get_diff`.
+
 ### Provider settings from the deployment
 
 The provider belongs to the deployment rather than to the reviewed repository, so the same binary and the same committed policy can be pointed at an operator's endpoint without a policy change:

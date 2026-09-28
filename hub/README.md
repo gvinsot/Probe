@@ -35,6 +35,12 @@ approves a change and never turns a zero exit code into a claim of correctness.
   It needs no Docker socket and never prepares dependencies, writes generated
   tests or executes repository code. Model suspicions remain **unverified**;
   this mode cannot reproduce a bug. It is allowed on public instances.
+  The report shows the model's suspicions as issues, its closing summary, and
+  its reading of each linter signal: a plain-language title and explanation
+  replace the linter's terse one, which stays visible in the alert. Signals it
+  judged harmless from a recorded source read, and its dismissed hypotheses,
+  move to a folded "Set aside by the AI reviewer" list. This is model
+  judgment: the verdict still comes from the CLI exit code.
 * `review` — also runs the configured checks in the CLI's Docker sandbox and
   tries to reproduce issues with differential tests. It needs a Docker client and daemon access,
   which the operator must provide deliberately, and inherits the CLI's isolation

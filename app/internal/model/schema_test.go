@@ -28,6 +28,7 @@ var legacyOptionalRootFields = map[string]bool{
 	"intent_criteria":      true, // v0.4 (§1.4: none of the new root fields is required)
 	"divergences":          true, // v0.4
 	"intent_test_failures": true, // v0.4
+	"signal_assessments":   true, // absent from reports written before the reviewer read linter signals
 }
 
 // schemaKeywords is every keyword the report schema may use. The structural

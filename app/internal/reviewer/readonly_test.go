@@ -23,7 +23,7 @@ func TestReadOnlyRejectsExecutionAndFabricatedProof(t *testing.T) {
 		}
 		for _, d := range request.Tools {
 			name := definitionName(d)
-			if name != "submit_hypothesis" && !IsReadOnlyTool(name) {
+			if name != "submit_hypothesis" && name != AssessTool && !IsReadOnlyTool(name) {
 				t.Errorf("unsafe tool offered: %s", name)
 			}
 		}

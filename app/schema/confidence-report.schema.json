@@ -20,6 +20,8 @@
     "linter": {"type": "array", "items": {"$ref": "#/$defs/signal"}},
     "checks": {"type": "array", "items": {"$ref": "#/$defs/check"}},
     "hypotheses": {"type": "array", "items": {"$ref": "#/$defs/hypothesis"}},
+    "signal_assessments": {"type": "array", "items": {"$ref": "#/$defs/signalAssessment"}, "description": "The reviewer model's plain-language reading of linter signals. Model judgment, not evidence: it changes no signal, status, review target or exit code."},
+    "reviewer_summary": {"type": "string", "description": "The reviewer model's closing text. Model output, not evidence."},
     "evidence": {"type": "array", "items": {"$ref": "#/$defs/evidence"}},
     "reproduced_issues": {
       "type": "array",
@@ -272,6 +274,22 @@
         {"if": {"properties": {"status": {"enum": ["REPRODUCED", "DIVERGED", "INTENT_TEST_FAILED", "NOT_REPRODUCED", "DISMISSED"]}}}, "then": {"properties": {"evidence_ids": {"minItems": 1}}}},
         {"if": {"properties": {"status": {"const": "INTENT_TEST_FAILED"}}}, "then": {"required": ["criterion_id"]}},
         {"if": {"required": ["intent_judgment"]}, "then": {"properties": {"status": {"const": "DIVERGED"}}, "required": ["criterion_id"]}}
+      ]
+    },
+    "signalAssessment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["signal_id", "title", "explanation", "judgment", "evidence_ids"],
+      "properties": {
+        "signal_id": {"$ref": "#/$defs/id"},
+        "title": {"type": "string", "minLength": 1},
+        "explanation": {"type": "string", "minLength": 1},
+        "judgment": {"type": "string", "enum": ["risk", "no_risk", "uncertain"], "description": "Model judgment, not evidence. no_risk is kept only when a non-blank rationale cites a verified source observation; otherwise it is recorded as uncertain."},
+        "rationale": {"type": "string"},
+        "evidence_ids": {"type": "array", "items": {"$ref": "#/$defs/id"}}
+      },
+      "allOf": [
+        {"if": {"properties": {"judgment": {"const": "no_risk"}}}, "then": {"required": ["rationale"], "properties": {"evidence_ids": {"minItems": 1}, "rationale": {"minLength": 1}}}}
       ]
     },
     "reviewTarget": {

@@ -357,6 +357,11 @@ func populatedReport() Report {
 			{ID: "hypothesis-4", Title: "Unused import", Severity: "low", Status: StatusDismissed, Rationale: "The import is used by the test build.", EvidenceIDs: []string{"evidence-1"}},
 			{ID: "hypothesis-5", Title: "Unsupported claim", Severity: "low", Status: StatusUnverified, Rationale: "r", EvidenceIDs: []string{}},
 		},
+		SignalAssessments: []SignalAssessment{
+			{SignalID: "signal-1", Title: "Discount rounding is not tested", Explanation: "No test notices when the rounding line changes.", Judgment: AssessmentRisk, EvidenceIDs: []string{}},
+			{SignalID: "signal-2", Title: "go.sum changed", Explanation: "Only checksums of an updated module changed.", Judgment: AssessmentNoRisk, Rationale: "The diff only updates checksums.", EvidenceIDs: []string{"evidence-1"}},
+		},
+		ReviewerSummary: "Two signals read; one rounding concern remains.",
 		Evidence: []Evidence{
 			{ID: "evidence-1", Kind: EvidenceSourceObservation, Description: "d", Path: "calc/calc.go", Output: "3: return (p*d + 99) / 100", Status: StatusObserved, TestNames: []string{}},
 			{ID: "evidence-2", Kind: EvidenceDifferentialTest, Description: "d", Path: "calc/discount_swiftproof_test.go", CheckID: "check-3", BaseCheckID: "check-2", Status: StatusReproduced, Runner: "go_test_json", TestNames: []string{"TestDiscountRounding"}},

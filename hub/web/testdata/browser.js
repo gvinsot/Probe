@@ -218,6 +218,33 @@ window.addEventListener('DOMContentLoaded', async () => {
     state.run.mode = 'lint'; renderReport();
     assert(!document.getElementById('report-head').textContent.includes('Read-only AI review'), 'old lint report keeps its own scope');
     state.run.mode = actualMode; renderReport();
+    const plainView = state.view;
+    state.view = Object.assign({}, plainView, {
+      summary: Object.assign({}, plainView.summary, { suspicions: 1, dismissed: 1 }),
+      reviewer_summary: '<img src=x onerror=alert(1)> Main risk: refunds.',
+      alerts: [{ id: 'signal:s1', kind: 'signal', severity: 'high', title: 'Refunds are no longer checked', original_title: 'validation removed', explanation: 'The guard was removed.', judgment: 'risk', status: 'OBSERVED', path: 'pay.go', line: 3, end_line: 3, side: 'new' }],
+      dismissed: [{ id: 'signal:s2', kind: 'signal', severity: 'low', title: 'Only a comment', original_title: 'comment only', explanation: 'A comment changed.', judgment: 'no_risk', rationale: 'Line 4 is a comment.', status: 'OBSERVED', path: 'pay.go', line: 4, end_line: 4, side: 'new' }],
+    });
+    renderReport();
+    const reportHead = document.getElementById('report-head');
+    assert(reportHead.querySelector('.reviewer-summary').textContent.includes('Main risk: refunds.') && reportHead.querySelectorAll('img').length === 0, 'reviewer summary rendered as text');
+    assert(reportHead.textContent.includes('AI suspicions') && reportHead.textContent.includes('set aside by AI'), 'AI counters shown');
+    const aiAlert = document.querySelector('#alerts .alert');
+    assert(aiAlert.querySelector('.alert-title').textContent === 'Refunds are no longer checked' && aiAlert.textContent.includes('AI: risk'), 'plain title and judgment chip');
+    aiAlert.querySelector('.alert-head').click();
+    assert(document.querySelector('#alerts .ai-reading').textContent.includes('The guard was removed.') && document.querySelector('#alerts .alert-body').textContent.includes('Linter: validation removed'), 'AI reading and linter title in the alert body');
+    const dismissedBox = document.querySelector('#extras details.dismissed');
+    assert(dismissedBox && !dismissedBox.open && dismissedBox.querySelector('summary').textContent.includes('(1)'), 'set-aside items folded with their count');
+    assert(!document.getElementById('alerts').textContent.includes('Only a comment'), 'set-aside items are not alerts');
+    dismissedBox.open = true;
+    dismissedBox.dispatchEvent(new Event('toggle'));
+    dismissedBox.querySelector('.alert-head').click();
+    const reopened = document.querySelector('#extras details.dismissed');
+    assert(reopened.open && reopened.textContent.includes('Why: Line 4 is a comment.'), 'a set-aside item unfolds and its section stays open');
+    state.expanded.clear();
+    state.showDismissed = false;
+    state.view = plainView; renderReport();
+    assert(!document.querySelector('#extras details.dismissed') && !document.querySelector('#report-head .reviewer-summary'), 'no AI sections without a reviewer');
     assert(cards[0].querySelector('h3').textContent === 'Analysis', 'analysis card title');
     const severity = document.getElementById('severity');
     assert(document.querySelector('.topbar').contains(severity), 'severity threshold in the top bar');

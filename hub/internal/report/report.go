@@ -168,6 +168,25 @@ type Hypothesis struct {
 	Line        int      `json:"line,omitempty"`
 }
 
+// Signal assessment judgments, as the CLI records them. The CLI keeps no_risk
+// only when a rationale cites a verified source observation.
+const (
+	JudgmentRisk      = "risk"
+	JudgmentNoRisk    = "no_risk"
+	JudgmentUncertain = "uncertain"
+)
+
+// SignalAssessment mirrors the reviewer model's plain-language reading of one
+// linter signal. It is model judgment, never evidence.
+type SignalAssessment struct {
+	SignalID    string   `json:"signal_id"`
+	Title       string   `json:"title"`
+	Explanation string   `json:"explanation"`
+	Judgment    string   `json:"judgment"`
+	Rationale   string   `json:"rationale,omitempty"`
+	EvidenceIDs []string `json:"evidence_ids"`
+}
+
 // ReviewTarget mirrors one prioritized range of the review plan.
 type ReviewTarget struct {
 	Path      string   `json:"path"`
@@ -217,6 +236,10 @@ type Report struct {
 	ReviewSurface    ReviewSurface  `json:"review_surface"`
 	Coverage         Coverage       `json:"coverage"`
 	ExitCode         int            `json:"exit_code"`
+	// The reviewer model's reading of the linter signals and its closing
+	// text. Both are model output: they never change the verdict.
+	SignalAssessments []SignalAssessment `json:"signal_assessments"`
+	ReviewerSummary   string             `json:"reviewer_summary,omitempty"`
 }
 
 // Decode parses a confidence report. Size is bounded by the caller.
@@ -259,6 +282,12 @@ type Alert struct {
 	Status   string        `json:"status,omitempty"`
 	Reasons  []string      `json:"reasons,omitempty"`
 	Evidence []EvidenceRef `json:"evidence,omitempty"`
+	// The reviewer model's reading of a signal: Title then holds its plain
+	// title, and OriginalTitle the linter's.
+	OriginalTitle string `json:"original_title,omitempty"`
+	Explanation   string `json:"explanation,omitempty"`
+	Judgment      string `json:"judgment,omitempty"`
+	Rationale     string `json:"rationale,omitempty"`
 }
 
 // Counts holds how many alerts each severity carries.
@@ -338,6 +367,10 @@ type Summary struct {
 	ChecksFailed  int    `json:"checks_failed"`
 	ToolVersion   string `json:"tool_version"`
 	CoverageState string `json:"coverage_state"`
+	// Suspicions counts the reviewer's unverified hypotheses, and Dismissed
+	// what it set aside (see Report.Dismissed). Neither changes the verdict.
+	Suspicions int `json:"suspicions"`
+	Dismissed  int `json:"dismissed"`
 }
 
 // View is what the browser renders: a summary, the ranked alerts and the
@@ -346,6 +379,7 @@ type View struct {
 	Summary        Summary       `json:"summary"`
 	Change         Change        `json:"change"`
 	Alerts         []Alert       `json:"alerts"`
+	Dismissed      []Alert       `json:"dismissed"`
 	Files          []ChangedFile `json:"files"`
 	Coverage       Coverage      `json:"coverage"`
 	ReviewSurface  ReviewSurface `json:"review_surface"`
@@ -356,6 +390,8 @@ type View struct {
 	GeneratedAt    time.Time     `json:"generated_at"`
 	ToolVersion    string        `json:"tool_version"`
 	SeverityLevels []string      `json:"severity_levels"`
+	// ReviewerSummary is the reviewer model's closing text, never evidence.
+	ReviewerSummary string `json:"reviewer_summary,omitempty"`
 }
 
 // Summarize computes the compact result without building the full view.
@@ -380,16 +416,54 @@ func (r *Report) Summarize() Summary {
 			s.ChecksFailed++
 		}
 	}
-	for _, a := range r.Alerts() {
+	active, dismissed := r.alertLists()
+	for _, a := range active {
 		s.Counts.Add(a.Severity)
+	}
+	s.Dismissed = len(dismissed)
+	for _, h := range r.Hypotheses {
+		if strings.EqualFold(h.Status, "UNVERIFIED") {
+			s.Suspicions++
+		}
 	}
 	return s
 }
 
 // Alerts flattens issues, failed checks, signals and review targets into one
 // ranked list. Ordering is by severity, then by conclusiveness, then by
-// location, so the first screen always holds what matters most.
+// location, so the first screen always holds what matters most. What the
+// reviewer set aside is listed by Dismissed instead.
 func (r *Report) Alerts() []Alert {
+	active, _ := r.alertLists()
+	return active
+}
+
+// Dismissed lists what the reviewer model set aside: the signals it read as
+// no_risk, which the CLI keeps only with a rationale citing a verified source
+// observation, and its DISMISSED hypotheses. They are shown apart, never
+// deleted, and change neither the verdict nor the exit code.
+func (r *Report) Dismissed() []Alert {
+	_, dismissed := r.alertLists()
+	return dismissed
+}
+
+// alertLists builds the active and the dismissed alerts, both ranked. Only
+// the active list is deduplicated per line: a dismissed alert hides nothing.
+func (r *Report) alertLists() (active, dismissed []Alert) {
+	all := r.allAlerts()
+	active = make([]Alert, 0, len(all))
+	for _, a := range all {
+		if a.Judgment == JudgmentNoRisk || a.Kind == KindIssue && strings.EqualFold(a.Status, "DISMISSED") {
+			dismissed = append(dismissed, a)
+			continue
+		}
+		active = append(active, a)
+	}
+	return dedupeLines(active), dismissed
+}
+
+// allAlerts builds every alert, ranked and not deduplicated.
+func (r *Report) allAlerts() []Alert {
 	evidence := make(map[string]Evidence, len(r.Evidence))
 	for _, e := range r.Evidence {
 		evidence[e.ID] = e
@@ -437,6 +511,12 @@ func (r *Report) Alerts() []Alert {
 			Status:   c.Status,
 		})
 	}
+	assessments := make(map[string]SignalAssessment, len(r.SignalAssessments))
+	for _, a := range r.SignalAssessments {
+		if _, dup := assessments[a.SignalID]; !dup && strings.TrimSpace(a.Title) != "" {
+			assessments[a.SignalID] = a
+		}
+	}
 	summaries := make(map[string]string, len(r.Signals))
 	for _, s := range r.Signals {
 		summaries[s.ID] = s.Summary
@@ -449,6 +529,14 @@ func (r *Report) Alerts() []Alert {
 			Path:     s.Path,
 			Status:   "OBSERVED",
 			Reasons:  []string{s.Kind},
+		}
+		if assessment, ok := assessments[s.ID]; ok {
+			a.OriginalTitle, a.Title = a.Title, assessment.Title
+			a.Explanation, a.Rationale = assessment.Explanation, assessment.Rationale
+			a.Judgment = assessment.Judgment
+			if a.Judgment != JudgmentRisk && a.Judgment != JudgmentNoRisk {
+				a.Judgment = JudgmentUncertain
+			}
 		}
 		if s.FileScoped() {
 			// Its anchor line would single out a line it says nothing about.
@@ -503,7 +591,7 @@ func (r *Report) Alerts() []Alert {
 		}
 		return a.Line < b.Line
 	})
-	return dedupeLines(alerts)
+	return alerts
 }
 
 // targetReasons keeps the reasons of a review target that no other alert
@@ -541,8 +629,10 @@ type lineSpan struct{ start, end int }
 // alert already reported. An alert whose lines are all reported is dropped;
 // one whose range is partly reported is narrowed, or split into the parts
 // still unreported. Alerts without a line (checks, and alerts about a whole
-// file) are kept as they are and hold no line, and a reproduced issue is never
-// dropped: it is evidence, not a pointer.
+// file) are kept as they are and hold no line. An issue is never dropped or
+// narrowed: it is a finding of its own (reproduced evidence, or a risk the
+// reviewer described), not a pointer to lines; it still reports its lines
+// to the alerts that follow.
 // Only the list shrinks; the verdict still comes from the CLI exit code.
 func dedupeLines(alerts []Alert) []Alert {
 	covered := map[string][]lineSpan{}
@@ -559,10 +649,11 @@ func dedupeLines(alerts []Alert) []Alert {
 		key := a.Side + "\x00" + a.Path
 		spans := uncovered(lineSpan{a.Line, end}, covered[key])
 		covered[key] = append(covered[key], lineSpan{a.Line, end})
+		if a.Kind == KindIssue {
+			out = append(out, a)
+			continue
+		}
 		if len(spans) == 0 {
-			if a.Kind == KindIssue && strings.EqualFold(a.Status, "REPRODUCED") {
-				out = append(out, a)
-			}
 			continue
 		}
 		for i, sp := range spans {
@@ -652,17 +743,21 @@ func statusRank(status string) int {
 // BuildView assembles everything the report page needs in one payload.
 func (r *Report) BuildView() View {
 	v := View{
-		Summary:        r.Summarize(),
-		Change:         Change{BaseRef: r.Change.BaseRef, HeadRef: r.Change.HeadRef, BaseCommit: r.Change.BaseCommit, HeadCommit: r.Change.HeadCommit, Additions: r.Change.Additions, Deletions: r.Change.Deletions},
-		Alerts:         r.Alerts(),
-		Coverage:       r.Coverage,
-		ReviewSurface:  r.ReviewSurface,
-		Unverified:     r.Unverified,
-		Checks:         r.Checks,
-		Intent:         r.Intent,
-		GeneratedAt:    r.GeneratedAt,
-		ToolVersion:    r.ToolVersion,
-		SeverityLevels: Levels,
+		Summary:         r.Summarize(),
+		Change:          Change{BaseRef: r.Change.BaseRef, HeadRef: r.Change.HeadRef, BaseCommit: r.Change.BaseCommit, HeadCommit: r.Change.HeadCommit, Additions: r.Change.Additions, Deletions: r.Change.Deletions},
+		Coverage:        r.Coverage,
+		ReviewSurface:   r.ReviewSurface,
+		Unverified:      r.Unverified,
+		Checks:          r.Checks,
+		Intent:          r.Intent,
+		GeneratedAt:     r.GeneratedAt,
+		ToolVersion:     r.ToolVersion,
+		SeverityLevels:  Levels,
+		ReviewerSummary: strings.TrimSpace(r.ReviewerSummary),
+	}
+	v.Alerts, v.Dismissed = r.alertLists()
+	if v.Dismissed == nil {
+		v.Dismissed = []Alert{}
 	}
 	budget := maxDiffLines
 	v.Files = make([]ChangedFile, 0, len(r.Change.Files))

@@ -114,6 +114,7 @@ func conclude(r *model.Report, l *ledger, ci bool, divergences func(*model.Repor
 	}
 	finalizeExecution(r, l) // F7a: replay_backed + note normalization
 	finalizePrepare(r)      // F8: note normalization only
+	finalizeAssessments(r, l)
 	// The mutation ledger is excluded: mutants are expected to fail.
 	for _, c := range r.Checks {
 		if c.Status != "PASS" || c.ExitCode != 0 {
@@ -416,6 +417,7 @@ func renderMarkdown(r *model.Report) []byte {
 		fmt.Fprintf(&b, "- **%s / %s** %s (%s): %s\n", inline(h.Status), inline(h.Severity), inline(h.Title), inline(h.ID), inline(h.Rationale))
 		writeIntentLink(&b, r, h) // F5
 	}
+	writeReviewerReading(&b, r)
 	line(&b, "\n## Reproduced Issues\n")
 	if len(r.ReproducedIssues) == 0 {
 		line(&b, "No issue was reproduced by a passing baseline and failing candidate experiment.\n")

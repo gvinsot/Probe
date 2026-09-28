@@ -296,6 +296,14 @@ h1, h2, h3 { line-height: 1.25; }
 .alert-detail { white-space: pre-wrap; background: var(--surface-alt); border: 1px solid var(--line); border-radius: 8px; padding: 10px; font-size: 0.83rem; max-height: 320px; overflow: auto; }
 .evidence { border: 1px solid var(--line); border-radius: 8px; padding: 10px; font-size: 0.83rem; display: grid; gap: 6px; }
 
+/* The AI reviewer's reading and summary: model output, set apart from evidence. */
+.ai-reading, .reviewer-summary { border: 1px solid var(--line); border-left: 3px solid var(--accent); border-radius: 8px; padding: 10px; font-size: 0.85rem; display: grid; gap: 4px; background: var(--accent-soft); }
+.ai-reading p, .reviewer-summary p { margin: 0; white-space: pre-wrap; word-break: break-word; }
+.reviewer-summary { margin-top: 4px; }
+.dismissed { border: 1px dashed var(--line); border-radius: 8px; padding: 8px 10px; margin-bottom: 10px; }
+.dismissed > summary { cursor: pointer; font-weight: 600; font-size: 0.85rem; }
+.dismissed > .note { margin: 6px 0; }
+
 /* Diff */
 .diff { border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
 .diff-file { display: flex; align-items: center; gap: 8px; padding: 7px 10px; background: var(--surface-alt); border-bottom: 1px solid var(--line); font-size: 0.82rem; }

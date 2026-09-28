@@ -63,6 +63,8 @@ const state = {
   onlyMonitored: false,
   onlyMissing: false,
   expanded: new Set(),
+  // Whether the list of what the AI reviewer set aside is unfolded.
+  showDismissed: false,
 };
 
 const el = (id) => document.getElementById(id);
@@ -1159,6 +1161,22 @@ function renderReport() {
     head.appendChild(note);
   }
 
+  if (view.reviewer_summary) {
+    const summary = document.createElement('div');
+    summary.className = 'reviewer-summary';
+    const label = document.createElement('b');
+    label.textContent = 'AI reviewer summary';
+    summary.appendChild(label);
+    const text = document.createElement('p');
+    text.textContent = view.reviewer_summary;
+    summary.appendChild(text);
+    const caveat = document.createElement('span');
+    caveat.className = 'note';
+    caveat.textContent = 'Model output, not evidence.';
+    summary.appendChild(caveat);
+    head.appendChild(summary);
+  }
+
   if (run && run.error) {
     const error = document.createElement('p');
     error.className = 'report-sub';
@@ -1172,6 +1190,8 @@ function renderReport() {
   stats.appendChild(stat(s.counts.total, 'alerts'));
   stats.appendChild(stat(s.reproduced, 'reproduced'));
   stats.appendChild(stat(s.unverified, 'unverified'));
+  if (s.suspicions) stats.appendChild(stat(s.suspicions, 'AI suspicions'));
+  if (s.dismissed) stats.appendChild(stat(s.dismissed, 'set aside by AI'));
   stats.appendChild(stat(s.focused_lines + ' / ' + s.changed_lines, 'focused lines'));
   stats.appendChild(stat(s.changed_files, 'files'));
   stats.appendChild(stat('+' + s.additions + ' / -' + s.deletions, 'lines'));
@@ -1318,47 +1338,69 @@ function renderAlerts() {
     return;
   }
 
-  for (const alert of alerts) {
-    const item = document.createElement('li');
-    item.className = 'alert';
+  for (const alert of alerts) list.appendChild(alertItem(alert, renderAlerts));
+}
 
-    const head = document.createElement('button');
-    head.className = 'alert-head';
-    head.setAttribute('aria-expanded', state.expanded.has(alert.id) ? 'true' : 'false');
+// alertItem renders one alert, folded or unfolded; rerender redraws the list
+// that holds it after a click.
+function alertItem(alert, rerender) {
+  const item = document.createElement('li');
+  item.className = 'alert';
 
-    const dot = document.createElement('span');
-    dot.className = 'dot ' + severityClass(alert.severity);
-    head.appendChild(dot);
+  const head = document.createElement('button');
+  head.className = 'alert-head';
+  head.setAttribute('aria-expanded', state.expanded.has(alert.id) ? 'true' : 'false');
 
-    const middle = document.createElement('span');
-    const title = document.createElement('div');
-    title.className = 'alert-title';
-    title.textContent = alert.title || alert.id;
-    middle.appendChild(title);
-    const where = document.createElement('div');
-    where.className = 'alert-where';
-    where.textContent = alertLocation(alert);
-    middle.appendChild(where);
-    head.appendChild(middle);
+  const dot = document.createElement('span');
+  dot.className = 'dot ' + severityClass(alert.severity);
+  head.appendChild(dot);
 
-    const tags = document.createElement('span');
-    tags.className = 'alert-tags';
-    tags.appendChild(dotChip(alert.severity, alert.severity));
-    tags.appendChild(chip(alert.kind));
-    if (alert.status) tags.appendChild(chip(alert.status.toLowerCase(), statusClass(alert.status)));
-    head.appendChild(tags);
+  const middle = document.createElement('span');
+  const title = document.createElement('div');
+  title.className = 'alert-title';
+  title.textContent = alert.title || alert.id;
+  middle.appendChild(title);
+  const where = document.createElement('div');
+  where.className = 'alert-where';
+  where.textContent = alertLocation(alert);
+  middle.appendChild(where);
+  head.appendChild(middle);
 
-    head.addEventListener('click', () => {
-      if (state.expanded.has(alert.id)) state.expanded.delete(alert.id);
-      else state.expanded.add(alert.id);
-      renderAlerts();
-    });
-    item.appendChild(head);
+  const tags = document.createElement('span');
+  tags.className = 'alert-tags';
+  tags.appendChild(dotChip(alert.severity, alert.severity));
+  tags.appendChild(chip(alert.kind));
+  if (alert.status) tags.appendChild(chip(alert.status.toLowerCase(), statusClass(alert.status)));
+  if (alert.judgment) tags.appendChild(chip('AI: ' + judgmentLabel(alert.judgment), judgmentClass(alert.judgment)));
+  head.appendChild(tags);
 
-    if (state.expanded.has(alert.id)) {
-      item.appendChild(alertBody(alert));
-    }
-    list.appendChild(item);
+  head.addEventListener('click', () => {
+    if (state.expanded.has(alert.id)) state.expanded.delete(alert.id);
+    else state.expanded.add(alert.id);
+    rerender();
+  });
+  item.appendChild(head);
+
+  if (state.expanded.has(alert.id)) {
+    item.appendChild(alertBody(alert));
+  }
+  return item;
+}
+
+// The reviewer model's reading of a linter signal: model judgment, never a verdict.
+function judgmentLabel(judgment) {
+  switch (judgment) {
+    case 'risk': return 'risk';
+    case 'no_risk': return 'no risk';
+    default: return 'uncertain';
+  }
+}
+
+function judgmentClass(judgment) {
+  switch (judgment) {
+    case 'risk': return 'bad';
+    case 'no_risk': return 'ok';
+    default: return 'warn';
   }
 }
 
@@ -1394,6 +1436,31 @@ function alertBody(alert) {
   const body = document.createElement('div');
   body.className = 'alert-body';
 
+  if (alert.explanation || alert.rationale && alert.judgment) {
+    const reading = document.createElement('div');
+    reading.className = 'ai-reading';
+    const label = document.createElement('b');
+    label.textContent = 'AI reading (' + judgmentLabel(alert.judgment) + ')';
+    reading.appendChild(label);
+    if (alert.explanation) {
+      const explanation = document.createElement('p');
+      explanation.textContent = alert.explanation;
+      reading.appendChild(explanation);
+    }
+    if (alert.rationale) {
+      const rationale = document.createElement('p');
+      rationale.className = 'note';
+      rationale.textContent = 'Why: ' + alert.rationale;
+      reading.appendChild(rationale);
+    }
+    body.appendChild(reading);
+  }
+  if (alert.original_title) {
+    const original = document.createElement('div');
+    original.className = 'note';
+    original.textContent = 'Linter: ' + alert.original_title;
+    body.appendChild(original);
+  }
   if (alert.detail) {
     const detail = document.createElement('div');
     detail.className = 'alert-detail';
@@ -1576,6 +1643,28 @@ function renderExtras() {
   const view = state.view;
   if (!view) { holder.classList.add('hidden'); return; }
   holder.classList.remove('hidden');
+
+  const dismissed = view.dismissed || [];
+  if (dismissed.length > 0) {
+    // What the AI reviewer set aside stays one click away: it is model
+    // judgment, and the verdict above still counts it.
+    const box = document.createElement('details');
+    box.className = 'dismissed';
+    box.open = state.showDismissed;
+    box.addEventListener('toggle', () => { state.showDismissed = box.open; });
+    const summary = document.createElement('summary');
+    summary.textContent = 'Set aside by the AI reviewer (' + dismissed.length + ')';
+    box.appendChild(summary);
+    const caveat = document.createElement('p');
+    caveat.className = 'note';
+    caveat.textContent = 'The reviewer judged these harmless after reading the source. Model judgment, not evidence: the verdict is unchanged.';
+    box.appendChild(caveat);
+    const list = document.createElement('ul');
+    list.className = 'alerts';
+    for (const alert of dismissed) list.appendChild(alertItem(alert, renderExtras));
+    box.appendChild(list);
+    holder.appendChild(box);
+  }
 
   const surface = document.createElement('p');
   surface.className = 'note';
