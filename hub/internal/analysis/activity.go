@@ -49,7 +49,7 @@ func (r *Runner) rememberActivity(j Job, run store.Run) {
 func (r *Runner) pruneActivity(now time.Time) {
 	cutoff := now.Add(-ActivityWindow)
 	for key, item := range r.activity {
-		if (item.Status == store.StatusDone || item.Status == store.StatusFailed) && item.FinishedAt.Before(cutoff) {
+		if (item.Status == store.StatusDone || item.Status == store.StatusFailed || item.Status == store.StatusCancelled) && item.FinishedAt.Before(cutoff) {
 			delete(r.activity, key)
 		}
 	}

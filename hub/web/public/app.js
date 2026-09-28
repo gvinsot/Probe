@@ -177,6 +177,7 @@ function verdictChip(run) {
   if (run.status === 'queued') return chip('queued', 'busy');
   if (run.status === 'running') return chip('analyzing…', 'busy');
   if (run.status === 'failed') return chip('analysis failed', 'bad');
+  if (run.status === 'cancelled') return chip('cancelled');
   const summary = run.summary || {};
   switch (summary.verdict) {
     case 'blocked': return chip('reproduced issue', 'bad');
@@ -610,7 +611,7 @@ async function refreshActivity() {
 function renderActivity(items) {
   const list = el('activity-list');
   list.textContent = '';
-  for (const [label, statuses] of [['Queued', ['queued']], ['Running', ['running']], ['Past analyses', ['done', 'failed']]]) {
+  for (const [label, statuses] of [['Queued', ['queued']], ['Running', ['running']], ['Past analyses', ['done', 'failed', 'cancelled']]]) {
     const group = items.filter((item) => statuses.includes(item.status));
     const section = document.createElement('section');
     const heading = document.createElement('h4');
@@ -631,7 +632,7 @@ function renderActivity(items) {
       const name = document.createElement('strong');
       name.textContent = (repo ? repo.full_name : item.repo_key) + ' · ' + shortSha(item.commit);
       name.title = item.commit;
-      const statusLabel = { queued: 'Queued', running: 'Running', done: 'Completed', failed: 'Failed' }[item.status];
+      const statusLabel = { queued: 'Queued', running: 'Running', done: 'Completed', failed: 'Failed', cancelled: 'Cancelled' }[item.status];
       title.append(name, chip(item.variant === 'plan' ? 'Plan' : 'Analysis'), chip(statusLabel, item.status === 'failed' ? 'bad' : ''));
       const dates = document.createElement('p');
       dates.className = 'note';
@@ -651,14 +652,50 @@ function renderActivity(items) {
         error.textContent = item.error;
         row.appendChild(error);
       }
-      if (repo) row.appendChild(button('Open commit', 'btn quiet small', () => {
+      const actions = document.createElement('div');
+      actions.className = 'row';
+      if (item.status === 'queued') actions.appendChild(button('Cancel', 'btn quiet small', (e) => cancelAnalysis(item, e.currentTarget)));
+      // A cancelled attempt left no stored parameters to run again with.
+      if (item.status === 'done' || item.status === 'failed') actions.appendChild(button('Run again', 'btn quiet small', (e) => rerunAnalysis(item, e.currentTarget)));
+      if (repo) actions.appendChild(button('Open commit', 'btn quiet small', () => {
         closeModal();
         selectRepo(item.repo_key, item.commit);
       }));
+      if (actions.childElementCount) row.appendChild(actions);
       section.appendChild(row);
     }
     list.appendChild(section);
   }
+}
+
+// cancelAnalysis withdraws an attempt still waiting in the hub queue.
+async function cancelAnalysis(item, trigger) {
+  trigger.disabled = true;
+  try {
+    await api('/api/repos/' + encodeURIComponent(item.repo_key) + '/cancel', {
+      method: 'POST', body: { commit: item.commit, variant: item.variant || 'normal' },
+    });
+    toast('Cancelled the analysis of ' + shortSha(item.commit) + '.');
+  } catch (err) {
+    toast(err.message, true);
+  }
+  refreshActivity();
+}
+
+// rerunAnalysis queues a finished attempt again with its stored parameters.
+async function rerunAnalysis(item, trigger) {
+  trigger.disabled = true;
+  try {
+    const queued = await api('/api/repos/' + encodeURIComponent(item.repo_key) + '/rerun', {
+      method: 'POST', body: { commit: item.commit, variant: item.variant || 'normal' },
+    });
+    followQueued(item.repo_key, queued);
+    toast('Queued a new analysis of ' + shortSha(item.commit) + '.');
+  } catch (err) {
+    toast(err.message, true);
+    trigger.disabled = false;
+  }
+  refreshActivity();
 }
 
 async function setMonitoring(repo, on, trigger) {
@@ -1755,7 +1792,11 @@ function connectEvents() {
       if (event.repo.key === state.repoKey) { renderGraph(); renderCommitActions(); }
     } else if (event.type === 'run') {
       const run = event.run;
-      if (trackRun(event.repo_key, run)) rememberRun(event.repo_key, run);
+      // A cancelled attempt has no result: reload the stored state it hid.
+      if (run.status === 'cancelled') {
+        trackRun(event.repo_key, run);
+        refreshDashboard(event.repo_key === state.repoKey);
+      } else if (trackRun(event.repo_key, run)) rememberRun(event.repo_key, run);
       renderRepos();
       if (event.repo_key === state.repoKey) { renderGraph(); renderCommitActions(); }
     } else if (event.type === 'report') {

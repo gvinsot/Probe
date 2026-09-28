@@ -334,8 +334,13 @@ func TestEnqueueEnforcesAPerAccountQuota(t *testing.T) {
 	if err := r.Enqueue(job(other, "ddddddd")); err != nil {
 		t.Fatalf("the quota of one account must not block another: %v", err)
 	}
-	// Finishing a job frees a slot of its own account.
+	// Finishing a job frees a slot of its own account. Only the dequeued
+	// attempt itself, identified by its enqueue time, releases the slot.
 	r.release(job(greedy, "aaaaaaa"))
+	if err := r.Enqueue(job(greedy, "ccccccc")); !errors.Is(err, ErrQuota) {
+		t.Fatalf("a job without its enqueue time must not free a slot, got %v", err)
+	}
+	r.release(<-r.queue)
 	if err := r.Enqueue(job(greedy, "ccccccc")); err != nil {
 		t.Errorf("a released slot must be reusable, got %v", err)
 	}
@@ -423,5 +428,64 @@ func TestFirstLineAndTail(t *testing.T) {
 	long := strings.Repeat("y", maxOutputBytes+100)
 	if got := tail(long); len(got) > maxOutputBytes+4 {
 		t.Errorf("tail length = %d, want a bounded output", len(got))
+	}
+}
+
+func TestCancelWithdrawsAQueuedJobAndRestoresTheLatestResult(t *testing.T) {
+	r, st := testRunner(t, "/bin/true")
+	r.cfg.UserQuota = 1
+	userKey, repoKey := store.Key("github", "1"), store.Key("github", "10")
+	if err := st.PutRepo(userKey, &store.Repo{Key: repoKey, FullName: "acme/shop"}); err != nil {
+		t.Fatalf("PutRepo: %v", err)
+	}
+	previous := store.Run{Commit: "0000001", Status: store.StatusDone, QueuedAt: time.Now().Add(-time.Hour).UTC()}
+	if err := st.PutRecord(&store.Record{UserKey: userKey, RepoKey: repoKey, Run: previous}); err != nil {
+		t.Fatalf("PutRecord: %v", err)
+	}
+	job := Job{UserKey: userKey, RepoKey: repoKey, Commit: "abc1234", Trigger: TriggerPush}
+	if _, err := r.Submit(job); err != nil {
+		t.Fatalf("Submit: %v", err)
+	}
+	if err := r.Cancel(userKey, repoKey, "abc1234", "plan"); !errors.Is(err, ErrNotQueued) {
+		t.Errorf("another variant is not queued, got %v", err)
+	}
+	if err := r.Cancel("other", repoKey, "abc1234", ""); !errors.Is(err, ErrNotQueued) {
+		t.Errorf("another account cannot cancel the job, got %v", err)
+	}
+	if err := r.Cancel(userKey, repoKey, "abc1234", ""); err != nil {
+		t.Fatalf("Cancel: %v", err)
+	}
+	if err := r.Cancel(userKey, repoKey, "abc1234", ""); !errors.Is(err, ErrNotQueued) {
+		t.Errorf("a cancelled job cannot be cancelled twice, got %v", err)
+	}
+	stored, err := st.Repo(userKey, repoKey)
+	if err != nil || stored.Latest == nil || stored.Latest.Commit != previous.Commit {
+		t.Fatalf("latest run after cancel = %+v, %v", stored.Latest, err)
+	}
+	activity := r.Activity(userKey)
+	if len(activity) != 1 || activity[0].Status != store.StatusCancelled {
+		t.Fatalf("activity = %+v", activity)
+	}
+	// The quota slot is free at once, and the commit can be requested again.
+	again, err := r.Submit(job)
+	if err != nil {
+		t.Fatalf("resubmit after cancel: %v", err)
+	}
+	// The withdrawn job is skipped by the worker; the new one is not.
+	stale := <-r.queue
+	if r.begin(stale) {
+		t.Error("a cancelled job must not start")
+	}
+	fresh := <-r.queue
+	if !fresh.queuedAt.Equal(again) || !r.begin(fresh) {
+		t.Fatal("the new attempt must start")
+	}
+	// Releasing the stale attempt must not free the slot of the new one.
+	r.release(stale)
+	if err := r.Enqueue(Job{UserKey: userKey, RepoKey: repoKey, Commit: "fff0000"}); !errors.Is(err, ErrQuota) {
+		t.Errorf("the running attempt keeps its quota slot, got %v", err)
+	}
+	if err := r.Cancel(userKey, repoKey, "abc1234", ""); !errors.Is(err, ErrNotQueued) {
+		t.Errorf("a running job cannot be cancelled, got %v", err)
 	}
 }

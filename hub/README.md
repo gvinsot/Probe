@@ -343,6 +343,8 @@ report view does not display a badge or its URL.
 | `POST` | `/api/repos/{repo}/policy` | Preview (`{"preview":true}`) or commit `.swiftproof.json`. |
 | `POST` `DELETE` | `/api/repos/{repo}/monitor` | Install or remove the push webhook. |
 | `POST` | `/api/repos/{repo}/analyze` | Analyze a commit, or the tip of the default branch. |
+| `POST` | `/api/repos/{repo}/cancel` | Withdraw a queued analysis (`{"commit","variant"}`); `409` once it started. |
+| `POST` | `/api/repos/{repo}/rerun` | Queue a stored analysis again (`{"commit","variant"}`) with its recorded parameters. |
 | `GET` | `/api/repos/{repo}/runs` | Report history. |
 | `GET` | `/api/repos/{repo}/reports/{commit}` · `/raw` | Rendered view, or the stored JSON report. |
 | `GET` | `/api/events` | Server-sent analysis updates of the signed-in account. |
@@ -375,3 +377,9 @@ and failure details. The modal refreshes on live updates and every five seconds.
 This activity history is kept only in server memory and resets on restart;
 existing cached report storage is unchanged. Active attempts remain visible
 regardless of age; completed attempts expire 48 hours after finishing.
+
+**Cancel** withdraws an analysis still waiting in the queue: it frees the
+account's quota slot at once, is listed as cancelled and restores the
+repository's latest stored result. A running analysis cannot be cancelled.
+**Run again** queues a completed or failed attempt once more with the branch,
+base and plan intent stored in its record.

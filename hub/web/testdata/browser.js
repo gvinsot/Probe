@@ -59,6 +59,12 @@ window.fetch = async (path, init) => {
     const variant = new URL(path, location.origin).searchParams.get('variant');
     const run = fixtureRun(variant);
     data = { run, view: { summary: run.summary, alerts: [], files: [], unverified: ['No checks ran'], plan_drift: variant === 'plan' ? { status: 'conforming', decision: 'human_review_required', decision_reasons: ['No checks ran'] } : null }, plan: variant === 'plan' ? { proposal: { summary: 'Generated plan' } } : null };
+  } else if (path.endsWith('/cancel')) {
+    const body = JSON.parse(init.body);
+    data = { status: 'cancelled', commit: body.commit, variant: body.variant };
+  } else if (path.endsWith('/rerun')) {
+    const body = JSON.parse(init.body);
+    data = { status: 'queued', commit: body.commit, variant: body.variant, queued_at: new Date().toISOString() };
   } else if (path.endsWith('/analyze')) {
     const body = JSON.parse(init.body);
     data = { status: 'queued', commit: body.commit || fixtureSHA('a'), variant: body.variant || 'normal', queued_at: new Date().toISOString() };
@@ -504,6 +510,33 @@ window.addEventListener('DOMContentLoaded', async () => {
       rememberRun('repo', { commit: `cap-${i}`, status: 'done', queued_at: fixtureAgo(0) });
     }
     assert(state.recent.get('repo').size === 7 && state.repos.get('repo').recent_incomplete, 'live history obeys the API cap and marks omissions');
+
+    // The activity list cancels a queued attempt and runs a finished one again.
+    const cancelCommit = fixtureSHA('f');
+    fixtureActivities = [
+      { repo_key: 'repo', commit: cancelCommit, variant: 'normal', status: 'queued', queued_at: fixtureAgo(0) },
+      { repo_key: 'repo', commit: cancelCommit, variant: 'plan', status: 'done', queued_at: fixtureAgo(1), finished_at: fixtureAgo(1) },
+      { repo_key: 'repo', commit: lostCommit, variant: 'normal', status: 'cancelled', queued_at: fixtureAgo(2), finished_at: fixtureAgo(2) },
+    ];
+    activityButton.click();
+    await settle();
+    const rowButtons = (index, label) => Array.from(document.querySelectorAll('#activity-list .activity-row')[index].querySelectorAll('button')).filter((b) => b.textContent === label);
+    assert(rowButtons(0, 'Cancel').length === 1 && rowButtons(0, 'Run again').length === 0, 'a queued analysis can be cancelled');
+    assert(rowButtons(1, 'Run again').length === 1 && rowButtons(1, 'Cancel').length === 0, 'a finished analysis can run again');
+    assert(rowButtons(2, 'Run again').length === 0 && rowButtons(2, 'Cancel').length === 0 && activityText().includes('Cancelled'), 'a cancelled analysis offers no action');
+    rowButtons(0, 'Cancel')[0].click();
+    await settle();
+    const cancelCall = fixtureCalls.find((call) => call.path === '/api/repos/repo/cancel');
+    assert(cancelCall && cancelCall.init.method === 'POST' && JSON.parse(cancelCall.init.body).commit === cancelCommit && cancelCall.init.headers['X-SwiftProof-CSRF'] === 'csrf', 'cancel posts the attempt with CSRF');
+    rowButtons(1, 'Run again')[0].click();
+    await settle();
+    const rerunCall = fixtureCalls.find((call) => call.path === '/api/repos/repo/rerun');
+    assert(rerunCall && JSON.parse(rerunCall.init.body).variant === 'plan', 'run again posts the variant');
+    assert(state.pending.get(pendingKey('repo', cancelCommit, 'plan'))?.status === 'queued', 'the new attempt is followed');
+    fixtureStream.onmessage({ data: JSON.stringify({ type: 'run', repo_key: 'repo', run: { commit: cancelCommit, variant: 'plan', status: 'cancelled', queued_at: state.pending.get(pendingKey('repo', cancelCommit, 'plan')).queued_at } }) });
+    assert(!state.pending.has(pendingKey('repo', cancelCommit, 'plan')), 'a cancelled event closes the pending attempt');
+    closeModal();
+    await settle();
     assert(!document.body.dataset.testResult, document.body.dataset.testResult);
     document.body.dataset.testResult = 'PASS';
   } catch (err) { fixtureFail(err); }

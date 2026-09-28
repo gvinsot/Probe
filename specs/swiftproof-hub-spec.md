@@ -158,6 +158,8 @@ Detailed configuration and key operations: [Hub guide](../hub/README.md).
 | POST | `/api/repos/{repo}/policy` | Preview or commit missing policy. |
 | POST / DELETE | `/api/repos/{repo}/monitor` | Install/reinstall or remove monitoring. |
 | POST | `/api/repos/{repo}/analyze` | Request an analysis. |
+| POST | `/api/repos/{repo}/cancel` | Withdraw an analysis still queued. |
+| POST | `/api/repos/{repo}/rerun` | Queue a stored analysis again with its recorded parameters. |
 | GET | `/api/repos/{repo}/runs` | Retained per-commit history. |
 | GET | `/api/repos/{repo}/reports/{commit}`, `/raw` suffix | Presentation view or raw JSON download. |
 | GET | `/api/events` | Account-scoped server-sent events. |

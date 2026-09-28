@@ -71,6 +71,17 @@ var ErrBusy = errors.New("analysis queue is full")
 // or running as the deployment allows, so it cannot starve the others.
 var ErrQuota = errors.New("too many analyses in progress for this account")
 
+// ErrNotQueued is returned when cancelling an analysis that is not waiting in
+// the queue: it already started, finished or was never requested.
+var ErrNotQueued = errors.New("this analysis is not queued")
+
+// attempt is the in-memory state of a queued or running job.
+type attempt struct {
+	job       Job
+	started   bool
+	cancelled bool
+}
+
 // Runner owns the worker pool and the analysis pipeline.
 type Runner struct {
 	cfg      config.Config
@@ -80,7 +91,7 @@ type Runner struct {
 	log      *slog.Logger
 	queue    chan Job
 	mu       sync.Mutex
-	active   map[string]time.Time // job key -> enqueue time of the attempt
+	active   map[string]*attempt // job key -> attempt queued or running
 	perUser  map[string]int
 	activity map[activityKey]Activity
 }
@@ -90,7 +101,7 @@ func New(cfg config.Config, s *store.Store, a *accounts.Manager, b *events.Broke
 	return &Runner{
 		cfg: cfg, store: s, accounts: a, events: b, log: log,
 		queue:    make(chan Job, cfg.QueueSize),
-		active:   map[string]time.Time{},
+		active:   map[string]*attempt{},
 		perUser:  map[string]int{},
 		activity: map[activityKey]Activity{},
 	}
@@ -121,6 +132,9 @@ func (r *Runner) Start(ctx context.Context) {
 				case job := <-r.queue:
 					if job.ready != nil {
 						<-job.ready
+					}
+					if !r.begin(job) {
+						continue // cancelled while queued; already released
 					}
 					r.process(ctx, job)
 					r.release(job)
@@ -163,9 +177,9 @@ func (r *Runner) Submit(j Job) (time.Time, error) {
 		return time.Time{}, fmt.Errorf("invalid commit %q", j.Commit)
 	}
 	r.mu.Lock()
-	if queuedAt, busy := r.active[jobKey(j)]; busy {
+	if current, busy := r.active[jobKey(j)]; busy {
 		r.mu.Unlock()
-		return queuedAt, nil
+		return current.job.queuedAt, nil
 	}
 	if r.cfg.UserQuota > 0 && r.perUser[j.UserKey] >= r.cfg.UserQuota {
 		r.mu.Unlock()
@@ -173,7 +187,7 @@ func (r *Runner) Submit(j Job) (time.Time, error) {
 	}
 	j.ready = make(chan struct{})
 	j.queuedAt = time.Now().UTC()
-	r.active[jobKey(j)] = j.queuedAt
+	r.active[jobKey(j)] = &attempt{job: j}
 	r.perUser[j.UserKey]++
 	r.mu.Unlock()
 	select {
@@ -189,13 +203,96 @@ func (r *Runner) Submit(j Job) (time.Time, error) {
 
 func (r *Runner) release(j Job) {
 	r.mu.Lock()
-	if _, ok := r.active[jobKey(j)]; ok {
-		delete(r.active, jobKey(j))
-		if r.perUser[j.UserKey]--; r.perUser[j.UserKey] <= 0 {
-			delete(r.perUser, j.UserKey)
-		}
-	}
+	r.releaseLocked(j)
 	r.mu.Unlock()
+}
+
+// releaseLocked frees the slot of this exact attempt. A newer attempt of the
+// same commit, submitted after a cancellation, keeps its own slot.
+func (r *Runner) releaseLocked(j Job) {
+	current, ok := r.active[jobKey(j)]
+	if !ok || !current.job.queuedAt.Equal(j.queuedAt) {
+		return
+	}
+	delete(r.active, jobKey(j))
+	if r.perUser[j.UserKey]--; r.perUser[j.UserKey] <= 0 {
+		delete(r.perUser, j.UserKey)
+	}
+}
+
+// begin marks a dequeued job as started. It returns false for a job that was
+// cancelled while it waited in the queue.
+func (r *Runner) begin(j Job) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	current, ok := r.active[jobKey(j)]
+	if !ok || !current.job.queuedAt.Equal(j.queuedAt) || current.cancelled {
+		return false
+	}
+	current.started = true
+	return true
+}
+
+// Cancel withdraws an analysis still waiting in the queue. A running analysis
+// cannot be cancelled: the CLI would leave no report to explain the stop.
+// The withdrawn job stays in the channel and is skipped when dequeued, but its
+// quota slot is freed at once so the commit can be requested again.
+func (r *Runner) Cancel(userKey, repoKey, commit, variant string) error {
+	j := Job{UserKey: userKey, RepoKey: repoKey, Commit: commit, Variant: variantOr(variant)}
+	r.mu.Lock()
+	current, ok := r.active[jobKey(j)]
+	if !ok || current.started || current.cancelled {
+		r.mu.Unlock()
+		return ErrNotQueued
+	}
+	current.cancelled = true
+	j = current.job
+	r.releaseLocked(j)
+	r.mu.Unlock()
+
+	now := time.Now().UTC()
+	run := store.Run{
+		Commit: j.Commit, BaseCommit: j.Before, Ref: j.Ref, Message: firstLine(j.Message),
+		Variant: j.Variant, Author: j.Author, Status: store.StatusCancelled, Trigger: j.Trigger,
+		QueuedAt: j.queuedAt, FinishedAt: now,
+	}
+	r.rememberActivity(j, run)
+	r.events.Publish(j.UserKey, map[string]any{"type": "run", "repo_key": j.RepoKey, "run": run})
+	if j.Variant == "plan" {
+		return nil
+	}
+	// The queued attempt had become the repository's latest run: fall back to
+	// the latest stored result so the badge does not stay "queued".
+	repo, err := r.store.UpdateRepo(j.UserKey, j.RepoKey, func(repo *store.Repo) error {
+		if repo.Latest == nil || repo.Latest.Commit != j.Commit || !repo.Latest.QueuedAt.Equal(j.queuedAt) {
+			return nil
+		}
+		repo.Latest = nil
+		history, err := r.store.History(j.UserKey, j.RepoKey, 0)
+		if err != nil {
+			return err
+		}
+		for i := range history {
+			if variantOr(history[i].Variant) == "normal" {
+				repo.Latest = &history[i]
+				break
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		r.log.Error("store cancelled run", "repo", j.RepoKey, "error", err)
+		return nil
+	}
+	r.events.Publish(j.UserKey, map[string]any{"type": "repo", "repo": repo.Public()})
+	return nil
+}
+
+func variantOr(variant string) string {
+	if variant == "" {
+		return "normal"
+	}
+	return variant
 }
 
 // Pending reports the queue depth, for the health endpoint.

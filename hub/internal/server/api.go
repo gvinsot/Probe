@@ -408,6 +408,90 @@ func (s *Server) handleAnalyze(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusAccepted, queued)
 }
 
+// attemptBody names one analysis attempt of a repository.
+type attemptBody struct {
+	Commit  string `json:"commit"`
+	Variant string `json:"variant"`
+}
+
+func decodeAttempt(w http.ResponseWriter, r *http.Request) (attemptBody, bool) {
+	var body attemptBody
+	if err := decodeBody(r, &body); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return body, false
+	}
+	body.Variant = variantOrNormal(body.Variant)
+	if body.Variant != "normal" && body.Variant != "plan" {
+		writeError(w, http.StatusBadRequest, "invalid analysis variant")
+		return body, false
+	}
+	if !store.ValidKey(body.Commit) {
+		writeError(w, http.StatusBadRequest, "invalid commit")
+		return body, false
+	}
+	return body, true
+}
+
+// handleCancel withdraws an analysis still waiting in the queue.
+func (s *Server) handleCancel(w http.ResponseWriter, r *http.Request) {
+	sess, _, ok := s.require(w, r)
+	if !ok {
+		return
+	}
+	repo, ok := s.repoOf(w, r, sess)
+	if !ok {
+		return
+	}
+	body, ok := decodeAttempt(w, r)
+	if !ok {
+		return
+	}
+	if err := s.runner.Cancel(sess.UserKey, repo.Key, body.Commit, body.Variant); err != nil {
+		writeError(w, http.StatusConflict, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "cancelled", "commit": body.Commit, "variant": body.Variant})
+}
+
+// handleRerun queues a finished analysis again with the parameters stored in
+// its record: branch, base and, for a plan, the intent.
+func (s *Server) handleRerun(w http.ResponseWriter, r *http.Request) {
+	sess, user, ok := s.require(w, r)
+	if !ok {
+		return
+	}
+	repo, ok := s.repoOf(w, r, sess)
+	if !ok {
+		return
+	}
+	body, ok := decodeAttempt(w, r)
+	if !ok {
+		return
+	}
+	rec, err := s.store.RecordVariant(sess.UserKey, repo.Key, body.Commit, body.Variant)
+	if err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			writeError(w, http.StatusNotFound, "no finished analysis to run again for this commit")
+			return
+		}
+		writeError(w, http.StatusInternalServerError, "could not load the analysis")
+		return
+	}
+	if _, _, ok := s.forgeAccess(w, r.Context(), user); !ok {
+		return
+	}
+	queuedAt, err := s.runner.Submit(analysis.Job{
+		UserKey: sess.UserKey, RepoKey: repo.Key, Commit: body.Commit, Before: rec.Run.BaseCommit,
+		Ref: rec.Run.Ref, Message: rec.Run.Message, Author: rec.Run.Author,
+		Trigger: analysis.TriggerManual, Variant: body.Variant, Intent: rec.Run.Intent,
+	})
+	if err != nil {
+		s.writeEnqueueError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusAccepted, queuedAnalysis{Status: "queued", Commit: body.Commit, Variant: body.Variant, QueuedAt: queuedAt})
+}
+
 // queuedAnalysis identifies the attempt an enqueue request resolved to, so the
 // dashboard can follow that attempt, not an earlier result of the same commit.
 type queuedAnalysis struct {

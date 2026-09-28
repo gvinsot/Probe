@@ -44,6 +44,9 @@ const (
 	StatusRunning = "running"
 	StatusDone    = "done"
 	StatusFailed  = "failed"
+	// StatusCancelled marks a queued attempt withdrawn before it started. It
+	// is only reported live and never stored as a result.
+	StatusCancelled = "cancelled"
 )
 
 // User is an authenticated forge account. Tokens are stored sealed.
