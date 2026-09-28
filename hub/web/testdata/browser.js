@@ -424,7 +424,7 @@ window.addEventListener('DOMContentLoaded', async () => {
     // An alert singles out only the lines it is about, and says why it singles out none.
     const diffFile = { path: 'hub/api.go', status: 'M', additions: 1, deletions: 0, hunks: [{ old_start: 1, old_lines: 1, new_start: 1, new_lines: 2, lines: [
       { kind: 'context', old_line: 1, new_line: 1, content: 'package hub' }, { kind: 'add', new_line: 2, content: 'if err != nil {}' }] }] };
-    const wholeFile = { id: 'signal:path', kind: 'signal', severity: 'high', title: 'Configured sensitive path changed', path: 'hub/api.go', scope: 'file' };
+    const wholeFile = { id: 'signal:path', kind: 'signal', severity: 'high', title: 'Lines added and removed in a sensitive file', path: 'hub/api.go', scope: 'file' };
     assert(alertLocation(wholeFile) === 'hub/api.go · whole file', 'file-level location: ' + alertLocation(wholeFile));
     const wholeDiff = renderDiff(diffFile, wholeFile);
     assert(!wholeDiff.querySelector('tr.focus') && wholeDiff.querySelector('.diff-note').textContent.includes('whole file'), 'a file-level alert highlights no line');

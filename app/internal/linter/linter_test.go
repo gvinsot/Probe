@@ -142,6 +142,60 @@ func TestSignalLocationsMatchTheirMessage(t *testing.T) {
 	}
 }
 
+// A summary says what the diff did: a file which only gains lines is not
+// reported as modified, and a heuristic says whether its matching lines were
+// added, removed or both.
+func TestSummariesNameTheKindOfChange(t *testing.T) {
+	dir := t.TempDir()
+	git(t, dir, "init", "-b", "main")
+	git(t, dir, "config", "core.autocrlf", "false")
+	put(t, dir, "auth/grow.ts", "const a = 1;\n")
+	put(t, dir, "auth/shrink.ts", "const a = 1;\nconst b = 2;\n")
+	put(t, dir, "auth/edit.ts", "try { run(); } catch (e) { throw e; }\nconst b = 2;\n")
+	put(t, dir, "auth/gone.ts", "const gone = true;\n")
+	put(t, dir, "auth/move.ts", "const moved = true;\nconst kept = 1;\n")
+	base := commit(t, dir)
+	put(t, dir, "auth/grow.ts", "const a = 1;\nfetch(\"https://a.invalid\");\n")
+	put(t, dir, "auth/shrink.ts", "const a = 1;\n")
+	put(t, dir, "auth/edit.ts", "try { run(); } catch (e) { report(e); }\nconst b = 3;\n")
+	put(t, dir, "auth/new.ts", "const fresh = 1;\n")
+	git(t, dir, "mv", "auth/move.ts", "auth/moved.ts")
+	if err := os.Remove(filepath.Join(dir, "auth/gone.ts")); err != nil {
+		t.Fatal(err)
+	}
+	head := commit(t, dir)
+	r, err := gitrepo.Open(context.Background(), dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	change, err := r.Analyze(context.Background(), base, head, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	signals, err := Analyze(context.Background(), r, change, []string{"auth/**"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := map[string]string{}
+	for _, s := range signals {
+		got[s.Kind+" "+s.Path] = s.Summary
+	}
+	for key, want := range map[string]string{
+		"sensitive_path auth/grow.ts":        "Lines added to a sensitive file",
+		"sensitive_path auth/shrink.ts":      "Lines removed from a sensitive file",
+		"sensitive_path auth/edit.ts":        "Lines added and removed in a sensitive file",
+		"sensitive_path auth/new.ts":         "Sensitive file added",
+		"sensitive_path auth/gone.ts":        "Sensitive file deleted",
+		"sensitive_path auth/moved.ts":       "Sensitive file renamed",
+		"network_change auth/grow.ts":        "Network interaction added",
+		"error_handling_change auth/edit.ts": "Error handling changed",
+	} {
+		if got[key] != want {
+			t.Errorf("%s: summary %q, want %q", key, got[key], want)
+		}
+	}
+}
+
 func TestGoDeclarationsSignatures(t *testing.T) {
 	before := []byte("package api\n// Comment\ntype Store interface { Read(string) ([]byte, error) }\ntype Item[T any] struct { Value T }\nfunc (i *Item[T]) Get() T { return i.Value }\nconst ( hidden = iota; Answer )\nvar Name string = \"before\"\n")
 	a, err := goDeclarations("a.go", before)

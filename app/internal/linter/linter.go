@@ -23,21 +23,23 @@ import (
 	"github.com/gvinsot/SwiftProof/app/internal/model"
 )
 
+// rule is a line heuristic. subject names what its pattern matches; the summary
+// adds whether the matching lines of a file were added, removed or both.
 type rule struct {
-	kind, severity, summary string
+	kind, severity, subject string
 	pattern                 *regexp.Regexp
 	removedOnly             bool
 }
 
 var rules = []rule{
-	{"auth_change", "high", "Authentication or authorization logic changed", regexp.MustCompile(`(?i)\b(authoriz\w*|authenticat\w*|checkPermission\w*|hasPermission\w*|requireRole\w*|jwt|bcrypt|argon2|csrf|cors)\b`), false},
-	{"network_change", "medium", "Network interaction changed", regexp.MustCompile(`(?i)\b(http\.(Get|Post|Do|NewRequest|ListenAndServe)|https?://|fetch\s*\(|axios\.|requests\.|urllib\.|net\.Dial|grpc\.|client\.(Do|Send)\s*\()`), false},
-	{"database_write", "high", "Possible database mutation or transaction changed", regexp.MustCompile(`(?i)\b(INSERT\s+INTO|UPDATE\s+\w+\s+SET|DELETE\s+FROM|DROP\s+TABLE|ALTER\s+TABLE|TRUNCATE\s+TABLE|\w+\.(Exec|ExecContext|Save|Create|Delete|Update|Transaction|Commit|Rollback)\s*\()`), false},
-	{"validation_removed", "high", "Possible input validation removed", regexp.MustCompile(`(?i)\b(validate\w*|assert\w*|sanitize\w*|checkInput\w*|checkRange\w*|isValid\w*)\s*\(|\b(throw\s+new\s+(Error|TypeError|RangeError)|raise\s+(ValueError|ValidationError))\b`), true},
-	{"error_handling_change", "medium", "Error handling changed", regexp.MustCompile(`\b(if\s+err\s*!=\s*nil|errors\.(Is|As|New)|fmt\.Errorf|catch\s*\(|except\b|panic\s*\(|recover\s*\()`), false},
-	{"type_suppression", "high", "Type or safety checking suppression changed", regexp.MustCompile(`(?i)(@ts-(ignore|nocheck)|\bas\s+any\b|\bunsafe\.|\bunsafe\s*\{|#\s*type:\s*ignore|noqa|nolint|eslint-disable)`), false},
-	{"todo_added", "low", "Unresolved work marker added", regexp.MustCompile(`\b(TODO|FIXME|HACK|XXX)\b`), false},
-	{"dynamic_execution", "high", "Dynamic code or process execution changed", regexp.MustCompile(`\b(eval\s*\(|exec\.(Command|CommandContext)\s*\(|subprocess\.|os\.system\s*\(|child_process|dangerouslySetInnerHTML|innerHTML\s*=)`), false},
+	{"auth_change", "high", "Authentication or authorization logic", regexp.MustCompile(`(?i)\b(authoriz\w*|authenticat\w*|checkPermission\w*|hasPermission\w*|requireRole\w*|jwt|bcrypt|argon2|csrf|cors)\b`), false},
+	{"network_change", "medium", "Network interaction", regexp.MustCompile(`(?i)\b(http\.(Get|Post|Do|NewRequest|ListenAndServe)|https?://|fetch\s*\(|axios\.|requests\.|urllib\.|net\.Dial|grpc\.|client\.(Do|Send)\s*\()`), false},
+	{"database_write", "high", "Possible database mutation or transaction", regexp.MustCompile(`(?i)\b(INSERT\s+INTO|UPDATE\s+\w+\s+SET|DELETE\s+FROM|DROP\s+TABLE|ALTER\s+TABLE|TRUNCATE\s+TABLE|\w+\.(Exec|ExecContext|Save|Create|Delete|Update|Transaction|Commit|Rollback)\s*\()`), false},
+	{"validation_removed", "high", "Possible input validation", regexp.MustCompile(`(?i)\b(validate\w*|assert\w*|sanitize\w*|checkInput\w*|checkRange\w*|isValid\w*)\s*\(|\b(throw\s+new\s+(Error|TypeError|RangeError)|raise\s+(ValueError|ValidationError))\b`), true},
+	{"error_handling_change", "medium", "Error handling", regexp.MustCompile(`\b(if\s+err\s*!=\s*nil|errors\.(Is|As|New)|fmt\.Errorf|catch\s*\(|except\b|panic\s*\(|recover\s*\()`), false},
+	{"type_suppression", "high", "Type or safety checking suppression", regexp.MustCompile(`(?i)(@ts-(ignore|nocheck)|\bas\s+any\b|\bunsafe\.|\bunsafe\s*\{|#\s*type:\s*ignore|noqa|nolint|eslint-disable)`), false},
+	{"todo_added", "low", "Unresolved work marker", regexp.MustCompile(`\b(TODO|FIXME|HACK|XXX)\b`), false},
+	{"dynamic_execution", "high", "Dynamic code or process execution", regexp.MustCompile(`\b(eval\s*\(|exec\.(Command|CommandContext)\s*\(|subprocess\.|os\.system\s*\(|child_process|dangerouslySetInnerHTML|innerHTML\s*=)`), false},
 }
 
 // Analyze limits concurrent Git readers and returns stable, sorted signal IDs.
@@ -158,7 +160,7 @@ func analyzeFile(ctx context.Context, repo *gitrepo.Repository, change model.Cha
 	}
 	for _, p := range patterns {
 		if p.re.MatchString(f.Path) || f.OldPath != "" && p.re.MatchString(f.OldPath) {
-			add("sensitive_path", "high", "Configured sensitive path changed", "Path matches configured pattern "+p.glob)
+			add("sensitive_path", "high", fileChange(f, "sensitive file"), "Path matches configured pattern "+p.glob)
 			break
 		}
 	}
@@ -171,14 +173,14 @@ func analyzeFile(ctx context.Context, repo *gitrepo.Repository, change model.Cha
 		signals = append(signals, testWeakeningSignals(f)...)
 	}
 	if isDependency(f.Path) {
-		add("dependency_change", "medium", "Dependency manifest or lockfile changed", "Review dependency versions, provenance, and transitive effects; a changed manifest does not prove a dependency was added")
+		add("dependency_change", "medium", fileChange(f, "dependency manifest or lockfile"), "Review dependency versions, provenance, and transitive effects; a changed manifest does not prove a dependency was added")
 	}
 	lowerPath := strings.ToLower(f.Path)
 	if strings.Contains(lowerPath, "migration") || strings.HasSuffix(lowerPath, ".sql") {
-		add("migration_change", "high", "Database schema or migration file changed", "Path-based heuristic; inspect reversibility, locking, and compatibility")
+		add("migration_change", "high", fileChange(f, "database schema or migration file"), "Path-based heuristic; inspect reversibility, locking, and compatibility")
 	}
 	if strings.HasPrefix(lowerPath, ".github/workflows/") || strings.Contains(lowerPath, "dockerfile") || strings.HasSuffix(lowerPath, ".tf") {
-		add("infrastructure_change", "high", "Execution or deployment configuration changed", "Path-based heuristic; inspect permissions and deployment effects")
+		add("infrastructure_change", "high", fileChange(f, "deployment or execution configuration file"), "Path-based heuristic; inspect permissions and deployment effects")
 	}
 	if f.Status == "D" {
 		add("file_deleted", "medium", "Tracked file removed", "A deleted file may remove behavior or checks; inspect its callers")
@@ -197,7 +199,27 @@ func analyzeFile(ctx context.Context, repo *gitrepo.Repository, change model.Cha
 	if !isSource(f.Path) && !isDependency(f.Path) {
 		return signals
 	}
-	seen := map[string]bool{}
+	// A line heuristic reports its first matching line once per file; sides
+	// collects every side it matched so its summary says added, removed or both.
+	type match struct {
+		index int
+		sides map[string]bool
+	}
+	matched := map[string]*match{}
+	record := func(kind, severity, summary, evidence string, d model.DiffLine) {
+		if m := matched[kind]; m != nil {
+			m.sides[d.Kind] = true
+			return
+		}
+		s := model.Signal{Kind: kind, Path: f.Path, Severity: severity, Summary: summary, Evidence: evidence + short(d.Content), Side: "new", Line: d.NewLine}
+		if d.Kind == "delete" {
+			s.Side = "old"
+			s.Line = d.OldLine
+		}
+		matched[kind] = &match{index: len(signals), sides: map[string]bool{d.Kind: true}}
+		signals = append(signals, s)
+	}
+	known := func(kind string, d model.DiffLine) bool { return matched[kind] != nil && matched[kind].sides[d.Kind] }
 	addedBranches, removedBranches := 0, 0
 	for _, h := range f.Hunks {
 		for _, d := range h.Lines {
@@ -212,27 +234,18 @@ func analyzeFile(ctx context.Context, repo *gitrepo.Repository, change model.Cha
 				}
 			}
 			for _, r := range rules {
-				if seen[r.kind] || r.removedOnly && d.Kind != "delete" || r.kind == "todo_added" && d.Kind != "add" || !r.pattern.MatchString(d.Content) {
+				if known(r.kind, d) || r.removedOnly && d.Kind != "delete" || r.kind == "todo_added" && d.Kind != "add" || !r.pattern.MatchString(d.Content) {
 					continue
 				}
-				seen[r.kind] = true
-				s := model.Signal{Kind: r.kind, Path: f.Path, Severity: r.severity, Summary: r.summary, Evidence: "Text heuristic (not a verified defect): " + short(d.Content), Side: "new", Line: d.NewLine}
-				if d.Kind == "delete" {
-					s.Side = "old"
-					s.Line = d.OldLine
-				}
-				signals = append(signals, s)
+				record(r.kind, r.severity, r.subject, "Text heuristic (not a verified defect): ", d)
 			}
-			if path.Ext(f.Path) != ".go" && !seen["public_api_change"] && publicPattern.MatchString(d.Content) {
-				seen["public_api_change"] = true
-				s := model.Signal{Kind: "public_api_change", Path: f.Path, Severity: "medium", Summary: "Possible public declaration changed", Evidence: "Text heuristic; no language-specific signature or compatibility analysis: " + short(d.Content), Side: "new", Line: d.NewLine}
-				if d.Kind == "delete" {
-					s.Side = "old"
-					s.Line = d.OldLine
-				}
-				signals = append(signals, s)
+			if path.Ext(f.Path) != ".go" && !known("public_api_change", d) && publicPattern.MatchString(d.Content) {
+				record("public_api_change", "medium", "Possible public declaration", "Text heuristic; no language-specific signature or compatibility analysis: ", d)
 			}
 		}
+	}
+	for _, m := range matched {
+		signals[m.index].Summary += " " + linesVerb(m.sides["add"], m.sides["delete"])
 	}
 	if addedBranches-removedBranches >= 5 {
 		add("branch_growth", "medium", "More branching constructs appear in the diff", fmt.Sprintf("Text heuristic: %d added vs %d removed lines containing branch constructs; this is not cyclomatic complexity", addedBranches, removedBranches))
@@ -245,6 +258,48 @@ func analyzeFile(ctx context.Context, repo *gitrepo.Repository, change model.Cha
 
 var branchPattern = regexp.MustCompile(`\b(if|for|while|case|catch|except)\b|&&|\|\|`)
 var publicPattern = regexp.MustCompile(`^\s*(export\s+(default\s+)?(async\s+)?(function|class|interface|type|const|let|enum)|public\s+|pub\s+(fn|struct|enum|trait|type|mod))\b`)
+
+// linesVerb says what happened to the lines a heuristic matched.
+func linesVerb(added, removed bool) string {
+	switch {
+	case added && removed:
+		return "changed"
+	case removed:
+		return "removed"
+	}
+	return "added"
+}
+
+// fileChange summarizes a file-level signal about noun, such as "sensitive
+// file", with what the diff does to that file, so that a file which only gains
+// lines does not read as modified.
+func fileChange(f model.ChangedFile, noun string) string {
+	subject := strings.ToUpper(noun[:1]) + noun[1:]
+	switch {
+	case f.Status == "A":
+		return subject + " added"
+	case f.Status == "D":
+		return subject + " deleted"
+	case f.Status == "T":
+		return subject + " type changed"
+	}
+	if f.Status == "R" || f.Status == "C" {
+		noun = map[string]string{"R": "renamed ", "C": "copied "}[f.Status] + noun
+	}
+	switch {
+	case f.Additions > 0 && f.Deletions > 0:
+		return "Lines added and removed in a " + noun
+	case f.Additions > 0:
+		return "Lines added to a " + noun
+	case f.Deletions > 0:
+		return "Lines removed from a " + noun
+	case f.Status == "R":
+		return subject + " renamed"
+	case f.Status == "C":
+		return subject + " copied"
+	}
+	return subject + " changed"
+}
 
 func firstChangedLine(f model.ChangedFile) (int, string) {
 	for _, h := range f.Hunks {
