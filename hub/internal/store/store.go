@@ -197,9 +197,8 @@ func Open(dir string) (*Store, error) {
 		}
 	}
 	s := &Store{dir: dir, indexes: make(map[string]*recordIndex)}
-	if err := s.loadIndexes(); err != nil {
-		return nil, fmt.Errorf("report indexes: %w", err)
-	}
+	// Histories migrate on first access under a per-repository lock. Startup
+	// never scans artifacts, so a legacy store cannot delay the HTTP listener.
 	return s, nil
 }
 

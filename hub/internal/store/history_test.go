@@ -12,7 +12,7 @@ import (
 )
 
 // Seed legacy artifacts directly: no index, and enough payload to catch any
-// accidental full-report reads in a listing. Open performs the one-time upgrade.
+// accidental full-report reads in a listing. The first history access performs the one-time upgrade.
 func legacyHistory(t testing.TB, n int) (string, time.Time) {
 	t.Helper()
 	root := t.TempDir()
@@ -22,7 +22,7 @@ func legacyHistory(t testing.TB, n int) (string, time.Time) {
 	}
 	now := time.Now().UTC()
 	for i := 0; i < n; i++ {
-		rec := Record{UserKey: "user", RepoKey: "repo", Run: Run{Commit: fmt.Sprintf("commit-%06d", i), Status: StatusDone, QueuedAt: now.Add(-time.Duration(i) * time.Minute)}, Raw: json.RawMessage(`{"payload":"` + strings.Repeat("x", 4096) + `"}`)}
+		rec := Record{UserKey: "user", RepoKey: "repo", Run: Run{Commit: fmt.Sprintf("commit-%06d", i), Status: StatusDone, Message: strings.Repeat("message ", 80), Author: strings.Repeat("author", 20), Ref: "refs/heads/main", BaseCommit: strings.Repeat("a", 40), ToolVersion: "v0.4.0", QueuedAt: now.Add(-time.Duration(i) * time.Minute)}, Raw: json.RawMessage(`{"payload":"` + strings.Repeat("x", 4096) + `"}`)}
 		data, err := json.Marshal(rec)
 		if err != nil {
 			t.Fatal(err)
@@ -38,6 +38,9 @@ func TestRecentScaleUsesOnlyMemoryAfterMigrationAndRestart(t *testing.T) {
 	root, now := legacyHistory(t, 1005)
 	s, err := Open(root)
 	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.History("user", "repo", 0); err != nil {
 		t.Fatal(err)
 	}
 	dir := filepath.Join(root, "reports", "user", "repo")
@@ -60,6 +63,9 @@ func TestRecentScaleUsesOnlyMemoryAfterMigrationAndRestart(t *testing.T) {
 	}
 	s, err = Open(root)
 	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.History("user", "repo", 0); err != nil {
 		t.Fatal(err)
 	}
 	// Removing the entire directory proves hot reads perform no filesystem I/O;
@@ -221,6 +227,9 @@ func BenchmarkRecentIndexed(b *testing.B) {
 			if err != nil {
 				b.Fatal(err)
 			}
+			if _, err := s.History("user", "repo", 0); err != nil {
+				b.Fatal(err)
+			}
 			b.ReportAllocs()
 			b.ResetTimer()
 			for i := 0; i < b.N; i++ {
@@ -229,5 +238,158 @@ func BenchmarkRecentIndexed(b *testing.B) {
 				}
 			}
 		})
+	}
+}
+
+func TestPutRecordAmortizesCheckpointsAndRecovers(t *testing.T) {
+	root, _ := legacyHistory(t, MaxRecords)
+	s, err := Open(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	runs, err := s.History("user", "repo", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := filepath.Join(root, "reports", "user", "repo")
+	// Use realistic bounded metadata, without changing the retained count.
+	rec := &Record{UserKey: "user", RepoKey: "repo", Run: runs[0]}
+	rec.Message = strings.Repeat("message ", 80)
+	rec.Author = strings.Repeat("author", 20)
+	started := time.Now()
+	for i := 0; i < checkpointWrites; i++ {
+		rec.Status = StatusRunning
+		if i == checkpointWrites-1 {
+			rec.Status = StatusDone
+		}
+		if err := s.PutRecord(rec); err != nil {
+			t.Fatal(err)
+		}
+		_, err := os.Stat(filepath.Join(dir, indexFile))
+		if i < checkpointWrites-1 && !os.IsNotExist(err) {
+			t.Fatalf("write %d rewrote the full checkpoint: %v", i, err)
+		}
+		if i == checkpointWrites-1 && err != nil {
+			t.Fatalf("missing periodic checkpoint: %v", err)
+		}
+		if _, err := os.Stat(filepath.Join(dir, dirtyFile)); !os.IsNotExist(err) {
+			t.Fatalf("dirty marker written: %v", err)
+		}
+	}
+	elapsed := time.Since(started)
+	t.Logf("%d writes at %d retained runs: %s (%s/write)", checkpointWrites, MaxRecords, elapsed, elapsed/checkpointWrites)
+	// Generous wall-clock guard plus the deterministic no-checkpoint assertion
+	// above; benchmark results are more useful than tight CI timing limits.
+	if elapsed > 2*time.Second {
+		t.Fatalf("write budget exceeded: %s", elapsed)
+	}
+	rec.Status = StatusFailed
+	if err := s.PutRecord(rec); err != nil {
+		t.Fatal(err)
+	}
+	s, err = Open(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	runs, err = s.History("user", "repo", 1)
+	if err != nil || len(runs) != 1 || runs[0].Status != StatusFailed {
+		t.Fatalf("uncheckpointed update lost: %+v %v", runs, err)
+	}
+}
+
+func TestLegacyStartupAndBatchMigrationBudget(t *testing.T) {
+	root, _ := legacyHistory(t, 1500)
+	source := filepath.Join(root, "reports", "user", "repo")
+	files, err := os.ReadDir(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := 1; i < 20; i++ {
+		dir := filepath.Join(root, "reports", "user", fmt.Sprintf("repo-%d", i))
+		if err := os.MkdirAll(dir, 0700); err != nil {
+			t.Fatal(err)
+		}
+		for _, file := range files {
+			if err := os.Link(filepath.Join(source, file.Name()), filepath.Join(dir, file.Name())); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	started := time.Now()
+	s, err := Open(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	elapsed := time.Since(started)
+	if elapsed > time.Second || len(s.indexes) != 0 {
+		t.Fatalf("Open migrated histories: %s, %d indexes", elapsed, len(s.indexes))
+	}
+	t.Logf("Open with 20 x 1500 legacy artifacts: %s", elapsed)
+	started = time.Now()
+	for i := 0; i < 20; i++ {
+		key := "repo"
+		if i > 0 {
+			key = fmt.Sprintf("repo-%d", i)
+		}
+		runs, err := s.History("user", key, 0)
+		if err != nil || len(runs) != MaxRecords {
+			t.Fatalf("migration %s: %d runs, %v", key, len(runs), err)
+		}
+	}
+	elapsed = time.Since(started)
+	t.Logf("20 x 1500 batch migration: %s", elapsed)
+	if elapsed > 10*time.Second {
+		t.Fatalf("batch migration budget exceeded: %s", elapsed)
+	}
+}
+
+func TestFailedArtifactWriteDoesNotReloadHistory(t *testing.T) {
+	root, _ := legacyHistory(t, 2)
+	s, err := Open(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.History("user", "repo", 0); err != nil {
+		t.Fatal(err)
+	}
+	dir := filepath.Join(root, "reports", "user", "repo")
+	// A directory at the artifact destination makes atomic rename fail.
+	if err := os.Mkdir(filepath.Join(dir, "blocked.json"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.PutRecord(&Record{UserKey: "user", RepoKey: "repo", Run: Run{Commit: "blocked"}}); err == nil {
+		t.Fatal("expected write failure")
+	}
+	// If the next write rescans, this corrupted artifact disappears from memory.
+	if err := os.WriteFile(filepath.Join(dir, "commit-000001.json"), []byte("broken"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.PutRecord(&Record{UserKey: "user", RepoKey: "repo", Run: Run{Commit: "new"}}); err != nil {
+		t.Fatal(err)
+	}
+	runs, err := s.History("user", "repo", 0)
+	if err != nil || len(runs) != 3 {
+		t.Fatalf("failed write caused a rescan: %d, %v", len(runs), err)
+	}
+}
+
+func TestNestedHistoryDirectoryIsIncomplete(t *testing.T) {
+	root, now := legacyHistory(t, 1)
+	if err := os.Mkdir(filepath.Join(root, "reports", "user", "repo", "unexpected"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	s, err := Open(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	runs, partial, err := s.Recent("user", "repo", now.Add(-time.Hour))
+	if err != nil || !partial || len(runs) != 1 {
+		t.Fatalf("nested directory silently ignored: %+v %v %v", runs, partial, err)
+	}
+	if _, err := s.History("../escape", "repo", 0); err == nil {
+		t.Fatal("unsafe account key accepted")
+	}
+	if _, err := s.History("user", "../escape", 0); err == nil {
+		t.Fatal("unsafe repo key accepted")
 	}
 }

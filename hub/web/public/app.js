@@ -57,6 +57,7 @@ const state = {
   // Recent normal runs per repository key, keyed by commit, kept up to date
   // by the live events.
   recent: new Map(),
+  recentLimit: null,
   plan: null,
   kind: 'all',
   query: '',
@@ -251,10 +252,10 @@ function rememberRun(repoKey, run) {
   }
   // Mirror the API cap for long-lived event streams, keeping undated/pending
   // results first and explicitly marking any omitted history.
-  if (runs.size > 200) {
+  if (state.recentLimit && runs.size > state.recentLimit) {
     const always = (item) => item.status === 'queued' || item.status === 'running' || !runActivity(item);
     const newest = Array.from(runs.values()).sort((a, b) => Number(always(b)) - Number(always(a)) || runActivity(b) - runActivity(a) || a.commit.localeCompare(b.commit));
-    state.recent.set(repoKey, new Map(newest.slice(0, 200).map((item) => [item.commit, item])));
+    state.recent.set(repoKey, new Map(newest.slice(0, state.recentLimit).map((item) => [item.commit, item])));
     const repo = state.repos.get(repoKey);
     if (repo) repo.recent_incomplete = true;
   }
@@ -1795,6 +1796,7 @@ async function loadRepos() {
   const beforeRuns = new Map(Array.from(state.recent, ([key, runs]) => [key, new Map(runs)]));
   const payload = await api('/api/repos');
   if (loadID !== reposLoadID) return;
+  state.recentLimit = payload.recent_limit;
   // Preserve live updates received while the snapshot request was in flight.
   const liveRepos = Array.from(state.repos).filter(([key, repo]) => repo !== beforeRepos.get(key));
   const liveRuns = [];

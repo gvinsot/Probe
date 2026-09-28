@@ -454,8 +454,15 @@ func (s *Server) handleRuns(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	limit := store.MaxHistory
-	if v, err := strconv.Atoi(r.URL.Query().Get("limit")); err == nil && v > 0 && v < store.MaxHistory {
-		limit = v
+	if r.URL.Query().Has("limit") {
+		v, err := strconv.Atoi(r.URL.Query().Get("limit"))
+		if err != nil || v < 0 {
+			writeError(w, http.StatusBadRequest, "limit must be a non-negative integer")
+			return
+		}
+		if v > 0 && v < limit {
+			limit = v
+		}
 	}
 	runs, err := s.store.History(sess.UserKey, repo.Key, limit)
 	if err != nil {
@@ -476,6 +483,7 @@ func (s *Server) handleReport(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	rec.Error = store.SafeError(rec.Error)
 	if rec.Variant == "plan" {
 		writeJSON(w, http.StatusOK, map[string]any{"repo": repo.Public(), "run": rec.Run, "plan": rec.Raw})
 		return
@@ -618,7 +626,7 @@ func (s *Server) handleCommits(w http.ResponseWriter, r *http.Request) {
 	}
 	graph, err := s.runner.Graph(r.Context(), sess.UserKey, repo.Key)
 	if err != nil {
-		writeError(w, http.StatusBadGateway, "could not load commit history: "+err.Error())
+		writeError(w, http.StatusBadGateway, store.SafeError("could not load commit history: "+err.Error()))
 		return
 	}
 	writeJSON(w, http.StatusOK, graph)

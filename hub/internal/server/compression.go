@@ -14,7 +14,7 @@ import (
 func writeRepoList(w http.ResponseWriter, r *http.Request, repos []store.PublicRepo) {
 	w.Header().Add("Vary", "Accept-Encoding")
 	if !acceptsGzip(r.Header.Values("Accept-Encoding")) {
-		writeJSON(w, http.StatusOK, map[string]any{"repos": repos})
+		writeJSON(w, http.StatusOK, map[string]any{"repos": repos, "recent_limit": store.MaxRecent})
 		return
 	}
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
@@ -22,7 +22,7 @@ func writeRepoList(w http.ResponseWriter, r *http.Request, repos []store.PublicR
 	w.WriteHeader(http.StatusOK)
 	zipped := gzip.NewWriter(w)
 	defer zipped.Close()
-	_ = json.NewEncoder(zipped).Encode(map[string]any{"repos": repos})
+	_ = json.NewEncoder(zipped).Encode(map[string]any{"repos": repos, "recent_limit": store.MaxRecent})
 }
 
 func acceptsGzip(headers []string) bool {

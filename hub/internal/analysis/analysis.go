@@ -211,6 +211,7 @@ func (r *Runner) markQueued(j Job) {
 
 // publishRun stores the run as the repository's latest state and streams it.
 func (r *Runner) publishRun(j Job, run store.Run) {
+	run.Error = store.SafeError(run.Error)
 	r.rememberActivity(j, run)
 	r.events.Publish(j.UserKey, map[string]any{"type": "run", "repo_key": j.RepoKey, "run": run})
 	// A proposal must never become the repository badge or commit status.
@@ -273,6 +274,12 @@ func (r *Runner) process(ctx context.Context, j Job) {
 
 // analyze does the work and returns the stored record when a report exists.
 func (r *Runner) analyze(ctx context.Context, j Job, run *store.Run) (record *store.Record, resultErr error) {
+	var secrets []string
+	defer func() {
+		if resultErr != nil {
+			resultErr = errors.New(store.SafeError(resultErr.Error(), secrets...))
+		}
+	}()
 	repo, err := r.store.Repo(j.UserKey, j.RepoKey)
 	if err != nil {
 		return nil, fmt.Errorf("repository: %w", err)
@@ -286,23 +293,11 @@ func (r *Runner) analyze(ctx context.Context, j Job, run *store.Run) (record *st
 		return nil, err
 	}
 	token, err := r.accounts.Token(ctx, user)
+	secrets = []string{provider.GitAuthHeader(token), token.AccessToken, token.RefreshToken}
 	if err != nil {
 		return nil, err
 	}
 
-	// Remove known credentials even if an upstream error prints a bare token.
-	defer func() {
-		if resultErr == nil {
-			return
-		}
-		message := resultErr.Error()
-		for _, secret := range []string{provider.GitAuthHeader(token), token.AccessToken, token.RefreshToken} {
-			if secret != "" {
-				message = strings.ReplaceAll(message, secret, "[redacted]")
-			}
-		}
-		resultErr = errors.New(store.SafeError(message))
-	}()
 	work, err := os.MkdirTemp("", "swiftproof-hub-")
 	if err != nil {
 		return nil, fmt.Errorf("workspace: %w", err)

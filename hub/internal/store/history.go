@@ -2,7 +2,6 @@ package store
 
 import (
 	"fmt"
-	"io/fs"
 	"os"
 	"path/filepath"
 	"sort"
@@ -19,9 +18,10 @@ const MaxRecent = 200
 // Only this repository's readers/writers share this lock. No report I/O holds
 // the account/repository metadata lock. Loaded histories are immutable copies.
 type recordIndex struct {
-	mu     sync.Mutex
-	loaded bool
-	recent []RecentRun
+	mu      sync.Mutex
+	loaded  bool
+	pending int // successful artifact writes since the last checkpoint
+	recent  []RecentRun
 	diskIndex
 }
 type diskIndex struct {
@@ -32,7 +32,9 @@ type diskIndex struct {
 }
 
 const indexFile = ".runs-index"
-const dirtyFile = ".runs-dirty"
+const dirtyFile = ".runs-dirty" // legacy recovery marker, never written now
+const watermarkFile = ".runs-watermark"
+const checkpointWrites = 100
 
 func (s *Store) index(userKey, repoKey string) (*recordIndex, string, error) {
 	if !ValidKey(userKey) || !ValidKey(repoKey) {
@@ -46,37 +48,8 @@ func (s *Store) index(userKey, repoKey string) (*recordIndex, string, error) {
 		idx = &recordIndex{}
 		s.indexes[key] = idx
 	}
-	return idx, filepath.Join(s.dir, "reports", userKey, repoKey), nil
-}
-
-// Migrate old stores once before accepting requests. Later starts read only
-// compact indexes, except after an interrupted write or a damaged index.
-func (s *Store) loadIndexes() error {
-	root := filepath.Join(s.dir, "reports")
-	return filepath.WalkDir(root, func(path string, entry fs.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		if !entry.IsDir() {
-			return nil
-		}
-		rel, err := filepath.Rel(root, path)
-		if err != nil {
-			return err
-		}
-		parts := strings.Split(rel, string(filepath.Separator))
-		if len(parts) != 2 {
-			return nil
-		}
-		idx, dir, err := s.index(parts[0], parts[1])
-		if err != nil {
-			return err
-		}
-		if err := idx.load(dir); err != nil {
-			return err
-		}
-		return filepath.SkipDir
-	})
+	dir, err := s.path("reports", userKey, repoKey)
+	return idx, dir, err
 }
 
 func validRun(run Run) bool {
@@ -108,7 +81,7 @@ func (idx *recordIndex) load(dir string) error {
 	}
 	_, dirty := os.Stat(filepath.Join(dir, dirtyFile))
 	var disk diskIndex
-	if os.IsNotExist(dirty) && readJSON(filepath.Join(dir, indexFile), &disk) == nil && disk.Version == 1 && len(disk.Runs) <= MaxRecords {
+	if os.IsNotExist(dirty) && readJSON(filepath.Join(dir, indexFile), &disk) == nil && (disk.Version == 1 || disk.Version == 2) && len(disk.Runs) <= MaxRecords {
 		valid := true
 		for i, run := range disk.Runs {
 			if !validRun(run) {
@@ -118,6 +91,15 @@ func (idx *recordIndex) load(dir string) error {
 			disk.Runs[i] = indexedRun(run)
 		}
 		if valid {
+			// Upgrade the legacy combined watermark before invalidating its
+			// checkpoint on the first subsequent write.
+			if disk.Version == 1 {
+				watermark := diskIndex{Version: 1, EvictedThrough: disk.EvictedThrough, Incomplete: disk.Incomplete}
+				if err := writeJSON(filepath.Join(dir, watermarkFile), &watermark); err != nil {
+					return err
+				}
+			}
+			disk.Version = 2
 			idx.diskIndex = disk
 			idx.sort()
 			idx.refreshRecent()
@@ -127,23 +109,44 @@ func (idx *recordIndex) load(dir string) error {
 	}
 	entries, err := os.ReadDir(dir)
 	if os.IsNotExist(err) {
-		idx.diskIndex = diskIndex{Version: 1}
+		idx.diskIndex = diskIndex{Version: 2}
 		idx.loaded = true
 		return nil
 	}
 	if err != nil {
 		return err
 	}
-	if err := writeJSON(filepath.Join(dir, dirtyFile), true); err != nil {
+	readJSON(filepath.Join(dir, indexFile), &disk) // retain legacy watermark
+	// Keep the previous eviction watermark when recovering an interrupted write.
+	idx.diskIndex = diskIndex{Version: 2}
+	idx.EvictedThrough, idx.Incomplete = disk.EvictedThrough, disk.Incomplete
+	var watermark diskIndex
+	if err := readJSON(filepath.Join(dir, watermarkFile), &watermark); err == nil {
+		if watermark.EvictedThrough.After(idx.EvictedThrough) {
+			idx.EvictedThrough = watermark.EvictedThrough
+		}
+		idx.Incomplete = idx.Incomplete || watermark.Incomplete
+	} else if err != ErrNotFound {
+		idx.Incomplete = true
+	}
+	// Preserve legacy retention metadata before removing the old snapshot.
+	if disk.Version == 1 {
+		watermark := diskIndex{Version: 1, EvictedThrough: idx.EvictedThrough, Incomplete: idx.Incomplete}
+		if err := writeJSON(filepath.Join(dir, watermarkFile), &watermark); err != nil {
+			return err
+		}
+	}
+	// Invalidate any old checkpoint before changing artifacts. Recovery uses
+	// artifacts plus the independent eviction watermark, never a stale snapshot.
+	if err := invalidateIndex(dir); err != nil {
 		return err
 	}
-	// Keep the previous eviction watermark when recovering an interrupted write.
-	idx.diskIndex = diskIndex{Version: 1}
-	if readJSON(filepath.Join(dir, indexFile), &disk) == nil {
-		idx.EvictedThrough, idx.Incomplete = disk.EvictedThrough, disk.Incomplete
-	}
 	for _, entry := range entries {
-		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".json") {
+		if entry.IsDir() {
+			idx.Incomplete = true
+			continue
+		}
+		if !strings.HasSuffix(entry.Name(), ".json") {
 			continue
 		}
 		var run Run // Raw is intentionally not retained during the one-time migration.
@@ -152,9 +155,15 @@ func (idx *recordIndex) load(dir string) error {
 			continue
 		}
 		idx.Runs = append(idx.Runs, indexedRun(run))
-		if err := idx.prune(dir); err != nil {
+	}
+	if len(idx.Runs) <= MaxRecords && idx.Incomplete {
+		watermark := diskIndex{Version: 1, EvictedThrough: idx.EvictedThrough, Incomplete: true}
+		if err := writeJSON(filepath.Join(dir, watermarkFile), &watermark); err != nil {
 			return err
 		}
+	}
+	if err := idx.prune(dir); err != nil {
+		return err
 	}
 	if err := idx.save(dir); err != nil {
 		return err
@@ -174,11 +183,30 @@ func (idx *recordIndex) sort() {
 	})
 }
 
+// invalidateIndex syncs only an actual checkpoint removal. Ordinary writes
+// between checkpoints need neither a dirty marker nor another directory sync.
+func invalidateIndex(dir string) error {
+	if err := os.Remove(filepath.Join(dir, indexFile)); err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return err
+	}
+	f, err := os.Open(dir)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	return f.Sync()
+}
+
 func (idx *recordIndex) prune(dir string) error {
 	idx.sort()
-	for len(idx.Runs) > MaxRecords {
-		run := idx.Runs[len(idx.Runs)-1]
-		// Persist the watermark before deletion so crash recovery cannot hide a gap.
+	if len(idx.Runs) <= MaxRecords {
+		return nil
+	}
+	evicted := idx.Runs[MaxRecords:]
+	for _, run := range evicted {
 		if run.Variant != "plan" {
 			recent := projectRecent(&run)
 			if recent.activityAt().IsZero() || run.Status == StatusQueued || run.Status == StatusRunning {
@@ -188,29 +216,34 @@ func (idx *recordIndex) prune(dir string) error {
 				idx.EvictedThrough = recent.activityAt()
 			}
 		}
-		watermark := diskIndex{Version: 1, EvictedThrough: idx.EvictedThrough, Incomplete: idx.Incomplete}
-		if err := writeJSON(filepath.Join(dir, indexFile), &watermark); err != nil {
-			return err
-		}
+	}
+	// One small watermark per eviction batch, persisted before any deletion.
+	watermark := diskIndex{Version: 1, EvictedThrough: idx.EvictedThrough, Incomplete: idx.Incomplete}
+	if err := writeJSON(filepath.Join(dir, watermarkFile), &watermark); err != nil {
+		return err
+	}
+	for _, run := range evicted {
 		if err := os.Remove(filepath.Join(dir, recordName(run.Commit, run.Variant))); err != nil && !os.IsNotExist(err) {
 			return err
 		}
-		idx.Runs = idx.Runs[:len(idx.Runs)-1]
 	}
+	idx.Runs = idx.Runs[:MaxRecords]
 	return nil
 }
 func (idx *recordIndex) save(dir string) error {
 	if err := writeJSON(filepath.Join(dir, indexFile), &idx.diskIndex); err != nil {
 		return err
 	}
+	idx.pending = 0
 	if err := os.Remove(filepath.Join(dir, dirtyFile)); err != nil && !os.IsNotExist(err) {
 		return err
 	}
 	return nil
 }
 
-// PutRecord atomically replaces an artifact and updates its bounded index. The
-// dirty marker makes an interrupted two-file update recoverable on next open.
+// PutRecord atomically replaces an artifact and updates its in-memory index.
+// Checkpoints are amortized over 100 writes; an absent checkpoint is rebuilt
+// lazily from artifacts after restart. A failed write never forces a hot rescan.
 func (s *Store) PutRecord(rec *Record) error {
 	if !validRun(rec.Run) {
 		return fmt.Errorf("invalid commit or analysis variant")
@@ -224,10 +257,11 @@ func (s *Store) PutRecord(rec *Record) error {
 	if err := idx.load(dir); err != nil {
 		return err
 	}
-	if err := writeJSON(filepath.Join(dir, dirtyFile), true); err != nil {
-		return err
+	if idx.pending == 0 {
+		if err := invalidateIndex(dir); err != nil {
+			return err
+		}
 	}
-	idx.loaded = false
 	clean := *rec
 	clean.Error = SafeError(clean.Error)
 	if err := writeJSON(filepath.Join(dir, recordName(rec.Commit, rec.Variant)), &clean); err != nil {
@@ -241,18 +275,19 @@ func (s *Store) PutRecord(rec *Record) error {
 		}
 	}
 	idx.Runs = append(runs, indexedRun(clean.Run))
+	idx.pending++
+	defer idx.refreshRecent()
 	if err := idx.prune(dir); err != nil {
 		return err
 	}
-	if err := idx.save(dir); err != nil {
-		return err
+	if idx.pending >= checkpointWrites {
+		return idx.save(dir)
 	}
-	idx.refreshRecent()
-	idx.loaded = true
 	return nil
 }
 
-// History reads a copy of indexed metadata, never full report artifacts.
+// History reads a copy of indexed metadata, rebuilding from artifacts only
+// on first access when no valid checkpoint exists.
 // Zero returns all retained metadata (at most MaxRecords); HTTP adds its own cap.
 func (s *Store) History(userKey, repoKey string, limit int) ([]Run, error) {
 	idx, dir, err := s.index(userKey, repoKey)

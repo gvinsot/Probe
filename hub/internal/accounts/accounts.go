@@ -7,6 +7,7 @@ package accounts
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -60,14 +61,22 @@ func (m *Manager) Save(u *store.User, t forge.Token) error {
 // Token unseals the credential of a user, refreshing it when it is about to
 // expire. The refresh is serialized so concurrent analyses cannot race into
 // two refreshes and invalidate each other's token.
-func (m *Manager) Token(ctx context.Context, u *store.User) (forge.Token, error) {
+func (m *Manager) Token(ctx context.Context, u *store.User) (result forge.Token, resultErr error) {
+	var known []string
+	defer func() {
+		if resultErr != nil {
+			resultErr = errors.New(store.SafeError(resultErr.Error(), known...))
+		}
+	}()
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	access, err := m.keys.Open(u.Token)
+	known = append(known, access)
 	if err != nil {
 		return forge.Token{}, fmt.Errorf("stored credential of %s is unreadable: %w", u.Login, err)
 	}
 	refresh, err := m.keys.Open(u.RefreshToken)
+	known = append(known, refresh)
 	if err != nil {
 		return forge.Token{}, fmt.Errorf("stored credential of %s is unreadable: %w", u.Login, err)
 	}
@@ -89,6 +98,7 @@ func (m *Manager) Token(ctx context.Context, u *store.User) (forge.Token, error)
 		}
 	}
 	renewed, err := p.Refresh(ctx, token)
+	known = append(known, renewed.AccessToken, renewed.RefreshToken)
 	if err != nil {
 		return forge.Token{}, fmt.Errorf("the %s session of %s expired, sign in again: %w", u.Provider, u.Login, err)
 	}

@@ -50,7 +50,8 @@ func (r RecentRun) inWindow(since time.Time) bool {
 }
 
 // ReposWithRecent snapshots repository metadata, then copies bounded per-repo
-// indexes. Report work never holds the account metadata lock or reads artifacts.
+// indexes. First access can rebuild from artifacts under a repository lock;
+// report work never holds the account metadata lock.
 func (s *Store) ReposWithRecent(userKey string, since time.Time) ([]PublicRepo, error) {
 	repos, err := s.Repos(userKey)
 	if err != nil {

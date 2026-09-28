@@ -28,7 +28,7 @@ func TestRepoListScaleSizeAndCompression(t *testing.T) {
 	now := time.Now().UTC()
 	// Exercise a legacy store with >1000 artifacts and oversized optional fields.
 	for i := 0; i < 1005; i++ {
-		rec := store.Record{UserKey: h.userKey, RepoKey: repo.Key, Run: store.Run{Commit: fmt.Sprintf("commit-%06d", i), Status: store.StatusFailed, QueuedAt: now.Add(-time.Duration(i) * time.Minute), Message: strings.Repeat("m", 8192), Author: strings.Repeat("a", 8192), Intent: strings.Repeat("i", 8192), Error: "git fetch: secret-token"}, Raw: json.RawMessage(`{"payload":"` + strings.Repeat("x", 4096) + `"}`)}
+		rec := store.Record{UserKey: h.userKey, RepoKey: repo.Key, Run: store.Run{Commit: fmt.Sprintf("commit-%06d", i), Status: store.StatusFailed, QueuedAt: now.Add(-time.Duration(i) * time.Minute), Message: strings.Repeat("m", 8192), Author: strings.Repeat("a", 8192), Intent: strings.Repeat("i", 8192), Error: "git fetch: token=secret-token"}, Raw: json.RawMessage(`{"payload":"` + strings.Repeat("x", 4096) + `"}`)}
 		data, err := json.Marshal(rec)
 		if err != nil {
 			t.Fatal(err)
@@ -48,7 +48,10 @@ func TestRepoListScaleSizeAndCompression(t *testing.T) {
 		t.Fatal(err)
 	}
 	h.store, h.server.store = reopened, reopened
-	// Even the first HTTP request after restart needs no report-directory access.
+	// Migrate lazily, then subsequent HTTP requests need no artifact access.
+	if _, err := reopened.History(h.userKey, repo.Key, 0); err != nil {
+		t.Fatal(err)
+	}
 	if err := os.Rename(dir, dir+"-offline"); err != nil {
 		t.Fatal(err)
 	}
@@ -60,12 +63,13 @@ func TestRepoListScaleSizeAndCompression(t *testing.T) {
 		t.Fatalf("uncompressed listing grew to %d bytes", plain.Body.Len())
 	}
 	var payload struct {
-		Repos []store.PublicRepo `json:"repos"`
+		Repos       []store.PublicRepo `json:"repos"`
+		RecentLimit int                `json:"recent_limit"`
 	}
 	if err := json.Unmarshal(plain.Body.Bytes(), &payload); err != nil {
 		t.Fatal(err)
 	}
-	if len(payload.Repos) != 1 || len(payload.Repos[0].Recent) != store.MaxRecent || !payload.Repos[0].RecentIncomplete {
+	if payload.RecentLimit != store.MaxRecent || len(payload.Repos) != 1 || len(payload.Repos[0].Recent) != store.MaxRecent || !payload.Repos[0].RecentIncomplete {
 		t.Fatalf("unexpected bounded listing: %d repositories", len(payload.Repos))
 	}
 	for _, key := range []string{`"error":`, `"author":`, `"message":`, `"intent":`, `"raw":`, "secret-token"} {
@@ -142,5 +146,52 @@ func TestLegacyReportErrorsDoNotLeakThroughAPIs(t *testing.T) {
 		if strings.Contains(w.Body.String(), "secret-token") {
 			t.Fatalf("%s leaks an old diagnostic", path)
 		}
+	}
+}
+
+func TestRunsRejectMalformedLimits(t *testing.T) {
+	h := newHarness(t)
+	h.signIn()
+	repo := h.addRepo(nil)
+	for _, limit := range []string{"-1", "abc", "", "999999999999999999999999999"} {
+		w := h.do(http.MethodGet, "/api/repos/"+repo.Key+"/runs?limit="+limit, nil)
+		if w.Code != http.StatusBadRequest {
+			t.Fatalf("limit=%q: %d", limit, w.Code)
+		}
+	}
+	for _, limit := range []string{"0", "1", "1000"} {
+		w := h.do(http.MethodGet, "/api/repos/"+repo.Key+"/runs?limit="+limit, nil)
+		if w.Code != http.StatusOK {
+			t.Fatalf("limit=%q: %d", limit, w.Code)
+		}
+	}
+}
+
+func TestCommitGraphDiagnosticsAreRedactedInHTTP(t *testing.T) {
+	h := newHarness(t)
+	h.signIn()
+	repo := h.addRepo(nil)
+	bin := t.TempDir()
+	// Emit the actual authentication environment, a bare forge token and a
+	// known short token (the fake account uses "access-token") without a label.
+	script := "#!/bin/sh\nif [ \"$1\" != ls-remote ]; then exit 0; fi\nprintf '%s\\n' \"$GIT_CONFIG_VALUE_0\" 'ghs_0123456789abcdefghijklmnopqrstuvwxyz' 'access-token' 'repository unavailable' >&2\nexit 128\n"
+	if err := os.WriteFile(filepath.Join(bin, "git"), []byte(script), 0700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin)
+	w := h.do(http.MethodGet, "/api/repos/"+repo.Key+"/commits", nil)
+	if w.Code != http.StatusBadGateway {
+		t.Fatalf("status=%d: %s", w.Code, w.Body)
+	}
+	for _, secret := range []string{"Basic x", "ghs_", "access"} {
+		if strings.Contains(w.Body.String(), secret) {
+			t.Fatalf("HTTP leaked %q: %s", secret, w.Body)
+		}
+	}
+	if !strings.Contains(w.Body.String(), "repository unavailable") {
+		t.Fatalf("diagnostic lost: %s", w.Body)
+	}
+	if w.Body.Len() > store.MaxErrorBytes+100 {
+		t.Fatalf("unbounded HTTP diagnostic: %d", w.Body.Len())
 	}
 }

@@ -3,12 +3,14 @@ package analysis
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"fmt"
-	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+
+	"github.com/gvinsot/SwiftProof/hub/internal/store"
 )
 
 // gitRunner drives git in a disposable directory with a minimal environment.
@@ -49,10 +51,10 @@ func (g *gitRunner) run(ctx context.Context, args ...string) (string, error) {
 	cmd.Dir = g.dir
 	cmd.Env = g.env
 	var stdout bytes.Buffer
-	// Remote diagnostics may echo credentials; discard them at the source.
-	cmd.Stdout, cmd.Stderr = &stdout, io.Discard
+	stderr := &diagnosticBuffer{}
+	cmd.Stdout, cmd.Stderr = &stdout, stderr
 	if err := cmd.Run(); err != nil {
-		return "", fmt.Errorf("git %s: %w", args[0], err)
+		return "", fmt.Errorf("git %s: %w: %s", args[0], err, g.safeDiagnostic(stderr.String()))
 	}
 	return strings.TrimSpace(stdout.String()), nil
 }
@@ -64,10 +66,10 @@ func (g *gitRunner) blob(ctx context.Context, commit, path string) ([]byte, erro
 	cmd.Dir = g.dir
 	cmd.Env = g.env
 	var stdout bytes.Buffer
-	// Remote diagnostics may echo credentials; discard them at the source.
-	cmd.Stdout, cmd.Stderr = &stdout, io.Discard
+	stderr := &diagnosticBuffer{}
+	cmd.Stdout, cmd.Stderr = &stdout, stderr
 	if err := cmd.Run(); err != nil {
-		return nil, fmt.Errorf("git cat-file: %w", err)
+		return nil, fmt.Errorf("git cat-file: %w: %s", err, g.safeDiagnostic(stderr.String()))
 	}
 	if stdout.Len() > maxPolicyBytes {
 		return nil, fmt.Errorf("%s exceeds %d bytes", path, maxPolicyBytes)
@@ -147,4 +149,51 @@ func (g *gitRunner) resolveBase(ctx context.Context, before, head string, depth 
 		return strings.TrimSpace(parent)
 	}
 	return head
+}
+
+// Bound capture independently of the public diagnostic limit. If capture is
+// truncated, omit it entirely so a partial known secret cannot evade redaction.
+type diagnosticBuffer struct {
+	buffer    bytes.Buffer
+	truncated bool
+}
+
+func (b *diagnosticBuffer) Write(p []byte) (int, error) {
+	n := len(p)
+	remaining := (64 << 10) - b.buffer.Len()
+	if len(p) > remaining {
+		p = p[:remaining]
+		b.truncated = true
+	}
+	_, _ = b.buffer.Write(p)
+	return n, nil
+}
+func (b *diagnosticBuffer) String() string {
+	if b.truncated {
+		return "diagnostics exceeded capture limit"
+	}
+	return b.buffer.String()
+}
+func (g *gitRunner) safeDiagnostic(message string) string {
+	var secrets []string
+	for _, value := range g.env {
+		if !strings.HasPrefix(value, "GIT_CONFIG_VALUE_") {
+			continue
+		}
+		_, header, _ := strings.Cut(value, "=")
+		secrets = append(secrets, header)
+		_, auth, ok := strings.Cut(header, ": ")
+		if !ok {
+			continue
+		}
+		kind, credential, _ := strings.Cut(auth, " ")
+		secrets = append(secrets, auth, credential)
+		if strings.EqualFold(kind, "Basic") {
+			if decoded, err := base64.StdEncoding.DecodeString(credential); err == nil {
+				_, token, _ := strings.Cut(string(decoded), ":")
+				secrets = append(secrets, string(decoded), token)
+			}
+		}
+	}
+	return store.SafeError(message, secrets...)
 }

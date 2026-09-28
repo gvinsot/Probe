@@ -34,7 +34,7 @@ window.fetch = async (path, init) => {
   }
   else if (path === '/api/repos') {
     if (fixtureReposGate) await fixtureReposGate;
-    data = { repos: [fixtureRepo] };
+    data = { repos: [fixtureRepo], recent_limit: 7 };
   }
   else if (path.endsWith('/commits')) data = { limited: false, branches: [{name:'main',sha:fixtureSHA('a')},{name:'feature/ui',sha:fixtureSHA('c')}], commits: [
     { sha: fixtureSHA('a'), parents: [fixtureSHA('b'), fixtureSHA('c')], branches: ['main'], message: 'Merge feature', author: 'Ada' },
@@ -431,6 +431,11 @@ window.addEventListener('DOMContentLoaded', async () => {
     assert(!state.pending.has(lostKey), 'a late queued event for a finished attempt is ignored');
     followQueued('repo', { commit: lostCommit, variant: 'normal', queued_at: lostAt });
     assert(!state.pending.has(lostKey), 'a late enqueue response for a finished attempt is ignored');
+    assert(state.recentLimit === 7, 'browser uses the server supplied history cap');
+    for (let i = 0; i < 12; i++) {
+      rememberRun('repo', { commit: `cap-${i}`, status: 'done', queued_at: fixtureAgo(0) });
+    }
+    assert(state.recent.get('repo').size === 7 && state.repos.get('repo').recent_incomplete, 'live history obeys the API cap and marks omissions');
     assert(!document.body.dataset.testResult, document.body.dataset.testResult);
     document.body.dataset.testResult = 'PASS';
   } catch (err) { fixtureFail(err); }

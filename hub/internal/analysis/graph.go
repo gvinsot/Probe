@@ -2,10 +2,13 @@ package analysis
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
 	"time"
+
+	"github.com/gvinsot/SwiftProof/hub/internal/store"
 )
 
 // CommitNode preserves Git's parent links, including both sides of merges.
@@ -30,7 +33,13 @@ type CommitGraph struct {
 }
 
 // Graph reads history only; it never checks out or executes repository files.
-func (r *Runner) Graph(ctx context.Context, userKey, repoKey string) (*CommitGraph, error) {
+func (r *Runner) Graph(ctx context.Context, userKey, repoKey string) (graph *CommitGraph, resultErr error) {
+	var secrets []string
+	defer func() {
+		if resultErr != nil {
+			resultErr = errors.New(store.SafeError(resultErr.Error(), secrets...))
+		}
+	}()
 	ctx, cancel := context.WithTimeout(ctx, time.Minute)
 	defer cancel()
 	repo, err := r.store.Repo(userKey, repoKey)
@@ -46,6 +55,7 @@ func (r *Runner) Graph(ctx context.Context, userKey, repoKey string) (*CommitGra
 		return nil, err
 	}
 	token, err := r.accounts.Token(ctx, user)
+	secrets = []string{provider.GitAuthHeader(token), token.AccessToken, token.RefreshToken}
 	if err != nil {
 		return nil, err
 	}
