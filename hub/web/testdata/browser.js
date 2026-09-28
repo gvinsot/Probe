@@ -19,6 +19,8 @@ let fixtureActivities = [
   { repo_key: 'repo', commit: fixtureSHA('a'), variant: 'normal', status: 'failed', queued_at: fixtureAgo(3), finished_at: fixtureAgo(2), error: '<img src=x onerror=alert(1)>' },
 ];
 let fixtureReposGate;
+let fixtureReportGate;
+let fixtureReportError = false;
 let fixtureRuns = [fixtureRun('normal'), fixtureRun('plan')];
 window.EventSource = class { constructor() { fixtureStream = this; } };
 window.fetch = async (path, init) => {
@@ -42,6 +44,8 @@ window.fetch = async (path, init) => {
   ] };
   else if (path.includes('/runs')) data = { runs: fixtureRuns };
   else if (path.includes('/reports/')) {
+    if (fixtureReportGate) await fixtureReportGate;
+    if (fixtureReportError) throw new Error('cached result unavailable');
     const variant = new URL(path, location.origin).searchParams.get('variant');
     const run = fixtureRun(variant);
     data = { run, view: { summary: run.summary, alerts: [], files: [], unverified: ['No checks ran'], plan_drift: variant === 'plan' ? { status: 'conforming', decision: 'human_review_required', decision_reasons: ['No checks ran'] } : null }, plan: variant === 'plan' ? { proposal: { summary: 'Generated plan' } } : null };
@@ -287,6 +291,62 @@ window.addEventListener('DOMContentLoaded', async () => {
     await settle();
     assert(document.querySelector('#plan-result a').href.endsWith('?variant=plan'), 'download selected variant');
     assert(document.getElementById('plan-result').textContent.includes('Generated plan'), 'stored plan visible');
+    const reportDialog = document.getElementById('report-dialog');
+    const reportClose = document.getElementById('report-dialog-close');
+    const viewButton = (variant) => document.querySelector('[data-report-variant="' + variant + '"]');
+    const assertReportOpen = () => {
+      assert(reportDialog.open && reportDialog.matches(':modal'), 'cached result stays in a native modal');
+      assert(reportDialog.contains(document.getElementById('report-pane')), 'live report is inside the dialog');
+    };
+    assertReportOpen();
+    assert(reportDialog.contains(document.getElementById('plan-result')), 'plan shown inside modal');
+    reportClose.click();
+    assert(!reportDialog.open && document.activeElement === viewButton('plan'), 'Close restores focus to the selected variant');
+    assert(document.getElementById('splitter').nextElementSibling.id === 'report-pane', 'closing restores the inline report');
+
+    let releaseReport;
+    fixtureReportGate = new Promise((resolve) => { releaseReport = resolve; });
+    viewButton('normal').click();
+    await settle();
+    assertReportOpen();
+    assert(document.getElementById('report-empty').textContent === 'Loading cached result…', 'modal stays open while loading');
+    releaseReport(); fixtureReportGate = null;
+    await settle();
+    assertReportOpen();
+    assert(reportDialog.querySelector('.verdict').textContent === 'Human review required', 'analysis rendered in modal');
+    assert(reportDialog.querySelector('#download').href.endsWith('/raw'), 'analysis download remains usable');
+    reportClose.focus();
+    document.getElementById('analyses').focus();
+    assert(document.activeElement === reportClose, 'background is inert while report is modal');
+    reportDialog.click();
+    assertReportOpen();
+    fixtureStream.onmessage({ data: JSON.stringify({ type: 'report', repo_key: 'repo', commit: fixtureSHA('a'), run: fixtureRun('normal') }) });
+    await settle();
+    await refreshDashboard(true);
+    assertReportOpen();
+    assert(reportDialog.querySelector('.verdict'), 'live and periodic updates preserve the displayed report');
+    reportDialog.dispatchEvent(new Event('cancel', { cancelable: true }));
+    assert(!reportDialog.open && document.activeElement === viewButton('normal'), 'Escape cancellation closes and restores focus after button replacement');
+
+    fixtureReportError = true;
+    viewButton('normal').click();
+    await settle();
+    assertReportOpen();
+    assert(reportDialog.textContent.includes('cached result unavailable'), 'load errors stay visible inside modal');
+    fixtureReportError = false;
+    reportClose.click();
+    fixtureReportGate = new Promise((resolve) => { releaseReport = resolve; });
+    viewButton('normal').click();
+    reportClose.click();
+    releaseReport(); fixtureReportGate = null;
+    await settle();
+    assert(!reportDialog.open, 'late response cannot reopen a dismissed modal');
+    viewButton('plan').click();
+    await settle();
+    assertReportOpen();
+    assert(reportDialog.textContent.includes('Generated plan'), 'plan can be reopened after analysis and error');
+    assert(fixtureCalls.filter((call) => call.path.endsWith('/analyze')).length === 2, 'opening cached results never launches an analysis');
+    reportClose.click();
     // An alert singles out only the lines it is about, and says why it singles out none.
     const diffFile = { path: 'hub/api.go', status: 'M', additions: 1, deletions: 0, hunks: [{ old_start: 1, old_lines: 1, new_start: 1, new_lines: 2, lines: [
       { kind: 'context', old_line: 1, new_line: 1, content: 'package hub' }, { kind: 'add', new_line: 2, content: 'if err != nil {}' }] }] };

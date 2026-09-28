@@ -700,6 +700,7 @@ function upsertRepo(repo) {
 
 async function selectRepo(repoKey, commit) {
   const changed = state.repoKey !== repoKey || state.commit !== (commit || null);
+  if (changed) closeReportDialog();
   state.repoKey = repoKey;
   state.commit = commit || null;
   state.expanded.clear();
@@ -996,7 +997,10 @@ function renderCommitActions(resetIntent = false) {
     const launch = button('Run ' + (variant === 'plan' ? 'plan' : 'analysis'),'btn small', () => analyzeCommit(variant));
     launch.disabled = run && ['queued', 'running'].includes(run.status);
     actions.appendChild(launch);
-    const view = button('View cached result', 'btn quiet small', () => { state.variant = variant; loadReport(); });
+    const view = button('View cached result', 'btn quiet small', () => openReportDialog(variant));
+    view.dataset.reportVariant = variant;
+    view.setAttribute('aria-haspopup', 'dialog');
+    view.setAttribute('aria-controls', 'report-dialog');
     view.disabled = !cachedRun(state.commit, variant);
     actions.appendChild(view);
     card.appendChild(actions);
@@ -1073,6 +1077,26 @@ function clearReport(repo) {
   el('report-empty').textContent = 'No cached result for this mode. Launch an analysis above.';
 }
 
+function openReportDialog(variant) {
+  state.variant = variant;
+  const dialog = el('report-dialog');
+  // Move the live report, preserving its controls and event listeners. The
+  // dialog itself is outside the panels rebuilt by history and SSE updates.
+  el('report-dialog-body').appendChild(el('report-pane'));
+  if (!dialog.open) dialog.showModal();
+  el('report-dialog-close').focus();
+  loadReport();
+}
+
+function closeReportDialog() {
+  const dialog = el('report-dialog');
+  if (!dialog.open) return;
+  dialog.close();
+  el('splitter').after(el('report-pane'));
+  // Live updates may have replaced the button that originally opened it.
+  document.querySelector('[data-report-variant="' + state.variant + '"]')?.focus();
+}
+
 async function loadReport() {
   const repo = state.repos.get(state.repoKey);
   const commit = state.commit, variant = state.variant;
@@ -1081,6 +1105,7 @@ async function loadReport() {
   const reportID = ++state.reportID;
   const run = cachedRun(commit, variant);
   if (!run) return;
+  el('report-empty').textContent = 'Loading cached result…';
   try {
     const payload = await api('/api/repos/' + encodeURIComponent(repo.key)
       + '/reports/' + encodeURIComponent(commit) + '?variant=' + variant);
@@ -1882,10 +1907,16 @@ async function boot() {
     loadHistory();
   });
   el('modal-close').addEventListener('click', closeModal);
+  el('report-dialog-close').addEventListener('click', closeReportDialog);
+  el('report-dialog').addEventListener('cancel', (event) => {
+    event.preventDefault();
+    closeReportDialog();
+  });
   el('modal').addEventListener('click', (event) => {
     if (event.target === el('modal')) closeModal();
   });
   document.addEventListener('keydown', (event) => {
+    if (el('report-dialog').open) return; // Native modal handles focus and Escape.
     if (event.key === 'Escape') closeModal();
     if (event.key === 'Tab' && !el('modal').classList.contains('hidden')) {
       const focusable = [...el('modal').querySelectorAll('button:not(:disabled), input:not(:disabled), textarea:not(:disabled), a[href], select:not(:disabled)')];
