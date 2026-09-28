@@ -249,15 +249,15 @@ recorded in `signal_assessments`, and the model's closing text in
 `reviewer_summary`; Markdown shows both. They are model judgment, never
 evidence, and change no hypothesis status. A `no_risk` reading is kept only
 when a non-blank rationale cites a verified `read_file` source observation;
-otherwise it is recorded as `uncertain`. With `--ai-impacts-criticity` (the
+otherwise it is recorded as `uncertain`. With `--ai-impacts-criticality` (the
 default), a kept `no_risk` reading lowers its signal's severity by one level
 (critical to high, high to medium, medium to low; the linter's value stays in
 `original_severity`), and a low signal is marked `set_aside` and becomes no
 review target. Review targets, the review surface and the exit code are then
 derived from the adjusted severities, so a high signal read as harmless no
-longer requests human review on its own. `--ai-impacts-criticity=false` keeps
+longer requests human review on its own. `--ai-impacts-criticality=false` keeps
 the linter's severities, and the report records the choice in
-`ai_impacts_criticity`. When
+`ai_impacts_criticality`. When
 the diff would take more than half of the reviewer's input budget, the model
 receives the list of changed files without their hunks and reads them with
 `get_diff`.

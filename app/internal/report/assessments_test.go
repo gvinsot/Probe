@@ -61,7 +61,7 @@ func TestFinalizeAssessments(t *testing.T) {
 	}
 }
 
-// Without --ai-impacts-criticity, assessments change no exit code or review
+// Without --ai-impacts-criticality, assessments change no exit code or review
 // target.
 func TestAssessmentsChangeNoConclusion(t *testing.T) {
 	plain := assessedReport()
@@ -74,11 +74,11 @@ func TestAssessmentsChangeNoConclusion(t *testing.T) {
 	}
 }
 
-// criticityReport has one kept no_risk reading per severity, plus a no_risk
+// criticalityReport has one kept no_risk reading per severity, plus a no_risk
 // reading without a verified observation, which stays uncertain.
-func criticityReport() *model.Report {
+func criticalityReport() *model.Report {
 	r := &model.Report{
-		AIImpactsCriticity: true,
+		AIImpactsCriticality: true,
 		Change: model.Change{Files: []model.ChangedFile{{Path: "a.go", Status: "M", Additions: 5, Hunks: []model.Hunk{{NewStart: 1, NewLines: 5, Lines: []model.DiffLine{
 			{Kind: "add", NewLine: 1, Content: "a"}, {Kind: "add", NewLine: 2, Content: "b"}, {Kind: "add", NewLine: 3, Content: "c"}, {Kind: "add", NewLine: 4, Content: "d"}, {Kind: "add", NewLine: 5, Content: "e"},
 		}}}}}},
@@ -97,8 +97,8 @@ func criticityReport() *model.Report {
 	return r
 }
 
-func TestAIImpactsCriticityLowersSeverities(t *testing.T) {
-	r := criticityReport()
+func TestAIImpactsCriticalityLowersSeverities(t *testing.T) {
+	r := criticalityReport()
 	Finalize(r, true)
 	type got struct {
 		adjusted string
@@ -110,7 +110,7 @@ func TestAIImpactsCriticityLowersSeverities(t *testing.T) {
 			if g := (got{a.AdjustedSeverity, a.SetAside}); g != want[i] {
 				t.Errorf("%s: %s = %+v, want %+v", when, a.SignalID, g, want[i])
 			}
-			if r.Signals[i].Severity != criticityReport().Signals[i].Severity {
+			if r.Signals[i].Severity != criticalityReport().Signals[i].Severity {
 				t.Errorf("%s: the linter severity of %s changed", when, a.SignalID)
 			}
 		}
@@ -137,14 +137,14 @@ func TestAIImpactsCriticityLowersSeverities(t *testing.T) {
 		t.Fatalf("focused lines = %d, want 4 (line 4 was set aside)", r.ReviewSurface.FocusedLines)
 	}
 	md := string(Markdown(r))
-	for _, want := range []string{"--ai-impacts-criticity)", "signal-1; linter: summary signal-1; severity high, lowered from critical", "signal-4; linter: summary signal-4; set aside"} {
+	for _, want := range []string{"--ai-impacts-criticality)", "signal-1; linter: summary signal-1; severity high, lowered from critical", "signal-4; linter: summary signal-4; set aside"} {
 		if !strings.Contains(md, want) {
 			t.Errorf("markdown lacks %q", want)
 		}
 	}
 
 	// Turning the flag off on the persisted report clears every adjustment.
-	r.AIImpactsCriticity = false
+	r.AIImpactsCriticality = false
 	Finalize(r, true)
 	for _, a := range r.SignalAssessments {
 		if a.AdjustedSeverity != "" || a.SetAside {
@@ -154,18 +154,18 @@ func TestAIImpactsCriticityLowersSeverities(t *testing.T) {
 }
 
 // A high signal read as harmless no longer requests human review on its own.
-func TestAIImpactsCriticityChangesTheExitCode(t *testing.T) {
+func TestAIImpactsCriticalityChangesTheExitCode(t *testing.T) {
 	for _, impacts := range []bool{false, true} {
-		r := criticityReport()
+		r := criticalityReport()
 		r.Signals, r.SignalAssessments = r.Signals[1:2], r.SignalAssessments[1:2]
-		r.AIImpactsCriticity = impacts
+		r.AIImpactsCriticality = impacts
 		Finalize(r, true)
 		want := 2
 		if impacts {
 			want = 0
 		}
 		if r.ExitCode != want {
-			t.Errorf("ai_impacts_criticity=%v: exit %d, want %d", impacts, r.ExitCode, want)
+			t.Errorf("ai_impacts_criticality=%v: exit %d, want %d", impacts, r.ExitCode, want)
 		}
 	}
 }

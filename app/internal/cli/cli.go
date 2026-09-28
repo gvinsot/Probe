@@ -147,7 +147,7 @@ func analyze(ctx context.Context, mode string, args []string, out, errOut io.Wri
 	checks := f.Bool("checks", mode == "review", "run configured checks in the Docker sandbox")
 	readOnly := f.Bool("read-only", false, "review: inspect changes with the LLM using read-only tools, without Docker or code execution")
 	useReviewer := f.Bool("reviewer", false, "use LLM investigation (default: enabled for review when a model is configured in policy or the environment); --reviewer=false disables provider calls")
-	aiImpactsCriticity := f.Bool("ai-impacts-criticity", true, "lower by one level the severity of a linter signal the reviewer read as no_risk from a recorded source observation, and set a low one aside; --ai-impacts-criticity=false keeps linter severities")
+	aiImpactsCriticality := f.Bool("ai-impacts-criticality", true, "lower by one level the severity of a linter signal the reviewer read as no_risk from a recorded source observation, and set a low one aside; --ai-impacts-criticality=false keeps linter severities")
 	maxIterations := f.Int("max-iterations", 0, "override LLM iteration budget (1..100)")
 	intent := f.String("intent", "", "PR intent or acceptance criteria")
 	intentFile := f.String("intent-file", "", "UTF-8 file containing PR intent")
@@ -326,7 +326,7 @@ func analyze(ctx context.Context, mode string, args []string, out, errOut io.Wri
 	if *readOnly {
 		r.AnalysisMode = "review-read-only"
 	}
-	r.AIImpactsCriticity = *aiImpactsCriticity
+	r.AIImpactsCriticality = *aiImpactsCriticality
 	r.Unverified = append(r.Unverified, doc.Notes...)
 	if drift != nil {
 		// The critical globs of this review's trusted policy; Finalize

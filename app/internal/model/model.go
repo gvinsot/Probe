@@ -123,7 +123,7 @@ const (
 // SignalAssessment is the reviewer model's plain-language reading of one
 // linter signal. It is a model judgment, never evidence: it changes no
 // hypothesis status. Finalize keeps no_risk only when a non-blank rationale
-// cites a verified source observation; with Report.AIImpactsCriticity, a
+// cites a verified source observation; with Report.AIImpactsCriticality, a
 // kept no_risk lowers the signal's severity by one level, and sets a low
 // signal aside.
 type SignalAssessment struct {
@@ -134,7 +134,7 @@ type SignalAssessment struct {
 	Rationale   string   `json:"rationale,omitempty"`
 	EvidenceIDs []string `json:"evidence_ids"`
 	// AdjustedSeverity is the severity Finalize derives conclusions from
-	// when Report.AIImpactsCriticity lowered the signal's by one level;
+	// when Report.AIImpactsCriticality lowered the signal's by one level;
 	// SetAside marks a low signal read as no_risk, which is no review target.
 	// The signal itself keeps the linter's severity.
 	AdjustedSeverity string `json:"adjusted_severity,omitempty"`
@@ -237,7 +237,7 @@ type Report struct {
 	Artifacts          []Artifact         `json:"artifacts"`
 	Audit              []AuditEvent       `json:"audit"`
 	ExitCode           int                `json:"exit_code"`
-	// AIImpactsCriticity records --ai-impacts-criticity: a no_risk reading
+	// AIImpactsCriticality records --ai-impacts-criticality: a no_risk reading
 	// lowers its signal's severity (see SignalAssessment).
-	AIImpactsCriticity bool `json:"ai_impacts_criticity,omitempty"`
+	AIImpactsCriticality bool `json:"ai_impacts_criticality,omitempty"`
 }

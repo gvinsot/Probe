@@ -363,8 +363,8 @@ func populatedReport() Report {
 			{SignalID: "signal-2", Title: "go.sum changed", Explanation: "Only checksums of an updated module changed.", Judgment: AssessmentNoRisk, Rationale: "The diff only updates checksums.", EvidenceIDs: []string{"evidence-1"}, AdjustedSeverity: "low"},
 			{SignalID: "signal-3", Title: "Only a comment changed", Explanation: "The rounding comment was reworded.", Judgment: AssessmentNoRisk, Rationale: "Line 2 is a comment.", EvidenceIDs: []string{"evidence-1"}, SetAside: true},
 		},
-		ReviewerSummary:    "Two signals read; one rounding concern remains.",
-		AIImpactsCriticity: true,
+		ReviewerSummary:      "Two signals read; one rounding concern remains.",
+		AIImpactsCriticality: true,
 		Evidence: []Evidence{
 			{ID: "evidence-1", Kind: EvidenceSourceObservation, Description: "d", Path: "calc/calc.go", Output: "3: return (p*d + 99) / 100", Status: StatusObserved, TestNames: []string{}},
 			{ID: "evidence-2", Kind: EvidenceDifferentialTest, Description: "d", Path: "calc/discount_swiftproof_test.go", CheckID: "check-3", BaseCheckID: "check-2", Status: StatusReproduced, Runner: "go_test_json", TestNames: []string{"TestDiscountRounding"}},

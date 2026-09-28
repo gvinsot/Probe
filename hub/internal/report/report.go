@@ -186,7 +186,7 @@ type SignalAssessment struct {
 	Rationale   string   `json:"rationale,omitempty"`
 	EvidenceIDs []string `json:"evidence_ids"`
 	// AdjustedSeverity and SetAside record how the CLI lowered the signal's
-	// severity after this reading (ai_impacts_criticity).
+	// severity after this reading (ai_impacts_criticality).
 	AdjustedSeverity string `json:"adjusted_severity,omitempty"`
 	SetAside         bool   `json:"set_aside,omitempty"`
 }
@@ -447,7 +447,7 @@ func (r *Report) Alerts() []Alert {
 }
 
 // Dismissed lists what the reviewer model set aside: the low signals the CLI
-// set aside after a no_risk reading (ai_impacts_criticity), and its DISMISSED
+// set aside after a no_risk reading (ai_impacts_criticality), and its DISMISSED
 // hypotheses. They are shown apart, never deleted. The hub decides nothing
 // here: it follows the set_aside and status fields the CLI recorded, and the
 // verdict still comes from the CLI exit code.

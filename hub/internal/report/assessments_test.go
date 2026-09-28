@@ -127,7 +127,7 @@ func TestAdjustedSeverityComesFromTheCLI(t *testing.T) {
 		},
 		SignalAssessments: []SignalAssessment{
 			{SignalID: "s1", Title: "Harmless rename", Explanation: "x", Judgment: JudgmentNoRisk, Rationale: "r", AdjustedSeverity: "medium"},
-			{SignalID: "s2", Title: "Harmless too", Explanation: "y", Judgment: JudgmentNoRisk, Rationale: "r"}, // ai_impacts_criticity=false
+			{SignalID: "s2", Title: "Harmless too", Explanation: "y", Judgment: JudgmentNoRisk, Rationale: "r"}, // ai_impacts_criticality=false
 		},
 	}
 	alerts := r.Alerts()

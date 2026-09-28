@@ -1653,7 +1653,7 @@ function renderExtras() {
   const dismissed = view.dismissed || [];
   if (dismissed.length > 0) {
     // What the AI reviewer set aside stays one click away: it is model
-    // judgment, recorded by the CLI (ai_impacts_criticity).
+    // judgment, recorded by the CLI (ai_impacts_criticality).
     const box = document.createElement('details');
     box.className = 'dismissed';
     box.open = state.showDismissed;

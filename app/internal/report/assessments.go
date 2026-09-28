@@ -50,7 +50,7 @@ func finalizeAssessments(r *model.Report, l *ledger) {
 	adjustSeverities(r)
 }
 
-// adjustSeverities applies Report.AIImpactsCriticity. Each assessment is first
+// adjustSeverities applies Report.AIImpactsCriticality. Each assessment is first
 // cleared, so that a re-rendered report is adjusted once. Then, when the run
 // allowed it, a kept no_risk reading lowers its signal's severity by one level
 // (critical to high, high to medium, medium to low) in AdjustedSeverity, and
@@ -66,7 +66,7 @@ func adjustSeverities(r *model.Report) {
 	for i := range r.SignalAssessments {
 		a := &r.SignalAssessments[i]
 		a.AdjustedSeverity, a.SetAside = "", false
-		if !r.AIImpactsCriticity || a.Judgment != model.AssessmentNoRisk {
+		if !r.AIImpactsCriticality || a.Judgment != model.AssessmentNoRisk {
 			continue
 		}
 		switch severity(linter[a.SignalID]) {
@@ -156,10 +156,10 @@ func writeReviewerReading(b *bytes.Buffer, r *model.Report) {
 		}
 	}
 	line(b, "\n## Linter Signals Read by the Reviewer\n")
-	if r.AIImpactsCriticity {
-		line(b, "Model judgment, not evidence. A no-risk reading cites a recorded source observation; it lowered its signal's severity by one level, and set a low signal aside, before review targets and the exit code were derived (--ai-impacts-criticity).\n")
+	if r.AIImpactsCriticality {
+		line(b, "Model judgment, not evidence. A no-risk reading cites a recorded source observation; it lowered its signal's severity by one level, and set a low signal aside, before review targets and the exit code were derived (--ai-impacts-criticality).\n")
 	} else {
-		line(b, "Model judgment, not evidence: it changes no signal, status, review target or exit code (--ai-impacts-criticity=false). A no-risk reading cites a recorded source observation.\n")
+		line(b, "Model judgment, not evidence: it changes no signal, status, review target or exit code (--ai-impacts-criticality=false). A no-risk reading cites a recorded source observation.\n")
 	}
 	for _, a := range r.SignalAssessments {
 		s := signals[a.SignalID]

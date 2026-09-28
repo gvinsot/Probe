@@ -272,7 +272,7 @@ func targets(r *model.Report) ([]model.ReviewTarget, model.ReviewSurface) {
 	adjustments := signalAdjustments(r)
 	for _, s := range r.Signals {
 		sev, aside := effectiveSeverity(s, adjustments)
-		if aside { // read as harmless by the reviewer (AIImpactsCriticity)
+		if aside { // read as harmless by the reviewer (AIImpactsCriticality)
 			continue
 		}
 		if s.Scope == model.SignalScopeFile {

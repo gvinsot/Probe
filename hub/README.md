@@ -38,7 +38,7 @@ approves a change and never turns a zero exit code into a claim of correctness.
   The report shows the model's suspicions as issues, its closing summary, and
   its reading of each linter signal: a plain-language title and explanation
   replace the linter's terse one, which stays visible in the alert. The CLI
-  runs with `--ai-impacts-criticity` (its default): a signal the model judged
+  runs with `--ai-impacts-criticality` (its default): a signal the model judged
   harmless from a recorded source read loses one severity level (critical to
   high, high to medium, medium to low), shown with a "was …" chip, and a low
   one moves, with the dismissed hypotheses, to a folded "Set aside by the AI
