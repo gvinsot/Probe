@@ -422,6 +422,7 @@ body.resizing { cursor: col-resize; user-select: none; }
 .card-head h3 { margin: 0; }
 .card-head .note { margin: 0; }
 .comparison-card > .note { margin: 6px 0 0; }
+.comparison-card > .row { margin-top: 8px; }
 #plan-intent { display: block; width: 100%; resize: vertical; }
 .plan-intent-field { margin: 8px 0; }
 #plan-result pre { max-height: 500px; overflow: auto; }
