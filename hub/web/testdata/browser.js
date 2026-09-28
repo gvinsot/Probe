@@ -36,6 +36,16 @@ window.fetch = async (path, init) => {
     if (fixtureReposGate) await fixtureReposGate;
     data = { repos: [fixtureRepo], recent_limit: 7 };
   }
+  else if (path.endsWith('/policy')) {
+    const body = JSON.parse(init.body);
+    const key = path.split('/')[3];
+    data = body.preview ? { language: 'go', policy: '{"version":1}' }
+      : { repo: { ...state.repos.get(key), has_policy: true } };
+  }
+  else if (path.endsWith('/monitor')) {
+    const key = path.split('/')[3];
+    data = { repo: { ...state.repos.get(key), monitored: init.method === 'POST' } };
+  }
   else if (path.endsWith('/commits')) data = { limited: false, branches: [{name:'main',sha:fixtureSHA('a')},{name:'feature/ui',sha:fixtureSHA('c')}], commits: [
     { sha: fixtureSHA('a'), parents: [fixtureSHA('b'), fixtureSHA('c')], branches: ['main'], message: 'Merge feature', author: 'Ada' },
     { sha: fixtureSHA('c'), parents: [fixtureSHA('d')], branches: ['feature/ui'], message: '<img src=x onerror=alert(1)>', author: 'Grace' },
@@ -106,6 +116,64 @@ window.addEventListener('DOMContentLoaded', async () => {
     assert(getComputedStyle(repoPanel).position === 'sticky', 'repository panel does not scroll with the page');
     assert(getComputedStyle(document.getElementById('repos')).overflowY === 'auto', 'repository list scrolls on its own');
     assert(parseFloat(getComputedStyle(repoPanel).top) >= document.querySelector('.topbar').getBoundingClientRect().height, 'repository panel stays below the top bar: ' + document.querySelector('.topbar').getBoundingClientRect().height);
+    // Policy filtering composes with name and monitoring filters.
+    const missingRepo = { ...fixtureRepo, key: 'missing', full_name: 'acme/missing', has_policy: false };
+    const monitoredRepo = { ...fixtureRepo, key: 'monitored', full_name: 'acme/watched', monitored: true };
+    state.repos.set(missingRepo.key, missingRepo);
+    state.repos.set(monitoredRepo.key, monitoredRepo);
+    renderRepos();
+    const names = () => Array.from(document.querySelectorAll('.repo-name'), (node) => node.textContent);
+    const hasPolicy = document.getElementById('only-policy');
+    const missingPolicy = document.getElementById('only-nopolicy');
+    const monitored = document.getElementById('only-monitored');
+    hasPolicy.click();
+    assert(names().length === 2 && !names().includes('acme/missing'), 'Has policy hides repositories without a policy');
+    monitored.click();
+    assert(names().join() === 'acme/watched', 'Has policy combines with Monitored only');
+    monitored.click();
+    const search = document.getElementById('repo-search');
+    search.value = 'SHOP'; search.dispatchEvent(new Event('input'));
+    assert(names().join() === 'acme/shop', 'Has policy combines with name search');
+    search.value = ''; search.dispatchEvent(new Event('input'));
+    missingPolicy.click();
+    assert(!hasPolicy.checked && names().join() === 'acme/missing', 'Missing policy clears Has policy');
+    hasPolicy.click();
+    assert(!missingPolicy.checked && names().length === 2, 'Has policy clears Missing policy');
+    hasPolicy.click();
+    assert(names().length === 3, 'clearing policy filters restores every repository');
+
+    // Adding a policy never requests monitoring, even for an administrator.
+    for (const admin of [true, false]) {
+      state.repos.set('missing', { ...missingRepo, admin });
+      renderRepos();
+      const setup = document.querySelector('#repos .setup');
+      assert(setup.textContent === 'Add policy', 'repository without a policy offers Add policy');
+      const callStart = fixtureCalls.length;
+      setup.click();
+      await settle();
+      assert(document.getElementById('modal-title').textContent === 'Add policy to acme/missing', 'policy dialog title matches the action');
+      assert(document.querySelector('#modal-body pre').textContent === '{"version":1}', 'policy preview rendered');
+      const create = document.querySelector('#modal-footer .btn:not(.quiet)');
+      assert(create.textContent === 'Commit the policy' && !create.disabled, 'policy can be committed after preview');
+      create.click();
+      await settle();
+      const calls = fixtureCalls.slice(callStart);
+      assert(calls.length === 2 && calls.every((call) => call.path.endsWith('/policy')), 'adding policy only requests preview and policy commit');
+      assert(JSON.parse(calls[0].init.body).preview && !JSON.parse(calls[1].init.body).preview, 'preview precedes policy commit');
+      assert(state.repos.get('missing').has_policy && !state.repos.get('missing').monitored, 'policy creation leaves monitoring disabled');
+      assert(document.getElementById('modal').classList.contains('hidden'), 'successful policy creation closes the dialog');
+      const row = Array.from(document.querySelectorAll('#repos .repo')).find((node) => node.textContent.includes('acme/missing'));
+      const monitor = row.querySelector('.monitor');
+      assert(!row.querySelector('.setup') && monitor.textContent === 'Activate monitoring' && monitor.disabled === !admin, 'monitoring becomes a separate action with existing permissions');
+      if (admin) {
+        monitor.click();
+        await settle();
+        assert(state.repos.get('missing').monitored && fixtureCalls.at(-1).path.endsWith('/monitor'), 'explicit activation still enables monitoring');
+      }
+    }
+    state.repos.delete('missing');
+    state.repos.delete('monitored');
+    renderRepos();
     document.querySelector('.repo-name').click();
     await settle();
     assert(document.querySelectorAll('.commit-row').length === 4, 'all graph commits rendered');
