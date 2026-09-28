@@ -30,8 +30,11 @@ type chat struct {
 	client    *http.Client
 }
 
+// newChat builds the session's client. The response-header wait is the whole
+// reviewer timeout: a non-streaming completion sends its headers only once the
+// answer is generated, which a shared endpoint can take minutes to do.
 func newChat(o Options, endpoint string) *chat {
-	transport := &http.Transport{Proxy: nil, DialContext: (&net.Dialer{Timeout: 10 * time.Second}).DialContext, TLSHandshakeTimeout: 10 * time.Second, ResponseHeaderTimeout: 60 * time.Second, MaxIdleConns: 1, MaxIdleConnsPerHost: 1, IdleConnTimeout: 30 * time.Second}
+	transport := &http.Transport{Proxy: nil, DialContext: (&net.Dialer{Timeout: 10 * time.Second}).DialContext, TLSHandshakeTimeout: 10 * time.Second, ResponseHeaderTimeout: o.Timeout, MaxIdleConns: 1, MaxIdleConnsPerHost: 1, IdleConnTimeout: 30 * time.Second}
 	client := &http.Client{Transport: transport, Timeout: o.Timeout, CheckRedirect: func(*http.Request, []*http.Request) error { return errors.New("reviewer redirects are prohibited") }}
 	return &chat{o: o, endpoint: endpoint, transport: transport, client: client}
 }
@@ -46,6 +49,17 @@ func (c *chat) clean(s string) string {
 		s = strings.ReplaceAll(s, c.o.APIKey, "[REDACTED]")
 	}
 	return s
+}
+
+// requestError describes a failed request without echoing the transport error,
+// which can hold the endpoint URL: a timeout says how long the endpoint was
+// waited for, anything else is a transport failure or a prohibited redirect.
+func requestError(err error, elapsed, limit time.Duration) error {
+	var netErr net.Error
+	if errors.Is(err, context.DeadlineExceeded) || errors.As(err, &netErr) && netErr.Timeout() {
+		return fmt.Errorf("reviewer endpoint gave no response within %s (reviewer timeout %s); the model may be slow or overloaded", elapsed.Round(time.Second), limit)
+	}
+	return errors.New("reviewer request failed (transport error or prohibited redirect)")
 }
 
 type completionChoice struct {
@@ -83,7 +97,7 @@ func (c *chat) complete(ctx context.Context, messages []message, tools []map[str
 	res, err := c.client.Do(req)
 	event := model.AuditEvent{Time: started.UTC(), Tool: "reviewer_completion", Arguments: fmt.Sprintf("iteration=%d", iteration+1), Status: "ERROR", DurationMS: time.Since(started).Milliseconds()}
 	if err != nil {
-		return completionChoice{}, event, errors.New("reviewer request failed (transport, timeout, or prohibited redirect)")
+		return completionChoice{}, event, requestError(err, time.Since(started), c.o.Timeout)
 	}
 	data, readErr := io.ReadAll(io.LimitReader(res.Body, 1024*1024+1))
 	res.Body.Close()

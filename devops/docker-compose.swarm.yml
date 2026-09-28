@@ -74,7 +74,10 @@ services:
       # PulsarCD mounts _KEY variables as secrets for the CLI to read.
       SWIFTPROOF_API_KEY: "${SWIFTPROOF_API_KEY:-}"
       SWIFTPROOF_REVIEWER_ALLOW_INSECURE_HTTP: "${SWIFTPROOF_REVIEWER_ALLOW_INSECURE_HTTP:-false}"
-      SWIFTPROOF_HUB_WORKERS: "${SWIFTPROOF_HUB_WORKERS:-2}"
+      # One analysis at a time: each read-only review holds a long session with
+      # the reviewer endpoint, and a shared model slows down for every parallel
+      # session. Raise it only when the endpoint can serve several reviews.
+      SWIFTPROOF_HUB_WORKERS: "${SWIFTPROOF_HUB_WORKERS:-1}"
       # One account cannot hold more than this many queued or running analyses,
       # and one webhook routing key is accepted this many times per minute.
       SWIFTPROOF_HUB_USER_QUOTA: "${SWIFTPROOF_HUB_USER_QUOTA:-8}"
