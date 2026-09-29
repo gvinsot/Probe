@@ -21,12 +21,12 @@
   ];
 
   // Used only when the GitHub API is unreachable or rate limited. Download
-  // URLs are derived from the naming convention, so older entries stay valid;
-  // newer releases appear automatically once the API answers again.
+  // URLs are derived from the naming convention, which the project name change
+  // of v0.5.0 broke for earlier tags (their archives are named swiftproof-*),
+  // so only releases named probe-* belong here; newer releases appear
+  // automatically once the API answers again.
   var FALLBACK = [
-    { tag: "v0.3.0", date: "2026-09-20T21:53:03Z" },
-    { tag: "v0.2.0", date: "2026-09-20T10:06:27Z" },
-    { tag: "v0.1.0", date: "2026-09-19T21:32:40Z" }
+    { tag: "v0.5.1", date: "2026-09-29T14:41:38Z" }
   ];
 
   function $(sel, root) { return (root || document).querySelector(sel); }
