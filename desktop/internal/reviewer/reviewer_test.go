@@ -43,17 +43,42 @@ func TestOpenAICompatibleEndpoint(t *testing.T) {
 	}))
 	defer srv.Close()
 	s := config.Settings{Provider: config.ProviderOpenAI, Model: "local-model", BaseURL: srv.URL + "/v1", Language: "fr"}
-	text, err := Explain(context.Background(), s, "k", "b.xlsx", sampleReport())
+	res, err := Explain(context.Background(), s, "k", "b.xlsx", sampleReport())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if text != "Check C1." || got["model"] != "local-model" {
-		t.Fatalf("text %q, request %v", text, got)
+	if res.Text != "Check C1." || len(res.Findings) != 0 || got["model"] != "local-model" {
+		t.Fatalf("result %+v, request %v", res, got)
 	}
 }
 
 func TestNotConfigured(t *testing.T) {
 	if _, err := Explain(context.Background(), config.Defaults(), "", "a.docx", sampleReport()); err != ErrNotConfigured {
 		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestParseAnswerRaisesBoundedAIFindings(t *testing.T) {
+	raw := "```json\n" + `{"explanation":"Total looks off.","findings":[` +
+		`{"severity":"HIGH","title":"Total no longer matches the lines","location":"Budget!C9","before":"120","after":"90"},` +
+		`{"severity":"weird","title":"Odd label"},{"severity":"low","title":""}]}` + "\n```"
+	res := parseAnswer(raw)
+	if res.Text != "Total looks off." || len(res.Findings) != 2 {
+		t.Fatalf("result %+v", res)
+	}
+	if f := res.Findings[0]; f.Severity != office.High || f.Rule != RuleAI || f.Location != "Budget!C9" {
+		t.Errorf("finding %+v", f)
+	}
+	if res.Findings[1].Severity != office.Low {
+		t.Errorf("unknown severity kept: %+v", res.Findings[1])
+	}
+}
+
+func TestParseAnswerFallsBackToPlainText(t *testing.T) {
+	for _, raw := range []string{"Just check C1.", `{"findings":[{"title":"x"}]}`, "{broken"} {
+		res := parseAnswer(raw)
+		if res.Text != raw || len(res.Findings) != 0 {
+			t.Errorf("%q -> %+v", raw, res)
+		}
 	}
 }

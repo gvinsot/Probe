@@ -314,7 +314,7 @@ func (s *Server) explain(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "cannot read the API key from the keychain: "+err.Error())
 		return
 	}
-	text, err := reviewer.Explain(r.Context(), st, key, d.Path, d.Report)
+	res, err := reviewer.Explain(r.Context(), st, key, d.Path, d.Report)
 	if err != nil {
 		s.deps.Log.Warn("explanation failed", "provider", st.Provider, "model", st.EffectiveModel(), "err", err)
 		status := http.StatusBadGateway
@@ -324,7 +324,7 @@ func (s *Server) explain(w http.ResponseWriter, r *http.Request) {
 		writeError(w, status, err.Error())
 		return
 	}
-	e := watch.Explanation{Provider: st.Provider, Model: st.EffectiveModel(), Text: text, At: time.Now()}
+	e := watch.Explanation{Provider: st.Provider, Model: st.EffectiveModel(), Text: res.Text, Findings: res.Findings, At: time.Now()}
 	if err := s.deps.Watcher.SetExplanation(id, d.CurrentHash, e); err != nil {
 		writeError(w, http.StatusConflict, err.Error())
 		return

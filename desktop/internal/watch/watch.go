@@ -50,10 +50,13 @@ const (
 
 // Explanation is the optional AI reading of a report.
 type Explanation struct {
-	Provider string    `json:"provider"`
-	Model    string    `json:"model"`
-	Text     string    `json:"text"`
-	At       time.Time `json:"at"`
+	Provider string `json:"provider"`
+	Model    string `json:"model"`
+	Text     string `json:"text"`
+	// Findings are the extra risks the model raised. They are shown apart
+	// from the report and do not change its severity.
+	Findings []office.Finding `json:"findings,omitempty"`
+	At       time.Time        `json:"at"`
 }
 
 // Document is the state of one watched file.

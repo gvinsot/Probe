@@ -6,8 +6,10 @@ computer. When a document changes, it compares the new version with the last
 reviewed one and flags the modifications that deserve a look.
 
 The findings are computed on the computer by fixed rules. An AI provider
-(Anthropic or OpenAI) can be configured to explain a report in plain language,
-but it never decides what is flagged.
+(Anthropic or OpenAI, or a local OpenAI-compatible model) can be configured to
+explain a report in plain language and to raise extra findings the rules
+missed. Those are listed apart as "Raised by AI"; they never remove a rule
+finding and never change the severity of the report.
 
 ## What it flags
 

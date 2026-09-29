@@ -279,6 +279,12 @@ function renderDetail() {
       el("p", { text: d.explanation.text }),
       el("span", { class: "note", text: `Explanation by ${d.explanation.model} · ${ago(d.explanation.at)} · the findings below remain the reference` }),
     ));
+    const extra = d.explanation.findings || [];
+    if (extra.length) {
+      parts.push(el("h3", { class: "section-title", text: `Raised by AI (${extra.length})` }));
+      parts.push(el("ul", { class: "findings ai-findings" }, ...extra.map(findingItem)));
+      parts.push(el("p", { class: "note", text: "Suggestions from the model, not rule results: check them in the document. They do not change the severity above." }));
+    }
   }
 
   const r = d.report;

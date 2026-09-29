@@ -1,13 +1,15 @@
-// Package reviewer asks an AI model to explain a report in plain language.
+// Package reviewer asks an AI model to review a report.
 //
 // The model reads the findings and the changed excerpts the deterministic
-// comparison already produced, never the whole document, and its answer is
-// shown as an explanation next to the findings. It does not add, remove or
-// grade findings: the verdict stays the one of the rules.
+// comparison already produced, never the whole document. It answers with a
+// plain-language explanation and may point out additional risky changes the
+// rules missed. Those are kept apart as AI findings: they never remove or
+// downgrade a rule finding and never change the verdict of the rules.
 package reviewer
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"path/filepath"
@@ -30,10 +32,23 @@ type Request struct {
 // ErrNotConfigured reports a missing provider or key.
 var ErrNotConfigured = errors.New("no AI provider is configured: choose one and save its API key in the settings")
 
-// Explain returns the explanation of a report.
-func Explain(ctx context.Context, s config.Settings, apiKey, path string, report *office.Report) (string, error) {
+// Result is the review of a report by the model.
+type Result struct {
+	Text     string
+	Findings []office.Finding
+}
+
+// maxAIFindings bounds what the model can add to a report.
+const maxAIFindings = 10
+
+// RuleAI is the rule identifier of the findings raised by the model.
+const RuleAI = "ai.review"
+
+// Explain returns the explanation of a report and the extra findings the
+// model raised.
+func Explain(ctx context.Context, s config.Settings, apiKey, path string, report *office.Report) (Result, error) {
 	if s.Provider == config.ProviderNone || (apiKey == "" && s.BaseURL == "") {
-		return "", ErrNotConfigured
+		return Result{}, ErrNotConfigured
 	}
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Minute)
 	defer cancel()
@@ -44,13 +59,68 @@ func Explain(ctx context.Context, s config.Settings, apiKey, path string, report
 		System:  systemPrompt(s.Language),
 		User:    userPrompt(path, report),
 	}
+	var raw string
+	var err error
 	switch s.Provider {
 	case config.ProviderAnthropic:
-		return explainAnthropic(ctx, req)
+		raw, err = explainAnthropic(ctx, req)
 	case config.ProviderOpenAI:
-		return explainOpenAI(ctx, req)
+		raw, err = explainOpenAI(ctx, req)
+	default:
+		return Result{}, ErrNotConfigured
 	}
-	return "", ErrNotConfigured
+	if err != nil {
+		return Result{}, err
+	}
+	return parseAnswer(raw), nil
+}
+
+// parseAnswer reads the JSON answer asked by the prompt. A model that ignores
+// the format (small local models) still gives a usable explanation: the raw
+// text is then shown as is, without extra findings.
+func parseAnswer(raw string) Result {
+	raw = strings.TrimSpace(raw)
+	start, end := strings.Index(raw, "{"), strings.LastIndex(raw, "}")
+	if start < 0 || end <= start {
+		return Result{Text: raw}
+	}
+	var a struct {
+		Explanation string `json:"explanation"`
+		Findings    []struct {
+			Severity string `json:"severity"`
+			Title    string `json:"title"`
+			Location string `json:"location"`
+			Before   string `json:"before"`
+			After    string `json:"after"`
+		} `json:"findings"`
+	}
+	if err := json.Unmarshal([]byte(raw[start:end+1]), &a); err != nil || strings.TrimSpace(a.Explanation) == "" {
+		return Result{Text: raw}
+	}
+	res := Result{Text: strings.TrimSpace(a.Explanation)}
+	for _, f := range a.Findings {
+		title := strings.TrimSpace(f.Title)
+		if title == "" || len(res.Findings) == maxAIFindings {
+			continue
+		}
+		sev := strings.ToLower(strings.TrimSpace(f.Severity))
+		if sev != office.High && sev != office.Medium {
+			sev = office.Low
+		}
+		res.Findings = append(res.Findings, office.Finding{
+			Severity: sev, Rule: RuleAI, Title: clip(title, 200),
+			Location: clip(f.Location, 200), Before: clip(f.Before, 600), After: clip(f.After, 600),
+		})
+	}
+	return res
+}
+
+func clip(s string, n int) string {
+	s = strings.TrimSpace(s)
+	if r := []rune(s); len(r) > n {
+		return string(r[:n]) + "…"
+	}
+	return s
 }
 
 func systemPrompt(language string) string {
@@ -68,7 +138,11 @@ Write a short explanation for a non-technical reader:
 - Stay factual: rely only on the excerpts given. When the excerpts are not enough to conclude, say what the reader should open and verify.
 - Do not change the severities and do not declare the document safe; the person decides.
 
-Answer in ` + lang + `, in plain text with short paragraphs or "- " bullet lines, no tables, no headings, at most 250 words.`
+You may also raise additional findings: risky changes visible in the excerpts that the rules did not flag (a figure that no longer matches its context, a meaning reversed by rewording, a suspicious removal...). Only raise a finding you can point to in the excerpts, with its location; do not repeat a finding already listed. Use severity "high", "medium" or "low". Raise none when nothing was missed.
+
+Answer with a single JSON object and nothing else:
+{"explanation": "...", "findings": [{"severity": "medium", "title": "...", "location": "...", "before": "...", "after": "..."}]}
+The explanation is written in ` + lang + `, in plain text with short paragraphs or "- " bullet lines, no tables, no headings, at most 250 words. The titles of the findings are in ` + lang + ` too.`
 }
 
 // maxPromptChanges bounds the excerpts sent to the provider.

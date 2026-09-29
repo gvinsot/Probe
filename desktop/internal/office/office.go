@@ -3,8 +3,9 @@
 //
 // The comparison is deterministic: it reads the OOXML parts directly (Word,
 // Excel and PowerPoint, which macOS Office writes in the same formats) and
-// applies fixed rules. A language model may later explain a report, but it
-// never decides what is flagged.
+// applies fixed rules. A language model may explain a report and raise extra
+// findings kept apart, but it
+// never changes what the rules flagged.
 package office
 
 import (
