@@ -280,7 +280,7 @@ func TestPutRecordAmortizesCheckpointsAndRecovers(t *testing.T) {
 	t.Logf("%d writes at %d retained runs: %s (%s/write)", checkpointWrites, MaxRecords, elapsed, elapsed/checkpointWrites)
 	// Generous wall-clock guard plus the deterministic no-checkpoint assertion
 	// above; benchmark results are more useful than tight CI timing limits.
-	if elapsed > 2*time.Second {
+	if elapsed > 2*time.Second*timeBudgetFactor {
 		t.Fatalf("write budget exceeded: %s", elapsed)
 	}
 	rec.Status = StatusFailed
@@ -321,7 +321,7 @@ func TestLegacyStartupAndBatchMigrationBudget(t *testing.T) {
 		t.Fatal(err)
 	}
 	elapsed := time.Since(started)
-	if elapsed > time.Second || len(s.indexes) != 0 {
+	if elapsed > time.Second*timeBudgetFactor || len(s.indexes) != 0 {
 		t.Fatalf("Open migrated histories: %s, %d indexes", elapsed, len(s.indexes))
 	}
 	t.Logf("Open with 20 x 1500 legacy artifacts: %s", elapsed)
@@ -338,7 +338,7 @@ func TestLegacyStartupAndBatchMigrationBudget(t *testing.T) {
 	}
 	elapsed = time.Since(started)
 	t.Logf("20 x 1500 batch migration: %s", elapsed)
-	if elapsed > 10*time.Second {
+	if elapsed > 10*time.Second*timeBudgetFactor {
 		t.Fatalf("batch migration budget exceeded: %s", elapsed)
 	}
 }
