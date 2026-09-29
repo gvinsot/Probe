@@ -315,8 +315,21 @@ func TestAnonymousAccess(t *testing.T) {
 	if page.Code != http.StatusOK || !strings.Contains(page.Body.String(), "Probe Hub") {
 		t.Errorf("the sign-in page must be served anonymously, got %d", page.Code)
 	}
-	if got := page.Header().Get("Content-Security-Policy"); !strings.Contains(got, "frame-ancestors 'none'") {
-		t.Errorf("Content-Security-Policy = %q", got)
+	policy := page.Header().Get("Content-Security-Policy")
+	directives := map[string]string{}
+	for _, directive := range strings.Split(policy, ";") {
+		name, sources, _ := strings.Cut(strings.TrimSpace(directive), " ")
+		directives[name] = sources
+	}
+	for directive, want := range map[string]string{
+		"default-src":     "'none'",
+		"frame-ancestors": "'none'",
+		"script-src":      "'self' https://stats.methodinfo.fr",
+		"connect-src":     "'self' https://stats.methodinfo.fr",
+	} {
+		if got := directives[directive]; got != want {
+			t.Errorf("Content-Security-Policy %s = %q, want %q", directive, got, want)
+		}
 	}
 	for header, want := range map[string]string{
 		"X-Content-Type-Options": "nosniff",
