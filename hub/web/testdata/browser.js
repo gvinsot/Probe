@@ -189,7 +189,7 @@ window.addEventListener('DOMContentLoaded', async () => {
     assert(document.querySelectorAll('#commit-tree .chip.unknown').length === 6, 'gray unknown badge for uncached variants');
     assert(document.getElementById('commit-tree').textContent.includes('Human review required'), 'cached verdict badge');
     assert(!document.getElementById('commit-tree').textContent.includes('Normal'), 'the analysis badge has no mode prefix');
-    assert(document.getElementById('commit-tree').textContent.includes('Plan: '), 'the plan badge keeps its prefix');
+    assert(!document.getElementById('commit-tree').textContent.includes('Plan: '), 'the plan badge has no prefix');
     assert(document.querySelector('#commit-tree .chip.warn').classList.contains('tone-high'), 'review badge tinted by the most severe alert');
     assert(document.querySelectorAll('.commit-row:first-child .commit-meta .chip').length === 1, 'equal plan and analysis reviews share one tree badge');
     // Exercise both severity orders, ties, missing alerts and every threshold.

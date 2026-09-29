@@ -917,9 +917,7 @@ function commitVerdictChips(normal, plan) {
     result.title = ['Analysis: ' + reviewLevel(normal.summary), 'Plan: ' + reviewLevel(plan.summary), result.title].filter(Boolean).join('\n');
     return [result];
   }
-  const planChip = verdictChip(plan);
-  planChip.prepend(document.createTextNode('Plan: '));
-  return [verdictChip(normal), planChip];
+  return [verdictChip(normal), verdictChip(plan)];
 }
 
 function svgElement(tag, attrs) {
