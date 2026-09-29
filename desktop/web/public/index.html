@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Probe Desktop</title>
+  <link rel="icon" href="favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="app.css">
+  <script src="app.js" defer></script>
+</head>
+<body>
+  <header class="topbar">
+    <span class="brand">
+      <img src="favicon.svg" alt="" width="26" height="26">
+      <span>Probe</span>
+      <small>Desktop</small>
+    </span>
+    <span class="spacer"></span>
+    <span class="status" id="status" role="status"></span>
+    <div class="severity-picker" title="To review lists the changed documents whose most severe finding reaches this level. The others stay in All documents.">
+      <label for="severity">Review from</label>
+      <input type="range" id="severity" min="0" max="3" step="1" value="0" list="severity-ticks">
+      <datalist id="severity-ticks">
+        <option value="0" label="low"></option>
+        <option value="1" label="medium"></option>
+        <option value="2" label="high"></option>
+        <option value="3" label="critical"></option>
+      </datalist>
+      <output id="severity-value" for="severity">low</output>
+    </div>
+    <button class="btn quiet small" id="scan">Scan now</button>
+    <button class="btn quiet small" id="open-settings">Settings</button>
+  </header>
+
+  <main class="layout">
+    <section class="panel list-panel" aria-label="Documents">
+      <div class="panel-head">
+        <div class="tabs" role="tablist">
+          <button role="tab" id="tab-review" class="on" aria-selected="true">To review <span id="count-review">0</span></button>
+          <button role="tab" id="tab-all" aria-selected="false">All documents <span id="count-all">0</span></button>
+        </div>
+      </div>
+      <div class="panel-body tight">
+        <input class="search" id="search" type="search" placeholder="Filter by name or folder" autocomplete="off">
+      </div>
+      <ul class="doc-list" id="doc-list"></ul>
+      <p class="empty" id="list-empty"></p>
+    </section>
+
+    <section class="panel detail-panel" id="detail" aria-live="polite"></section>
+  </main>
+
+  <dialog id="settings" class="settings">
+    <form method="dialog" id="settings-form">
+      <header class="dialog-head">
+        <h2>Settings</h2>
+        <span class="spacer"></span>
+        <button class="btn quiet small" value="cancel" formnovalidate>Close</button>
+      </header>
+
+      <section class="dialog-section">
+        <h3>Watched folders</h3>
+        <p class="note">Choose the OneDrive or Google Drive folders synchronized on this computer. Probe keeps a private copy of each document as the reviewed version, in your user profile.</p>
+        <ul class="folder-list" id="folder-list"></ul>
+        <div id="cloud-folders" class="cloud-folders"></div>
+        <div class="row">
+          <input class="search" id="folder-path" placeholder="Or paste a folder path, e.g. C:\Users\me\OneDrive\Contracts" autocomplete="off">
+          <button class="btn ghost small" type="button" id="add-folder">Add</button>
+        </div>
+        <label class="check"><input type="checkbox" id="download-cloud"> Download online-only files to record their reviewed version (can download a lot of data)</label>
+        <div class="row">
+          <label for="scan-seconds">Scan every</label>
+          <select id="scan-seconds">
+            <option value="30">30 seconds</option>
+            <option value="60">minute</option>
+            <option value="300">5 minutes</option>
+            <option value="900">15 minutes</option>
+          </select>
+        </div>
+      </section>
+
+      <section class="dialog-section">
+        <h3>AI explanations <small>optional</small></h3>
+        <p class="note">Findings are always computed on this computer. When you ask for an explanation, only the findings and the changed excerpts of that document are sent to the provider, never the whole file.</p>
+        <div class="grid2">
+          <label for="provider">Provider</label>
+          <select id="provider">
+            <option value="">None: keep everything local</option>
+            <option value="anthropic">Anthropic (Claude)</option>
+            <option value="openai">OpenAI or compatible server</option>
+          </select>
+          <label for="model" class="ai-only">Model</label>
+          <input id="model" class="search ai-only" autocomplete="off">
+          <label for="base-url" class="openai-only">Endpoint URL</label>
+          <input id="base-url" class="search openai-only" placeholder="https://api.openai.com/v1 (or your own server)" autocomplete="off">
+          <label for="api-key" class="ai-only">API key</label>
+          <div class="ai-only key-row">
+            <input id="api-key" class="search" type="password" autocomplete="off">
+            <label class="check hidden" id="clear-key-label"><input type="checkbox" id="clear-key"> Remove the saved key</label>
+          </div>
+          <label for="language" class="ai-only">Language</label>
+          <select id="language" class="ai-only">
+            <option value="en">English</option>
+            <option value="fr">Français</option>
+          </select>
+        </div>
+        <p class="note ai-only">The key is stored in the system keychain (Credential Manager on Windows, Keychain on macOS).</p>
+      </section>
+
+      <p class="form-error" id="settings-error" role="alert"></p>
+      <footer class="dialog-foot">
+        <button class="btn quiet" value="cancel" formnovalidate>Cancel</button>
+        <button class="btn" type="button" id="save-settings">Save</button>
+      </footer>
+    </form>
+  </dialog>
+</body>
+</html>

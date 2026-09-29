@@ -4,9 +4,9 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Probe — Review what matters</title>
-  <meta name="description" content="Probe maps Git changes to risk signals, runs isolated checks and adversarial tests, and produces a focused review plan with traceable evidence. Open source, works without an AI provider.">
+  <meta name="description" content="Probe finds the changes that need your judgment. Probe for code turns an AI-assisted pull request into a focused, evidence-backed review plan; Probe Desktop flags the risky edits in the Word, Excel and PowerPoint files of your OneDrive or Google Drive folders.">
   <meta property="og:title" content="Probe — Review what matters">
-  <meta property="og:description" content="A Go CLI that turns an AI-assisted pull request in Go, TypeScript, Python or Rust into a focused, evidence-backed review plan.">
+  <meta property="og:description" content="Two open-source tools, one discipline: review the changes that matter, in pull requests and in shared office documents.">
   <meta property="og:type" content="website">
   <meta property="og:image" content="https://probe.technology/title.jpeg">
   <link rel="icon" href="logo.jpeg" type="image/jpeg">
@@ -22,9 +22,9 @@
         <img class="brand-title" src="title.jpeg" alt="Probe" width="87" height="32">
       </a>
       <nav aria-label="Main">
-        <a href="index.html#process">Process</a>
+        <a href="index.html#code">For code</a>
+        <a href="desktop.html">For documents</a>
         <a href="getting-started.html">Getting started</a>
-        <a href="index.html#hub">Docker</a>
         <a href="download.html">Download</a>
         <a href="docs.html">Docs</a>
         <a class="btn btn-small" href="https://app.probe.technology">Login</a>
@@ -36,14 +36,14 @@
     <section class="hero">
       <div class="wrap hero-grid">
         <div>
-          <p class="eyebrow">Open-source CLI · Windows, Linux, macOS</p>
+          <p class="eyebrow">Open source · For code and for office documents</p>
           <h1>Review what matters.</h1>
-          <p class="lead">AI assistants write large pull requests fast. Probe tells you which lines to read first: it maps the diff to risk signals, runs your checks in disposable containers, tries to reproduce issues with differential tests, and hands you a focused review plan with traceable evidence.</p>
+          <p class="lead">Changes pile up faster than anyone can read them: pull requests written with AI assistants, budgets and contracts edited by many hands. Probe compares each new version with the one you last trusted, puts the few modifications that need your judgment in front of you, and shows why.</p>
           <div class="cta">
-            <a class="btn" href="download.html" data-download-latest>Download Probe</a>
-            <a class="btn btn-ghost" href="getting-started.html">Try it in 2 minutes</a>
+            <a class="btn" href="download.html">Download Probe</a>
+            <a class="btn btn-ghost" href="#products">Code or documents?</a>
           </div>
-          <p class="note">Latest <a href="download.html"><span data-version>v0.5.1</span></a> · Works without an AI provider · <a href="#process">Plan first, review less</a>.</p>
+          <p class="note">Latest <a href="download.html"><span data-version>v0.5.1</span></a> · Findings come from fixed rules, not from a model · AI optional.</p>
         </div>
         <figure class="hero-visual">
           <picture>
@@ -55,9 +55,121 @@
       </div>
     </section>
 
+    <section id="products" class="section">
+      <div class="wrap">
+        <span class="kicker">Two tools, one discipline</span>
+        <h2>The same review method, for developers and for business teams.</h2>
+        <p class="lead" style="max-width:820px">Both tools start from the version you last reviewed, flag the risky modifications with fixed, explainable rules, and keep a record of what was checked. An AI model can help explain a finding; it never decides what is flagged, and nothing leaves your machine unless you choose it.</p>
+        <div class="products">
+          <article class="product">
+            <span class="kicker">Probe for code</span>
+            <h3>Review AI-written pull requests</h3>
+            <p class="who">For developers, tech leads and CI pipelines.</p>
+            <ul>
+              <li>Maps a Git diff to risk signals: authentication, payments, removed validation, public APIs, dependencies.</li>
+              <li>Runs your tests in disposable containers and tries to reproduce issues on both revisions.</li>
+              <li>Checks an agent's plan before the code exists, then lets conforming low-risk changes merge.</li>
+            </ul>
+            <div class="chips"><span>CLI</span><span>Hub (Docker)</span><span>GitHub · GitLab</span><span>Go · TypeScript · Python · Rust</span></div>
+            <div class="cta">
+              <a class="btn" href="#code">Explore Probe for code</a>
+              <a class="btn btn-ghost" href="download.html#cli">Download the CLI</a>
+            </div>
+          </article>
+          <article class="product docs">
+            <span class="kicker docs">Probe Desktop</span>
+            <h3>Watch shared office documents</h3>
+            <p class="who">For finance, legal, sales and operations teams, and anyone who shares files.</p>
+            <ul>
+              <li>Follows the Word, Excel and PowerPoint files of your OneDrive or Google Drive folders.</li>
+              <li>Flags a formula replaced by a number, a total that no longer counts every row, an amount or deadline changed, "shall" turned into "may".</li>
+              <li>Keeps a queue of documents to review; once reviewed, a version becomes the reference for the next changes.</li>
+            </ul>
+            <div class="chips"><span>Windows</span><span>macOS</span><span>OneDrive · Google Drive</span><span>Word · Excel · PowerPoint</span></div>
+            <div class="cta">
+              <a class="btn btn-docs" href="desktop.html">Explore Probe Desktop</a>
+              <a class="btn btn-ghost" href="download.html#desktop">Download the app</a>
+            </div>
+          </article>
+        </div>
+
+        <h3 style="margin-top:48px">Which one do you need?</h3>
+        <div class="table-wrap fit">
+          <table>
+            <thead><tr><th></th><th>Probe for code</th><th>Probe Desktop</th></tr></thead>
+            <tbody>
+              <tr><td><strong>You are</strong></td><td>A developer, a reviewer, a platform team</td><td>A controller, a lawyer, a manager, an assistant</td></tr>
+              <tr><td><strong>What changes</strong></td><td>Source code, in Git commits and pull requests</td><td>Word, Excel and PowerPoint files, in OneDrive or Google Drive</td></tr>
+              <tr><td><strong>The reference</strong></td><td>The base branch of the pull request</td><td>The last version someone marked as reviewed</td></tr>
+              <tr><td><strong>What it looks for</strong></td><td>Security-sensitive code, removed validation, API and dependency changes, failing or missing tests</td><td>Hard-coded formulas, shrunk ranges, changed amounts, dates and obligations, hidden sheets or slides, macros</td></tr>
+              <tr><td><strong>Evidence</strong></td><td>Checks run in a sandbox, reproduced issues, a JSON and Markdown report</td><td>The before and the after of each flagged change, and who saved it last</td></tr>
+              <tr><td><strong>How it runs</strong></td><td>A command-line tool in your terminal or CI, or the Hub for a whole account</td><td>An application in the taskbar or the menu bar, watching in the background</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <section id="documents" class="section alt docs-theme">
+      <div class="wrap">
+        <span class="kicker">Probe Desktop · For documents</span>
+        <h2>Shared files change quietly. Know which changes matter.</h2>
+        <div class="two-col" style="align-items:start">
+          <div>
+            <p class="lead">A budget passed between five people, a contract reworked by the other party, a board deck updated the night before. Nobody re-reads everything, and nobody should have to. Probe Desktop watches the folders your team already uses and shows you the modifications that change a number, a commitment or a calculation, with the before and the after.</p>
+            <ul class="checks">
+              <li><strong>Sees what track changes does not.</strong> A formula silently replaced by its value, a sum that stops one row short, a sheet made invisible.</li>
+              <li><strong>Works where your files already are.</strong> Pick a OneDrive or Google Drive folder synchronized on your computer. No migration, no add-in, no account.</li>
+              <li><strong>Stays on your computer.</strong> Documents are compared locally. An AI explanation is optional and receives only the flagged excerpts.</li>
+            </ul>
+            <div class="cta" style="margin-top:28px">
+              <a class="btn btn-docs" href="desktop.html">Discover Probe Desktop</a>
+              <a class="btn btn-ghost" href="download.html#desktop">Download for Windows or macOS</a>
+            </div>
+          </div>
+          <figure class="app-mock" aria-label="Findings shown by Probe Desktop">
+            <figcaption><b>Probe Desktop</b> · 2 documents to review</figcaption>
+            <ul>
+              <li>
+                <span class="title"><span class="file x">X</span> A range in the formula was reduced: some cells are no longer counted</span>
+                <span class="where">Budget 2026.xlsx · Budget!B1 · high</span>
+                <p class="was">=SUM(A1:A3)</p>
+                <p class="now">=SUM(A1:A2)</p>
+              </li>
+              <li>
+                <span class="title"><span class="file x">X</span> A formula was replaced by its value: the cell no longer updates</span>
+                <span class="where">Budget 2026.xlsx · Budget!D2 · high</span>
+                <p class="was">=A2*2</p>
+                <p class="now">400</p>
+              </li>
+              <li>
+                <span class="title"><span class="file w">W</span> An obligation was softened</span>
+                <span class="where">Supplier contract.docx · Paragraph 2 · high</span>
+                <p class="was">The supplier shall deliver before 15/03/2026.</p>
+                <p class="now">The supplier may deliver before 15/03/2026.</p>
+              </li>
+              <li>
+                <span class="title"><span class="file w">W</span> An amount or a percentage was changed</span>
+                <span class="where">Supplier contract.docx · Paragraph 3 · high</span>
+                <p class="was">The price is set at €12,000 excluding VAT.</p>
+                <p class="now">The price is set at €15,000 excluding VAT.</p>
+              </li>
+            </ul>
+          </figure>
+        </div>
+      </div>
+    </section>
+
+    <section id="code" class="section band">
+      <div class="wrap">
+        <span class="kicker">Probe for code</span>
+        <p class="pull">AI assistants write large pull requests fast. Probe tells you which lines to read first: it maps the diff to risk signals, runs your checks in disposable containers, tries to reproduce issues with differential tests, and hands you a focused review plan with traceable evidence. <span>A command-line tool for Windows, Linux and macOS, and a Docker hub for a whole GitHub or GitLab account. <a href="getting-started.html">Try it in 2 minutes →</a></span></p>
+      </div>
+    </section>
+
     <section id="process" class="section alt">
       <div class="wrap">
-        <span class="kicker">The process</span>
+        <span class="kicker">Probe for code · The process</span>
         <h2>Know the impact before the code exists. Review only what needs you.</h2>
         <p class="lead" style="max-width:820px">AI-written code gets predictable when the agent announces its work first. Probe measures the risk of the plan <strong>before</strong> any code is written, then checks that the change did exactly what was announced. A change that follows a low-risk plan and passes its checks can merge without a human reading the diff; everything else goes to review, with the reasons.</p>
         <ol class="steps">
@@ -117,7 +229,7 @@ Plan gate: no human review required (low-risk plan, conforming change, checks pa
 
     <section id="why" class="section">
       <div class="wrap">
-        <span class="kicker">Why it saves time</span>
+        <span class="kicker">Probe for code · Why it saves time</span>
         <h2>Stop reading AI-generated diffs top to bottom.</h2>
         <p class="lead" style="max-width:760px">The expensive part of reviewing an AI-assisted pull request is not the risky lines. It is finding them among the helpers, tests and docs around them, then working out whether a suspicion is real. Probe does that sorting and gathers the evidence before you open the diff.</p>
         <div class="compare">
@@ -161,7 +273,7 @@ Plan gate: no human review required (low-risk plan, conforming change, checks pa
 
     <section id="example" class="section alt">
       <div class="wrap">
-        <span class="kicker">Example report</span>
+        <span class="kicker">Probe for code · Example report</span>
         <h2>What you open instead of the raw diff</h2>
         <p class="lead" style="max-width:760px">Excerpt of <code>.probe/CONFIDENCE_REPORT.md</code>, produced by <code>probe review HEAD~1..HEAD --reviewer=false --ci</code> (v0.3.0) on a small shop repository. The commit added catalog helpers with tests, reworked refunds and touched authorization. No AI provider was used.</p>
         <div class="annotated">
@@ -216,6 +328,7 @@ instrumented block.</code></pre>
 
     <section id="how" class="section">
       <div class="wrap">
+        <span class="kicker">Probe for code</span>
         <h2>How it works</h2>
         <ol class="steps">
           <li>
@@ -262,7 +375,7 @@ probe review --base main --ci</code></pre>
     <section id="hub" class="section">
       <div class="wrap two-col">
         <div>
-          <span class="kicker">Docker</span>
+          <span class="kicker">Probe for code · Docker</span>
           <h2>Or run it for a whole account: Probe&nbsp;Hub</h2>
           <p>The hub is the companion Docker image. Run one container, sign in with GitHub or GitLab, and every repository still missing a <code>.probe.json</code> gets a policy proposed in one click, previewed before it is committed to the default branch.</p>
           <p>Repositories that have a policy can be watched: each new commit is analyzed and its report opens on its own. A severity slider filters the alerts from low to critical, and clicking one unfolds every modification it concerns, with the flagged lines highlighted in the diff.</p>
@@ -290,6 +403,7 @@ Reports open by themselves, filtered by severity.</span></code></pre>
 
     <section id="capabilities" class="section">
       <div class="wrap">
+        <span class="kicker">Probe for code</span>
         <h2>Capabilities</h2>
         <div class="cards">
           <article class="card">
@@ -336,7 +450,7 @@ Reports open by themselves, filtered by severity.</span></code></pre>
       <div class="wrap two-col">
         <div>
           <h2>What Probe does not claim</h2>
-          <p>A review tool earns trust by being precise about its limits. Probe assigns no confidence percentages and never approves a pull request on a model's word. It lifts human review only through the plan gate, when a low-risk plan was followed and every automated check came back clean.</p>
+          <p>A review tool earns trust by being precise about its limits. Probe assigns no confidence percentages and never approves a change on a model's word. For code, it lifts human review only through the plan gate, when a low-risk plan was followed and every automated check came back clean. For documents, a person always decides.</p>
         </div>
         <ul class="checks">
           <li>Signals are reasons to investigate, not confirmed bugs.</li>
@@ -345,6 +459,8 @@ Reports open by themselves, filtered by severity.</span></code></pre>
           <li>A model's assertion is never evidence; only a reproduced difference is.</li>
           <li>The plan gate says the announced, low-risk scope was respected, not that the code is correct.</li>
           <li>Execution never falls back to your host when Docker is missing.</li>
+          <li>A document marked as reviewed is a human decision, not a guarantee that its figures are right.</li>
+          <li>A document with no finding still changed: the full list of changes stays one click away.</li>
         </ul>
       </div>
     </section>
@@ -352,10 +468,10 @@ Reports open by themselves, filtered by severity.</span></code></pre>
     <section class="section final">
       <div class="wrap center">
         <h2>Put your review time where it matters.</h2>
-        <p class="lead">Single static binary. AGPL-3.0 licensed. Git required; Docker only to execute repository code.</p>
+        <p class="lead">Open source, AGPL-3.0 licensed. A command-line tool for code, an application for documents, both published with every release.</p>
         <div class="cta center">
-          <a class="btn" href="download.html" data-download-latest>Get Probe</a>
-          <a class="btn btn-ghost" href="docs.html">Read the reference</a>
+          <a class="btn" href="download.html#cli">Get the CLI</a>
+          <a class="btn btn-docs" href="download.html#desktop">Get Probe Desktop</a>
         </div>
       </div>
     </section>
@@ -364,7 +480,7 @@ Reports open by themselves, filtered by severity.</span></code></pre>
   <footer class="footer">
     <div class="wrap footer-inner">
       <span>© Probe contributors · AGPL-3.0 License</span>
-      <span><a href="getting-started.html">Getting started</a> · <a href="index.html#hub">Docker</a> · <a href="https://app.probe.technology">Web app</a> · <a href="download.html">Download</a> · <a href="docs.html">Docs</a></span>
+      <span><a href="index.html#code">For code</a> · <a href="desktop.html">For documents</a> · <a href="getting-started.html">Getting started</a> · <a href="index.html#hub">Docker</a> · <a href="https://app.probe.technology">Web app</a> · <a href="download.html">Download</a> · <a href="docs.html">Docs</a></span>
     </div>
   </footer>
 </body>

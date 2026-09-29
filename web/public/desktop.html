@@ -1,0 +1,244 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Probe Desktop — Know which changes to your documents matter</title>
+  <meta name="description" content="Probe Desktop watches the Word, Excel and PowerPoint files of your OneDrive or Google Drive folders and flags the risky edits: formulas replaced by numbers, shrunk totals, changed amounts, dates and obligations. Windows and macOS, runs on your computer.">
+  <meta property="og:title" content="Probe Desktop — Know which changes to your documents matter">
+  <meta property="og:description" content="Flags the risky edits in shared Word, Excel and PowerPoint files, with the before and the after. On your computer, AI optional.">
+  <meta property="og:type" content="website">
+  <meta property="og:image" content="https://probe.technology/title.jpeg">
+  <link rel="icon" href="logo.jpeg" type="image/jpeg">
+  <link rel="apple-touch-icon" href="logo.jpeg">
+  <link rel="stylesheet" href="styles.css">
+  <script src="site.js" defer></script>
+  <script defer src="https://stats.methodinfo.fr/script.js" data-website-id="5871d35f-e59f-4485-8080-852fafbda5c3"></script>
+</head>
+<body class="docs-theme">
+  <header class="nav">
+    <div class="wrap nav-inner">
+      <a class="brand" href="./" aria-label="Probe home">
+        <img class="brand-title" src="title.jpeg" alt="Probe" width="87" height="32">
+      </a>
+      <nav aria-label="Main">
+        <a href="index.html#code">For code</a>
+        <a href="desktop.html" aria-current="page">For documents</a>
+        <a href="getting-started.html">Getting started</a>
+        <a href="download.html">Download</a>
+        <a href="docs.html">Docs</a>
+        <a class="btn btn-small" href="https://app.probe.technology">Login</a>
+      </nav>
+    </div>
+  </header>
+
+  <main>
+    <section class="hero">
+      <div class="wrap hero-grid">
+        <div>
+          <p class="eyebrow">Probe Desktop · Windows and macOS</p>
+          <h1>Know which changes to your documents need a second look.</h1>
+          <p class="lead">Budgets, contracts and presentations go through many hands. Probe Desktop watches the Word, Excel and PowerPoint files of your OneDrive or Google Drive folders and, when one changes, shows you the modifications that alter a number, a commitment or a calculation, next to what was there before.</p>
+          <div class="cta">
+            <a class="btn btn-docs" href="download.html#desktop" data-download-desktop>Download Probe Desktop</a>
+            <a class="btn btn-ghost" href="#how">How it works</a>
+          </div>
+          <p class="note">Free and open source · Runs on your computer · No account · AI optional.</p>
+        </div>
+        <figure class="app-mock" aria-label="Findings shown by Probe Desktop">
+          <figcaption><b>Probe Desktop</b> · 3 documents to review</figcaption>
+          <ul>
+            <li>
+              <span class="title"><span class="file x">X</span> A formula was replaced by its value: the cell no longer updates</span>
+              <span class="where">Forecast Q3.xlsx · Synthesis!F18 · high</span>
+              <p class="was">=SUM(Sales!F2:F240)*(1-Assumptions!C4)</p>
+              <p class="now">1 284 000</p>
+            </li>
+            <li>
+              <span class="title"><span class="file w">W</span> Text removed about a sensitive topic (payment, liability, termination…)</span>
+              <span class="where">Master services agreement.docx · Paragraph 41 · high</span>
+              <p class="was">The Supplier's total liability shall not exceed the fees paid in the preceding twelve months.</p>
+            </li>
+            <li>
+              <span class="title"><span class="file w">W</span> A date was changed</span>
+              <span class="where">Master services agreement.docx · Paragraph 12 · medium</span>
+              <p class="was">Either party may terminate with 90 days' notice, no earlier than 01/01/2027.</p>
+              <p class="now">Either party may terminate with 90 days' notice, no earlier than 01/01/2029.</p>
+            </li>
+          </ul>
+        </figure>
+      </div>
+    </section>
+
+    <section class="band">
+      <div class="wrap">
+        <p class="pull">Track changes shows what someone typed. It does not show that a total now stops one row short, that a formula became a frozen number, or that a sheet was hidden. <span>Probe Desktop reads the document itself, so these changes surface even when nobody announced them.</span></p>
+      </div>
+    </section>
+
+    <section class="section" id="who">
+      <div class="wrap">
+        <span class="kicker">Who it is for</span>
+        <h2>For the teams whose files carry the numbers and the commitments.</h2>
+        <div class="cards">
+          <article class="card">
+            <h3>Finance and controlling</h3>
+            <p>Budgets, forecasts and financial models: formulas overwritten by values, ranges that no longer cover every row, broken references, results that moved, hidden rows and sheets.</p>
+          </article>
+          <article class="card">
+            <h3>Legal and procurement</h3>
+            <p>Contracts and amendments: amounts, dates and notice periods changed, obligations softened from "shall" to "may", negations added, liability or payment clauses removed.</p>
+          </article>
+          <article class="card">
+            <h3>Management and sales</h3>
+            <p>Board decks and proposals: figures changed on a slide or in its notes, slides deleted or hidden just before the meeting.</p>
+          </article>
+          <article class="card">
+            <h3>Compliance and audit</h3>
+            <p>A record of which version was reviewed, when, and what changed since: macros, external links and embedded objects that appear in a file are flagged too.</p>
+          </article>
+          <article class="card">
+            <h3>Assistants and project offices</h3>
+            <p>Many shared files, little time: one queue of documents that changed, sorted by severity, instead of opening each file to find out.</p>
+          </article>
+          <article class="card">
+            <h3>Teams sharing folders with partners</h3>
+            <p>Clients or suppliers edit the files of a shared OneDrive or Google Drive folder: see what they changed, even when nobody sent a redline.</p>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <section class="section alt" id="how">
+      <div class="wrap">
+        <span class="kicker">How it works</span>
+        <h2>Set it once, then only look when something matters.</h2>
+        <ol class="steps">
+          <li>
+            <h3>Choose your folders</h3>
+            <p>Pick the OneDrive or Google Drive folders synchronized on your computer; Probe Desktop suggests the ones it finds.</p>
+          </li>
+          <li>
+            <h3>It records the reviewed version</h3>
+            <p>The first pass keeps a private copy of each document as the reference. Nothing is uploaded anywhere.</p>
+          </li>
+          <li>
+            <h3>A file changes: it compares</h3>
+            <p>In the background, Probe Desktop compares the new version with the reference and flags the risky modifications. The icon near the clock tells you when there is something to see.</p>
+          </li>
+          <li>
+            <h3>You review, it moves on</h3>
+            <p>Open the findings, check the before and the after, open the document if needed, then mark it as reviewed: this version becomes the new reference.</p>
+          </li>
+        </ol>
+      </div>
+    </section>
+
+    <section class="section" id="flags">
+      <div class="wrap">
+        <span class="kicker">What it flags</span>
+        <h2>Fixed rules you can read, not a model's opinion.</h2>
+        <p class="lead" style="max-width:820px">Every finding comes from a rule that compares the two versions of the file. The same change always gives the same finding, and each one shows its location, its severity and the text or formula before and after.</p>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Format</th><th>Examples of findings</th><th>Severity</th></tr></thead>
+            <tbody>
+              <tr><td><strong>Excel</strong><br><small>.xlsx · .xlsm</small></td><td class="desc">A formula replaced by a typed value; a range shortened in a formula (<code>SUM(A1:A3)</code> → <code>SUM(A1:A2)</code>); a broken reference (<code>#REF!</code>); a number typed inside a formula changed; a computed result that moved by more than 10%.</td><td><span class="sev sev-high">high</span> <span class="sev sev-medium">medium</span></td></tr>
+              <tr><td></td><td class="desc">A sheet deleted or made "very hidden"; rows, columns or sheets hidden; data validation or protection removed; a named range pointing elsewhere.</td><td><span class="sev sev-high">high</span> <span class="sev sev-medium">medium</span></td></tr>
+              <tr><td><strong>Word</strong><br><small>.docx · .docm</small></td><td class="desc">An amount or percentage changed; an obligation softened ("shall" → "may", "doit" → "peut"); a negation added or removed; text about payment, liability or termination removed.</td><td><span class="sev sev-high">high</span></td></tr>
+              <tr><td></td><td class="desc">A date or a figure changed; a sensitive clause reworded; track changes turned off; pending tracked changes resolved without trace; comments deleted.</td><td><span class="sev sev-medium">medium</span> <span class="sev sev-low">low</span></td></tr>
+              <tr><td><strong>PowerPoint</strong><br><small>.pptx · .pptm</small></td><td class="desc">Figures changed on a slide or in its notes; a slide deleted or hidden.</td><td><span class="sev sev-high">high</span> <span class="sev sev-medium">medium</span></td></tr>
+              <tr><td><strong>Every format</strong></td><td class="desc">Macros added; a link to an external file or template added; an embedded object added.</td><td><span class="sev sev-high">high</span> <span class="sev sev-medium">medium</span></td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p class="note">Rules cover English and French wording. Documents written with Office for Mac use the same formats and are covered.</p>
+      </div>
+    </section>
+
+    <section class="section alt" id="privacy">
+      <div class="wrap two-col" style="align-items:start">
+        <div>
+          <span class="kicker">Your documents stay yours</span>
+          <h2>Everything is computed on your computer.</h2>
+          <p>Probe Desktop is not a cloud service. It reads the files your sync client already put on your disk, keeps its reference copies in your user profile and shows its window from a server that only your own session can reach.</p>
+          <p>If you want a plain-language explanation of a report, connect an Anthropic or OpenAI account, or a model hosted inside your company. Only the flagged excerpts of that document are sent, and only when you ask.</p>
+        </div>
+        <ul class="checks">
+          <li>No account, no sign-up, no server of ours in the loop.</li>
+          <li>Findings are computed without any AI provider.</li>
+          <li>An explanation sends the file name, the findings and the changed excerpts, never the whole file.</li>
+          <li>API keys stay in the Windows Credential Manager or the macOS Keychain.</li>
+          <li>Works with an OpenAI-compatible server run on premises.</li>
+          <li>Online-only files are not downloaded just to record a first version, unless you allow it.</li>
+        </ul>
+      </div>
+    </section>
+
+    <section class="section" id="start">
+      <div class="wrap two-col" style="align-items:start">
+        <div>
+          <span class="kicker">Get started</span>
+          <h2>Running in a minute.</h2>
+          <ol class="walk">
+            <li><div><h3>Download and open</h3><p>Get the Windows executable or the macOS application. It starts in the background: look for its icon near the clock or in the menu bar.</p></div></li>
+            <li><div><h3>Add a folder</h3><p>The window proposes the OneDrive and Google Drive folders it found. One click and the first pass records every document.</p></div></li>
+            <li><div><h3>Keep working</h3><p>When a colleague saves a change, the document appears under <em>To review</em>. Turn on <em>Start at login</em> from the icon's menu to keep watching after a restart.</p></div></li>
+          </ol>
+          <div class="cta" style="margin-top:28px">
+            <a class="btn btn-docs" href="download.html#desktop" data-download-desktop>Download Probe Desktop</a>
+          </div>
+        </div>
+        <div>
+          <h3>Good to know</h3>
+          <ul class="checks">
+            <li>Watches synchronized folders. Reading the version history of OneDrive, SharePoint and Google Drive directly is on the way.</li>
+            <li>Reads Word, Excel and PowerPoint formats. Apple Pages, Numbers and Keynote files and legacy <code>.doc</code> / <code>.xls</code> files are not read yet.</li>
+            <li>A finding is a reason to look, not a proven mistake; a document without findings still lists all its changes.</li>
+            <li>The first releases are not signed: Windows and macOS ask for a confirmation on first launch, as explained on the <a href="download.html#verify">download page</a>.</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <section class="section alt">
+      <div class="wrap two-col">
+        <div>
+          <span class="kicker">Also from Probe</span>
+          <h2>Reviewing code instead?</h2>
+          <p>Probe for code applies the same discipline to pull requests: it maps a Git diff to risk signals, runs your checks in a sandbox and tells reviewers which lines to read first, with evidence.</p>
+          <p><a href="index.html#code">Discover Probe for code →</a></p>
+        </div>
+        <div class="table-wrap fit">
+          <table>
+            <thead><tr><th></th><th>Probe for code</th><th>Probe Desktop</th></tr></thead>
+            <tbody>
+              <tr><td><strong>Watches</strong></td><td>Git commits and pull requests</td><td>Word, Excel, PowerPoint files</td></tr>
+              <tr><td><strong>Reference</strong></td><td>The base branch</td><td>The last reviewed version</td></tr>
+              <tr><td><strong>Runs as</strong></td><td>CLI, CI, Docker hub</td><td>Desktop application</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <section class="section final">
+      <div class="wrap center">
+        <h2>Stop re-reading every shared file.</h2>
+        <p class="lead">Probe Desktop tells you which changes deserve your attention, and lets you skip the rest with a clear conscience.</p>
+        <div class="cta center">
+          <a class="btn btn-docs" href="download.html#desktop" data-download-desktop>Download Probe Desktop</a>
+          <a class="btn btn-ghost" href="https://github.com/gvinsot/Probe/blob/main/desktop/README.md">Read the documentation</a>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="footer">
+    <div class="wrap footer-inner">
+      <span>© Probe contributors · AGPL-3.0 License</span>
+      <span><a href="index.html#code">For code</a> · <a href="desktop.html">For documents</a> · <a href="getting-started.html">Getting started</a> · <a href="index.html#hub">Docker</a> · <a href="https://app.probe.technology">Web app</a> · <a href="download.html">Download</a> · <a href="docs.html">Docs</a> · <a href="https://github.com/gvinsot/Probe">GitHub</a></span>
+    </div>
+  </footer>
+</body>
+</html>

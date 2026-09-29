@@ -20,13 +20,22 @@
     { id: "linux-arm64", os: "linux", label: "Linux", arch: "ARM64", ext: ".tar.gz" }
   ];
 
+  // Probe Desktop files are named by desktop/scripts and release.yml:
+  // probe-desktop-<tag>-<platform>.<ext>. There is no Linux build.
+  var DESKTOP_PLATFORMS = [
+    { id: "windows-amd64", os: "windows", label: "Windows", arch: "x64", ext: ".exe" },
+    { id: "windows-arm64", os: "windows", label: "Windows", arch: "ARM64", ext: ".exe" },
+    { id: "darwin-universal", os: "darwin", label: "macOS", arch: "Apple silicon & Intel", ext: ".zip" }
+  ];
+
   // Used only when the GitHub API is unreachable or rate limited. Download
   // URLs are derived from the naming convention, which the project name change
   // of v0.5.0 broke for earlier tags (their archives are named swiftproof-*),
   // so only releases named probe-* belong here; newer releases appear
-  // automatically once the API answers again.
+  // automatically once the API answers again. "desktop" tells whether the
+  // release carries Probe Desktop files; add new tags with desktop: true.
   var FALLBACK = [
-    { tag: "v0.5.1", date: "2026-09-29T14:41:38Z" }
+    { tag: "v0.5.1", date: "2026-09-29T14:41:38Z", desktop: false }
   ];
 
   function $(sel, root) { return (root || document).querySelector(sel); }
@@ -118,7 +127,7 @@
 
   function fallback() {
     return FALLBACK.map(function (r) {
-      return { tag: r.tag, date: r.date, prerelease: false, notes: "", url: RELEASES_PAGE + "/tag/" + r.tag, assets: {}, offline: true };
+      return { tag: r.tag, date: r.date, prerelease: false, notes: "", url: RELEASES_PAGE + "/tag/" + r.tag, assets: {}, offline: true, desktop: !!r.desktop };
     });
   }
 
@@ -151,6 +160,35 @@
     var a = release.assets[archiveName(release.tag, p)];
     return { url: a ? a.url : assetUrl(release.tag, p), size: a ? a.size : 0 };
   }
+
+  function desktopName(tag, p) { return "probe-desktop-" + tag + "-" + p.id + p.ext; }
+  function desktopLink(release, p) {
+    var name = desktopName(release.tag, p), a = release.assets[name];
+    return { url: a ? a.url : RELEASES_PAGE + "/download/" + release.tag + "/" + name, size: a ? a.size : 0 };
+  }
+  // desktopPlatform maps the detected system to a Probe Desktop build, or
+  // null where there is none (Linux, phones).
+  function desktopPlatform(detected) {
+    if (detected.mobile) return null;
+    if (detected.id.indexOf("darwin") === 0) return DESKTOP_PLATFORMS[2];
+    if (detected.id === "windows-arm64") return DESKTOP_PLATFORMS[1];
+    if (detected.id.indexOf("windows") === 0) return DESKTOP_PLATFORMS[0];
+    return null;
+  }
+  function hasDesktop(release) {
+    if (release.offline) return !!release.desktop;
+    return Object.keys(release.assets).some(function (n) { return n.indexOf("probe-desktop-") === 0; });
+  }
+  function latestDesktop(releases) {
+    var any = null;
+    for (var i = 0; i < releases.length; i++) {
+      if (!hasDesktop(releases[i])) continue;
+      if (!releases[i].prerelease) return releases[i];
+      any = any || releases[i];
+    }
+    return any;
+  }
+  function desktopLabel(p) { return p.os === "windows" ? p.label + " " + p.arch : p.label; }
 
   // A deliberately small Markdown subset for release notes: headings, lists,
   // paragraphs, inline code, bold and links. Input is escaped first.
@@ -189,7 +227,8 @@
     $$("[data-version]").forEach(function (el) { el.textContent = release.tag; });
   }
 
-  function wireDownloadButtons(release, detected) {
+  function wireDownloadButtons(releases, detected) {
+    var release = latestStable(releases);
     var p = platform(detected.id);
     $$("[data-download-latest]").forEach(function (a) {
       a.href = link(release, p).url;
@@ -197,17 +236,28 @@
       a.setAttribute("download", "");
     });
     $$("[data-download-href]").forEach(function (a) { a.href = link(release, p).url; });
+
+    // Probe Desktop buttons download the build for this computer; without
+    // one (Linux, phone, release not out yet) they keep pointing to the
+    // download page, which explains the options.
+    var d = latestDesktop(releases), q = desktopPlatform(detected);
+    if (!d || !q) return;
+    $$("[data-download-desktop]").forEach(function (a) {
+      a.href = desktopLink(d, q).url;
+      a.textContent = "Download for " + desktopLabel(q);
+      a.setAttribute("download", "");
+    });
   }
 
   function renderDownloadPage(releases, detected) {
-    var hero = $("#dl-hero");
+    var hero = $("#dl-choice");
     if (!hero) return;
     var latest = latestStable(releases);
     var p = platform(detected.id);
     var main = link(latest, p);
     var offline = latest.offline;
 
-    setText("#dl-version", "Probe " + latest.tag);
+    setText("#dl-version", "Probe CLI " + latest.tag);
     setHtml("#dl-meta", "Released " + escapeHtml(formatDate(latest.date)) +
       ' · <a href="' + escapeHtml(latest.url) + '">release notes</a>' +
       ' · <a href="' + escapeHtml(RELEASES_PAGE + "/download/" + latest.tag + "/SHA256SUMS") + '">SHA256SUMS</a>');
@@ -218,7 +268,7 @@
     }
     setText("#dl-file", archiveName(latest.tag, p) + (main.size ? " · " + formatSize(main.size) : ""));
     setText("#dl-detect", detected.mobile
-      ? "Probe is a command-line tool for desktop and server systems. Pick the platform of the machine you will run it on."
+      ? "The CLI is a command-line tool for desktop and server systems. Pick the platform of the machine you will run it on."
       : !detected.exact
         ? "Detected " + p.label + ". On an Intel Mac, choose macOS Intel below."
         : "Detected from your browser: " + p.label + " " + p.arch + ". Other platforms are listed alongside.");
@@ -229,17 +279,28 @@
         "<span>" + q.label + " " + q.arch + "</span><small>" + q.ext + (l.size ? " · " + formatSize(l.size) : "") + "</small></a>";
     }).join(""));
 
+    renderDesktopCard(releases, detected);
+
     setText("#releases-status", offline
       ? "GitHub could not be reached, so this list may be incomplete and has no notes. The complete history is on GitHub Releases."
       : releases.length + " releases, newest first.");
 
+    var dp = desktopPlatform(detected);
     setHtml("#releases", releases.map(function (r, i) {
-      var rows = PLATFORMS.map(function (q) {
+      var rows = '<tr><th class="group" colspan="3">Probe CLI</th></tr>' + PLATFORMS.map(function (q) {
         var l = link(r, q);
         return "<tr" + (q.id === p.id ? ' class="mine"' : "") + "><td>" + q.label + " " + q.arch + (q.id === p.id ? ' <span class="badge">yours</span>' : "") + "</td>" +
           '<td><a href="' + escapeHtml(l.url) + '"><code>' + escapeHtml(archiveName(r.tag, q)) + "</code></a></td>" +
           "<td>" + (l.size ? formatSize(l.size) : "—") + "</td></tr>";
       }).join("");
+      if (hasDesktop(r)) {
+        rows += '<tr><th class="group" colspan="3">Probe Desktop</th></tr>' + DESKTOP_PLATFORMS.map(function (q) {
+          var l = desktopLink(r, q), mine = dp && q.id === dp.id;
+          return "<tr" + (mine ? ' class="mine"' : "") + "><td>" + q.label + " " + q.arch + (mine ? ' <span class="badge">yours</span>' : "") + "</td>" +
+            '<td><a href="' + escapeHtml(l.url) + '"><code>' + escapeHtml(desktopName(r.tag, q)) + "</code></a></td>" +
+            "<td>" + (l.size ? formatSize(l.size) : "—") + "</td></tr>";
+        }).join("");
+      }
       var notesBase = "https://github.com/" + REPO + "/blob/main/app/docs/releases/";
       return '<details class="release"' + (i === 0 ? " open" : "") + ' id="' + escapeHtml(r.tag) + '">' +
         "<summary><h3>" + escapeHtml(r.tag) + "</h3><time datetime=\"" + escapeHtml(r.date) + "\">" + escapeHtml(formatDate(r.date)) + "</time>" +
@@ -254,8 +315,48 @@
 
     if (location.hash) {
       var target = document.getElementById(decodeURIComponent(location.hash.slice(1)));
+      // The page grew after load: bring an anchored product card back in view.
+      if (target && /^(cli|desktop)$/.test(target.id)) target.scrollIntoView();
       if (target && target.tagName === "DETAILS") { target.open = true; target.scrollIntoView(); }
     }
+  }
+
+  function renderDesktopCard(releases, detected) {
+    var d = latestDesktop(releases);
+    var q = desktopPlatform(detected);
+    var btn = need("#dl-desktop-main");
+    if (!d) {
+      // Until a release carries Probe Desktop, say so rather than linking
+      // to files that do not exist.
+      setText("#dl-desktop-version", "Probe Desktop");
+      setText("#dl-desktop-meta", "Published from the release that follows " + latestStable(releases).tag + ".");
+      if (btn) { btn.href = "#verify"; btn.textContent = "Build it from source"; }
+      setText("#dl-desktop-file", "");
+      setText("#dl-desktop-detect", "Until then, the instructions below build the Windows executable or the macOS application.");
+      setHtml("#dl-desktop-platforms", '<a href="' + escapeHtml(RELEASES_PAGE) + '"><span>Releases on GitHub</span><small>.exe · .zip</small></a>');
+      return;
+    }
+    setText("#dl-desktop-version", "Probe Desktop " + d.tag);
+    setHtml("#dl-desktop-meta", "Released " + escapeHtml(formatDate(d.date)) +
+      ' · <a href="' + escapeHtml(d.url) + '">release notes</a>');
+    var main = q ? desktopLink(d, q) : null;
+    if (btn) {
+      if (main) { btn.href = main.url; btn.textContent = "Download for " + desktopLabel(q); }
+      else { btn.href = "#dl-desktop-platforms"; btn.textContent = "Windows and macOS downloads"; }
+    }
+    setText("#dl-desktop-file", main ? desktopName(d.tag, q) + (main.size ? " · " + formatSize(main.size) : "") : "");
+    setText("#dl-desktop-detect", detected.mobile
+      ? "Probe Desktop runs on Windows and macOS computers."
+      : !q
+        ? "Probe Desktop is available for Windows and macOS. On Linux, use the CLI."
+        : q.os === "darwin"
+          ? "Detected macOS. One application for Apple silicon and Intel Macs."
+          : "Detected from your browser: " + desktopLabel(q) + ". Other platforms are listed below.");
+    setHtml("#dl-desktop-platforms", DESKTOP_PLATFORMS.map(function (x) {
+      var l = desktopLink(d, x);
+      return '<a href="' + escapeHtml(l.url) + '"' + (q && x.id === q.id ? ' class="current" aria-current="true"' : "") + ">" +
+        "<span>" + x.label + " " + x.arch + "</span><small>" + x.ext + (l.size ? " · " + formatSize(l.size) : "") + "</small></a>";
+    }).join(""));
   }
 
   // ------------------------------------------------------- tabs, copy, docs
@@ -389,12 +490,12 @@
   detectPlatform().then(function (detected) {
     safely(function () { wireTabs(detected); });
     reportMissing();
-    var needsReleases = $("[data-download-latest], [data-download-href], [data-version], #dl-hero");
+    var needsReleases = $("[data-download-latest], [data-download-href], [data-download-desktop], [data-version], #dl-choice");
     if (!needsReleases) return;
     return loadReleases().then(function (releases) {
       var latest = latestStable(releases);
       safely(function () { fillVersionPlaceholders(latest); });
-      safely(function () { wireDownloadButtons(latest, detected); });
+      safely(function () { wireDownloadButtons(releases, detected); });
       safely(function () { renderDownloadPage(releases, detected); });
       reportMissing();
     });

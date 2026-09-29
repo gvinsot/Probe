@@ -112,6 +112,102 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
+  # Probe Desktop ships in the same release as the CLI. The Windows
+  # executable cross-compiles without cgo; the macOS application needs a Mac
+  # runner, since its tray icon and web view go through Cocoa with cgo.
+  desktop-verify:
+    needs: prepare
+    defaults:
+      run:
+        working-directory: desktop
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    env:
+      # desktop/ is a separate module, outside the repository go.work.
+      GOWORK: 'off'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: desktop/go.mod
+          cache: false
+      - run: go vet ./...
+      - run: go test ./...
+      - if: runner.os == 'Linux'
+        run: go test -race ./...
+
+  desktop-windows:
+    needs: [prepare, desktop-verify]
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: desktop
+    strategy:
+      fail-fast: false
+      matrix:
+        goarch: [amd64, arm64]
+    env:
+      GOWORK: 'off'
+      VERSION: ${{ needs.prepare.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: desktop/go.mod
+          cache: false
+      # -H=windowsgui builds a GUI program: Windows never opens a console for it.
+      - name: Build
+        shell: bash
+        env:
+          GOOS: windows
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: '0'
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          go build -trimpath -ldflags "-H=windowsgui -s -w -X main.version=$VERSION" \
+            -o "dist/probe-desktop-$VERSION-windows-$GOARCH.exe" ./cmd/probe-desktop
+      - uses: actions/upload-artifact@v4
+        with:
+          name: probe-desktop-windows-${{ matrix.goarch }}
+          path: desktop/dist/*.exe
+          if-no-files-found: error
+          retention-days: 30
+
+  desktop-macos:
+    needs: [prepare, desktop-verify]
+    runs-on: macos-latest
+    defaults:
+      run:
+        working-directory: desktop
+    env:
+      GOWORK: 'off'
+      VERSION: ${{ needs.prepare.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: desktop/go.mod
+          cache: false
+      - run: go test ./...
+      - name: Build the universal application
+        run: bash scripts/build-macos.sh "$VERSION"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: probe-desktop-darwin-universal
+          path: desktop/dist/*.zip
+          if-no-files-found: error
+          retention-days: 30
+
   publish:
     needs: [prepare, checksums]
     if: needs.prepare.outputs.publish == 'true'
@@ -143,12 +239,12 @@ jobs:
           if [[ -f "$notes" ]]; then options=(--notes-file "$notes"); fi
           if [[ "$VERSION" == *-* ]]; then options+=(--prerelease); fi
           if [[ "$GITHUB_REF_TYPE" == tag ]]; then options+=(--verify-tag); fi
-          gh release create "$VERSION" dist/*.zip dist/*.tar.gz dist/SHA256SUMS \
+          gh release create "$VERSION" dist/*.zip dist/*.tar.gz dist/*.exe dist/SHA256SUMS \
             --target "$GITHUB_SHA" --title "Probe $VERSION" --draft "${options[@]}"
           gh release edit "$VERSION" --draft=false
 
   checksums:
-    needs: build
+    needs: [build, desktop-windows, desktop-macos]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v4
@@ -161,7 +257,7 @@ jobs:
         run: |
           set -euo pipefail
           cd dist
-          sha256sum probe-*.tar.gz probe-*.zip > SHA256SUMS
+          sha256sum probe-*.tar.gz probe-*.zip probe-desktop-*.exe > SHA256SUMS
           sha256sum --check SHA256SUMS
       - uses: actions/upload-artifact@v4
         with:

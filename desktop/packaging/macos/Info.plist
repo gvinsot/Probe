@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>CFBundleName</key><string>Probe Desktop</string>
+  <key>CFBundleDisplayName</key><string>Probe Desktop</string>
+  <key>CFBundleIdentifier</key><string>technology.probe.desktop</string>
+  <key>CFBundleExecutable</key><string>probe-desktop</string>
+  <key>CFBundlePackageType</key><string>APPL</string>
+  <key>CFBundleShortVersionString</key><string>__VERSION__</string>
+  <key>CFBundleVersion</key><string>__VERSION__</string>
+  <key>LSMinimumSystemVersion</key><string>11.0</string>
+  <!-- Menu bar application: no Dock icon, no window at launch. -->
+  <key>LSUIElement</key><true/>
+  <key>NSHighResolutionCapable</key><true/>
+  <!-- The interface is served on 127.0.0.1 over plain HTTP. -->
+  <key>NSAppTransportSecurity</key>
+  <dict>
+    <key>NSAllowsLocalNetworking</key><true/>
+  </dict>
+</dict>
+</plist>

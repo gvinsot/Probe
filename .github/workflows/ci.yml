@@ -59,6 +59,36 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
+  desktop:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        working-directory: desktop
+    env:
+      # desktop/ is a separate module, outside the repository go.work.
+      GOWORK: 'off'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: desktop/go.mod
+          cache: false
+      - run: go vet ./...
+      - run: go test ./...
+      # On macOS this builds with cgo, like the released application.
+      - run: go build ./cmd/probe-desktop
+      - if: runner.os == 'Linux'
+        run: go test -race ./...
+      - if: runner.os == 'Linux'
+        name: Check formatting
+        run: test -z "$(gofmt -l .)"
+
   web:
     runs-on: ubuntu-latest
     defaults:

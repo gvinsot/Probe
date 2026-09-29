@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Download — Probe</title>
-  <meta name="description" content="Download Probe for Windows, macOS and Linux, amd64 and arm64. Every release and its notes, with SHA-256 checksums.">
+  <meta name="description" content="Download Probe: the command-line tool for code reviews (Windows, macOS, Linux) or Probe Desktop for Word, Excel and PowerPoint documents (Windows, macOS). Every release and its notes, with SHA-256 checksums.">
   <link rel="icon" href="logo.jpeg" type="image/jpeg">
   <link rel="apple-touch-icon" href="logo.jpeg">
   <link rel="stylesheet" href="styles.css">
@@ -18,9 +18,9 @@
         <img class="brand-title" src="title.jpeg" alt="Probe" width="87" height="32">
       </a>
       <nav aria-label="Main">
-        <a href="index.html#process">Process</a>
+        <a href="index.html#code">For code</a>
+        <a href="desktop.html">For documents</a>
         <a href="getting-started.html">Getting started</a>
-        <a href="index.html#hub">Docker</a>
         <a href="download.html" aria-current="page">Download</a>
         <a href="docs.html">Docs</a>
         <a class="btn btn-small" href="https://app.probe.technology">Login</a>
@@ -33,28 +33,42 @@
       <div class="wrap">
         <p class="eyebrow">Download</p>
         <h1>Get Probe</h1>
-        <p class="lead">One static executable for Windows, macOS and Linux, on amd64 and arm64. Git is required at runtime; Docker only to execute repository checks. Go is not needed to run it.</p>
+        <p class="lead">Two downloads in every release: the command-line tool that reviews code changes, and the desktop application that watches office documents. Pick the one that matches your work, or both.</p>
       </div>
     </section>
 
     <section class="section" style="padding-top:48px">
       <div class="wrap">
-        <div class="dl-hero" id="dl-hero">
-          <div>
-            <h2 id="dl-version">Probe <span data-version>v0.5.1</span></h2>
+        <div class="dl-choice" id="dl-choice">
+          <article class="dl-card" id="cli">
+            <span class="kicker">Probe for code</span>
+            <h2 id="dl-version">Probe CLI <span data-version>v0.5.1</span></h2>
+            <p class="dl-meta">For developers and CI: reviews Git commits and pull requests, runs checks in a sandbox, gates AI-written changes.</p>
             <p class="dl-meta" id="dl-meta">Loading release information…</p>
-            <a class="btn btn-big" id="dl-main" href="https://github.com/gvinsot/Probe/releases/latest">Download the latest release</a>
+            <div><a class="btn btn-big" id="dl-main" href="https://github.com/gvinsot/Probe/releases/latest">Download the latest release</a></div>
             <p class="dl-sub" id="dl-file"></p>
             <p class="dl-sub" id="dl-detect"></p>
-          </div>
-          <div>
-            <p class="dl-meta" style="margin-bottom:10px">All platforms for this release</p>
             <div class="platforms" id="dl-platforms">
               <a href="https://github.com/gvinsot/Probe/releases/latest"><span>All platforms on GitHub</span><small>.zip · .tar.gz</small></a>
             </div>
-          </div>
+            <p class="req">Windows, macOS and Linux, amd64 and arm64. Git is required at runtime; Docker only to execute repository checks. Next: <a href="getting-started.html">review your last commit</a>.</p>
+          </article>
+
+          <article class="dl-card docs" id="desktop">
+            <span class="kicker docs">Probe Desktop</span>
+            <h2 id="dl-desktop-version">Probe Desktop</h2>
+            <p class="dl-meta">For business teams: watches the Word, Excel and PowerPoint files of your OneDrive or Google Drive folders and flags the risky changes.</p>
+            <p class="dl-meta" id="dl-desktop-meta">Loading release information…</p>
+            <div><a class="btn btn-big btn-docs" id="dl-desktop-main" href="https://github.com/gvinsot/Probe/releases/latest">Download the latest release</a></div>
+            <p class="dl-sub" id="dl-desktop-file"></p>
+            <p class="dl-sub" id="dl-desktop-detect"></p>
+            <div class="platforms" id="dl-desktop-platforms">
+              <a href="https://github.com/gvinsot/Probe/releases/latest"><span>All platforms on GitHub</span><small>.exe · .zip</small></a>
+            </div>
+            <p class="req">Windows 10 or 11 (x64, ARM64) and macOS 11 or later (Apple silicon and Intel). Nothing else to install. Next: <a href="desktop.html#start">choose a folder to watch</a>.</p>
+          </article>
         </div>
-        <p class="note">Next: <a href="getting-started.html">install it and review your last commit</a>. Each archive contains the executable, <code>LICENSE</code>, <code>NOTICE</code> and <code>README.md</code> in a folder named after the version and platform.</p>
+        <p class="note">CLI archives contain the executable, <code>LICENSE</code>, <code>NOTICE</code> and <code>README.md</code> in a folder named after the version and platform. Probe Desktop is a single <code>.exe</code> on Windows and a zipped <code>Probe Desktop.app</code> on macOS.</p>
       </div>
     </section>
 
@@ -63,7 +77,7 @@
         <h2>Release history</h2>
         <p class="status" id="releases-status">Loading releases from GitHub…</p>
         <div class="releases" id="releases">
-          <noscript><p>JavaScript is disabled. Every release, with its notes and archives, is listed on <a href="https://github.com/gvinsot/Probe/releases">GitHub Releases</a>.</p></noscript>
+          <noscript><p>JavaScript is disabled. Every release, with its notes and files, is listed on <a href="https://github.com/gvinsot/Probe/releases">GitHub Releases</a>.</p></noscript>
         </div>
       </div>
     </section>
@@ -71,19 +85,23 @@
     <section class="section" id="verify">
       <div class="wrap prose">
         <h2>Verify a download</h2>
-        <p>Every release publishes a <code>SHA256SUMS</code> file. Download it next to the archive, then check the archive's digest:</p>
+        <p>Every release publishes a <code>SHA256SUMS</code> file covering the CLI archives and the Probe Desktop files. Download it next to the file, then check its digest:</p>
         <div class="code">
 <pre><code><span class="c"># Linux</span>
 grep probe-<span data-version>v0.5.1</span>-linux-amd64.tar.gz SHA256SUMS | sha256sum --check
 <span class="c"># macOS</span>
-grep probe-<span data-version>v0.5.1</span>-darwin-arm64.tar.gz SHA256SUMS | shasum -a 256 --check
+grep probe-desktop-<span data-version>v0.5.1</span>-darwin-universal.zip SHA256SUMS | shasum -a 256 --check
 <span class="c"># Windows (PowerShell): compare with the matching line of SHA256SUMS</span>
-Get-FileHash .\probe-<span data-version>v0.5.1</span>-windows-amd64.zip -Algorithm SHA256</code></pre>
+Get-FileHash .\probe-desktop-<span data-version>v0.5.1</span>-windows-amd64.exe -Algorithm SHA256</code></pre>
         </div>
-        <p>Checksums detect corrupted or mismatched files. The archives are not signed or notarized, which is why macOS quarantines a copy downloaded with a browser: remove the flag with <code>xattr -d com.apple.quarantine probe</code>.</p>
+        <p>Checksums detect corrupted or mismatched files. The downloads are not signed or notarized yet, so the systems warn on first launch:</p>
+        <ul>
+          <li><strong>Windows</strong>: SmartScreen may show "Windows protected your PC" for Probe Desktop. Choose <em>More info</em>, then <em>Run anyway</em>.</li>
+          <li><strong>macOS</strong>: a copy downloaded with a browser is quarantined. For Probe Desktop, right-click <em>Probe Desktop.app</em> and choose <em>Open</em>, or run <code>xattr -dr com.apple.quarantine "Probe Desktop.app"</code>; for the CLI, <code>xattr -d com.apple.quarantine probe</code>.</li>
+        </ul>
 
         <h2 style="margin-top:48px">Build from source</h2>
-        <p>With Go 1.23 or newer and Git, from the <code>app</code> directory of a checkout:</p>
+        <p>With Go and Git, from a checkout. The CLI needs Go 1.23 or newer:</p>
         <div class="code">
 <pre><code>git clone https://github.com/gvinsot/Probe.git
 cd Probe/app
@@ -91,7 +109,15 @@ go build -o probe ./cmd/probe
 <span class="c"># or build every platform archive with checksums into dist/</span>
 go run ./tools/build -version dev -targets windows/amd64,linux/amd64,darwin/arm64</code></pre>
         </div>
-        <p>Release process and CI artifacts are described in <a href="https://github.com/gvinsot/Probe/blob/main/app/docs/RELEASE.md">RELEASE.md</a>.</p>
+        <p>Probe Desktop needs Go 1.26 or newer; the macOS application must be built on a Mac:</p>
+        <div class="code">
+<pre><code>cd Probe/desktop
+<span class="c"># Windows executable, from any system</span>
+GOWORK=off GOOS=windows CGO_ENABLED=0 go build -ldflags "-H=windowsgui" ./cmd/probe-desktop
+<span class="c"># macOS application (on a Mac)</span>
+bash scripts/build-macos.sh dev</code></pre>
+        </div>
+        <p>Release process and CI artifacts are described in <a href="https://github.com/gvinsot/Probe/blob/main/app/docs/RELEASE.md">RELEASE.md</a> and <a href="https://github.com/gvinsot/Probe/blob/main/desktop/README.md">desktop/README.md</a>.</p>
       </div>
     </section>
   </main>
@@ -99,7 +125,7 @@ go run ./tools/build -version dev -targets windows/amd64,linux/amd64,darwin/arm6
   <footer class="footer">
     <div class="wrap footer-inner">
       <span>© Probe contributors · AGPL-3.0 License</span>
-      <span><a href="getting-started.html">Getting started</a> · <a href="index.html#hub">Docker</a> · <a href="https://app.probe.technology">Web app</a> · <a href="download.html">Download</a> · <a href="docs.html">Docs</a> · <a href="https://github.com/gvinsot/Probe">GitHub</a></span>
+      <span><a href="index.html#code">For code</a> · <a href="desktop.html">For documents</a> · <a href="getting-started.html">Getting started</a> · <a href="index.html#hub">Docker</a> · <a href="https://app.probe.technology">Web app</a> · <a href="download.html">Download</a> · <a href="docs.html">Docs</a> · <a href="https://github.com/gvinsot/Probe">GitHub</a></span>
     </div>
   </footer>
 </body>
