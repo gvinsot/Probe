@@ -31,6 +31,7 @@ const PERIODS = [
   { label: '7d', hours: 168 },
   { label: '10d', hours: 240 },
 ];
+const REPO_FILTERS_KEY = 'probe.hub.repoFilters';
 const PERIOD_KEY = 'probe.hub.period';
 
 const state = {
@@ -280,6 +281,23 @@ function worstRun(repo) {
     }
   }
   return worst;
+}
+
+// Remember the repository checkboxes in the browser between visits.
+function saveRepoFilters() {
+  const value = { monitored: state.onlyMonitored, policy: state.onlyPolicy, missing: state.onlyMissing };
+  try { localStorage.setItem(REPO_FILTERS_KEY, JSON.stringify(value)); } catch (err) { /* storage disabled */ }
+}
+
+function restoreRepoFilters() {
+  let saved = {};
+  try { saved = JSON.parse(localStorage.getItem(REPO_FILTERS_KEY) || '{}') || {}; } catch (err) { /* storage disabled or corrupt */ }
+  state.onlyMonitored = saved.monitored === true;
+  state.onlyPolicy = saved.policy === true;
+  state.onlyMissing = saved.missing === true && !state.onlyPolicy;
+  el('only-monitored').checked = state.onlyMonitored;
+  el('only-policy').checked = state.onlyPolicy;
+  el('only-nopolicy').checked = state.onlyMissing;
 }
 
 function visibleRepos() {
@@ -1961,8 +1979,10 @@ async function boot() {
     state.query = event.target.value;
     renderRepos();
   });
+  restoreRepoFilters();
   el('only-monitored').addEventListener('change', (event) => {
     state.onlyMonitored = event.target.checked;
+    saveRepoFilters();
     renderRepos();
   });
   el('only-policy').addEventListener('change', (event) => {
@@ -1971,6 +1991,7 @@ async function boot() {
       state.onlyMissing = false;
       el('only-nopolicy').checked = false;
     }
+    saveRepoFilters();
     renderRepos();
   });
   el('only-nopolicy').addEventListener('change', (event) => {
@@ -1979,6 +2000,7 @@ async function boot() {
       state.onlyPolicy = false;
       el('only-policy').checked = false;
     }
+    saveRepoFilters();
     renderRepos();
   });
   renderPeriod();
