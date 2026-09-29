@@ -1297,3 +1297,32 @@ func TestRepoListCarriesRecentNormalRuns(t *testing.T) {
 		t.Errorf("recent run = %v", run)
 	}
 }
+
+// Every account-scoped route refuses an anonymous caller, whatever the method.
+func TestAnonymousAccessCoversEveryAPIRoute(t *testing.T) {
+	h := newHarness(t)
+	const key = "0123456789abcdef"
+	routes := []struct{ method, path string }{
+		{http.MethodPost, "/auth/logout"},
+		{http.MethodGet, "/api/repos"},
+		{http.MethodGet, "/api/analyses"},
+		{http.MethodPost, "/api/repos/sync"},
+		{http.MethodGet, "/api/repos/" + key},
+		{http.MethodPost, "/api/repos/" + key + "/policy"},
+		{http.MethodPost, "/api/repos/" + key + "/monitor"},
+		{http.MethodDelete, "/api/repos/" + key + "/monitor"},
+		{http.MethodPost, "/api/repos/" + key + "/analyze"},
+		{http.MethodPost, "/api/repos/" + key + "/cancel"},
+		{http.MethodPost, "/api/repos/" + key + "/rerun"},
+		{http.MethodGet, "/api/repos/" + key + "/runs"},
+		{http.MethodGet, "/api/repos/" + key + "/commits"},
+		{http.MethodGet, "/api/repos/" + key + "/reports/" + key},
+		{http.MethodGet, "/api/repos/" + key + "/reports/" + key + "/raw"},
+		{http.MethodGet, "/api/events"},
+	}
+	for _, rt := range routes {
+		if got := h.do(rt.method, rt.path, nil); got.Code != http.StatusUnauthorized {
+			t.Errorf("%s %s = %d, want 401", rt.method, rt.path, got.Code)
+		}
+	}
+}
