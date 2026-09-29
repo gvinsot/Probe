@@ -1,6 +1,7 @@
 package web
 
 import (
+	"bytes"
 	"context"
 	"io/fs"
 	"net/http"
@@ -12,9 +13,27 @@ import (
 	"time"
 )
 
+// browserPath returns the browser the test drives: PROBE_TEST_BROWSER when set
+// (CI names the real browser it installed), else the first one on the PATH.
+func browserPath() (string, bool) {
+	if name := os.Getenv("PROBE_TEST_BROWSER"); name != "" {
+		path, err := exec.LookPath(name)
+		return path, err == nil
+	}
+	for _, name := range []string{"chromium", "chromium-browser", "google-chrome-stable", "google-chrome"} {
+		if path, err := exec.LookPath(name); err == nil {
+			return path, true
+		}
+	}
+	return "", false
+}
+
 func TestCommitGraphInBrowser(t *testing.T) {
-	chromium, err := exec.LookPath("chromium")
-	if err != nil {
+	chromium, ok := browserPath()
+	if !ok {
+		if os.Getenv("PROBE_TEST_BROWSER") != "" {
+			t.Fatalf("PROBE_TEST_BROWSER=%q is not on the PATH", os.Getenv("PROBE_TEST_BROWSER"))
+		}
 		t.Skip("Chromium is required for the dashboard browser test")
 	}
 	assets, err := fs.Sub(Assets, "public")
@@ -46,10 +65,12 @@ func TestCommitGraphInBrowser(t *testing.T) {
 	defer server.Close()
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, chromium, "--headless", "--no-sandbox", "--disable-gpu", "--disable-dev-shm-usage", "--window-size=1440,900", "--user-data-dir="+t.TempDir(), "--dump-dom", "--virtual-time-budget=5000", server.URL+"/app.html")
+	cmd := exec.CommandContext(ctx, chromium, "--headless", "--no-sandbox", "--disable-gpu", "--disable-dev-shm-usage", "--no-first-run", "--disable-background-networking", "--window-size=1440,900", "--user-data-dir="+t.TempDir(), "--dump-dom", "--virtual-time-budget=5000", server.URL+"/app.html")
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
 	output, err := cmd.Output()
 	if err != nil {
-		t.Fatalf("Chromium: %v", err)
+		t.Fatalf("%s: %v (context: %v)\n%s", chromium, err, ctx.Err(), stderr.String())
 	}
 	if !strings.Contains(string(output), `data-test-result="PASS"`) {
 		t.Fatalf("dashboard test did not pass:\n%s", output)

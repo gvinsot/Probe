@@ -46,8 +46,15 @@ jobs:
           cache: false
       - run: go build ./hub/...
       - run: go vet ./hub/...
+      # The runner image ships Google Chrome. Naming it keeps the browser test
+      # off the "chromium" wrapper the image puts on the PATH, which hangs
+      # until the test timeout.
       - run: go test ./hub/...
+        env:
+          PROBE_TEST_BROWSER: google-chrome
       - run: go test -race ./hub/...
+        env:
+          PROBE_TEST_BROWSER: google-chrome
       - name: Check formatting
         shell: bash
         run: |
