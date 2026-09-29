@@ -5,7 +5,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/gvinsot/SwiftProof/app/internal/model"
+	"github.com/gvinsot/Probe/app/internal/model"
 )
 
 // impactedTestFindings returns one finding per impacted test (by test file,

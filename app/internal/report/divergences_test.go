@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/gvinsot/SwiftProof/app/internal/model"
+	"github.com/gvinsot/Probe/app/internal/model"
 )
 
 // divergenceFixture is a report whose evidence the tests mark verified by hand:
@@ -20,7 +20,7 @@ func divergenceFixture() *model.Report {
 			{Path: "calc/new.go", Status: "A"},
 		}},
 		Evidence: []model.Evidence{
-			{ID: "evidence-1", Kind: model.EvidenceDifferentialFuzz, Status: model.StatusDiverged, Path: "calc/swiftproof_fuzz_test.go", TestNames: []string{"TestSwiftProofFuzz"}},
+			{ID: "evidence-1", Kind: model.EvidenceDifferentialFuzz, Status: model.StatusDiverged, Path: "calc/probe_fuzz_test.go", TestNames: []string{"TestProbeFuzz"}},
 			{ID: "evidence-2", Kind: model.EvidenceDifferentialObservation, Status: model.StatusDiverged, Path: "calc/obs_test.go", TestNames: []string{"TestDiscount"}},
 			{ID: "evidence-3", Kind: model.EvidenceDifferentialObservation, Status: model.StatusNotDiverged, Path: "calc/eq_test.go", TestNames: []string{"TestEqual"}},
 			{ID: "evidence-4", Kind: model.EvidenceDifferentialObservation, Status: model.StatusDiverged, Path: "calc/other_test.go", TestNames: []string{"TestOther"}},
@@ -60,7 +60,7 @@ func fuzzEntry(id string) model.Divergence {
 	return model.Divergence{
 		EvidenceID: id, Kind: model.EvidenceDifferentialFuzz,
 		Path: "calc/calc.go", Line: 21, Symbol: "Discount", AnchorSource: anchorChangedFunction,
-		TestPath: "calc/swiftproof_fuzz_test.go", TestNames: []string{"TestSwiftProofFuzz"},
+		TestPath: "calc/probe_fuzz_test.go", TestNames: []string{"TestProbeFuzz"},
 		CheckIDs:     []string{"check-4", "check-5", "check-6", "check-7"},
 		Observations: []model.Observation{divergedRow("Discount(1000)", "900", "901")},
 	}
@@ -359,7 +359,7 @@ func TestWriteDivergencesEntries(t *testing.T) {
 	r := &model.Report{Divergences: []model.Divergence{many, obs, loose}}
 	body := section(t, string(Markdown(r)), "## Behavior Divergences")
 	for _, want := range []string{
-		"- **evidence-1** differential\\_fuzz — calc/calc.go:21 (changed function); test calc/swiftproof\\_fuzz\\_test.go (TestSwiftProofFuzz); hypotheses: none\n",
+		"- **evidence-1** differential\\_fuzz — calc/calc.go:21 (changed function); test calc/probe\\_fuzz\\_test.go (TestProbeFuzz); hypotheses: none\n",
 		"- **evidence-2** differential\\_observation — calc/calc.go:12 (model-chosen location); test calc/obs\\_test.go (TestDiscount); hypotheses: h1, h2\n",
 		"- **evidence-4** differential\\_observation — no anchor; test calc/obs\\_test.go (TestA, TestB); hypotheses: none\n",
 		"  - Discount\\(5,33\\): baseline 4; candidate 3\n",

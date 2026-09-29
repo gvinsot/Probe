@@ -6,8 +6,8 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/gvinsot/SwiftProof/app/internal/model"
-	"github.com/gvinsot/SwiftProof/app/internal/mutation"
+	"github.com/gvinsot/Probe/app/internal/model"
+	"github.com/gvinsot/Probe/app/internal/mutation"
 )
 
 // This file belongs to F4 (mutation of added lines). A mutant outcome is not

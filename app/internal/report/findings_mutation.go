@@ -3,7 +3,7 @@ package report
 import (
 	"fmt"
 
-	"github.com/gvinsot/SwiftProof/app/internal/model"
+	"github.com/gvinsot/Probe/app/internal/model"
 )
 
 // mutantFindings returns one finding per SURVIVED mutant that verifyMutation

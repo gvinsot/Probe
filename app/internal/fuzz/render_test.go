@@ -15,8 +15,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gvinsot/SwiftProof/app/internal/harness"
-	"github.com/gvinsot/SwiftProof/app/internal/model"
+	"github.com/gvinsot/Probe/app/internal/harness"
+	"github.com/gvinsot/Probe/app/internal/model"
 )
 
 func scalar(basic string) Param       { return Param{Kind: ParamScalar, Basic: basic} }
@@ -47,7 +47,7 @@ func obsPlan(targets ...Target) PackagePlan {
 }
 
 func renderOptions(suffix string) RenderOptions {
-	return RenderOptions{Suffix: suffix, ObservationsPath: "/tmp/swiftproof-observations.jsonl", PayloadLimit: harness.PayloadLimit(32 * 1024), CallTimeout: time.Second}
+	return RenderOptions{Suffix: suffix, ObservationsPath: "/tmp/probe-observations.jsonl", PayloadLimit: harness.PayloadLimit(32 * 1024), CallTimeout: time.Second}
 }
 
 func TestRenderPrefixesEveryIdentifierAndParses(t *testing.T) {
@@ -63,7 +63,7 @@ func TestRenderPrefixesEveryIdentifierAndParses(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if h.Path != "obs/swiftproof_fuzz_0123abcd_test.go" {
+	if h.Path != "obs/probe_fuzz_0123abcd_test.go" {
 		t.Fatalf("path = %s", h.Path)
 	}
 	fset := token.NewFileSet()
@@ -74,7 +74,7 @@ func TestRenderPrefixesEveryIdentifierAndParses(t *testing.T) {
 	if file.Name.Name != "obs" {
 		t.Fatalf("package = %s", file.Name.Name)
 	}
-	prefix := "swiftproofFuzz0123abcd"
+	prefix := "probeFuzz0123abcd"
 	declared := map[string]bool{}
 	for _, imp := range file.Imports {
 		if imp.Name == nil || !strings.HasPrefix(imp.Name.Name, prefix+"_") {
@@ -89,7 +89,7 @@ func TestRenderPrefixesEveryIdentifierAndParses(t *testing.T) {
 			if d.Recv != nil {
 				continue
 			}
-			if strings.HasPrefix(d.Name.Name, "TestSwiftProofFuzz_0123abcd_") {
+			if strings.HasPrefix(d.Name.Name, "TestProbeFuzz_0123abcd_") {
 				tests = append(tests, d.Name.Name)
 				continue
 			}
@@ -130,7 +130,7 @@ func TestRenderPrefixesEveryIdentifierAndParses(t *testing.T) {
 	// can shadow the target or a named type.
 	for _, decl := range file.Decls {
 		fd, ok := decl.(*ast.FuncDecl)
-		if !ok || !strings.HasPrefix(fd.Name.Name, "TestSwiftProofFuzz_") {
+		if !ok || !strings.HasPrefix(fd.Name.Name, "TestProbeFuzz_") {
 			continue
 		}
 		ast.Inspect(fd, func(n ast.Node) bool {
@@ -242,12 +242,12 @@ func TestRenderRefusesUnsafeInputs(t *testing.T) {
 		},
 		"collision": func() (PackagePlan, RenderOptions) {
 			p := obsPlan(target("Percent", 1, 8, scalar("int")))
-			p.Idents["swiftproofFuzzabcdef12_run"] = true
+			p.Idents["probeFuzzabcdef12_run"] = true
 			return p, renderOptions("abcdef12")
 		},
 		"test name collision": func() (PackagePlan, RenderOptions) {
 			p := obsPlan(target("Percent", 1, 8, scalar("int")))
-			p.Idents["TestSwiftProofFuzz_abcdef12_1"] = true
+			p.Idents["TestProbeFuzz_abcdef12_1"] = true
 			return p, renderOptions("abcdef12")
 		},
 		"function name not an identifier": func() (PackagePlan, RenderOptions) {
@@ -618,9 +618,9 @@ func TestGeneratedHarnessCompilesAndObserves(t *testing.T) {
 }
 
 func TestHarnessIdentifiersMatchTheirList(t *testing.T) {
-	names := harnessIdentifiers("swiftproofFuzzabcdef12", "abcdef12", 2)
+	names := harnessIdentifiers("probeFuzzabcdef12", "abcdef12", 2)
 	sort.Strings(names)
-	if len(names) != len(harnessNames)+2 || names[0] != "TestSwiftProofFuzz_abcdef12_1" {
+	if len(names) != len(harnessNames)+2 || names[0] != "TestProbeFuzz_abcdef12_1" {
 		t.Fatalf("%v", names)
 	}
 	_ = model.FuzzSeedScheme

@@ -13,7 +13,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gvinsot/SwiftProof/app/internal/model"
+	"github.com/gvinsot/Probe/app/internal/model"
 )
 
 // treeDigest hashes every regular file of dir by relative path.

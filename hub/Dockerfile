@@ -1,7 +1,7 @@
-# SwiftProof Hub: the web application, with the CLI it runs.
+# Probe Hub: the web application, with the CLI it runs.
 #
 # Build context is the repository root, because the image needs both modules:
-#   docker build -f hub/Dockerfile -t swiftproof-hub .
+#   docker build -f hub/Dockerfile -t probe-hub .
 #
 # The CLI is shipped inside the image on purpose. The hub never analyzes a
 # change itself: it prepares a disposable checkout and executes this trusted
@@ -15,10 +15,10 @@ COPY app/ app/
 COPY hub/ hub/
 ARG VERSION=dev
 # Both binaries carry the build version: the UI reports the hub's and the CLI's.
-RUN go build -ldflags "-s -w -X main.version=${VERSION}" -o /out/swiftproof ./app/cmd/swiftproof \
- && go build -ldflags "-s -w -X main.version=${VERSION}" -o /out/swiftproof-hub ./hub/cmd/swiftproof-hub
+RUN go build -ldflags "-s -w -X main.version=${VERSION}" -o /out/probe ./app/cmd/probe \
+ && go build -ldflags "-s -w -X main.version=${VERSION}" -o /out/probe-hub ./hub/cmd/probe-hub
 # The binaries must run in the final image, which has no Go toolchain.
-RUN go vet ./hub/... && /out/swiftproof-hub version && /out/swiftproof version
+RUN go vet ./hub/... && /out/probe-hub version && /out/probe version
 
 FROM debian:bookworm-slim
 # git fetches the analyzed commits; ca-certificates lets the hub reach the
@@ -28,23 +28,23 @@ RUN apt-get update \
  && rm -rf /var/lib/apt/lists/*
 
 # The service runs unprivileged and owns only its data directory.
-RUN useradd --system --create-home --home-dir /var/lib/swiftproof-hub --uid 10001 swiftproof
+RUN useradd --system --create-home --home-dir /var/lib/probe-hub --uid 10001 probe
 
-COPY --from=build /out/swiftproof /usr/local/bin/swiftproof
-COPY --from=build /out/swiftproof-hub /usr/local/bin/swiftproof-hub
+COPY --from=build /out/probe /usr/local/bin/probe
+COPY --from=build /out/probe-hub /usr/local/bin/probe-hub
 
-ENV SWIFTPROOF_HUB_ADDR=:8080 \
-    SWIFTPROOF_HUB_DATA_DIR=/var/lib/swiftproof-hub \
-    SWIFTPROOF_HUB_BINARY=/usr/local/bin/swiftproof \
-    SWIFTPROOF_HUB_INSTANCE=public \
-    SWIFTPROOF_HUB_MODE=auto
+ENV PROBE_HUB_ADDR=:8080 \
+    PROBE_HUB_DATA_DIR=/var/lib/probe-hub \
+    PROBE_HUB_BINARY=/usr/local/bin/probe \
+    PROBE_HUB_INSTANCE=public \
+    PROBE_HUB_MODE=auto
 
-USER swiftproof
-WORKDIR /var/lib/swiftproof-hub
-VOLUME ["/var/lib/swiftproof-hub"]
+USER probe
+WORKDIR /var/lib/probe-hub
+VOLUME ["/var/lib/probe-hub"]
 EXPOSE 8080
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
-    CMD ["/usr/local/bin/swiftproof-hub", "healthcheck"]
+    CMD ["/usr/local/bin/probe-hub", "healthcheck"]
 
-ENTRYPOINT ["/usr/local/bin/swiftproof-hub"]
+ENTRYPOINT ["/usr/local/bin/probe-hub"]

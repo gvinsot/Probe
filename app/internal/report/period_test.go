@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/gvinsot/SwiftProof/app/internal/model"
+	"github.com/gvinsot/Probe/app/internal/model"
 )
 
 // A reason recorded verbatim from a harness text that ends with a period is

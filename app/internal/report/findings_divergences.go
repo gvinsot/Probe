@@ -4,7 +4,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/gvinsot/SwiftProof/app/internal/model"
+	"github.com/gvinsot/Probe/app/internal/model"
 )
 
 // divergenceFindings returns one finding per entry of r.Divergences, which only

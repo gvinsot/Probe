@@ -12,16 +12,16 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"github.com/gvinsot/SwiftProof/app/internal/config"
-	"github.com/gvinsot/SwiftProof/app/internal/model"
+	"github.com/gvinsot/Probe/app/internal/config"
+	"github.com/gvinsot/Probe/app/internal/model"
 )
 
 // This test uses a scripted provider, real Git commits and real Docker execution.
 // It verifies the entire CLI/evidence path without a live AI service or API key.
 func TestDockerReviewEndToEnd(t *testing.T) {
-	image := os.Getenv("SWIFTPROOF_TEST_DOCKER_IMAGE")
+	image := os.Getenv("PROBE_TEST_DOCKER_IMAGE")
 	if image == "" {
-		t.Skip("set SWIFTPROOF_TEST_DOCKER_IMAGE to a preloaded Go image")
+		t.Skip("set PROBE_TEST_DOCKER_IMAGE to a preloaded Go image")
 	}
 	dir := fixture(t)
 	var calls atomic.Int32
@@ -38,7 +38,7 @@ func TestDockerReviewEndToEnd(t *testing.T) {
 		switch n := calls.Add(1); n {
 		case 1:
 			name = "create_test"
-			args = map[string]any{"path": "swiftproof_guest_test.go", "description": "Guest authorization must remain rejected", "content": "package fixture\nimport \"testing\"\nfunc TestSwiftProofRejectGuest(t *testing.T) { if Allowed(\"guest\") { t.Fatal(\"guest was authorized\") } }\n"}
+			args = map[string]any{"path": "probe_guest_test.go", "description": "Guest authorization must remain rejected", "content": "package fixture\nimport \"testing\"\nfunc TestProbeRejectGuest(t *testing.T) { if Allowed(\"guest\") { t.Fatal(\"guest was authorized\") } }\n"}
 		case 2:
 			name = "run_generated_test"
 			args = map[string]any{"test_id": "generated-test-1"}
@@ -64,7 +64,7 @@ func TestDockerReviewEndToEnd(t *testing.T) {
 	cfg.Sandbox.Image = image
 	cfg.Reviewer.Endpoint = server.URL
 	cfg.Reviewer.Model = "scripted-integration"
-	cfg.Reviewer.APIKeyEnv = "SWIFTPROOF_INTEGRATION_KEY"
+	cfg.Reviewer.APIKeyEnv = "PROBE_INTEGRATION_KEY"
 	t.Setenv(cfg.Reviewer.APIKeyEnv, "")
 	policy := filepath.Join(t.TempDir(), "policy.json")
 	b, _ := json.Marshal(cfg)
@@ -112,7 +112,7 @@ func TestDockerReviewEndToEnd(t *testing.T) {
 	if !retained {
 		t.Fatal("reproducing test was not retained")
 	}
-	if _, err := os.Stat(filepath.Join(dir, "swiftproof_guest_test.go")); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(dir, "probe_guest_test.go")); !os.IsNotExist(err) {
 		t.Fatal("generated test leaked into checkout")
 	}
 	if calls.Load() != 4 {

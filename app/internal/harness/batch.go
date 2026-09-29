@@ -22,8 +22,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/gvinsot/SwiftProof/app/internal/dockerutil"
-	"github.com/gvinsot/SwiftProof/app/internal/model"
+	"github.com/gvinsot/Probe/app/internal/dockerutil"
+	"github.com/gvinsot/Probe/app/internal/model"
 )
 
 // Fixed texts of execution.parallelism.note. They avoid apostrophes, which the

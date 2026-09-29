@@ -16,9 +16,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gvinsot/SwiftProof/app/internal/harness"
-	"github.com/gvinsot/SwiftProof/app/internal/model"
-	"github.com/gvinsot/SwiftProof/app/internal/mutation"
+	"github.com/gvinsot/Probe/app/internal/harness"
+	"github.com/gvinsot/Probe/app/internal/model"
+	"github.com/gvinsot/Probe/app/internal/mutation"
 )
 
 var command = []string{"go", "test", "-json", "-count=1", "-failfast", "./p"}

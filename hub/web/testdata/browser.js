@@ -224,7 +224,7 @@ window.addEventListener('DOMContentLoaded', async () => {
     assert(document.querySelector('.commit-row .chip.branch').textContent === 'main', 'branch name in the tree');
     const repoHead = document.querySelector('.repo-head');
     assert(repoHead.textContent.includes('Analyze now') && repoHead.textContent.includes('Activate monitoring'), 'repository actions next to the name');
-    assert(!document.getElementById('repos').textContent.includes('.swiftproof.json'), 'no policy tag');
+    assert(!document.getElementById('repos').textContent.includes('.probe.json'), 'no policy tag');
     for (const id of ['jump-from-repos', 'jump-from-commits']) {
       assert(getComputedStyle(document.getElementById(id)).display === 'none', id + ' only on mobile');
     }
@@ -243,7 +243,7 @@ window.addEventListener('DOMContentLoaded', async () => {
     const before = column.getBoundingClientRect().width;
     splitter.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));
     assert(column.getBoundingClientRect().width > before, 'splitter widens the commit tree');
-    assert(localStorage.getItem('swiftproof.commitColumnWidth') === splitter.getAttribute('aria-valuenow'), 'splitter width remembered');
+    assert(localStorage.getItem('probe.commitColumnWidth') === splitter.getAttribute('aria-valuenow'), 'splitter width remembered');
     const x = splitter.getBoundingClientRect().left;
     splitter.dispatchEvent(new PointerEvent('pointerdown', { button: 0, clientX: x, pointerId: 1, bubbles: true }));
     splitter.dispatchEvent(new PointerEvent('pointermove', { clientX: x + 100, pointerId: 1, bubbles: true }));
@@ -264,7 +264,7 @@ window.addEventListener('DOMContentLoaded', async () => {
     for (let i = 0; i < 2; i++) {
       const body = JSON.parse(requests[i].init.body);
       assert(body.commit === fixtureSHA('c') && body.variant === (i ? 'plan' : 'normal'), 'exact selected commit and variant');
-      assert(requests[i].init.headers['X-SwiftProof-CSRF'] === 'csrf', 'analysis includes CSRF');
+      assert(requests[i].init.headers['X-Probe-CSRF'] === 'csrf', 'analysis includes CSRF');
     }
     for (const variant of ['normal', 'plan']) {
       const pending = state.pending.get(pendingKey('repo', fixtureSHA('c'), variant));
@@ -336,7 +336,7 @@ window.addEventListener('DOMContentLoaded', async () => {
     assert(repoMeta().includes('Human review required') && repoMeta().includes('1 commit · 1d'), 'worst status of the day: ' + repoMeta());
     period.value = '6'; period.dispatchEvent(new Event('input'));
     assert(repoMeta().includes('reproduced issue') && repoMeta().includes('2 commits · 7d'), 'worst status of the week: ' + repoMeta());
-    assert(localStorage.getItem('swiftproof.hub.period') === '6', 'period remembered');
+    assert(localStorage.getItem('probe.hub.period') === '6', 'period remembered');
     assert(document.getElementById('review-count').textContent.startsWith('0 repositories'), 'repository count follows the displayed blocked verdict');
     const recentCount = state.recent.get('repo').size;
     rememberRun('repo', { ...fixtureRun('plan'), commit: fixtureSHA('f'), queued_at: fixtureAgo(0) });
@@ -356,7 +356,7 @@ window.addEventListener('DOMContentLoaded', async () => {
     assert(document.querySelector('#report-head .verdict').textContent === 'Review below critical', 'high review not flagged at critical');
     assert(!document.getElementById('commit-tree').textContent.includes('Human review required'), 'tree badges follow the threshold');
     assert(document.getElementById('review-count').textContent === '0 repositories · 0 commits to review', 'review count follows the threshold');
-    assert(localStorage.getItem('swiftproof.hub.minSeverity') === '3', 'threshold remembered');
+    assert(localStorage.getItem('probe.hub.minSeverity') === '3', 'threshold remembered');
     assert(document.getElementById('severity-value').textContent === 'critical' && severity.getAttribute('aria-valuetext') === 'critical', 'visible and accessible slider value updated');
     severity.value = '2'; severity.dispatchEvent(new Event('input'));
     assert(document.querySelector('#report-head .verdict').textContent === 'Human review required', 'high review flagged at high');
@@ -553,7 +553,7 @@ window.addEventListener('DOMContentLoaded', async () => {
     rowButtons(0, 'Cancel')[0].click();
     await settle();
     const cancelCall = fixtureCalls.find((call) => call.path === '/api/repos/repo/cancel');
-    assert(cancelCall && cancelCall.init.method === 'POST' && JSON.parse(cancelCall.init.body).commit === cancelCommit && cancelCall.init.headers['X-SwiftProof-CSRF'] === 'csrf', 'cancel posts the attempt with CSRF');
+    assert(cancelCall && cancelCall.init.method === 'POST' && JSON.parse(cancelCall.init.body).commit === cancelCommit && cancelCall.init.headers['X-Probe-CSRF'] === 'csrf', 'cancel posts the attempt with CSRF');
     rowButtons(1, 'Run again')[0].click();
     await settle();
     const rerunCall = fixtureCalls.find((call) => call.path === '/api/repos/repo/rerun');

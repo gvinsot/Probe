@@ -15,8 +15,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/gvinsot/SwiftProof/app/internal/fsutil"
-	"github.com/gvinsot/SwiftProof/app/internal/model"
+	"github.com/gvinsot/Probe/app/internal/fsutil"
+	"github.com/gvinsot/Probe/app/internal/model"
 )
 
 const (

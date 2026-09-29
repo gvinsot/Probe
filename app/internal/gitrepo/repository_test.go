@@ -10,14 +10,14 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/gvinsot/SwiftProof/app/internal/model"
+	"github.com/gvinsot/Probe/app/internal/model"
 )
 
 func gitTest(t *testing.T, dir string, input string, args ...string) string {
 	t.Helper()
 	c := exec.Command("git", append([]string{"-C", dir}, args...)...)
 	c.Stdin = strings.NewReader(input)
-	c.Env = append(os.Environ(), "GIT_AUTHOR_NAME=SwiftProof Test", "GIT_AUTHOR_EMAIL=test@example.invalid", "GIT_COMMITTER_NAME=SwiftProof Test", "GIT_COMMITTER_EMAIL=test@example.invalid", "GIT_CONFIG_NOSYSTEM=1")
+	c.Env = append(os.Environ(), "GIT_AUTHOR_NAME=Probe Test", "GIT_AUTHOR_EMAIL=test@example.invalid", "GIT_COMMITTER_NAME=Probe Test", "GIT_COMMITTER_EMAIL=test@example.invalid", "GIT_CONFIG_NOSYSTEM=1")
 	out, err := c.CombinedOutput()
 	if err != nil {
 		t.Fatalf("git %v: %v\n%s", args, err, out)

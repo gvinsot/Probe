@@ -14,17 +14,17 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gvinsot/SwiftProof/app/internal/coverage"
+	"github.com/gvinsot/Probe/app/internal/coverage"
 )
 
 // This test uses a real, preloaded Go image. No dependency downloads are needed.
 // It verifies actual compiler execution, test attribution, isolation, and artifacts.
 func TestDockerGoDifferentialIntegration(t *testing.T) {
-	image := os.Getenv("SWIFTPROOF_TEST_DOCKER_IMAGE")
+	image := os.Getenv("PROBE_TEST_DOCKER_IMAGE")
 	if image == "" {
-		t.Skip("set SWIFTPROOF_TEST_DOCKER_IMAGE to a preloaded golang Linux image")
+		t.Skip("set PROBE_TEST_DOCKER_IMAGE to a preloaded golang Linux image")
 	}
-	t.Setenv("SWIFTPROOF_HOST_SECRET", "must-not-reach-container")
+	t.Setenv("PROBE_HOST_SECRET", "must-not-reach-container")
 	for _, scenario := range []struct{ name, candidate, want string }{
 		{"real_regression", "package sample\nfunc Clamp(n int) int { return n }\n", "REPRODUCED"},
 		{"unrelated_suite_failure", "package sample\nfunc Clamp(n int) int { if n < 0 { return 0 }; return n }\n", "NOT_REPRODUCED"},
@@ -63,12 +63,12 @@ import (
  "testing"
  "time"
 )
-func TestSwiftProofClampAndSandbox(t *testing.T) {
+func TestProbeClampAndSandbox(t *testing.T) {
  if os.Geteuid() == 0 { t.Fatal("sandbox must be non-root") }
- if os.Getenv("SWIFTPROOF_HOST_SECRET") != "" { t.Fatal("host secret reached sandbox") }
+ if os.Getenv("PROBE_HOST_SECRET") != "" { t.Fatal("host secret reached sandbox") }
  if _, err := os.Stat("/source/.env"); !os.IsNotExist(err) { t.Fatal("secret file reached sandbox") }
  if err := os.WriteFile("/source/host-write", []byte("unsafe"), 0644); err == nil { t.Fatal("source mount is writable") }
- if err := os.WriteFile("/etc/swiftproof-write", []byte("unsafe"), 0644); err == nil { t.Fatal("root filesystem is writable") }
+ if err := os.WriteFile("/etc/probe-write", []byte("unsafe"), 0644); err == nil { t.Fatal("root filesystem is writable") }
  if err := os.WriteFile("/workspace/container-only", []byte("ephemeral"), 0644); err != nil { t.Fatal(err) }
  interfaces, err := net.Interfaces(); if err != nil { t.Fatal(err) }
  for _, iface := range interfaces { if iface.Flags & net.FlagLoopback == 0 { t.Fatalf("unexpected network interface: %s", iface.Name) } }
@@ -77,7 +77,7 @@ func TestSwiftProofClampAndSandbox(t *testing.T) {
  if got := Clamp(-1); got != 0 { t.Fatalf("Clamp(-1) = %d; want 0", got) }
 }
 `
-			call(t, h, "create_test", map[string]any{"path": "swiftproof_regression_test.go", "content": generated, "description": "Negative inputs must clamp to zero"})
+			call(t, h, "create_test", map[string]any{"path": "probe_regression_test.go", "content": generated, "description": "Negative inputs must clamp to zero"})
 			out := call(t, h, "run_generated_test", map[string]any{"test_id": "generated-test-1"})
 			evidence := h.Evidence()
 			if len(evidence) != 1 || evidence[0].Status != scenario.want {
@@ -96,7 +96,7 @@ func TestSwiftProofClampAndSandbox(t *testing.T) {
 				}
 			}
 			for _, dir := range []string{base, head, h.base, h.candidate} {
-				for _, path := range []string{"host-write", "container-only", "swiftproof_regression_test.go"} {
+				for _, path := range []string{"host-write", "container-only", "probe_regression_test.go"} {
 					if _, err := os.Stat(filepath.Join(dir, path)); !os.IsNotExist(err) {
 						t.Fatalf("sandbox modified host snapshot: %s", filepath.Join(dir, path))
 					}
@@ -172,21 +172,21 @@ func dockerCoverageFixture(t *testing.T, image string, command []string) (*Harne
 // inside, and the host asserts afterwards that nothing escaped. Coverage may
 // add signals; it may never buy them with a weaker sandbox.
 func TestDockerCoverageBoundaryUnchanged(t *testing.T) {
-	image := os.Getenv("SWIFTPROOF_TEST_DOCKER_IMAGE")
+	image := os.Getenv("PROBE_TEST_DOCKER_IMAGE")
 	if image == "" {
-		t.Skip("set SWIFTPROOF_TEST_DOCKER_IMAGE to a preloaded golang Linux image")
+		t.Skip("set PROBE_TEST_DOCKER_IMAGE to a preloaded golang Linux image")
 	}
-	t.Setenv("SWIFTPROOF_HOST_SECRET", "must-not-reach-container")
+	t.Setenv("PROBE_HOST_SECRET", "must-not-reach-container")
 	// Every violation exits non-zero with its own sentence, so a failure names
 	// the boundary that broke instead of only an exit code. The command also
 	// writes a valid profile, so the boundary is asserted on a coverage run that
 	// otherwise succeeds end to end rather than on a degenerate one.
 	boundary := `fail() { echo "BOUNDARY VIOLATION: $1"; exit 1; }
 [ "$(id -u)" -ne 0 ] || fail "coverage container runs as root"
-touch /swiftproof-root-write 2>/dev/null && fail "root filesystem is writable"
-touch /source/swiftproof-host-write 2>/dev/null && fail "read-only source mount is writable"
-touch /workspace/swiftproof-container-only || fail "ephemeral workspace is not writable"
-[ -z "$SWIFTPROOF_HOST_SECRET" ] || fail "host environment secret reached the coverage container"
+touch /probe-root-write 2>/dev/null && fail "root filesystem is writable"
+touch /source/probe-host-write 2>/dev/null && fail "read-only source mount is writable"
+touch /workspace/probe-container-only || fail "ephemeral workspace is not writable"
+[ -z "$PROBE_HOST_SECRET" ] || fail "host environment secret reached the coverage container"
 [ ! -e /source/.env ] && [ ! -e /workspace/.env ] || fail "secret file reached the coverage container"
 printf 'mode: set\nexample.test/sample/value.go:3.23,4.11 1 1\n' > ` + coverage.Placeholder + `
 echo "boundary intact"`
@@ -270,9 +270,9 @@ echo "boundary intact"`
 // hash to exactly what the caller was handed: a coverage verdict with no
 // recorded, hashed evidence is unfalsifiable.
 func TestDockerCoverageFrameRoundTrip(t *testing.T) {
-	image := os.Getenv("SWIFTPROOF_TEST_DOCKER_IMAGE")
+	image := os.Getenv("PROBE_TEST_DOCKER_IMAGE")
 	if image == "" {
-		t.Skip("set SWIFTPROOF_TEST_DOCKER_IMAGE to a preloaded golang Linux image")
+		t.Skip("set PROBE_TEST_DOCKER_IMAGE to a preloaded golang Linux image")
 	}
 	// The container command is generated from the expected bytes, so the
 	// assertion cannot be quietly written around whatever the wrapper emits.
@@ -327,9 +327,9 @@ func TestDockerCoverageFrameRoundTrip(t *testing.T) {
 // land in the recorded log, and a command that forges a frame on its standard
 // output must not be able to substitute a profile.
 func TestDockerCoverageSeparatesLogFromPayload(t *testing.T) {
-	image := os.Getenv("SWIFTPROOF_TEST_DOCKER_IMAGE")
+	image := os.Getenv("PROBE_TEST_DOCKER_IMAGE")
 	if image == "" {
-		t.Skip("set SWIFTPROOF_TEST_DOCKER_IMAGE to a preloaded golang Linux image")
+		t.Skip("set PROBE_TEST_DOCKER_IMAGE to a preloaded golang Linux image")
 	}
 	want := "mode: count\nexample.test/sample/value.go:3.23,5.4 1 4\n"
 	script := strings.Join([]string{

@@ -7,9 +7,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/gvinsot/SwiftProof/app/internal/fuzz"
-	"github.com/gvinsot/SwiftProof/app/internal/harness"
-	"github.com/gvinsot/SwiftProof/app/internal/model"
+	"github.com/gvinsot/Probe/app/internal/fuzz"
+	"github.com/gvinsot/Probe/app/internal/harness"
+	"github.com/gvinsot/Probe/app/internal/model"
 )
 
 var vitestGeneratedTest = []string{"vitest", "run", "{file}", "--reporter=json", "--outputFile={results_out}"}
@@ -171,7 +171,7 @@ func TestScriptFuzzStageThroughTheCLI(t *testing.T) {
 	if !found {
 		t.Fatalf("unverified %q", r.Unverified)
 	}
-	matches, _ := filepath.Glob(filepath.Join(dir, "web", "swiftproof-fuzz-*"))
+	matches, _ := filepath.Glob(filepath.Join(dir, "web", "probe-fuzz-*"))
 	if len(matches) != 0 {
 		t.Fatalf("harness file in the checkout: %v", matches)
 	}

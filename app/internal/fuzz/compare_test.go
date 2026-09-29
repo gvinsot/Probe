@@ -6,10 +6,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/gvinsot/SwiftProof/app/internal/model"
+	"github.com/gvinsot/Probe/app/internal/model"
 )
 
-const testName = "TestSwiftProofFuzz_abcdef12_1"
+const testName = "TestProbeFuzz_abcdef12_1"
 
 var fuzzCommand = []string{"go", "test", "./p", "-json", "-count=1", "-run", "^(" + testName + ")$"}
 
@@ -283,7 +283,7 @@ func TestEvaluateRequiresValidatedExecutions(t *testing.T) {
 		}), "the candidate run observation stream planned a different number of inputs"},
 		{"other test", edit(func(c *Checks) {
 			other := completeFn(3, encodings("a", "b", "c"))
-			other.Test = "TestSwiftProofFuzz_abcdef12_2"
+			other.Test = "TestProbeFuzz_abcdef12_2"
 			c.Candidate.Results = results(t, other)
 		}), "the candidate run observation stream has no records of the fuzz test"},
 		{"different inputs", edit(func(c *Checks) {

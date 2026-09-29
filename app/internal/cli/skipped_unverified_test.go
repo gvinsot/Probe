@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/gvinsot/SwiftProof/app/internal/model"
+	"github.com/gvinsot/Probe/app/internal/model"
 )
 
 // Every requested v0.4 stage that record*Skipped marks not_run adds exactly

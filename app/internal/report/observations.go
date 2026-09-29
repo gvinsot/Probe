@@ -6,9 +6,9 @@ package report
 // when the recomputation agrees with it.
 
 import (
-	"github.com/gvinsot/SwiftProof/app/internal/harness"
-	"github.com/gvinsot/SwiftProof/app/internal/model"
-	"github.com/gvinsot/SwiftProof/app/internal/observe"
+	"github.com/gvinsot/Probe/app/internal/harness"
+	"github.com/gvinsot/Probe/app/internal/model"
+	"github.com/gvinsot/Probe/app/internal/observe"
 )
 
 // verifyObservations re-derives the status of every differential_observation

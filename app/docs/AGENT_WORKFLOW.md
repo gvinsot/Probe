@@ -1,11 +1,11 @@
-# Using SwiftProof in an agent coding loop
+# Using Probe in an agent coding loop
 
 Add the following instructions to a project's agent guidance after installing a
-trusted SwiftProof binary and committing its reviewed `.swiftproof.json` policy:
+trusted Probe binary and committing its reviewed `.probe.json` policy:
 
-> Before handing over a committed change, run `swiftproof lint --base origin/main`.
-> Inspect `.swiftproof/CONFIDENCE_REPORT.md`, investigate relevant findings, and
-> rerun after corrections. Before requesting PR review, run `swiftproof review`
+> Before handing over a committed change, run `probe lint --base origin/main`.
+> Inspect `.probe/CONFIDENCE_REPORT.md`, investigate relevant findings, and
+> rerun after corrections. Before requesting PR review, run `probe review`
 > when the project's prepared Docker image is available. In the handoff, report
 > each of these separately:
 >
@@ -25,12 +25,12 @@ trusted SwiftProof binary and committing its reviewed `.swiftproof.json` policy:
 > Never treat a model assertion, a passing check or a zero exit code as proof of
 > correctness. Do not change the baseline policy to make findings disappear. Do
 > not create commits solely to satisfy this check when the task does not
-> authorize commits; explain that uncommitted changes are outside SwiftProof's
+> authorize commits; explain that uncommitted changes are outside Probe's
 > analysis.
 
 To share results on a pull request, render them with `--format pr-comment` and
 post `PR_COMMENT.md` as a PR **comment**, never into the PR description. The
-description is the usual `--intent-file` source: SwiftProof removes its own
+description is the usual `--intent-file` source: Probe removes its own
 marked comment block from the intent, but any other text copied there is read
 as intent, and its list items can become acceptance criteria. Put the handoff
 list above in a PR comment or the handoff message for the same reason. See
@@ -38,20 +38,20 @@ list above in a PR comment or the handoff message for the same reason. See
 
 To make an agent announce its work before doing it, add:
 
-> Before writing code for a task, run `swiftproof plan --intent-file <task file>`
-> and read `.swiftproof/PLAN.md`; raise any flagged category with a human when the
-> task requires it. After committing, run `swiftproof lint --plan
-> .swiftproof/PLAN.json` (and `review --plan` before PR review) and report every
+> Before writing code for a task, run `probe plan --intent-file <task file>`
+> and read `.probe/PLAN.md`; raise any flagged category with a human when the
+> task requires it. After committing, run `probe lint --plan
+> .probe/PLAN.json` (and `review --plan` before PR review) and report every
 > plan-conformance difference in the handoff: files outside the plan, unannounced
 > exported changes, critical paths and dependency manifests, and the plan gate
 > decision with its reasons. Never edit PLAN.json to make the change conform:
-> update the plan with `swiftproof plan` and have it approved again.
+> update the plan with `probe plan` and have it approved again.
 
 `plan` needs the configured provider; the plan is the model's proposal and its
 assessment comes from fixed rules, so neither is proof that the change is safe.
 See [plans and scope drift](PLAN.md).
 
 Use `--reviewer=false` for a provider-free review. A model configured in the
-trusted policy or through `SWIFTPROOF_REVIEWER_MODEL` is used automatically by
+trusted policy or through `PROBE_REVIEWER_MODEL` is used automatically by
 the current source version; v0.1.0 requires `--reviewer`.
 The CI adapter explicitly supplies this flag to work with either version.

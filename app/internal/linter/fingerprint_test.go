@@ -3,7 +3,7 @@ package linter
 import (
 	"testing"
 
-	"github.com/gvinsot/SwiftProof/app/internal/model"
+	"github.com/gvinsot/Probe/app/internal/model"
 )
 
 func TestTokenDigestIgnoresLayoutAndComments(t *testing.T) {

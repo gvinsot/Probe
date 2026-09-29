@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/gvinsot/SwiftProof/app/internal/harness"
-	"github.com/gvinsot/SwiftProof/app/internal/model"
-	"github.com/gvinsot/SwiftProof/app/internal/redact"
+	"github.com/gvinsot/Probe/app/internal/harness"
+	"github.com/gvinsot/Probe/app/internal/model"
+	"github.com/gvinsot/Probe/app/internal/redact"
 )
 
 // This file belongs to F5 (intent-linked candidate-only tests): the verifier

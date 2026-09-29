@@ -9,9 +9,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/gvinsot/SwiftProof/app/internal/gitrepo"
-	"github.com/gvinsot/SwiftProof/app/internal/model"
-	"github.com/gvinsot/SwiftProof/app/internal/redact"
+	"github.com/gvinsot/Probe/app/internal/gitrepo"
+	"github.com/gvinsot/Probe/app/internal/model"
+	"github.com/gvinsot/Probe/app/internal/redact"
 )
 
 // Result is the impact analysis of one change.

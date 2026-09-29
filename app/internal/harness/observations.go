@@ -3,7 +3,7 @@ package harness
 // The observation oracle (F1): a generated test may record values instead of
 // asserting them. Go tests record them with testing.T.Attr (Go 1.25 or later
 // in the sandbox image), which go test -json turns into "attr" events inside
-// the recorded check log; Vitest tests record them in task.meta.swiftproof,
+// the recorded check log; Vitest tests record them in task.meta.probe,
 // which the Jest-compatible JSON report carries on the {results_out} payload
 // channel. When the generated test passes on both revisions, the recorded
 // values are compared key by key (package observe). A key whose candidate value
@@ -23,9 +23,9 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/gvinsot/SwiftProof/app/internal/model"
-	"github.com/gvinsot/SwiftProof/app/internal/observe"
-	"github.com/gvinsot/SwiftProof/app/internal/redact"
+	"github.com/gvinsot/Probe/app/internal/model"
+	"github.com/gvinsot/Probe/app/internal/observe"
+	"github.com/gvinsot/Probe/app/internal/redact"
 )
 
 // observeState holds no per-harness state: each observation experiment is
@@ -47,17 +47,17 @@ const (
 	reasonNotRetained      = "the diverging generated test could not be retained as an artifact, so the difference is not recorded as a divergence"
 )
 
-// Normalized Vitest meta values that stand for observations SwiftProof did not
+// Normalized Vitest meta values that stand for observations Probe did not
 // keep. They replace whatever the runner reported, so no untrusted text
 // survives, and they are fixed points of normalizeJestMeta.
 const (
-	metaNotObject   = "swiftproof: observations were not a key/value object"
-	metaTooMany     = "swiftproof: more than 32 observations were recorded"
-	metaCollision   = "swiftproof: two keys became equal after redaction"
-	metaUnstable    = "swiftproof: the observations would be altered by redaction"
-	metaUnencodable = "swiftproof: the observations could not be encoded"
-	metaDropped     = "swiftproof: observations were dropped because the report would be altered by redaction"
-	metaTooLarge    = "swiftproof: observations were dropped because the report would exceed its size budget"
+	metaNotObject   = "probe: observations were not a key/value object"
+	metaTooMany     = "probe: more than 32 observations were recorded"
+	metaCollision   = "probe: two keys became equal after redaction"
+	metaUnstable    = "probe: the observations would be altered by redaction"
+	metaUnencodable = "probe: the observations could not be encoded"
+	metaDropped     = "probe: observations were dropped because the report would be altered by redaction"
+	metaTooLarge    = "probe: observations were dropped because the report would exceed its size budget"
 )
 
 // metaReasons maps each marker to the channel-error reason it stands for.
@@ -76,10 +76,10 @@ var metaReasons = map[string]string{
 // never make a runner report unreadable: a meta that is not an object keeps
 // only a fixed marker.
 type jestMeta struct {
-	Observations json.RawMessage `json:"swiftproof,omitempty"`
+	Observations json.RawMessage `json:"probe,omitempty"`
 }
 
-// UnmarshalJSON keeps the "swiftproof" member of a meta object. A meta that is
+// UnmarshalJSON keeps the "probe" member of a meta object. A meta that is
 // not an object becomes a marker; it is never a decoding error.
 func (m *jestMeta) UnmarshalJSON(data []byte) error {
 	var object map[string]json.RawMessage

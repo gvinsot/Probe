@@ -47,14 +47,14 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/gvinsot/SwiftProof/app/internal/coverage"
-	"github.com/gvinsot/SwiftProof/app/internal/model"
+	"github.com/gvinsot/Probe/app/internal/coverage"
+	"github.com/gvinsot/Probe/app/internal/model"
 )
 
 // FuzzObservationsPath is the fixed in-container path of the observation
 // stream a fuzz harness appends to. It returns on the framed payload channel
 // (captureScript); policy argv never names it.
-const FuzzObservationsPath = "/tmp/swiftproof-observations.jsonl"
+const FuzzObservationsPath = "/tmp/probe-observations.jsonl"
 
 // Audit names of the fuzz stage (reserved "stage:" prefix, §1.2).
 const (
@@ -80,7 +80,7 @@ const (
 	fuzzScriptTestsMissed = "the TS/JS fuzz harness did not run every harness test on the baseline although the run passed: the stream ended between two tests"
 	// fuzzCausePrefix introduces the ERROR cause line appended to the
 	// recorded output of a fuzz check (after its log artifact was retained).
-	fuzzCausePrefix = "\nswiftproof: "
+	fuzzCausePrefix = "\nprobe: "
 )
 
 // errFuzzSubCap is the cancellation cause of a fuzz run's context when the

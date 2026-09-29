@@ -13,7 +13,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
-	"github.com/gvinsot/SwiftProof/app/internal/linter"
+	"github.com/gvinsot/Probe/app/internal/linter"
 )
 
 // testFunc is one runnable Go test function of a parsed test file.

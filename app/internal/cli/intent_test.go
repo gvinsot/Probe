@@ -16,14 +16,14 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"github.com/gvinsot/SwiftProof/app/internal/acceptance"
-	"github.com/gvinsot/SwiftProof/app/internal/config"
-	"github.com/gvinsot/SwiftProof/app/internal/model"
-	"github.com/gvinsot/SwiftProof/app/internal/report"
+	"github.com/gvinsot/Probe/app/internal/acceptance"
+	"github.com/gvinsot/Probe/app/internal/config"
+	"github.com/gvinsot/Probe/app/internal/model"
+	"github.com/gvinsot/Probe/app/internal/report"
 )
 
 // intentDocument is a PR description with prose, two criteria in scope, an
-// item outside the section and a pasted SwiftProof PR comment.
+// item outside the section and a pasted Probe PR comment.
 const intentDocument = "Make discounts predictable.\r\n\r\n## Acceptance criteria\r\n- [ ] Orders of 100 or more get 10 off\r\n- [x] Orders of 50 or more\r\n  ship free\r\n\r\n## Notes\r\n- not a criterion\r\n" +
 	model.PRCommentBegin + "\n- Reproduced: nothing\n" + model.PRCommentEnd + "\n"
 
@@ -134,7 +134,7 @@ func TestLintRecordsIntentCriteria(t *testing.T) {
 	cfg := config.Default("go")
 	cfg.Reviewer.Model = "test-model"
 	cfg.Reviewer.Endpoint = server.URL + "/v1"
-	cfg.Reviewer.APIKeyEnv = "SWIFTPROOF_TEST_INTENT_KEY"
+	cfg.Reviewer.APIKeyEnv = "PROBE_TEST_INTENT_KEY"
 	t.Setenv(cfg.Reviewer.APIKeyEnv, "")
 	policy := filepath.Join(t.TempDir(), "policy.json")
 	writeReviewerPolicy(t, policy, cfg)
@@ -147,7 +147,7 @@ func TestLintRecordsIntentCriteria(t *testing.T) {
 	if r.Intent != doc.Text || r.IntentSHA256 != doc.SHA256 || !reflect.DeepEqual(r.IntentCriteria, doc.Criteria) || len(r.IntentCriteria) != 2 {
 		t.Fatalf("intent %q sha %s criteria %+v", r.Intent, r.IntentSHA256, r.IntentCriteria)
 	}
-	if strings.Contains(r.Intent, "swiftproof:pr-comment") || !hasEntry(r.Unverified, acceptance.PRCommentNote) {
+	if strings.Contains(r.Intent, "probe:pr-comment") || !hasEntry(r.Unverified, acceptance.PRCommentNote) {
 		t.Fatalf("PR comment not stripped with a note: %q %q", r.Intent, r.Unverified)
 	}
 	if string(members["intent_test_failures"]) != "[]" {

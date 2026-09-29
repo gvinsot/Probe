@@ -17,9 +17,9 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/gvinsot/SwiftProof/app/internal/acceptance"
-	"github.com/gvinsot/SwiftProof/app/internal/model"
-	"github.com/gvinsot/SwiftProof/app/internal/redact"
+	"github.com/gvinsot/Probe/app/internal/acceptance"
+	"github.com/gvinsot/Probe/app/internal/model"
+	"github.com/gvinsot/Probe/app/internal/redact"
 )
 
 // Reviewer tool names of the intent tests.
@@ -117,7 +117,7 @@ func (h *Harness) createIntentTest(criterionID, path, content, description strin
 	delete(h.tests, id)
 	if runner, _, _ := h.intentRunner(t); runner == "" {
 		h.generated-- // nothing was created
-		return nil, errors.New("intent tests need a named-test runner whose output SwiftProof can check: a generated_test command such as go test {package} for a Go test file, or a Jest-compatible runner with {file} and {results_out} for a JavaScript/TypeScript test file with static top-level test titles")
+		return nil, errors.New("intent tests need a named-test runner whose output Probe can check: a generated_test command such as go test {package} for a Go test file, or a Jest-compatible runner with {file} and {results_out} for a JavaScript/TypeScript test file with static top-level test titles")
 	}
 	h.intent.created++
 	t.ID = fmt.Sprintf("intent-test-%d", h.intent.created)
@@ -153,7 +153,7 @@ func (h *Harness) runIntentTest(ctx context.Context, id string) (any, error) {
 	}
 	runner, names, command := h.intentRunner(t)
 	if runner == "" {
-		return nil, errors.New("the generated_test command has no named-test runner whose output SwiftProof can check for this intent test")
+		return nil, errors.New("the generated_test command has no named-test runner whose output Probe can check for this intent test")
 	}
 	// Changed declarations are read before the test is staged. When ctx ends
 	// first, no symbol is recorded; the run is then not started either.
@@ -673,8 +673,8 @@ func intentToolDefinitions() []map[string]any {
 		return map[string]any{"type": "function", "function": map[string]any{"name": name, "description": description, "parameters": map[string]any{"type": "object", "properties": properties, "required": required, "additionalProperties": false}}}
 	}
 	return []map[string]any{
-		definition(IntentCreateTool, "Create a test for one acceptance criterion from intent_criteria. The file rules of create_test apply, and the policy must have a named-test runner whose output SwiftProof can check for the file (Go named tests, or a Jest-compatible JSON report with static top-level test titles). The test runs on the candidate only, with no baseline control. Intent tests share the generated-test budget and may use at most half of it.",
-			map[string]any{"criterion_id": map[string]any{"type": "string", "pattern": `^AC-[1-9][0-9]{0,2}$`, "description": "ID of the acceptance criterion, for example AC-1"}, "path": str("New test path, e.g. pkg/swiftproof_intent_ac1_test.go"), "content": str("Exact test source"), "description": str("What the test checks for the criterion")},
+		definition(IntentCreateTool, "Create a test for one acceptance criterion from intent_criteria. The file rules of create_test apply, and the policy must have a named-test runner whose output Probe can check for the file (Go named tests, or a Jest-compatible JSON report with static top-level test titles). The test runs on the candidate only, with no baseline control. Intent tests share the generated-test budget and may use at most half of it.",
+			map[string]any{"criterion_id": map[string]any{"type": "string", "pattern": `^AC-[1-9][0-9]{0,2}$`, "description": "ID of the acceptance criterion, for example AC-1"}, "path": str("New test path, e.g. pkg/probe_intent_ac1_test.go"), "content": str("Exact test source"), "description": str("What the test checks for the criterion")},
 			[]string{"criterion_id", "path", "content"}),
 		definition(IntentRunTool, "Run an intent test on the candidate snapshot only. Its intent_test evidence is INTENT_TEST_FAILED only when the named test ran and failed on an assertion of its own file and names a declaration the change added or modified (matched by name, not resolved) whose name an added line contains; INTENT_TEST_PASSED when the named test ran and passed and names at least one declaration the change added or modified, which says nothing about whether the criterion holds; UNVERIFIED otherwise.",
 			map[string]any{"test_id": str("ID returned by create_intent_test")},

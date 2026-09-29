@@ -13,8 +13,8 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"github.com/gvinsot/SwiftProof/app/internal/config"
-	"github.com/gvinsot/SwiftProof/app/internal/model"
+	"github.com/gvinsot/Probe/app/internal/config"
+	"github.com/gvinsot/Probe/app/internal/model"
 )
 
 // exportProvider is a scripted provider. Unless fabricate is set, it creates
@@ -41,7 +41,7 @@ func exportProvider(t *testing.T, fabricate bool) (*httptest.Server, *atomic.Int
 			args = map[string]any{"title": "Guest is allowed through authorization", "severity": "critical", "status": "REPRODUCED", "rationale": "Asserted without an experiment.", "evidence_ids": []string{"fabricated"}, "path": "auth.go", "line": 3}
 		case !fabricate && n == 1:
 			name = "create_test"
-			args = map[string]any{"path": "swiftproof_guest_test.go", "description": "Guest authorization must remain rejected", "content": "package fixture\nimport \"testing\"\nfunc TestSwiftProofRejectGuest(t *testing.T) { if Allowed(\"guest\") { t.Fatal(\"guest was authorized\") } }\n"}
+			args = map[string]any{"path": "probe_guest_test.go", "description": "Guest authorization must remain rejected", "content": "package fixture\nimport \"testing\"\nfunc TestProbeRejectGuest(t *testing.T) { if Allowed(\"guest\") { t.Fatal(\"guest was authorized\") } }\n"}
 		case !fabricate && n == 2:
 			name = "run_generated_test"
 			args = map[string]any{"test_id": "generated-test-1"}
@@ -72,7 +72,7 @@ func exportPolicy(t *testing.T, image, endpoint string) string {
 	cfg.Sandbox.Image = image
 	cfg.Reviewer.Endpoint = endpoint
 	cfg.Reviewer.Model = "scripted-integration"
-	cfg.Reviewer.APIKeyEnv = "SWIFTPROOF_INTEGRATION_KEY"
+	cfg.Reviewer.APIKeyEnv = "PROBE_INTEGRATION_KEY"
 	t.Setenv(cfg.Reviewer.APIKeyEnv, "")
 	policy := filepath.Join(t.TempDir(), "policy.json")
 	b, _ := json.Marshal(cfg)
@@ -103,13 +103,13 @@ type sarifResultView struct {
 		} `json:"physicalLocation"`
 	} `json:"relatedLocations"`
 	Properties struct {
-		SwiftProof struct {
+		Probe struct {
 			EvidenceIDs []string `json:"evidence_ids"`
 			Artifacts   []struct {
 				Path   string `json:"path"`
 				SHA256 string `json:"sha256"`
 			} `json:"artifacts"`
-		} `json:"swiftproof"`
+		} `json:"probe"`
 	} `json:"properties"`
 }
 
@@ -126,9 +126,9 @@ type sarifView struct {
 // A real reproduced run through Docker: the SARIF result and the PR comment
 // cite the recorded evidence, and a re-render reproduces both files.
 func TestDockerReviewExports(t *testing.T) {
-	image := os.Getenv("SWIFTPROOF_TEST_DOCKER_IMAGE")
+	image := os.Getenv("PROBE_TEST_DOCKER_IMAGE")
 	if image == "" {
-		t.Skip("set SWIFTPROOF_TEST_DOCKER_IMAGE to a preloaded Go image")
+		t.Skip("set PROBE_TEST_DOCKER_IMAGE to a preloaded Go image")
 	}
 	dir := fixture(t)
 	server, calls := exportProvider(t, false)
@@ -168,15 +168,15 @@ func TestDockerReviewExports(t *testing.T) {
 		t.Fatalf("SARIF: %s", raw)
 	}
 	result := log.Runs[0].Results[0]
-	if result.RuleID != "swiftproof/reproduced" || result.Level != "error" || len(result.Locations) != 1 ||
+	if result.RuleID != "probe/reproduced" || result.Level != "error" || len(result.Locations) != 1 ||
 		result.Locations[0].PhysicalLocation.ArtifactLocation.URI != "auth.go" || result.Locations[0].PhysicalLocation.Region.StartLine != 3 {
 		t.Fatalf("result: %s", raw)
 	}
-	if len(result.Properties.SwiftProof.EvidenceIDs) != 1 || result.Properties.SwiftProof.EvidenceIDs[0] != r.Evidence[0].ID {
-		t.Fatalf("evidence IDs %v, JSON %s", result.Properties.SwiftProof.EvidenceIDs, r.Evidence[0].ID)
+	if len(result.Properties.Probe.EvidenceIDs) != 1 || result.Properties.Probe.EvidenceIDs[0] != r.Evidence[0].ID {
+		t.Fatalf("evidence IDs %v, JSON %s", result.Properties.Probe.EvidenceIDs, r.Evidence[0].ID)
 	}
 	if len(result.RelatedLocations) != 1 || result.RelatedLocations[0].PhysicalLocation.ArtifactLocation.URI != retained.Path ||
-		len(result.Properties.SwiftProof.Artifacts) != 1 || result.Properties.SwiftProof.Artifacts[0].SHA256 != retained.SHA256 {
+		len(result.Properties.Probe.Artifacts) != 1 || result.Properties.Probe.Artifacts[0].SHA256 != retained.SHA256 {
 		t.Fatalf("retained test not linked (%+v): %s", retained, raw)
 	}
 	for _, forbidden := range []string{"\"precision\"", "security-severity", "\"confidence\""} {
@@ -185,13 +185,13 @@ func TestDockerReviewExports(t *testing.T) {
 		}
 	}
 	comment := readFile(t, filepath.Join(dir, "report", "PR_COMMENT.md"))
-	for _, want := range []string{"## SwiftProof: 1 evidence-backed finding", "No finding is not approval.", "Exit code 1: a reproduced high or critical hypothesis was recorded.",
+	for _, want := range []string{"## Probe: 1 evidence-backed finding", "No finding is not approval.", "Exit code 1: a reproduced high or critical hypothesis was recorded.",
 		"](" + url + ")", "Evidence: " + r.Evidence[0].ID + "."} {
 		if !strings.Contains(comment, want) {
 			t.Fatalf("PR comment lacks %q:\n%s", want, comment)
 		}
 	}
-	if !strings.HasPrefix(comment, model.PRCommentBegin+"\n") || !strings.HasSuffix(comment, "Generated by SwiftProof integration (https://github.com/gvinsot/SwiftProof).\n"+model.PRCommentEnd+"\n") {
+	if !strings.HasPrefix(comment, model.PRCommentBegin+"\n") || !strings.HasSuffix(comment, "Generated by Probe integration (https://github.com/gvinsot/Probe).\n"+model.PRCommentEnd+"\n") {
 		t.Fatalf("markers or attribution:\n%s", comment)
 	}
 	code = Run(context.Background(), []string{"report", "--input", filepath.Join(dir, "report", "confidence-report.json"), "--out", filepath.Join(dir, "rerender"),
@@ -204,7 +204,7 @@ func TestDockerReviewExports(t *testing.T) {
 			t.Fatalf("%s differs after a re-render", name)
 		}
 	}
-	if _, err := os.Stat(filepath.Join(dir, "swiftproof_guest_test.go")); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(dir, "probe_guest_test.go")); !os.IsNotExist(err) {
 		t.Fatal("generated test leaked into checkout")
 	}
 }
@@ -212,9 +212,9 @@ func TestDockerReviewExports(t *testing.T) {
 // A fabricated reproduction produces no finding in either export, and the PR
 // comment counts the unverified hypothesis.
 func TestDockerReviewExportsRefuseFabricatedEvidence(t *testing.T) {
-	image := os.Getenv("SWIFTPROOF_TEST_DOCKER_IMAGE")
+	image := os.Getenv("PROBE_TEST_DOCKER_IMAGE")
 	if image == "" {
-		t.Skip("set SWIFTPROOF_TEST_DOCKER_IMAGE to a preloaded Go image")
+		t.Skip("set PROBE_TEST_DOCKER_IMAGE to a preloaded Go image")
 	}
 	dir := fixture(t)
 	server, _ := exportProvider(t, true)
@@ -233,7 +233,7 @@ func TestDockerReviewExportsRefuseFabricatedEvidence(t *testing.T) {
 		t.Fatalf("SARIF: %s", raw)
 	}
 	comment := readFile(t, filepath.Join(dir, "report", "PR_COMMENT.md"))
-	for _, want := range []string{"## SwiftProof: no evidence-backed finding recorded", "- Unverified areas: 1 (0 recorded notes and 1 hypothesis that stayed UNVERIFIED).", "No finding is not approval."} {
+	for _, want := range []string{"## Probe: no evidence-backed finding recorded", "- Unverified areas: 1 (0 recorded notes and 1 hypothesis that stayed UNVERIFIED).", "No finding is not approval."} {
 		if !strings.Contains(comment, want) {
 			t.Fatalf("PR comment lacks %q:\n%s", want, comment)
 		}

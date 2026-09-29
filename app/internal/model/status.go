@@ -92,8 +92,8 @@ const (
 
 // PR-comment markers (F9 writes them; F5's parseIntent strips what they enclose).
 const (
-	PRCommentBegin = "<!-- swiftproof:pr-comment:begin v1 -->"
-	PRCommentEnd   = "<!-- swiftproof:pr-comment:end -->"
+	PRCommentBegin = "<!-- probe:pr-comment:begin v1 -->"
+	PRCommentEnd   = "<!-- probe:pr-comment:end -->"
 )
 
 // Replayed reports whether the check was served from the execution cache rather

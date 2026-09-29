@@ -11,8 +11,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/gvinsot/SwiftProof/app/internal/model"
-	"github.com/gvinsot/SwiftProof/app/internal/redact"
+	"github.com/gvinsot/Probe/app/internal/model"
+	"github.com/gvinsot/Probe/app/internal/redact"
 )
 
 // runOptions tunes one sandbox run. The zero value is the v0.2 behavior: no
@@ -212,7 +212,7 @@ func (h *Harness) plan(ctx context.Context, kind, dir string, command []string, 
 			break
 		}
 		p.launched, p.key, p.timeout = true, key, timeout
-		p.name = "swiftproof-" + randomID()
+		p.name = "probe-" + randomID()
 		p.out = &boundedWriter{limit: h.opts.MaxOutputBytes}
 		p.log = p.out
 		if o.tee != nil {

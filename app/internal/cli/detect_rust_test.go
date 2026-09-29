@@ -29,7 +29,7 @@ func TestInitRust(t *testing.T) {
 	if code := initialize([]string{"--repo", dir}, &out, &errOut); code != 0 {
 		t.Fatalf("init exited %d: %s", code, errOut.String())
 	}
-	data, err := os.ReadFile(filepath.Join(dir, ".swiftproof.json"))
+	data, err := os.ReadFile(filepath.Join(dir, ".probe.json"))
 	if err != nil {
 		t.Fatal(err)
 	}

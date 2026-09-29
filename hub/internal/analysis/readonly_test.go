@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/gvinsot/SwiftProof/hub/internal/config"
+	"github.com/gvinsot/Probe/hub/internal/config"
 )
 
 func TestReadOnlyRunsRestrictedCLIWithoutPolicyApproval(t *testing.T) {
@@ -50,13 +50,13 @@ func TestReadOnlyMissingProviderFailsBeforeCLI(t *testing.T) {
 
 func TestCLIForwardsProviderKeyFile(t *testing.T) {
 	t.Setenv(config.AllowInsecureHTTPEnvName, "true")
-	t.Setenv("SWIFTPROOF_API_KEY_FILE", "/run/secrets/provider-key")
-	t.Setenv("SWIFTPROOF_HUB_GITHUB_CLIENT_SECRET", "unrelated-secret")
+	t.Setenv("PROBE_API_KEY_FILE", "/run/secrets/provider-key")
+	t.Setenv("PROBE_HUB_GITHUB_CLIENT_SECRET", "unrelated-secret")
 	env := strings.Join(cliEnv(t.TempDir()), "\n")
 	if !strings.Contains(env, config.AllowInsecureHTTPEnvName+"=true") {
 		t.Fatal("CLI did not receive the deployment HTTP exception")
 	}
-	if !strings.Contains(env, "SWIFTPROOF_API_KEY_FILE=/run/secrets/provider-key") || strings.Contains(env, "unrelated-secret") {
+	if !strings.Contains(env, "PROBE_API_KEY_FILE=/run/secrets/provider-key") || strings.Contains(env, "unrelated-secret") {
 		t.Fatal("CLI did not receive only its provider credential source")
 	}
 }

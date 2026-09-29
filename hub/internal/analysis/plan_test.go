@@ -7,9 +7,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/gvinsot/SwiftProof/hub/internal/config"
-	"github.com/gvinsot/SwiftProof/hub/internal/report"
-	"github.com/gvinsot/SwiftProof/hub/internal/store"
+	"github.com/gvinsot/Probe/hub/internal/config"
+	"github.com/gvinsot/Probe/hub/internal/report"
+	"github.com/gvinsot/Probe/hub/internal/store"
 )
 
 func TestPlanUsesParentAndPreservesCLIDecision(t *testing.T) {
@@ -17,8 +17,8 @@ func TestPlanUsesParentAndPreservesCLIDecision(t *testing.T) {
 	t.Setenv(config.ModelEnvName, "test-model")
 	binary := fakeCLI(t, `
 printf '%s\n' "$@" > args.txt
-mkdir -p .swiftproof
-printf '%s' '{"format":"swiftproof-plan","version":1,"base_commit":"parent-sha","tool_version":"test","exit_code":2}' > .swiftproof/PLAN.json
+mkdir -p .probe
+printf '%s' '{"format":"probe-plan","version":1,"base_commit":"parent-sha","tool_version":"test","exit_code":2}' > .probe/PLAN.json
 exit 2
 `)
 	r, _ := testRunner(t, binary)

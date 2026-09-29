@@ -3,8 +3,8 @@ package fuzz
 import (
 	"fmt"
 
-	"github.com/gvinsot/SwiftProof/app/internal/harness"
-	"github.com/gvinsot/SwiftProof/app/internal/model"
+	"github.com/gvinsot/Probe/app/internal/harness"
+	"github.com/gvinsot/Probe/app/internal/model"
 )
 
 // scriptPackage stands for the package of a TS/JS side in consistent: every

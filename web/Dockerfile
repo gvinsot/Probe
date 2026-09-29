@@ -1,4 +1,4 @@
-# Promotional website for SwiftProof: static files served by nginx.
+# Promotional website for Probe: static files served by nginx.
 # Build context is the web/ directory, so only public/ and nginx.conf can
 # reach the image.
 FROM nginx:1.27-alpine-slim

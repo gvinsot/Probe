@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gvinsot/SwiftProof/hub/internal/report"
+	"github.com/gvinsot/Probe/hub/internal/report"
 )
 
 func TestRecentIndexWindowAndReopen(t *testing.T) {

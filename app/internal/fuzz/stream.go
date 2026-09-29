@@ -11,9 +11,9 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	"github.com/gvinsot/SwiftProof/app/internal/harness"
-	"github.com/gvinsot/SwiftProof/app/internal/model"
-	"github.com/gvinsot/SwiftProof/app/internal/redact"
+	"github.com/gvinsot/Probe/app/internal/harness"
+	"github.com/gvinsot/Probe/app/internal/model"
+	"github.com/gvinsot/Probe/app/internal/redact"
 )
 
 // StreamVersion is the version of the normalized stream kept in Check.Results.
@@ -92,7 +92,7 @@ func (s Stream) Function(test string) (FunctionStream, bool) {
 
 var (
 	hashPattern     = regexp.MustCompile(`^[0-9a-f]{64}$`)
-	testNamePattern = regexp.MustCompile(`^TestSwiftProofFuzz_[0-9a-f]{8,32}_[1-9][0-9]?$`)
+	testNamePattern = regexp.MustCompile(`^TestProbeFuzz_[0-9a-f]{8,32}_[1-9][0-9]?$`)
 )
 
 // rawRecord is one line of the in-container stream. Pointer fields tell which

@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/gvinsot/SwiftProof/app/internal/model"
+	"github.com/gvinsot/Probe/app/internal/model"
 )
 
 // The provider receives the observation recipe and its limits in the system
@@ -23,8 +23,8 @@ func TestSystemPromptCarriesTheObservationRecipe(t *testing.T) {
 			t.Fatal("the observation prompt does not follow the base prompt")
 		}
 		for _, fragment := range []string{
-			`t.Attr("swiftproof.<input>"`,
-			"(task.meta as any).swiftproof",
+			`t.Attr("probe.<input>"`,
+			"(task.meta as any).probe",
 			"Jest cannot record observations",
 			"differential_observation",
 			"not which revision is correct",
@@ -35,7 +35,7 @@ func TestSystemPromptCarriesTheObservationRecipe(t *testing.T) {
 			}
 		}
 		tools, _ := json.Marshal((*bodies)[0]["tools"])
-		if !strings.Contains(string(tools), "task.meta.swiftproof") {
+		if !strings.Contains(string(tools), "task.meta.probe") {
 			t.Error("the run_generated_test description does not reach the provider")
 		}
 	}

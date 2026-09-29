@@ -14,10 +14,10 @@ func envOf(values map[string]string) func(string) string {
 
 func baseEnv(dir string) map[string]string {
 	return map[string]string{
-		"SWIFTPROOF_HUB_BASE_URL":             "https://swiftproof.example.com",
-		"SWIFTPROOF_HUB_DATA_DIR":             dir,
-		"SWIFTPROOF_HUB_GITHUB_CLIENT_ID":     "id",
-		"SWIFTPROOF_HUB_GITHUB_CLIENT_SECRET": "secret",
+		"PROBE_HUB_BASE_URL":             "https://probe.example.com",
+		"PROBE_HUB_DATA_DIR":             dir,
+		"PROBE_HUB_GITHUB_CLIENT_ID":     "id",
+		"PROBE_HUB_GITHUB_CLIENT_SECRET": "secret",
 	}
 }
 
@@ -36,10 +36,10 @@ func TestLoadDefaults(t *testing.T) {
 	if len(c.SessionKey) != 32 {
 		t.Fatalf("session key length = %d, want 32", len(c.SessionKey))
 	}
-	if c.CallbackURL(GitHub) != "https://swiftproof.example.com/auth/github/callback" {
+	if c.CallbackURL(GitHub) != "https://probe.example.com/auth/github/callback" {
 		t.Errorf("CallbackURL = %q", c.CallbackURL(GitHub))
 	}
-	if c.WebhookURL("abc", "t0k") != "https://swiftproof.example.com/hooks/abc?token=t0k" {
+	if c.WebhookURL("abc", "t0k") != "https://probe.example.com/hooks/abc?token=t0k" {
 		t.Errorf("WebhookURL = %q", c.WebhookURL("abc", "t0k"))
 	}
 	gh := c.Forges[GitHub]
@@ -73,7 +73,7 @@ func TestSessionKeyIsPersistedAndReused(t *testing.T) {
 func TestSessionKeyFromTheEnvironmentIsValidated(t *testing.T) {
 	dir := t.TempDir()
 	values := baseEnv(dir)
-	values["SWIFTPROOF_HUB_SESSION_KEY"] = strings.Repeat("ab", 32)
+	values["PROBE_HUB_SESSION_KEY"] = strings.Repeat("ab", 32)
 	c, err := Load(envOf(values))
 	if err != nil {
 		t.Fatalf("Load: %v", err)
@@ -84,7 +84,7 @@ func TestSessionKeyFromTheEnvironmentIsValidated(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(dir, "session.key")); !os.IsNotExist(err) {
 		t.Error("an operator-provided key must not be written to disk")
 	}
-	values["SWIFTPROOF_HUB_SESSION_KEY"] = "too-short"
+	values["PROBE_HUB_SESSION_KEY"] = "too-short"
 	if _, err := Load(envOf(values)); err == nil {
 		t.Fatal("a malformed key must be refused")
 	}
@@ -93,15 +93,15 @@ func TestSessionKeyFromTheEnvironmentIsValidated(t *testing.T) {
 func TestLoadRefusesAnIncompleteDeployment(t *testing.T) {
 	dir := t.TempDir()
 	cases := map[string]map[string]string{
-		"no base url": {"SWIFTPROOF_HUB_GITHUB_CLIENT_ID": "id", "SWIFTPROOF_HUB_GITHUB_CLIENT_SECRET": "s"},
+		"no base url": {"PROBE_HUB_GITHUB_CLIENT_ID": "id", "PROBE_HUB_GITHUB_CLIENT_SECRET": "s"},
 		"relative base url": {
-			"SWIFTPROOF_HUB_BASE_URL": "swiftproof.example.com", "SWIFTPROOF_HUB_DATA_DIR": dir,
-			"SWIFTPROOF_HUB_GITHUB_CLIENT_ID": "id", "SWIFTPROOF_HUB_GITHUB_CLIENT_SECRET": "s",
+			"PROBE_HUB_BASE_URL": "probe.example.com", "PROBE_HUB_DATA_DIR": dir,
+			"PROBE_HUB_GITHUB_CLIENT_ID": "id", "PROBE_HUB_GITHUB_CLIENT_SECRET": "s",
 		},
-		"no forge": {"SWIFTPROOF_HUB_BASE_URL": "https://x.example", "SWIFTPROOF_HUB_DATA_DIR": dir},
+		"no forge": {"PROBE_HUB_BASE_URL": "https://x.example", "PROBE_HUB_DATA_DIR": dir},
 		"github without secret": {
-			"SWIFTPROOF_HUB_BASE_URL": "https://x.example", "SWIFTPROOF_HUB_DATA_DIR": dir,
-			"SWIFTPROOF_HUB_GITHUB_CLIENT_ID": "id",
+			"PROBE_HUB_BASE_URL": "https://x.example", "PROBE_HUB_DATA_DIR": dir,
+			"PROBE_HUB_GITHUB_CLIENT_ID": "id",
 		},
 	}
 	for name, values := range cases {
@@ -116,9 +116,9 @@ func TestLoadRefusesAnIncompleteDeployment(t *testing.T) {
 func TestLoadAllowsNoForgeWhenTheDeploymentOptsIn(t *testing.T) {
 	dir := t.TempDir()
 	c, err := Load(envOf(map[string]string{
-		"SWIFTPROOF_HUB_BASE_URL":       "https://app.example",
-		"SWIFTPROOF_HUB_DATA_DIR":       dir,
-		"SWIFTPROOF_HUB_ALLOW_NO_FORGE": "true",
+		"PROBE_HUB_BASE_URL":       "https://app.example",
+		"PROBE_HUB_DATA_DIR":       dir,
+		"PROBE_HUB_ALLOW_NO_FORGE": "true",
 	}))
 	if err != nil {
 		t.Fatalf("an opted-in deployment without a forge must load: %v", err)
@@ -128,11 +128,11 @@ func TestLoadAllowsNoForgeWhenTheDeploymentOptsIn(t *testing.T) {
 	}
 	// The opt-in only covers a missing forge: a half-configured one still fails.
 	if _, err := Load(envOf(map[string]string{
-		"SWIFTPROOF_HUB_BASE_URL":             "https://app.example",
-		"SWIFTPROOF_HUB_DATA_DIR":             dir,
-		"SWIFTPROOF_HUB_ALLOW_NO_FORGE":       "true",
-		"SWIFTPROOF_HUB_GITHUB_CLIENT_ID":     "id",
-		"SWIFTPROOF_HUB_GITHUB_CLIENT_SECRET": "",
+		"PROBE_HUB_BASE_URL":             "https://app.example",
+		"PROBE_HUB_DATA_DIR":             dir,
+		"PROBE_HUB_ALLOW_NO_FORGE":       "true",
+		"PROBE_HUB_GITHUB_CLIENT_ID":     "id",
+		"PROBE_HUB_GITHUB_CLIENT_SECRET": "",
 	})); err == nil {
 		t.Error("a client id without its secret must still be refused")
 	}
@@ -141,11 +141,11 @@ func TestLoadAllowsNoForgeWhenTheDeploymentOptsIn(t *testing.T) {
 func TestLoadValidatesBounds(t *testing.T) {
 	dir := t.TempDir()
 	for name, override := range map[string]map[string]string{
-		"mode":     {"SWIFTPROOF_HUB_MODE": "audit"},
-		"workers":  {"SWIFTPROOF_HUB_WORKERS": "0"},
-		"depth":    {"SWIFTPROOF_HUB_CLONE_DEPTH": "-1"},
-		"timeout":  {"SWIFTPROOF_HUB_ANALYSIS_TIMEOUT": "1s"},
-		"sessions": {"SWIFTPROOF_HUB_SESSION_TTL": "10000h"},
+		"mode":     {"PROBE_HUB_MODE": "audit"},
+		"workers":  {"PROBE_HUB_WORKERS": "0"},
+		"depth":    {"PROBE_HUB_CLONE_DEPTH": "-1"},
+		"timeout":  {"PROBE_HUB_ANALYSIS_TIMEOUT": "1s"},
+		"sessions": {"PROBE_HUB_SESSION_TTL": "10000h"},
 	} {
 		values := baseEnv(dir)
 		for k, v := range override {
@@ -160,20 +160,20 @@ func TestLoadValidatesBounds(t *testing.T) {
 func TestSelfManagedHosts(t *testing.T) {
 	dir := t.TempDir()
 	values := map[string]string{
-		"SWIFTPROOF_HUB_BASE_URL":             "http://hub.internal:8080",
-		"SWIFTPROOF_HUB_DATA_DIR":             dir,
-		"SWIFTPROOF_HUB_GITHUB_CLIENT_ID":     "id",
-		"SWIFTPROOF_HUB_GITHUB_CLIENT_SECRET": "s",
-		"SWIFTPROOF_HUB_GITHUB_URL":           "https://ghe.internal/",
-		"SWIFTPROOF_HUB_GITHUB_API_URL":       "https://ghe.internal/api/v3/",
-		"SWIFTPROOF_HUB_GITLAB_CLIENT_ID":     "gid",
-		"SWIFTPROOF_HUB_GITLAB_CLIENT_SECRET": "gs",
-		"SWIFTPROOF_HUB_GITLAB_URL":           "https://gitlab.internal",
-		"SWIFTPROOF_HUB_MODE":                 "review",
-		"SWIFTPROOF_HUB_INSTANCE":             "private",
-		"SWIFTPROOF_HUB_REVIEW_POLICIES":      "github:acme/shop@sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
-		"SWIFTPROOF_HUB_DEFAULT_BRANCH_ONLY":  "true",
-		"SWIFTPROOF_HUB_ANALYSIS_TIMEOUT":     "30m",
+		"PROBE_HUB_BASE_URL":             "http://hub.internal:8080",
+		"PROBE_HUB_DATA_DIR":             dir,
+		"PROBE_HUB_GITHUB_CLIENT_ID":     "id",
+		"PROBE_HUB_GITHUB_CLIENT_SECRET": "s",
+		"PROBE_HUB_GITHUB_URL":           "https://ghe.internal/",
+		"PROBE_HUB_GITHUB_API_URL":       "https://ghe.internal/api/v3/",
+		"PROBE_HUB_GITLAB_CLIENT_ID":     "gid",
+		"PROBE_HUB_GITLAB_CLIENT_SECRET": "gs",
+		"PROBE_HUB_GITLAB_URL":           "https://gitlab.internal",
+		"PROBE_HUB_MODE":                 "review",
+		"PROBE_HUB_INSTANCE":             "private",
+		"PROBE_HUB_REVIEW_POLICIES":      "github:acme/shop@sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+		"PROBE_HUB_DEFAULT_BRANCH_ONLY":  "true",
+		"PROBE_HUB_ANALYSIS_TIMEOUT":     "30m",
 	}
 	c, err := Load(envOf(values))
 	if err != nil {
@@ -200,8 +200,8 @@ func TestSecretCanComeFromAFile(t *testing.T) {
 		t.Fatalf("write: %v", err)
 	}
 	values := baseEnv(dir)
-	delete(values, "SWIFTPROOF_HUB_GITHUB_CLIENT_SECRET")
-	values["SWIFTPROOF_HUB_GITHUB_CLIENT_SECRET_FILE"] = path
+	delete(values, "PROBE_HUB_GITHUB_CLIENT_SECRET")
+	values["PROBE_HUB_GITHUB_CLIENT_SECRET_FILE"] = path
 	c, err := Load(envOf(values))
 	if err != nil {
 		t.Fatalf("Load: %v", err)
@@ -213,18 +213,18 @@ func TestSecretCanComeFromAFile(t *testing.T) {
 
 func TestReviewModeIsRefusedOnAPublicInstance(t *testing.T) {
 	values := baseEnv(t.TempDir())
-	values["SWIFTPROOF_HUB_MODE"] = "review"
-	values["SWIFTPROOF_HUB_REVIEW_POLICIES"] = "github:acme/shop@sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+	values["PROBE_HUB_MODE"] = "review"
+	values["PROBE_HUB_REVIEW_POLICIES"] = "github:acme/shop@sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
 	// The instance defaults to public: forgetting the variable must not open
 	// review to whoever signs in.
 	if _, err := Load(envOf(values)); err == nil || !strings.Contains(err.Error(), "public instance") {
 		t.Fatalf("review on a default (public) instance must be refused, got %v", err)
 	}
-	values["SWIFTPROOF_HUB_INSTANCE"] = "public"
+	values["PROBE_HUB_INSTANCE"] = "public"
 	if _, err := Load(envOf(values)); err == nil {
 		t.Fatal("review on an explicitly public instance must be refused")
 	}
-	values["SWIFTPROOF_HUB_INSTANCE"] = "shared"
+	values["PROBE_HUB_INSTANCE"] = "shared"
 	if _, err := Load(envOf(values)); err == nil {
 		t.Fatal("an unknown instance kind must be refused")
 	}
@@ -232,16 +232,16 @@ func TestReviewModeIsRefusedOnAPublicInstance(t *testing.T) {
 
 func TestReviewModeNeedsValidatedPolicies(t *testing.T) {
 	values := baseEnv(t.TempDir())
-	values["SWIFTPROOF_HUB_MODE"] = "review"
-	values["SWIFTPROOF_HUB_INSTANCE"] = "private"
+	values["PROBE_HUB_MODE"] = "review"
+	values["PROBE_HUB_INSTANCE"] = "private"
 	if _, err := Load(envOf(values)); err == nil {
 		t.Fatal("review without any validated policy must be refused")
 	}
-	values["SWIFTPROOF_HUB_REVIEW_POLICIES"] = "acme/shop"
+	values["PROBE_HUB_REVIEW_POLICIES"] = "acme/shop"
 	if _, err := Load(envOf(values)); err == nil {
 		t.Fatal("a malformed allowlist entry must be refused")
 	}
-	values["SWIFTPROOF_HUB_REVIEW_POLICIES"] = "github:Acme/Shop@sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef, gitlab:team/api@sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+	values["PROBE_HUB_REVIEW_POLICIES"] = "github:Acme/Shop@sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef, gitlab:team/api@sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
 	c, err := Load(envOf(values))
 	if err != nil {
 		t.Fatalf("Load: %v", err)
@@ -285,8 +285,8 @@ func TestSessionKeyAndPreviousKeysCanComeFromFiles(t *testing.T) {
 		t.Fatal(err)
 	}
 	values := baseEnv(dir)
-	values["SWIFTPROOF_HUB_SESSION_KEY_FILE"] = keyPath
-	values["SWIFTPROOF_HUB_SESSION_KEY_PREVIOUS_FILE"] = prevPath
+	values["PROBE_HUB_SESSION_KEY_FILE"] = keyPath
+	values["PROBE_HUB_SESSION_KEY_PREVIOUS_FILE"] = prevPath
 	c, err := Load(envOf(values))
 	if err != nil {
 		t.Fatalf("Load: %v", err)
@@ -294,8 +294,8 @@ func TestSessionKeyAndPreviousKeysCanComeFromFiles(t *testing.T) {
 	if c.SessionKey[0] != 0xab || len(c.PreviousSessionKeys) != 1 || c.PreviousSessionKeys[0][0] != 0xcd {
 		t.Errorf("keys = %x / %x", c.SessionKey, c.PreviousSessionKeys)
 	}
-	values["SWIFTPROOF_HUB_SESSION_KEY_PREVIOUS_FILE"] = ""
-	values["SWIFTPROOF_HUB_SESSION_KEY_PREVIOUS"] = "short"
+	values["PROBE_HUB_SESSION_KEY_PREVIOUS_FILE"] = ""
+	values["PROBE_HUB_SESSION_KEY_PREVIOUS"] = "short"
 	if _, err := Load(envOf(values)); err == nil {
 		t.Error("a malformed previous key must be refused")
 	}

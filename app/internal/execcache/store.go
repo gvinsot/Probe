@@ -15,14 +15,14 @@ import (
 	"sync"
 	"time"
 
-	"github.com/gvinsot/SwiftProof/app/internal/model"
+	"github.com/gvinsot/Probe/app/internal/model"
 )
 
 // Store limits. An entry holds at most one recorded log and one payload, each
 // bounded by the harness at 4 MiB before base64 encoding.
 const (
 	layoutDir        = "v1"
-	entrySchema      = "swiftproof-execcache-entry/v1"
+	entrySchema      = "probe-execcache-entry/v1"
 	maxFileBytes     = 16 << 20
 	maxOutputBytes   = 4 << 20
 	maxPayloadBytes  = 4<<20 + 64 // the framed payload's header and footer

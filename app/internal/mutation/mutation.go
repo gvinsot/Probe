@@ -17,8 +17,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/gvinsot/SwiftProof/app/internal/model"
-	"github.com/gvinsot/SwiftProof/app/internal/redact"
+	"github.com/gvinsot/Probe/app/internal/model"
+	"github.com/gvinsot/Probe/app/internal/redact"
 )
 
 // Workspace executes the control and mutant runs. The harness implements it

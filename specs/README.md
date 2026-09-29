@@ -6,8 +6,8 @@ they do not assert that every published release or running deployment has it.
 
 | Specification | Scope |
 | --- | --- |
-| [CLI and evidence contract](swiftproof-v0.4-spec.md) | `app/`: Git comparison, policy, deterministic analysis, controlled reviewer, sandbox, coverage, F1–F9 evidence stages, reports and exit codes. |
-| [Hub, website and deployment](swiftproof-hub-spec.md) | `hub/`, `web/`, `devops/`: account flows, monitored repositories, report viewer, security boundaries, static website and shipped deployment configuration. |
+| [CLI and evidence contract](probe-v0.4-spec.md) | `app/`: Git comparison, policy, deterministic analysis, controlled reviewer, sandbox, coverage, F1–F9 evidence stages, reports and exit codes. |
+| [Hub, website and deployment](probe-hub-spec.md) | `hub/`, `web/`, `devops/`: account flows, monitored repositories, report viewer, security boundaries, static website and shipped deployment configuration. |
 
 The CLI specification is self-contained. Its filename and F/R identifiers stay
 stable for links from feature documentation. The initial V0 proposal and V0.2

@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"sort"
 
-	"github.com/gvinsot/SwiftProof/app/internal/harness"
-	"github.com/gvinsot/SwiftProof/app/internal/model"
+	"github.com/gvinsot/Probe/app/internal/harness"
+	"github.com/gvinsot/Probe/app/internal/model"
 )
 
 // MaxDivergenceRows bounds the divergent inputs listed for one function

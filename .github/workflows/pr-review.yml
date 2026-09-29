@@ -1,10 +1,10 @@
-name: SwiftProof PR pilot
+name: Probe PR pilot
 on:
   pull_request:
 permissions:
   contents: read
 concurrency:
-  group: swiftproof-pr-${{ github.event.pull_request.number }}
+  group: probe-pr-${{ github.event.pull_request.number }}
   cancel-in-progress: true
 jobs:
   evidence:

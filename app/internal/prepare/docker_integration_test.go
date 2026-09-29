@@ -12,11 +12,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gvinsot/SwiftProof/app/internal/config"
-	"github.com/gvinsot/SwiftProof/app/internal/dockerutil"
-	"github.com/gvinsot/SwiftProof/app/internal/gitrepo"
-	"github.com/gvinsot/SwiftProof/app/internal/harness"
-	"github.com/gvinsot/SwiftProof/app/internal/model"
+	"github.com/gvinsot/Probe/app/internal/config"
+	"github.com/gvinsot/Probe/app/internal/dockerutil"
+	"github.com/gvinsot/Probe/app/internal/gitrepo"
+	"github.com/gvinsot/Probe/app/internal/harness"
+	"github.com/gvinsot/Probe/app/internal/model"
 )
 
 // countingDocker counts the containers the real client starts.
@@ -116,17 +116,17 @@ func assertNoContainers(t *testing.T, names []string) {
 // carries the policy env; a check in that image sees the prepared file, runs
 // without the prepare container's /tmp, and the same check fails on the base
 // image. The prepare container had no network interface other than loopback,
-// ran as 65534 in /swiftproof/work, and saw no host environment. A second run
+// ran as 65534 in /probe/work, and saw no host environment. A second run
 // reuses the image without starting a container. A root prepare gets exactly
 // the fixed capability set.
 func TestDockerPrepareOfflineCommitAndReuse(t *testing.T) {
-	image := os.Getenv("SWIFTPROOF_TEST_DOCKER_IMAGE")
+	image := os.Getenv("PROBE_TEST_DOCKER_IMAGE")
 	if image == "" {
-		t.Skip("set SWIFTPROOF_TEST_DOCKER_IMAGE to a preloaded golang Linux image")
+		t.Skip("set PROBE_TEST_DOCKER_IMAGE to a preloaded golang Linux image")
 	}
-	t.Setenv("SWIFTPROOF_HOST_SECRET", "must-not-reach-prepare")
+	t.Setenv("PROBE_HOST_SECRET", "must-not-reach-prepare")
 	repo, commit := dockerRepo(t)
-	dir := "/go/pkg/swiftproof-prepare-test-" + randomHex(4)
+	dir := "/go/pkg/probe-prepare-test-" + randomHex(4)
 	script := `set -e; d="$PREPARED_DIR"; mkdir -p "$d"; cp deps.txt "$d/deps.txt"; id -u > "$d/uid"; pwd > "$d/pwd"; echo "$HOME" > "$d/home"; ls /sys/class/net > "$d/net"; env > "$d/env"; echo scratch > /tmp/scratch; echo prepared`
 	docker := &countingDocker{}
 	o := Options{
@@ -167,7 +167,7 @@ func TestDockerPrepareOfflineCommitAndReuse(t *testing.T) {
 	if !envOK {
 		t.Fatalf("policy env not baked: %v", derived.Env)
 	}
-	check := `test "$(cat "$PREPARED_DIR/deps.txt")" = "dep v1" && test "$(cat "$PREPARED_DIR/uid")" = 65534 && test "$(cat "$PREPARED_DIR/pwd")" = /swiftproof/work && test "$(cat "$PREPARED_DIR/home")" = /swiftproof/home && test "$(cat "$PREPARED_DIR/net")" = lo && ! grep -q SWIFTPROOF_HOST_SECRET "$PREPARED_DIR/env" && test ! -e /tmp/scratch`
+	check := `test "$(cat "$PREPARED_DIR/deps.txt")" = "dep v1" && test "$(cat "$PREPARED_DIR/uid")" = 65534 && test "$(cat "$PREPARED_DIR/pwd")" = /probe/work && test "$(cat "$PREPARED_DIR/home")" = /probe/home && test "$(cat "$PREPARED_DIR/net")" = lo && ! grep -q PROBE_HOST_SECRET "$PREPARED_DIR/env" && test ! -e /tmp/scratch`
 	if c := runCheck(t, first.Image, check); c.Status != "PASS" {
 		t.Fatalf("check on the prepared image: %s %q", c.Status, c.Output)
 	}
@@ -183,15 +183,15 @@ func TestDockerPrepareOfflineCommitAndReuse(t *testing.T) {
 	}
 
 	root := o
-	root.Spec = config.Prepare{Command: []string{"sh", "-c", `mkdir -p /opt/swiftproof-prepare-test && grep CapEff /proc/self/status > /opt/swiftproof-prepare-test/caps && id -u > /opt/swiftproof-prepare-test/uid`}, Inputs: []string{"deps.txt"}, User: "root"}
+	root.Spec = config.Prepare{Command: []string{"sh", "-c", `mkdir -p /opt/probe-prepare-test && grep CapEff /proc/self/status > /opt/probe-prepare-test/caps && id -u > /opt/probe-prepare-test/uid`}, Inputs: []string{"deps.txt"}, User: "root"}
 	root.ArtifactDir = t.TempDir()
 	rooted := Run(context.Background(), root)
 	defer removeImages(t, rooted.Image)
 	if rooted.Record.Status != model.PrepareBuilt || rooted.Record.User != "root" {
 		t.Fatalf("root run %+v", rooted.Record)
 	}
-	if c := runCheck(t, rooted.Image, `grep -q "00000000000000db$" /opt/swiftproof-prepare-test/caps && test "$(cat /opt/swiftproof-prepare-test/uid)" = 0`); c.Status != "PASS" {
-		caps := runCheck(t, rooted.Image, `cat /opt/swiftproof-prepare-test/caps`)
+	if c := runCheck(t, rooted.Image, `grep -q "00000000000000db$" /opt/probe-prepare-test/caps && test "$(cat /opt/probe-prepare-test/uid)" = 0`); c.Status != "PASS" {
+		caps := runCheck(t, rooted.Image, `cat /opt/probe-prepare-test/caps`)
 		t.Fatalf("root capabilities: %s %q", c.Status, caps.Output)
 	}
 	assertNoContainers(t, docker.names)
@@ -201,9 +201,9 @@ func TestDockerPrepareOfflineCommitAndReuse(t *testing.T) {
 // leaves no container; one that only writes where checks never look is
 // built with the shadowed marker.
 func TestDockerPrepareFailureAndShadowedOutputs(t *testing.T) {
-	image := os.Getenv("SWIFTPROOF_TEST_DOCKER_IMAGE")
+	image := os.Getenv("PROBE_TEST_DOCKER_IMAGE")
 	if image == "" {
-		t.Skip("set SWIFTPROOF_TEST_DOCKER_IMAGE to a preloaded golang Linux image")
+		t.Skip("set PROBE_TEST_DOCKER_IMAGE to a preloaded golang Linux image")
 	}
 	repo, commit := dockerRepo(t)
 	docker := &countingDocker{}
@@ -245,16 +245,16 @@ func TestDockerPrepareFailureAndShadowedOutputs(t *testing.T) {
 // that declares a VOLUME is refused before the command starts, and the
 // anonymous volume goes with the container.
 func TestDockerPrepareLongListingAndImageVolume(t *testing.T) {
-	image := os.Getenv("SWIFTPROOF_TEST_DOCKER_IMAGE")
+	image := os.Getenv("PROBE_TEST_DOCKER_IMAGE")
 	if image == "" {
-		t.Skip("set SWIFTPROOF_TEST_DOCKER_IMAGE to a preloaded golang Linux image")
+		t.Skip("set PROBE_TEST_DOCKER_IMAGE to a preloaded golang Linux image")
 	}
 	repo, commit := dockerRepo(t)
 	docker := &volumeRecordingDocker{}
-	dir := "/var/tmp/swiftproof-prepare-test-" + randomHex(4)
+	dir := "/var/tmp/probe-prepare-test-" + randomHex(4)
 	// About 600 KiB of `docker diff` under the prepare HOME, and one
 	// directory that checks see.
-	script := `set -e; mkdir -p "$HOME/c"; cd "$HOME/c"; i=0; while [ $i -lt 20000 ]; do : > "f$i"; i=$((i+1)); done; mkdir -p "$PREPARED_DIR"; cp /swiftproof/work/deps.txt "$PREPARED_DIR/"`
+	script := `set -e; mkdir -p "$HOME/c"; cd "$HOME/c"; i=0; while [ $i -lt 20000 ]; do : > "f$i"; i=$((i+1)); done; mkdir -p "$PREPARED_DIR"; cp /probe/work/deps.txt "$PREPARED_DIR/"`
 	o := Options{
 		Spec:      config.Prepare{Command: []string{"sh", "-c", script}, Inputs: []string{"deps.txt"}, Env: map[string]string{"PREPARED_DIR": dir}},
 		BaseImage: image, SourceCommit: commit, Repo: repo, MemoryMB: 512, CPUs: 1, MaxOutputBytes: 4096,
@@ -273,8 +273,8 @@ func TestDockerPrepareLongListingAndImageVolume(t *testing.T) {
 		t.Fatalf("check on the prepared image: %s %q", c.Status, c.Output)
 	}
 
-	volumeImage := "swiftproof-prepare-volume-test:" + randomHex(4)
-	source := "swiftproof-prepare-volume-src-" + randomHex(4)
+	volumeImage := "probe-prepare-volume-test:" + randomHex(4)
+	source := "probe-prepare-volume-src-" + randomHex(4)
 	for _, args := range [][]string{
 		{"create", "--pull=never", "--name", source, image, "true"},
 		{"commit", "--change", "VOLUME /data", source, volumeImage},

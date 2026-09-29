@@ -152,18 +152,18 @@ The index parses and type-checks untrusted committed source in process, with the
 <!-- F6b:begin -->
 ## Impacted tests (`--impacted-tests`)
 
-The index lists existing tests that reach a changed function; it does not run them. `swiftproof review --impacted-tests` runs the listed tests whose file the change did not modify on the baseline and on the candidate, inside the sandbox, and records what the two runs showed. No model is involved. It complements [changed baseline tests](BASE_TESTS.md), which covers the tests of modified test files.
+The index lists existing tests that reach a changed function; it does not run them. `probe review --impacted-tests` runs the listed tests whose file the change did not modify on the baseline and on the candidate, inside the sandbox, and records what the two runs showed. No model is involved. It complements [changed baseline tests](BASE_TESTS.md), which covers the tests of modified test files.
 
 The stage is opt-in, runs during `review` only, executes Go tests only, and adds no policy key. It adds evidence and review requests; it never produces exit 1 and never removes, lowers or dismisses anything else in the report. It adds no signal kind: a test that fails on the candidate becomes a high review target at its declaration.
 
 ### Enabling it
 
 ```sh
-swiftproof review --base main --impacted-tests --ci
+probe review --base main --impacted-tests --ci
 ```
 
 - `--impacted-tests` exits 3 on `lint`, together with `--checks=false`, and together with `--impact=false`, before any container starts.
-- The trusted policy's `generated_test` command must let SwiftProof establish which Go tests ran: `go test` with exactly one standalone `{package}` or `{file}` target and only flags otherwise, without `-C`, `-exec`, `-overlay`, `-args` or `--`. `["go", "test", "{package}"]` is the recommended template. With `{file}`, `go test` compiles only that test file, without the package's other files: a test file of the package itself (for example `package price`) that uses package code does not build on the baseline, so its tests get no result and a reason, and the stage requests review. An external test file (`package price_test`) that imports the package can build. With any other template nothing runs and `tests_status` is `not_run` with the reason.
+- The trusted policy's `generated_test` command must let Probe establish which Go tests ran: `go test` with exactly one standalone `{package}` or `{file}` target and only flags otherwise, without `-C`, `-exec`, `-overlay`, `-args` or `--`. `["go", "test", "{package}"]` is the recommended template. With `{file}`, `go test` compiles only that test file, without the package's other files: a test file of the package itself (for example `package price`) that uses package code does not build on the baseline, so its tests get no result and a reason, and the stage requests review. An external test file (`package price_test`) that imports the package can build. With any other template nothing runs and `tests_status` is `not_run` with the reason.
 - A binary without the flag exits 3 while parsing arguments. Re-pin to v0.4.0 or later before using it; intermediate v0.3 builds may accept the flag without the completed stage (see [CI integration](CI.md#release-ordering-for-v04)).
 
 ### What is selected
@@ -208,7 +208,7 @@ A run pair is a baseline run and a candidate run that both started. A test witho
 
 A test with a run pair and neither result is `UNVERIFIED`, with a reason. Typical reasons: the candidate package did not build (for example after an API change), the candidate run timed out, ended as ERROR or was cut by `sandbox.max_output_bytes`, the test was skipped or had no single result on the candidate, a replayed baseline could not be repeated live, and a test that passed inside a candidate run that failed as a whole got no result from a pair of its own.
 
-`report.Finalize` re-derives every status from the recorded checks, including when `swiftproof report` re-renders a saved report: a test is `FAILS_ON_CANDIDATE` or `PASSES_ON_CANDIDATE` only when its `impacted_test_differential` evidence record resolves, names the same test and file, cites an `impacted_test_base` and an `impacted_test_candidate` check with the same command targeting that package (the candidate one never replayed), and those checks give that status under the rule above. Every listed entry of one test shows the same result. An `impacted_test_differential` record never supports a hypothesis status: a model cannot turn it into a reproduced, not reproduced or dismissed hypothesis.
+`report.Finalize` re-derives every status from the recorded checks, including when `probe report` re-renders a saved report: a test is `FAILS_ON_CANDIDATE` or `PASSES_ON_CANDIDATE` only when its `impacted_test_differential` evidence record resolves, names the same test and file, cites an `impacted_test_base` and an `impacted_test_candidate` check with the same command targeting that package (the candidate one never replayed), and those checks give that status under the rule above. Every listed entry of one test shows the same result. An `impacted_test_differential` record never supports a hypothesis status: a model cannot turn it into a reproduced, not reproduced or dismissed hypothesis.
 
 `tests_status` is `ran` when at least one run started, `no_candidates` when nothing could be selected, and `not_run` with a reason otherwise. With `ran`, `tests_reason` states what was left out (tests over the limits, tests of modified test files, tests beyond the 20 listed per function, changed functions that are not in the index), or is absent.
 
@@ -240,7 +240,7 @@ Every run is charged to the shared `sandbox.max_runtime_seconds` budget. The sta
 
 ### Security notes
 
-The test names come from candidate source through the index. They run only when they are Go test names declared in a test file that is byte-identical in both snapshots, and they reach `-run` quoted with `regexp.QuoteMeta`; the command is otherwise the base-branch `generated_test` template. The runs add no mount, volume, network or payload channel and use the unchanged sandbox profile; unchanged baseline test code runs against candidate code, as in the existing experiments. The candidate shapes the index, so it can add or hide reaching tests and influence which tests fill the limits: selection can only add runs and review requests, within fixed limits, and a selected test that the limits leave out requests review. Candidate code can make a test pass on purpose (for example by detecting the sandbox), so `PASSES_ON_CANDIDATE` is an observation only; a forged pass after a real failure makes the result `UNVERIFIED`, and forging a failure only adds a review request. The flag is set by whoever invokes SwiftProof, never by the candidate branch.
+The test names come from candidate source through the index. They run only when they are Go test names declared in a test file that is byte-identical in both snapshots, and they reach `-run` quoted with `regexp.QuoteMeta`; the command is otherwise the base-branch `generated_test` template. The runs add no mount, volume, network or payload channel and use the unchanged sandbox profile; unchanged baseline test code runs against candidate code, as in the existing experiments. The candidate shapes the index, so it can add or hide reaching tests and influence which tests fill the limits: selection can only add runs and review requests, within fixed limits, and a selected test that the limits leave out requests review. Candidate code can make a test pass on purpose (for example by detecting the sandbox), so `PASSES_ON_CANDIDATE` is an observation only; a forged pass after a real failure makes the result `UNVERIFIED`, and forging a failure only adds a review request. The flag is set by whoever invokes Probe, never by the candidate branch.
 
 ### Limitations
 

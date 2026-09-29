@@ -12,7 +12,7 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"github.com/gvinsot/SwiftProof/app/internal/config"
+	"github.com/gvinsot/Probe/app/internal/config"
 )
 
 func TestReadOnlyReviewUsesDeploymentProviderWithoutExecution(t *testing.T) {
@@ -38,11 +38,11 @@ func TestReadOnlyReviewUsesDeploymentProviderWithoutExecution(t *testing.T) {
 	defer server.Close()
 	t.Setenv(config.EndpointEnv, server.URL)
 	t.Setenv(config.ModelEnv, "deployment-model")
-	t.Setenv("SWIFTPROOF_API_KEY", "deployment-key")
-	t.Setenv("SWIFTPROOF_UNRELATED_SECRET", "must-not-be-sent")
+	t.Setenv("PROBE_API_KEY", "deployment-key")
+	t.Setenv("PROBE_UNRELATED_SECRET", "must-not-be-sent")
 	t.Setenv("DOCKER_HOST", "tcp://127.0.0.1:1")
 	cfg := config.Default("go")
-	cfg.Reviewer.Endpoint, cfg.Reviewer.Model, cfg.Reviewer.APIKeyEnv = "https://repository.invalid", "repository-model", "SWIFTPROOF_UNRELATED_SECRET"
+	cfg.Reviewer.Endpoint, cfg.Reviewer.Model, cfg.Reviewer.APIKeyEnv = "https://repository.invalid", "repository-model", "PROBE_UNRELATED_SECRET"
 	cfg.Reviewer.MaxIterations = 1 // Must not limit the deployment's investigation.
 	cfg.Prepare = &config.Prepare{Command: []string{"sh", "-c", "exit 99"}, Inputs: []string{"go.mod"}, Network: true}
 	cfg.Fuzz = &config.Fuzz{}

@@ -7,20 +7,20 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gvinsot/SwiftProof/app/internal/model"
+	"github.com/gvinsot/Probe/app/internal/model"
 )
 
-const scriptFuzzPath = "pkg/swiftproof-fuzz-abcdef12.test.ts"
+const scriptFuzzPath = "pkg/probe-fuzz-abcdef12.test.ts"
 
 // scriptFuzzSource stands for a rendered TS/JS fuzz harness: the harness side
 // needs only its top-level test declarations.
 const scriptFuzzSource = `// @ts-nocheck
 import { test } from "vitest";
 
-test("TestSwiftProofFuzz_abcdef12_1", async function () {
+test("TestProbeFuzz_abcdef12_1", async function () {
 }, 60000);
 
-test("TestSwiftProofFuzz_abcdef12_2", async function () {
+test("TestProbeFuzz_abcdef12_2", async function () {
 }, 60000);
 `
 
@@ -135,7 +135,7 @@ func TestRunObservedScriptStatusRules(t *testing.T) {
 		baseCause              string
 	}{
 		"both pass":                         {fuzzSideRun{payload: both}, fuzzSideRun{payload: both}, "PASS", "PASS", ""},
-		"baseline fails without a payload":  {fuzzSideRun{exit: 1, log: `{"Action":"run","Test":"TestSwiftProofFuzz_abcdef12_1"}`}, fuzzSideRun{exit: 1}, "ERROR", "FAIL", fuzzScriptNotStarted},
+		"baseline fails without a payload":  {fuzzSideRun{exit: 1, log: `{"Action":"run","Test":"TestProbeFuzz_abcdef12_1"}`}, fuzzSideRun{exit: 1}, "ERROR", "FAIL", fuzzScriptNotStarted},
 		"baseline passes without a payload": {fuzzSideRun{}, fuzzSideRun{payload: both}, "ERROR", "PASS", fuzzBaseNoStream},
 		// The stream ended between two tests: the runner did not run the second
 		// one although the run passed.
@@ -152,7 +152,7 @@ func TestRunObservedScriptStatusRules(t *testing.T) {
 		"candidate fails without a payload":      {fuzzSideRun{payload: both}, fuzzSideRun{exit: 1, log: "SyntaxError: nothing"}, "PASS", "FAIL", ""},
 		"candidate passes skipping a test":       {fuzzSideRun{payload: both}, fuzzSideRun{payload: one}, "PASS", "PASS", ""},
 		// A log that claims a failure decides nothing for a passing run.
-		"log text is ignored": {fuzzSideRun{log: "FAIL swiftproof: the harness did not start", payload: both}, fuzzSideRun{log: "Error: x", payload: both}, "PASS", "PASS", ""},
+		"log text is ignored": {fuzzSideRun{log: "FAIL probe: the harness did not start", payload: both}, fuzzSideRun{log: "Error: x", payload: both}, "PASS", "PASS", ""},
 	} {
 		h := scriptFixture(t)
 		fakeFuzz(t, h, tc.base, tc.candidate)

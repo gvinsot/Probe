@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/gvinsot/SwiftProof/app/internal/linter"
-	"github.com/gvinsot/SwiftProof/app/internal/model"
-	"github.com/gvinsot/SwiftProof/app/internal/plan"
+	"github.com/gvinsot/Probe/app/internal/linter"
+	"github.com/gvinsot/Probe/app/internal/model"
+	"github.com/gvinsot/Probe/app/internal/plan"
 )
 
 // planBaseNote is the Unverified note of a review whose base differs from the

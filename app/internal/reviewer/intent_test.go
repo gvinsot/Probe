@@ -7,9 +7,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/gvinsot/SwiftProof/app/internal/harness"
-	"github.com/gvinsot/SwiftProof/app/internal/model"
-	reports "github.com/gvinsot/SwiftProof/app/internal/report"
+	"github.com/gvinsot/Probe/app/internal/harness"
+	"github.com/gvinsot/Probe/app/internal/model"
+	reports "github.com/gvinsot/Probe/app/internal/report"
 )
 
 var reviewCriteria = []model.IntentCriterion{{ID: "AC-1", Text: "Orders of 100 or more get 10 off", Line: 2}, {ID: "AC-2", Text: "Orders of 50 or more ship free", Line: 3}}

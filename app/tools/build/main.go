@@ -1,4 +1,4 @@
-// Command build produces portable SwiftProof binaries, archives, and checksums.
+// Command build produces portable Probe binaries, archives, and checksums.
 // Run from the app directory of the repository: go run ./tools/build
 package main
 
@@ -61,9 +61,9 @@ func run(ctx context.Context) error {
 			seen[target] = true
 		}
 	}
-	for _, path := range []string{"go.mod", "cmd/swiftproof/main.go", "README.md", licensePath, noticePath} {
+	for _, path := range []string{"go.mod", "cmd/probe/main.go", "README.md", licensePath, noticePath} {
 		if _, err := os.Stat(path); err != nil {
-			return fmt.Errorf("run from the app directory of the SwiftProof repository: %w", err)
+			return fmt.Errorf("run from the app directory of the Probe repository: %w", err)
 		}
 	}
 	dir, err := filepath.Abs(*out)
@@ -118,7 +118,7 @@ func run(ctx context.Context) error {
 
 func build(ctx context.Context, goBinary, out, version, osName, arch string) (string, error) {
 	target := osName + "-" + arch
-	name := "swiftproof"
+	name := "probe"
 	if osName == "windows" {
 		name += ".exe"
 	}
@@ -126,14 +126,14 @@ func build(ctx context.Context, goBinary, out, version, osName, arch string) (st
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return "", err
 	}
-	temp, err := os.MkdirTemp(out, ".swiftproof-build-")
+	temp, err := os.MkdirTemp(out, ".probe-build-")
 	if err != nil {
 		return "", err
 	}
 	defer os.RemoveAll(temp)
 	binary := filepath.Join(temp, name)
 	fmt.Fprintf(os.Stderr, "Building %s...\n", target)
-	cmd := exec.CommandContext(ctx, goBinary, "build", "-trimpath", "-buildvcs=false", "-ldflags=-s -w -X main.version="+version, "-o", binary, "./cmd/swiftproof")
+	cmd := exec.CommandContext(ctx, goBinary, "build", "-trimpath", "-buildvcs=false", "-ldflags=-s -w -X main.version="+version, "-o", binary, "./cmd/probe")
 	for _, entry := range os.Environ() {
 		key, _, _ := strings.Cut(entry, "=")
 		switch strings.ToUpper(key) {
@@ -151,7 +151,7 @@ func build(ctx context.Context, goBinary, out, version, osName, arch string) (st
 	if err := os.Rename(binary, destination); err != nil {
 		return "", err
 	}
-	prefix := "swiftproof-" + version + "-" + target
+	prefix := "probe-" + version + "-" + target
 	extension := ".tar.gz"
 	if osName == "windows" {
 		extension = ".zip"

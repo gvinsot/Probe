@@ -15,7 +15,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/gvinsot/SwiftProof/app/internal/gitrepo"
+	"github.com/gvinsot/Probe/app/internal/gitrepo"
 )
 
 // fakeImage is an image of the fake daemon.
@@ -70,7 +70,7 @@ const fakeBaseID = "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
 func newFakeDocker() *fakeDocker {
 	return &fakeDocker{
 		images: map[string]*fakeImage{fakeBaseID: {ID: fakeBaseID, Size: 1000, Labels: map[string]string{}, Layers: []string{"sha256:l1", "sha256:l2"}, Env: []string{"PATH=/usr/bin"}, Tags: []string{"golang:test"}}},
-		diff:   "A /swiftproof\nA /swiftproof/inputs\nA /swiftproof/work\nA /swiftproof/work/go.mod\nA /swiftproof/home\nC /go\nA /go/pkg\n",
+		diff:   "A /probe\nA /probe/inputs\nA /probe/work\nA /probe/work/go.mod\nA /probe/home\nC /go\nA /go/pkg\n",
 		added:  4096,
 		live:   map[string]bool{},
 	}

@@ -9,10 +9,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/gvinsot/SwiftProof/app/internal/config"
-	"github.com/gvinsot/SwiftProof/app/internal/fuzz"
-	"github.com/gvinsot/SwiftProof/app/internal/harness"
-	"github.com/gvinsot/SwiftProof/app/internal/model"
+	"github.com/gvinsot/Probe/app/internal/config"
+	"github.com/gvinsot/Probe/app/internal/fuzz"
+	"github.com/gvinsot/Probe/app/internal/harness"
+	"github.com/gvinsot/Probe/app/internal/model"
 )
 
 const e2eCartBase = `export function discount(total: number, percent: number): number {
@@ -131,9 +131,9 @@ func fuzzCartRepo(t *testing.T) string {
 // makes only lookup inconclusive on re-render; the checkout stays clean and
 // no container of the run remains.
 func TestDockerTSFuzzReviewEndToEnd(t *testing.T) {
-	image := os.Getenv("SWIFTPROOF_TEST_TS_IMAGE")
+	image := os.Getenv("PROBE_TEST_TS_IMAGE")
 	if image == "" {
-		t.Skip("set SWIFTPROOF_TEST_TS_IMAGE to a preloaded image with node and vitest (for example swiftproof-ts-test:local)")
+		t.Skip("set PROBE_TEST_TS_IMAGE to a preloaded image with node and vitest (for example probe-ts-test:local)")
 	}
 	dir := fuzzCartRepo(t)
 	head := git(t, dir, "rev-parse", "HEAD")
@@ -205,7 +205,7 @@ func TestDockerTSFuzzReviewEndToEnd(t *testing.T) {
 		t.Fatalf("reproduced %d, divergences %d", len(r.ReproducedIssues), len(r.Divergences))
 	}
 	for _, d := range r.Divergences {
-		if d.Kind != model.EvidenceDifferentialFuzz || len(d.CheckIDs) != 4 || d.Path != "web/cart.ts" || d.AnchorSource != "changed_function" || !strings.HasPrefix(d.TestPath, "web/swiftproof-fuzz-") {
+		if d.Kind != model.EvidenceDifferentialFuzz || len(d.CheckIDs) != 4 || d.Path != "web/cart.ts" || d.AnchorSource != "changed_function" || !strings.HasPrefix(d.TestPath, "web/probe-fuzz-") {
 			t.Fatalf("divergence %+v", d)
 		}
 	}
@@ -215,7 +215,7 @@ func TestDockerTSFuzzReviewEndToEnd(t *testing.T) {
 	}
 	for _, want := range []string{
 		"## Differential Fuzzing",
-		"Seeded inputs (swiftproof-fuzz/v1) were planned for 7 changed TS/JS functions, 7 of them with recorded fuzz checks",
+		"Seeded inputs (probe-fuzz/v1) were planned for 7 changed TS/JS functions, 7 of them with recorded fuzz checks",
 		"Smallest divergent input tried: sorted\\(\\[1, 0\\]\\); baseline \\[0, 1\\]; arg 1 after call: \\[1, 0\\]; candidate \\[0, 1\\]; arg 1 after call: \\[0, 1\\].",
 		`Smallest divergent input tried: lookup\(""\); baseline rejected\(error\("Error", "empty id"\)\); candidate resolved\(""\).`,
 		"- **not diverged** joinParts (web/util.js:6): 64 of 64 inputs compared",
@@ -328,9 +328,9 @@ export function twice(n: number): number {
 // check is ERROR, both functions are inconclusive with a reason that names
 // the input being evaluated, and the review exits 2 with --ci, never 4.
 func TestDockerTSFuzzJestProcessExit(t *testing.T) {
-	image := os.Getenv("SWIFTPROOF_TEST_TS_IMAGE")
+	image := os.Getenv("PROBE_TEST_TS_IMAGE")
 	if image == "" {
-		t.Skip("set SWIFTPROOF_TEST_TS_IMAGE to a preloaded image with node, jest and ts-jest (for example swiftproof-ts-test:local)")
+		t.Skip("set PROBE_TEST_TS_IMAGE to a preloaded image with node, jest and ts-jest (for example probe-ts-test:local)")
 	}
 	dir := t.TempDir()
 	git(t, dir, "init", "-b", "main")

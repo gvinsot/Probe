@@ -14,10 +14,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gvinsot/SwiftProof/app/internal/model"
+	"github.com/gvinsot/Probe/app/internal/model"
 )
 
-const fuzzPath = "pkg/swiftproof_fuzz_abcdef12_test.go"
+const fuzzPath = "pkg/probe_fuzz_abcdef12_test.go"
 
 // fuzzSource is a stand-in for a rendered fuzz harness: the harness side only
 // needs a Go test file that declares the expected test names.
@@ -25,12 +25,12 @@ const fuzzSource = `package pkg
 
 import fuzzT "testing"
 
-func TestSwiftProofFuzz_abcdef12_1(t *fuzzT.T) {}
+func TestProbeFuzz_abcdef12_1(t *fuzzT.T) {}
 
-func TestSwiftProofFuzz_abcdef12_2(t *fuzzT.T) {}
+func TestProbeFuzz_abcdef12_2(t *fuzzT.T) {}
 `
 
-var fuzzNames = []string{"TestSwiftProofFuzz_abcdef12_1", "TestSwiftProofFuzz_abcdef12_2"}
+var fuzzNames = []string{"TestProbeFuzz_abcdef12_1", "TestProbeFuzz_abcdef12_2"}
 
 // testNormalize accepts payloads that start with "stream:".
 func testNormalize(p []byte) (string, error) {
@@ -133,7 +133,7 @@ func TestRunObservedStagesRunsAndRecords(t *testing.T) {
 	}
 	// The executed argv is the plain sandbox argv with only the capture script
 	// changed, and the reviewed template plus -json -count=1 -run.
-	command := []string{"go", "test", "./pkg", "-json", "-count=1", "-run", "^(TestSwiftProofFuzz_abcdef12_1|TestSwiftProofFuzz_abcdef12_2)$"}
+	command := []string{"go", "test", "./pkg", "-json", "-count=1", "-run", "^(TestProbeFuzz_abcdef12_1|TestProbeFuzz_abcdef12_2)$"}
 	if len(argvs) != 2 || sideOf(h, argvs[0]) != "base" || sideOf(h, argvs[1]) != "candidate" {
 		t.Fatalf("runs %d", len(argvs))
 	}
@@ -216,7 +216,7 @@ func TestRunObservedConfirmationKinds(t *testing.T) {
 }
 
 func TestRunObservedPreconditions(t *testing.T) {
-	collision := "package pkg\n\nimport \"testing\"\n\nfunc TestSwiftProofFuzz_abcdef12_1(t *testing.T) {}\n"
+	collision := "package pkg\n\nimport \"testing\"\n\nfunc TestProbeFuzz_abcdef12_1(t *testing.T) {}\n"
 	for name, tc := range map[string]struct {
 		setup func(*Harness)
 		edit  func(*ObservedRun)
@@ -231,9 +231,9 @@ func TestRunObservedPreconditions(t *testing.T) {
 		"not go":                {setup: func(h *Harness) { h.opts.Commands["generated_test"] = []string{"npx", "vitest", "run", "{file}"} }},
 		"no validator":          {edit: func(r *ObservedRun) { r.Normalize = nil }},
 		"no deadline":           {edit: func(r *ObservedRun) { r.Deadline = time.Time{} }},
-		"not a test file":       {edit: func(r *ObservedRun) { r.Path = "pkg/swiftproof_fuzz.go" }},
-		"unclean path":          {edit: func(r *ObservedRun) { r.Path = "pkg/../pkg/swiftproof_fuzz_abcdef12_test.go" }},
-		"escaping path":         {edit: func(r *ObservedRun) { r.Path = "../swiftproof_fuzz_abcdef12_test.go" }},
+		"not a test file":       {edit: func(r *ObservedRun) { r.Path = "pkg/probe_fuzz.go" }},
+		"unclean path":          {edit: func(r *ObservedRun) { r.Path = "pkg/../pkg/probe_fuzz_abcdef12_test.go" }},
+		"escaping path":         {edit: func(r *ObservedRun) { r.Path = "../probe_fuzz_abcdef12_test.go" }},
 		"names differ":          {edit: func(r *ObservedRun) { r.TestNames = fuzzNames[:1] }},
 		"names reordered":       {edit: func(r *ObservedRun) { r.TestNames = []string{fuzzNames[1], fuzzNames[0]} }},
 		"invalid Go":            {edit: func(r *ObservedRun) { r.Content = "package pkg\nfunc {" }},
@@ -313,7 +313,7 @@ func TestRunObservedStatusRules(t *testing.T) {
 		"both pass":                                         {base: good, candidate: good, baseStatus: "PASS", candStatus: "PASS", baseResults: true, candResults: true},
 		"baseline passes without a stream":                  {base: fuzzSideRun{log: passLog}, candidate: good, baseStatus: "ERROR", candStatus: "PASS", candResults: true, baseCause: fuzzBaseNoStream},
 		"baseline stream rejected":                          {base: fuzzSideRun{log: passLog, payload: coverageFrame("garbage")}, candidate: good, baseStatus: "ERROR", candStatus: "PASS", candResults: true, baseCause: fuzzBaseBadStream, rejected: 1},
-		"baseline frame incomplete":                         {base: fuzzSideRun{log: passLog, payload: "SWIFTPROOF"}, candidate: good, baseStatus: "ERROR", candStatus: "PASS", candResults: true, baseCause: fuzzBaseBadStream, rejected: 1},
+		"baseline frame incomplete":                         {base: fuzzSideRun{log: passLog, payload: "PROBE"}, candidate: good, baseStatus: "ERROR", candStatus: "PASS", candResults: true, baseCause: fuzzBaseBadStream, rejected: 1},
 		"baseline harness does not build":                   {base: fuzzSideRun{exit: 1, log: buildFailed}, candidate: good, baseStatus: "ERROR", candStatus: "PASS", candResults: true, baseCause: fuzzBaseNotStarted},
 		"baseline skips a harness test":                     {base: fuzzSideRun{log: fuzzGoLog("pass", fuzzNames[0]), payload: coverageFrame("stream:ok")}, candidate: good, baseStatus: "ERROR", candStatus: "PASS", candResults: true, baseCause: fuzzBaseTestsMissed},
 		"baseline process ends mid-harness":                 {base: fuzzSideRun{exit: 1, log: fuzzGoLog("", fuzzNames[0]), payload: coverageFrame("stream:partial")}, candidate: good, baseStatus: "FAIL", candStatus: "PASS", baseResults: true, candResults: true},
@@ -341,10 +341,10 @@ func TestRunObservedStatusRules(t *testing.T) {
 			if (base.Check.Results != "") != tc.baseResults || (candidate.Check.Results != "") != tc.candResults {
 				t.Fatalf("results %q / %q", base.Check.Results, candidate.Check.Results)
 			}
-			if i := strings.LastIndex(base.Check.Output, "\nswiftproof: "+tc.baseCause); tc.baseCause != "" && (i < 0 || strings.Contains(base.Check.Output[i+1:], "\n")) {
+			if i := strings.LastIndex(base.Check.Output, "\nprobe: "+tc.baseCause); tc.baseCause != "" && (i < 0 || strings.Contains(base.Check.Output[i+1:], "\n")) {
 				t.Fatalf("the last line of the baseline log is not its cause: %.300q", base.Check.Output)
 			}
-			if tc.baseCause == "" && strings.Contains(base.Check.Output, "swiftproof: ") || strings.Contains(candidate.Check.Output, "swiftproof: ") {
+			if tc.baseCause == "" && strings.Contains(base.Check.Output, "probe: ") || strings.Contains(candidate.Check.Output, "probe: ") {
 				t.Fatalf("a cause was recorded where none applies: %.300q / %.300q", base.Check.Output, candidate.Check.Output)
 			}
 			for _, c := range []model.Check{base.Check, candidate.Check} {

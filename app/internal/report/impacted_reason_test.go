@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/gvinsot/SwiftProof/app/internal/model"
+	"github.com/gvinsot/Probe/app/internal/model"
 )
 
 // Integration agent I (F6b handoff items B and C): a stored impacted-test

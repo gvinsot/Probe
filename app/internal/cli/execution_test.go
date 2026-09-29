@@ -9,13 +9,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gvinsot/SwiftProof/app/internal/harness"
-	"github.com/gvinsot/SwiftProof/app/internal/model"
+	"github.com/gvinsot/Probe/app/internal/harness"
+	"github.com/gvinsot/Probe/app/internal/model"
 )
 
 func TestOpenExecutionCache(t *testing.T) {
 	root := t.TempDir()
-	repo, output := filepath.Join(root, "repo"), filepath.Join(root, "repo", ".swiftproof")
+	repo, output := filepath.Join(root, "repo"), filepath.Join(root, "repo", ".probe")
 	os.MkdirAll(repo, 0700)
 	var errOut bytes.Buffer
 	if cache, err := openExecutionCache(repo, output, "", "test", &errOut); cache != nil || err != nil || errOut.Len() != 0 {
@@ -49,7 +49,7 @@ func TestOpenExecutionCache(t *testing.T) {
 // well-formed entries (poisoning).
 func TestPlantedCacheLocationsExitThree(t *testing.T) {
 	dir := fixture(t)
-	planted := filepath.Join(dir, ".swiftproof-cache")
+	planted := filepath.Join(dir, ".probe-cache")
 	entry := filepath.Join(planted, "v1", "ab", strings.Repeat("ab", 32)+".json")
 	os.MkdirAll(filepath.Dir(entry), 0700)
 	os.WriteFile(entry, []byte(`{"body":{},"content_sha256":"`+strings.Repeat("0", 64)+`"}`), 0600)
@@ -57,7 +57,7 @@ func TestPlantedCacheLocationsExitThree(t *testing.T) {
 	cases := map[string][]string{
 		"inside the repository":        {"review", "--cache-dir", planted, "--out", filepath.Join(outside, "report")},
 		"inside the output":            {"review", "--cache-dir", filepath.Join(outside, "report", "cache"), "--out", filepath.Join(outside, "report")},
-		"relative into the repository": {"review", "--cache-dir", ".swiftproof-cache", "--out", filepath.Join(outside, "report")},
+		"relative into the repository": {"review", "--cache-dir", ".probe-cache", "--out", filepath.Join(outside, "report")},
 	}
 	link := filepath.Join(t.TempDir(), "link")
 	if err := os.Symlink(t.TempDir(), link); err == nil {

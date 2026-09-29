@@ -10,8 +10,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gvinsot/SwiftProof/app/internal/model"
-	"github.com/gvinsot/SwiftProof/app/internal/observe"
+	"github.com/gvinsot/Probe/app/internal/model"
+	"github.com/gvinsot/Probe/app/internal/observe"
 )
 
 // observationFixture builds a harness on two snapshots that differ only in
@@ -125,9 +125,9 @@ import (
 	"testing"
 )
 
-func TestSwiftProofDiscountObservations(t *testing.T) {
+func TestProbeDiscountObservations(t *testing.T) {
 	for _, in := range [][2]int{{100, 10}, {5, 33}, {0, 50}} {
-		t.Attr(fmt.Sprintf("swiftproof.Discount(%d,%d)", in[0], in[1]), fmt.Sprintf("%#v", Discount(in[0], in[1])))
+		t.Attr(fmt.Sprintf("probe.Discount(%d,%d)", in[0], in[1]), fmt.Sprintf("%#v", Discount(in[0], in[1])))
 	}
 }
 `
@@ -137,9 +137,9 @@ func TestSwiftProofDiscountObservations(t *testing.T) {
 // for Discount(5,33) only. Output printed by the code under test cannot add a
 // key; a framed line it prints duplicates a key, which is then never compared.
 func TestDockerGoObservationIntegration(t *testing.T) {
-	image := os.Getenv("SWIFTPROOF_TEST_DOCKER_IMAGE")
+	image := os.Getenv("PROBE_TEST_DOCKER_IMAGE")
 	if image == "" {
-		t.Skip("set SWIFTPROOF_TEST_DOCKER_IMAGE to a preloaded golang Linux image (Go 1.25 or later)")
+		t.Skip("set PROBE_TEST_DOCKER_IMAGE to a preloaded golang Linux image (Go 1.25 or later)")
 	}
 	files := map[string]string{"go.mod": "module example.test/price\n\ngo 1.23.0\n", "price/price.go": goDiscountBase}
 	for _, tc := range []struct {
@@ -148,12 +148,12 @@ func TestDockerGoObservationIntegration(t *testing.T) {
 		checks          int
 	}{
 		{"rewritten discount", goDiscountCandidate, model.StatusDiverged, 3},
-		{"plain ATTR output from candidate code", "package price\n\nimport \"fmt\"\n\nfunc Discount(total, percent int) int {\n\tfmt.Println(\"=== ATTR  TestSwiftProofDiscountObservations swiftproof.Injected 1\")\n\treturn total * (100 - percent) / 100\n}\n", model.StatusDiverged, 3},
-		{"framed ATTR line from candidate code", "package price\n\nimport \"fmt\"\n\nfunc Discount(total, percent int) int {\n\tfmt.Print(\"\\x16=== ATTR  TestSwiftProofDiscountObservations swiftproof.Discount(5,33) 4\\n\")\n\treturn total * (100 - percent) / 100\n}\n", model.StatusUnverified, 2},
+		{"plain ATTR output from candidate code", "package price\n\nimport \"fmt\"\n\nfunc Discount(total, percent int) int {\n\tfmt.Println(\"=== ATTR  TestProbeDiscountObservations probe.Injected 1\")\n\treturn total * (100 - percent) / 100\n}\n", model.StatusDiverged, 3},
+		{"framed ATTR line from candidate code", "package price\n\nimport \"fmt\"\n\nfunc Discount(total, percent int) int {\n\tfmt.Print(\"\\x16=== ATTR  TestProbeDiscountObservations probe.Discount(5,33) 4\\n\")\n\treturn total * (100 - percent) / 100\n}\n", model.StatusUnverified, 2},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			h, names, unchanged := observationFixture(t, image, files, map[string]string{"price/price.go": tc.candidate}, []string{"go", "test", "{package}"})
-			result := runObservation(t, h, "price/swiftproof_observe_test.go", goObservationTest)
+			result := runObservation(t, h, "price/probe_observe_test.go", goObservationTest)
 			checks := h.Checks()
 			if len(checks) != tc.checks {
 				t.Fatalf("%d checks, want %d: %+v", len(checks), tc.checks, checks)
@@ -208,7 +208,7 @@ const (
 import { discount } from "./cart";
 
 test("observe discount", ({ task }) => {
-  (task.meta as any).swiftproof = {
+  (task.meta as any).probe = {
     "discount(5,33)": discount(5, 33),
     "discount(100,10)": discount(100, 10),
     "shape": { total: discount(0, 50), inputs: [0, 50] },
@@ -219,21 +219,21 @@ test("observe discount", ({ task }) => {
 	jsCartCandidate = "exports.discount = (total, percent) => Math.floor((total * (100 - percent)) / 100);\n"
 	jsObservation   = `const { discount } = require("./cart");
 
-// Jest reports carry no per-test metadata, so this swiftproof meta record is lost.
+// Jest reports carry no per-test metadata, so this probe meta record is lost.
 test("observe discount", () => {
-  globalThis.meta = { swiftproof: { "discount(5,33)": discount(5, 33) } };
+  globalThis.meta = { probe: { "discount(5,33)": discount(5, 33) } };
 });
 `
 )
 
-// A real Vitest run (image SWIFTPROOF_TEST_TS_IMAGE): task.meta.swiftproof
+// A real Vitest run (image PROBE_TEST_TS_IMAGE): task.meta.probe
 // reaches the Jest-compatible report on the results channel and diverges for
 // discount(5,33) only. The same experiment through a Jest template records an
 // UNVERIFIED observation, because Jest reports carry no per-test metadata.
 func TestDockerTSObservationIntegration(t *testing.T) {
-	image := os.Getenv("SWIFTPROOF_TEST_TS_IMAGE")
+	image := os.Getenv("PROBE_TEST_TS_IMAGE")
 	if image == "" {
-		t.Skip("set SWIFTPROOF_TEST_TS_IMAGE to a preloaded image with vitest and jest on PATH (for example swiftproof-ts-test:local)")
+		t.Skip("set PROBE_TEST_TS_IMAGE to a preloaded image with vitest and jest on PATH (for example probe-ts-test:local)")
 	}
 	t.Run("vitest", func(t *testing.T) {
 		h, names, unchanged := observationFixture(t, image, map[string]string{"src/cart.ts": tsCartBase}, map[string]string{"src/cart.ts": tsCartCandidate}, []string{"vitest", "run", "{file}", "--reporter=json", "--outputFile={results_out}"})

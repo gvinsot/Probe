@@ -16,23 +16,23 @@ import (
 	"sync"
 	"time"
 
-	"github.com/gvinsot/SwiftProof/app/internal/config"
-	"github.com/gvinsot/SwiftProof/app/internal/dockerutil"
+	"github.com/gvinsot/Probe/app/internal/config"
+	"github.com/gvinsot/Probe/app/internal/dockerutil"
 )
 
 // Paths inside the prepare container. The exported inputs are the only bind
-// mount; the working and home directories are created by SwiftProof before
+// mount; the working and home directories are created by Probe before
 // the container starts (scaffold) and belong to the container user.
 const (
-	InputsDir = "/swiftproof/inputs"
-	WorkDir   = "/swiftproof/work"
-	HomeDir   = "/swiftproof/home"
+	InputsDir = "/probe/inputs"
+	WorkDir   = "/probe/work"
+	HomeDir   = "/probe/home"
 )
 
 // Fixed container limits (the other limits come from the sandbox policy).
 const (
 	pidsLimit       = 256
-	containerPrefix = "swiftproof-prepare-"
+	containerPrefix = "probe-prepare-"
 	// diffLineLimit bounds one line of `docker diff`; the listing itself is
 	// read completely, whatever its length.
 	diffLineLimit = 64 << 10
@@ -50,7 +50,7 @@ var rootCapabilities = []string{"CHOWN", "DAC_OVERRIDE", "FOWNER", "FSETID", "SE
 // wrapperScript copies the read-only inputs into the working directory and
 // replaces itself with the policy's command. A copy failure exits 125, which
 // is reported like a container that could not start the command.
-const wrapperScript = `cp -R ` + InputsDir + `/. ` + WorkDir + `/ || { echo "swiftproof: could not copy the prepare inputs into ` + WorkDir + `" >&2; exit 125; }; exec "$@"`
+const wrapperScript = `cp -R ` + InputsDir + `/. ` + WorkDir + `/ || { echo "probe: could not copy the prepare inputs into ` + WorkDir + `" >&2; exit 125; }; exec "$@"`
 
 // Docker runs, inspects and commits the prepare container. DockerCLI is the
 // implementation; tests substitute fakes. Image inspection, listing and
@@ -109,7 +109,7 @@ func createArgs(name, inputsDir, imageID string, spec config.Prepare, network bo
 	for _, e := range sortedEnv(spec.Env) {
 		args = append(args, "--env="+e[0]+"="+e[1])
 	}
-	args = append(args, "--entrypoint=/bin/sh", imageID, "-c", wrapperScript, "swiftproof")
+	args = append(args, "--entrypoint=/bin/sh", imageID, "-c", wrapperScript, "probe")
 	return append(args, spec.Command...)
 }
 
@@ -126,7 +126,7 @@ func sortedEnv(env map[string]string) [][2]string {
 // scaffold is the archive `docker cp -a` extracts at the container root before
 // it starts: the working and home directories, owned by the container user
 // (-a gives extracted entries the container user's ownership), inside a
-// root-owned /swiftproof that Docker creates for the inputs mount point.
+// root-owned /probe that Docker creates for the inputs mount point.
 func scaffold() []byte {
 	var b bytes.Buffer
 	w := tar.NewWriter(&b)
@@ -201,7 +201,7 @@ func onlyInputsMount(data []byte) error {
 	}
 	if len(other) > 0 {
 		sort.Strings(other)
-		return fmt.Errorf("the prepare container has mounts other than the read-only inputs (%s), for example a VOLUME that the sandbox image declares; `docker commit` would not keep their content, so SwiftProof does not prepare in this image", listPaths(other, 5))
+		return fmt.Errorf("the prepare container has mounts other than the read-only inputs (%s), for example a VOLUME that the sandbox image declares; `docker commit` would not keep their content, so Probe does not prepare in this image", listPaths(other, 5))
 	}
 	if inputs != 1 {
 		return errors.New("the prepare container does not have exactly one read-only inputs mount")

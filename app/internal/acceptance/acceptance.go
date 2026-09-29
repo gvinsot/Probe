@@ -17,7 +17,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	"github.com/gvinsot/SwiftProof/app/internal/model"
+	"github.com/gvinsot/Probe/app/internal/model"
 )
 
 // Grammar names the criteria grammar recorded in the documentation.
@@ -30,9 +30,9 @@ const (
 	MaxCriterionBytes = 1024
 )
 
-// PRCommentNote is the fixed note recorded when SwiftProof PR-comment output
+// PRCommentNote is the fixed note recorded when Probe PR-comment output
 // was removed from the intent text.
-const PRCommentNote = "SwiftProof PR-comment output was removed from the intent text."
+const PRCommentNote = "Probe PR-comment output was removed from the intent text."
 
 // ErrEncoding is returned for an intent that is not UTF-8 text or contains NUL.
 var ErrEncoding = errors.New("intent must be UTF-8 text without NUL bytes")
@@ -84,7 +84,7 @@ const maxStripPasses = 8
 // reports whether anything was removed.
 //
 // Removing a block can join the text around it into a new marker (for example
-// "<!-- swiftproof:pr-" + block + "comment:begin v1 -->"), so the removal is
+// "<!-- probe:pr-" + block + "comment:begin v1 -->"), so the removal is
 // repeated until neither marker occurs. Every pass removes at least one
 // marker, and after maxStripPasses passes the text is cut at the first marker
 // that remains, as for an unterminated block. The result therefore never

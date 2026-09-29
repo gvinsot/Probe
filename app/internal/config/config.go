@@ -12,10 +12,10 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/gvinsot/SwiftProof/app/internal/coverage"
+	"github.com/gvinsot/Probe/app/internal/coverage"
 )
 
-const Filename = ".swiftproof.json"
+const Filename = ".probe.json"
 
 // ResultsPlaceholder names, in a generated_test command, the file a
 // JavaScript/TypeScript runner writes its Jest-compatible JSON report to. It
@@ -39,14 +39,14 @@ type Sandbox struct {
 // trusted baseline policy; read-only review uses built-in reviewer budgets.
 // These names remain ordinary environment variables in the Swarm deployment.
 const (
-	EndpointEnv          = "SWIFTPROOF_REVIEWER_ENDPOINT"
-	ModelEnv             = "SWIFTPROOF_REVIEWER_MODEL"
-	AllowInsecureHTTPEnv = "SWIFTPROOF_REVIEWER_ALLOW_INSECURE_HTTP"
+	EndpointEnv          = "PROBE_REVIEWER_ENDPOINT"
+	ModelEnv             = "PROBE_REVIEWER_MODEL"
+	AllowInsecureHTTPEnv = "PROBE_REVIEWER_ALLOW_INSECURE_HTTP"
 )
 
 // The credential follows the cluster's secret convention: the deployment turns
 // a variable whose name ends in _KEY (here reviewer.api_key_env, by default
-// SWIFTPROOF_API_KEY) into a Docker secret, drops it from the container
+// PROBE_API_KEY) into a Docker secret, drops it from the container
 // environment and mounts its value at /run/secrets/<NAME>. <NAME>_FILE names
 // that file explicitly when it is mounted under a different target.
 const (
@@ -82,8 +82,8 @@ func Default(language string) Config {
 	c := Config{
 		Version: 1, Language: language, Commands: map[string][]string{},
 		Sandbox:        Sandbox{Image: "golang:1.26-bookworm", TimeoutSeconds: 120, MaxRuntimeSeconds: 600, MaxOutputBytes: 65536, MemoryMB: 1024, CPUs: 2},
-		Reviewer:       Reviewer{Endpoint: "https://api.openai.com/v1/chat/completions", APIKeyEnv: "SWIFTPROOF_API_KEY", MaxIterations: 20, MaxGeneratedTests: 10, TimeoutSeconds: 600, MaxInputBytes: 131072},
-		SensitivePaths: []string{"**/auth/**", "**/payment*/**", "**/migrations/**", ".github/workflows/**", ".swiftproof.json"},
+		Reviewer:       Reviewer{Endpoint: "https://api.openai.com/v1/chat/completions", APIKeyEnv: "PROBE_API_KEY", MaxIterations: 20, MaxGeneratedTests: 10, TimeoutSeconds: 600, MaxInputBytes: 131072},
+		SensitivePaths: []string{"**/auth/**", "**/payment*/**", "**/migrations/**", ".github/workflows/**", ".probe.json"},
 	}
 	switch language {
 	case "go":
@@ -213,7 +213,7 @@ func (c Config) Validate() error {
 		if results > 0 && (name != "generated_test" || results != 1) {
 			return fmt.Errorf("%s may appear only once and only in the generated_test command", ResultsPlaceholder)
 		}
-		// The executed argv is the reviewed argv: SwiftProof expands the token
+		// The executed argv is the reviewed argv: Probe expands the token
 		// the operator wrote and never appends a coverage flag of its own.
 		if name == coverage.CommandKey && placeholders != 1 {
 			return fmt.Errorf("command %s must write its profile to %s", coverage.CommandKey, coverage.Placeholder)

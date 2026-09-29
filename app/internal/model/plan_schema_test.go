@@ -37,7 +37,7 @@ func populatedPlan() Plan {
 	return Plan{
 		Format: PlanFormat, Version: PlanVersion, ToolVersion: "v0.5.0", GeneratedAt: at,
 		Intent: "Add a discount rule", IntentSHA256: strings.Repeat("a", 64), BaseRef: "main", BaseCommit: strings.Repeat("b", 40),
-		Policy: Policy{Source: PolicyBaseRef, Commit: strings.Repeat("b", 40), Path: ".swiftproof.json"}, Model: "planner-model",
+		Policy: Policy{Source: PolicyBaseRef, Commit: strings.Repeat("b", 40), Path: ".probe.json"}, Model: "planner-model",
 		Proposal: PlanProposal{
 			Summary: "Add a rule", Steps: []string{"edit calc"},
 			Files: []PlannedFile{

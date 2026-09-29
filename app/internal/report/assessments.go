@@ -6,7 +6,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/gvinsot/SwiftProof/app/internal/model"
+	"github.com/gvinsot/Probe/app/internal/model"
 )
 
 // finalizeAssessments normalizes the reviewer's reading of linter signals. An

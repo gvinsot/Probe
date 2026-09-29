@@ -14,7 +14,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/gvinsot/SwiftProof/app/internal/fsutil"
+	"github.com/gvinsot/Probe/app/internal/fsutil"
 )
 
 // treeFixture commits a tree with regular, executable, empty, nested, CRLF,

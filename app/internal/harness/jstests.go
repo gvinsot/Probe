@@ -10,10 +10,10 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	"github.com/gvinsot/SwiftProof/app/internal/config"
-	"github.com/gvinsot/SwiftProof/app/internal/coverage"
-	"github.com/gvinsot/SwiftProof/app/internal/model"
-	"github.com/gvinsot/SwiftProof/app/internal/redact"
+	"github.com/gvinsot/Probe/app/internal/config"
+	"github.com/gvinsot/Probe/app/internal/coverage"
+	"github.com/gvinsot/Probe/app/internal/model"
+	"github.com/gvinsot/Probe/app/internal/redact"
 )
 
 // Runner names recorded on differential evidence. Each names the verifier that
@@ -26,7 +26,7 @@ const (
 // ResultsPath is the fixed in-container path a verifiable JavaScript/TypeScript
 // template writes its JSON report to. /tmp is a fresh tmpfs per run, so a
 // committed or stale report cannot occupy it.
-const ResultsPath = "/tmp/swiftproof-test-results.json"
+const ResultsPath = "/tmp/probe-test-results.json"
 
 // jsTopLevelTest matches a test declared at column 0 with a static title.
 // Escapes and template interpolation are refused so the extracted title is

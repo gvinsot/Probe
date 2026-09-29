@@ -156,7 +156,7 @@ func TestGetRejectsTamperedEntries(t *testing.T) {
 			rewrite(t, s, e.Key, func(b map[string]any) { b["served"] = true }, false)
 		},
 		"wrong schema": func(t *testing.T, s *Store, e Entry) {
-			rewrite(t, s, e.Key, func(b map[string]any) { b["schema"] = "swiftproof-execcache-entry/v0" }, false)
+			rewrite(t, s, e.Key, func(b map[string]any) { b["schema"] = "probe-execcache-entry/v0" }, false)
 		},
 		"pass with exit 1": func(t *testing.T, s *Store, e Entry) {
 			rewrite(t, s, e.Key, func(b map[string]any) { b["exit_code"] = 1 }, false)

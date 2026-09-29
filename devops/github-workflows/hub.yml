@@ -112,8 +112,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          image="${DOCKERHUB_USERNAME:-gvinsot}/swiftproof-hub:${{ steps.version.outputs.version }}"
+          image="${DOCKERHUB_USERNAME:-gvinsot}/probe-hub:${{ steps.version.outputs.version }}"
           docker run --rm "$image" version
-          docker run --rm "$image" help | grep -q SWIFTPROOF_HUB_BASE_URL
+          docker run --rm "$image" help | grep -q PROBE_HUB_BASE_URL
         env:
           DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}

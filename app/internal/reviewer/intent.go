@@ -7,8 +7,8 @@ package reviewer
 import (
 	"errors"
 
-	"github.com/gvinsot/SwiftProof/app/internal/acceptance"
-	"github.com/gvinsot/SwiftProof/app/internal/model"
+	"github.com/gvinsot/Probe/app/internal/acceptance"
+	"github.com/gvinsot/Probe/app/internal/model"
 )
 
 // intentPrompt explains the intent tests and what their records may and may

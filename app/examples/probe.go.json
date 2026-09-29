@@ -42,7 +42,7 @@
   "reviewer": {
     "endpoint": "https://api.openai.com/v1/chat/completions",
     "model": "",
-    "api_key_env": "SWIFTPROOF_API_KEY",
+    "api_key_env": "PROBE_API_KEY",
     "max_iterations": 20,
     "max_generated_tests": 10,
     "timeout_seconds": 600,
@@ -53,6 +53,6 @@
     "**/payment*/**",
     "**/migrations/**",
     ".github/workflows/**",
-    ".swiftproof.json"
+    ".probe.json"
   ]
 }

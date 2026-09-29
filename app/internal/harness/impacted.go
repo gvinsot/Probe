@@ -33,7 +33,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/gvinsot/SwiftProof/app/internal/model"
+	"github.com/gvinsot/Probe/app/internal/model"
 )
 
 // impactedState is the per-harness state of the stage. The stage keeps no

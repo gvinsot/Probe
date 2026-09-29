@@ -1,6 +1,6 @@
 package reviewer
 
-// The pre-change planner (swiftproof plan). The model inspects the base commit
+// The pre-change planner (probe plan). The model inspects the base commit
 // through read-only tools and submits one structured plan. It is asked for a
 // plan, never for a risk judgment: package plan evaluates the plan with fixed
 // rules. No tool can write, execute or reach the network.
@@ -14,9 +14,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/gvinsot/SwiftProof/app/internal/harness"
-	"github.com/gvinsot/SwiftProof/app/internal/model"
-	"github.com/gvinsot/SwiftProof/app/internal/plan"
+	"github.com/gvinsot/Probe/app/internal/harness"
+	"github.com/gvinsot/Probe/app/internal/model"
+	"github.com/gvinsot/Probe/app/internal/plan"
 )
 
 // PlanReadTools are the harness tools the planner may call. They read the
@@ -38,7 +38,7 @@ Inspect the code before planning: find where the behavior lives, who calls it, a
 - symbols: every existing function or method whose body you would change (body), whose signature you would change (signature) or that you would remove (remove), and every function, method or type you would add (add). name is the name as declared in path: F for a function, T.M for a method of type T (no pointer notation). A symbol's path must be one of the planned files.
 - dependencies: every dependency you would add, upgrade or remove, with the manifest (a planned file) and the version if known.
 - summary, ordered steps and assumptions in plain prose.
-Do not assess risk, severity or impact, and do not claim the plan is safe: SwiftProof measures the plan itself with fixed rules. If submit_plan returns an error, fix the plan and submit it again. End once a plan is accepted.`
+Do not assess risk, severity or impact, and do not claim the plan is safe: Probe measures the plan itself with fixed rules. If submit_plan returns an error, fix the plan and submit it again. End once a plan is accepted.`
 
 // PlanInput is the untrusted data the planner receives.
 type PlanInput struct {
@@ -265,7 +265,7 @@ func planToolDefinitions() []map[string]any {
 	array := func(items map[string]any) map[string]any { return map[string]any{"type": "array", "items": items} }
 	out = append(out,
 		map[string]any{"type": "function", "function": map[string]any{"name": planListTool, "description": "List repository files at the base commit, optionally under a directory prefix (at most 400 paths).", "parameters": object(map[string]any{"prefix": str("Optional directory prefix, e.g. internal/cart")})}},
-		map[string]any{"type": "function", "function": map[string]any{"name": planSubmitTool, "description": "Submit the implementation plan once. SwiftProof validates its shape and evaluates it with fixed rules; the plan becomes the contract a later review checks the diff against.", "parameters": object(map[string]any{
+		map[string]any{"type": "function", "function": map[string]any{"name": planSubmitTool, "description": "Submit the implementation plan once. Probe validates its shape and evaluates it with fixed rules; the plan becomes the contract a later review checks the diff against.", "parameters": object(map[string]any{
 			"summary": str("What the change does, in a few sentences"),
 			"steps":   array(str("One ordered implementation step")),
 			"files": array(object(map[string]any{

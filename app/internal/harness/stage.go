@@ -8,7 +8,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/gvinsot/SwiftProof/app/internal/model"
+	"github.com/gvinsot/Probe/app/internal/model"
 )
 
 // ResultsBudget bounds the total size of Check.Results over both check ledgers

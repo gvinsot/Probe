@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/gvinsot/SwiftProof/hub/internal/config"
+	"github.com/gvinsot/Probe/hub/internal/config"
 )
 
 // GitLab speaks API v4, on gitlab.com or on a self-managed instance.

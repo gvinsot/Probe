@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Build the SwiftProof Hub image and publish it.
+# Build the Probe Hub image and publish it.
 #
 # Default target is Docker Hub, so a company can pull the same artifact the
 # project publishes; point REGISTRY at an internal registry to keep the image
@@ -20,7 +20,7 @@ cd "$repo_root"
 
 REGISTRY="${REGISTRY:-docker.io}"
 IMAGE_NAMESPACE="${IMAGE_NAMESPACE:-${DOCKERHUB_USERNAME:-gvinsot}}"
-IMAGE_NAME="${IMAGE_NAME:-swiftproof-hub}"
+IMAGE_NAME="${IMAGE_NAME:-probe-hub}"
 PUSH="${PUSH:-true}"
 PLATFORMS="${PLATFORMS:-linux/amd64,linux/arm64}"
 
@@ -67,7 +67,7 @@ done
 # buildx produces the multi-architecture manifest an on-premise cluster may
 # need; it is also the only way to push several platforms in one pass.
 if docker buildx version >/dev/null 2>&1; then
-  builder="${BUILDX_BUILDER:-swiftproof-hub}"
+  builder="${BUILDX_BUILDER:-probe-hub}"
   docker buildx inspect "$builder" >/dev/null 2>&1 || docker buildx create --name "$builder" --driver docker-container >/dev/null
   output=(--load)
   platforms=("--platform" "linux/amd64")

@@ -14,10 +14,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/gvinsot/SwiftProof/app/internal/harness"
-	"github.com/gvinsot/SwiftProof/app/internal/model"
-	"github.com/gvinsot/SwiftProof/app/internal/redact"
-	reports "github.com/gvinsot/SwiftProof/app/internal/report"
+	"github.com/gvinsot/Probe/app/internal/harness"
+	"github.com/gvinsot/Probe/app/internal/model"
+	"github.com/gvinsot/Probe/app/internal/redact"
+	reports "github.com/gvinsot/Probe/app/internal/report"
 )
 
 type Options struct {
@@ -78,7 +78,7 @@ func normalize(o Options) (Options, string, error) {
 	ip := net.ParseIP(host)
 	loopback := strings.EqualFold(host, "localhost") || ip != nil && ip.IsLoopback()
 	if u.Scheme != "https" && !(u.Scheme == "http" && (loopback || o.AllowInsecureHTTP)) {
-		return o, "", errors.New("reviewer endpoint requires HTTPS; for an operator-configured HTTP endpoint, explicitly set SWIFTPROOF_REVIEWER_ALLOW_INSECURE_HTTP=true (source and API key will be sent unencrypted)")
+		return o, "", errors.New("reviewer endpoint requires HTTPS; for an operator-configured HTTP endpoint, explicitly set PROBE_REVIEWER_ALLOW_INSECURE_HTTP=true (source and API key will be sent unencrypted)")
 	}
 	// Resolve the special local hostname without consulting DNS or proxy settings.
 	if u.Scheme == "http" && strings.EqualFold(host, "localhost") {

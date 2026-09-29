@@ -3,18 +3,18 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Getting started — SwiftProof</title>
-  <meta name="description" content="Install SwiftProof and review your last commit in two minutes, without configuration, Docker or an API key.">
-  <link rel="icon" href="favicon.svg" type="image/svg+xml">
+  <title>Getting started — Probe</title>
+  <meta name="description" content="Install Probe and review your last commit in two minutes, without configuration, Docker or an API key.">
+  <link rel="icon" href="logo.jpeg" type="image/jpeg">
+  <link rel="apple-touch-icon" href="logo.jpeg">
   <link rel="stylesheet" href="styles.css">
   <script src="site.js" defer></script>
 </head>
 <body>
   <header class="nav">
     <div class="wrap nav-inner">
-      <a class="brand" href="./" aria-label="SwiftProof home">
-        <img src="favicon.svg" alt="" width="28" height="28">
-        <span>SwiftProof</span>
+      <a class="brand" href="./" aria-label="Probe home">
+        <img class="brand-title" src="title.jpeg" alt="Probe" width="87" height="32">
       </a>
       <nav aria-label="Main">
         <a href="index.html#process">Process</a>
@@ -22,8 +22,8 @@
         <a href="index.html#hub">Docker</a>
         <a href="download.html">Download</a>
         <a href="docs.html">Docs</a>
-        <a class="btn btn-small" href="https://github.com/gvinsot/SwiftProof">GitHub</a>
-        <a class="btn btn-small" href="https://app.swiftproof.net">Login</a>
+        <a class="btn btn-small" href="https://github.com/gvinsot/Probe">GitHub</a>
+        <a class="btn btn-small" href="https://app.probe.technology">Login</a>
       </nav>
     </div>
   </header>
@@ -43,50 +43,50 @@
           <li>
             <div>
               <h2>Install the binary</h2>
-              <p>SwiftProof is a single executable. Git must be installed; nothing else is required for this guide. <a href="download.html">Download the archive for your operating system and processor</a>, then extract it. Follow the steps for your system below.</p>
+              <p>Probe is a single executable. Git must be installed; nothing else is required for this guide. <a href="download.html">Download the archive for your operating system and processor</a>, then extract it. Follow the steps for your system below.</p>
               <div class="tabs" data-tabs>
                 <div class="tablist" role="tablist" aria-label="Operating system">
                   <button type="button" role="tab" id="tab-unix" aria-controls="panel-unix" data-os="linux darwin">Linux / macOS</button>
                   <button type="button" role="tab" id="tab-win" aria-controls="panel-win" data-os="windows">Windows (PowerShell)</button>
                 </div>
                 <div class="tabpanel" role="tabpanel" id="panel-unix" aria-labelledby="tab-unix">
-                  <p>Open a terminal in the extracted folder containing <code>swiftproof</code>. On macOS, first remove the browser download quarantine with <code>xattr -d com.apple.quarantine swiftproof</code>.</p>
+                  <p>Open a terminal in the extracted folder containing <code>probe</code>. On macOS, first remove the browser download quarantine with <code>xattr -d com.apple.quarantine probe</code>.</p>
                   <div class="code">
-<pre><code>sudo install swiftproof /usr/local/bin/
-swiftproof version</code></pre>
+<pre><code>sudo install probe /usr/local/bin/
+probe version</code></pre>
                   </div>
                   <p>No <code>sudo</code>? Install to <code>~/.local/bin</code> instead, provided it exists and is on your <code>PATH</code>.</p>
                 </div>
                 <div class="tabpanel" role="tabpanel" id="panel-win" aria-labelledby="tab-win">
-                  <p>In File Explorer, create <code>%LOCALAPPDATA%\Programs\swiftproof</code> and copy the extracted <code>swiftproof.exe</code> into it. Then open PowerShell:</p>
+                  <p>In File Explorer, create <code>%LOCALAPPDATA%\Programs\probe</code> and copy the extracted <code>probe.exe</code> into it. Then open PowerShell:</p>
                   <div class="code">
-<pre><code>$env:Path += ";$env:LOCALAPPDATA\Programs\swiftproof"
-swiftproof version</code></pre>
+<pre><code>$env:Path += ";$env:LOCALAPPDATA\Programs\probe"
+probe version</code></pre>
                   </div>
                   <p>This sets <code>PATH</code> for the current terminal. For future terminals, add the same folder to your user <code>Path</code> in Windows Environment Variables.</p>
                 </div>
               </div>
-              <p>The last command prints the installed version, for example <code>swiftproof <span data-version>v0.3.9</span></code>. To check the archive against the published checksums, see <a href="download.html#verify">Verify a download</a>.</p>
+              <p>The last command prints the installed version, for example <code>probe <span data-version>v0.3.9</span></code>. To check the archive against the published checksums, see <a href="download.html#verify">Verify a download</a>.</p>
             </div>
           </li>
 
           <li>
             <div>
               <h2>Compare your last commit with the previous one</h2>
-              <p>Go to any Git repository and ask SwiftProof what changed between <code>HEAD~1</code> and <code>HEAD</code>:</p>
+              <p>Go to any Git repository and ask Probe what changed between <code>HEAD~1</code> and <code>HEAD</code>:</p>
               <div class="code">
 <pre><code>cd path/to/your/repository
-swiftproof lint HEAD~1..HEAD</code></pre>
+probe lint HEAD~1..HEAD</code></pre>
               </div>
-              <p><code>lint</code> is the static half of SwiftProof. It compares the two commits, collects risk signals and writes a report. It never executes repository code, never calls an AI provider and needs no <code>.swiftproof.json</code>: without one, the built-in defaults for the detected language apply.</p>
-              <div class="callout"><strong>Only committed files are analyzed.</strong> Uncommitted edits and untracked files are ignored, so commit your work first, for example on a scratch branch. To keep reports out of <code>git status</code> without touching <code>.gitignore</code>, run <code>echo .swiftproof/ &gt;&gt; .git/info/exclude</code>.</div>
+              <p><code>lint</code> is the static half of Probe. It compares the two commits, collects risk signals and writes a report. It never executes repository code, never calls an AI provider and needs no <code>.probe.json</code>: without one, the built-in defaults for the detected language apply.</p>
+              <div class="callout"><strong>Only committed files are analyzed.</strong> Uncommitted edits and untracked files are ignored, so commit your work first, for example on a scratch branch. To keep reports out of <code>git status</code> without touching <code>.gitignore</code>, run <code>echo .probe/ &gt;&gt; .git/info/exclude</code>.</div>
             </div>
           </li>
 
           <li>
             <div>
               <h2>Read the report</h2>
-              <p>Open <code>.swiftproof/CONFIDENCE_REPORT.md</code> in your editor. Start with <strong>Suggested Human Review</strong>, a list of file and line ranges ranked by severity, each with the reason it was flagged:</p>
+              <p>Open <code>.probe/CONFIDENCE_REPORT.md</code> in your editor. Start with <strong>Suggested Human Review</strong>, a list of file and line ranges ranked by severity, each with the reason it was flagged:</p>
               <div class="code">
 <pre><code><span class="o">## Suggested Human Review
 - **high** auth/auth.go:7–7 (new): Authentication or authorization function body changed
@@ -106,11 +106,11 @@ swiftproof lint HEAD~1..HEAD</code></pre>
                 <table>
                   <thead><tr><th>Command</th><th>Compares</th></tr></thead>
                   <tbody>
-                    <tr><td><code>swiftproof lint HEAD~5..HEAD</code></td><td class="desc">Your last five commits taken together.</td></tr>
-                    <tr><td><code>swiftproof lint --base main</code></td><td class="desc">Your current branch against <code>main</code>, from their merge base, like a pull request. Use <code>--base master</code> if that is your default branch.</td></tr>
-                    <tr><td><code>swiftproof lint --base origin/main --head feature</code></td><td class="desc">Another branch against the remote default branch, without checking it out.</td></tr>
-                    <tr><td><code>swiftproof lint main..feature</code></td><td class="desc">The two exact commits, with no merge base (<code>main...feature</code> uses the merge base).</td></tr>
-                    <tr><td><code>swiftproof lint --base main --ci</code></td><td class="desc">Same as above, but exits with code <code>2</code> when human review is required, for scripts and CI.</td></tr>
+                    <tr><td><code>probe lint HEAD~5..HEAD</code></td><td class="desc">Your last five commits taken together.</td></tr>
+                    <tr><td><code>probe lint --base main</code></td><td class="desc">Your current branch against <code>main</code>, from their merge base, like a pull request. Use <code>--base master</code> if that is your default branch.</td></tr>
+                    <tr><td><code>probe lint --base origin/main --head feature</code></td><td class="desc">Another branch against the remote default branch, without checking it out.</td></tr>
+                    <tr><td><code>probe lint main..feature</code></td><td class="desc">The two exact commits, with no merge base (<code>main...feature</code> uses the merge base).</td></tr>
+                    <tr><td><code>probe lint --base main --ci</code></td><td class="desc">Same as above, but exits with code <code>2</code> when human review is required, for scripts and CI.</td></tr>
                   </tbody>
                 </table>
               </div>
@@ -120,28 +120,28 @@ swiftproof lint HEAD~1..HEAD</code></pre>
           <li>
             <div>
               <h2>Optional: run your checks in a sandbox</h2>
-              <p><code>review</code> does everything <code>lint</code> does, then runs the repository's test, typecheck, build and coverage commands in disposable, network-less Docker containers. It needs Docker with Linux containers and a <strong>preloaded</strong> image containing your toolchain: SwiftProof never pulls images or installs dependencies itself. For a Go project with no third-party dependencies, the default image is enough:</p>
+              <p><code>review</code> does everything <code>lint</code> does, then runs the repository's test, typecheck, build and coverage commands in disposable, network-less Docker containers. It needs Docker with Linux containers and a <strong>preloaded</strong> image containing your toolchain: Probe never pulls images or installs dependencies itself. For a Go project with no third-party dependencies, the default image is enough:</p>
               <div class="code">
 <pre><code>docker pull golang:1.26-bookworm
-swiftproof review HEAD~1..HEAD --reviewer=false</code></pre>
+probe review HEAD~1..HEAD --reviewer=false</code></pre>
               </div>
-              <p>For Node.js, Python and Rust projects, stock images do not contain your dependencies: build an image that does and point <code>sandbox.image</code> at it in a policy (next step), or let the trusted policy build that layer with a <a href="docs.html#policy-prepare"><code>prepare</code></a> object. If Docker or the image is missing, SwiftProof stops with exit code <code>4</code> and never falls back to running code on your machine.</p>
+              <p>For Node.js, Python and Rust projects, stock images do not contain your dependencies: build an image that does and point <code>sandbox.image</code> at it in a policy (next step), or let the trusted policy build that layer with a <a href="docs.html#policy-prepare"><code>prepare</code></a> object. If Docker or the image is missing, Probe stops with exit code <code>4</code> and never falls back to running code on your machine.</p>
             </div>
           </li>
 
           <li>
             <div>
               <h2>Adopt it in your repository</h2>
-              <p>Run <code>swiftproof init</code> to generate <code>.swiftproof.json</code> for your detected language. Review its commands and sandbox image, then try the policy locally:</p>
+              <p>Run <code>probe init</code> to generate <code>.probe.json</code> for your detected language. Review its commands and sandbox image, then try the policy locally:</p>
               <div class="code">
-<pre><code>swiftproof review --base main --config .swiftproof.json</code></pre>
+<pre><code>probe review --base main --config .probe.json</code></pre>
               </div>
-              <p>Commit <code>.swiftproof.json</code> to your base branch. Subsequent reviews read that trusted policy. On your feature branch, run:</p>
+              <p>Commit <code>.probe.json</code> to your base branch. Subsequent reviews read that trusted policy. On your feature branch, run:</p>
               <div class="code">
-<pre><code>swiftproof review --base main --ci</code></pre>
+<pre><code>probe review --base main --ci</code></pre>
               </div>
-              <p>Working with a coding agent? Adopt the <a href="index.html#process">plan-first process</a>: the agent runs <code>swiftproof plan --intent-file task.md --ci</code> before writing code (a flagged plan goes to a human), implements the plan, and CI runs <code>swiftproof review --plan .swiftproof/PLAN.json --ci</code>. Exit <code>0</code> means the change conforms to a low-risk plan and passed its checks, so it can merge without a human review; exit <code>2</code> lists why a human must look (<a href="docs.html#plan-gate">plan gate</a>).</p>
-              <p>Next steps: every flag, exit code and policy key is in the <a href="docs.html">reference</a>. To let an AI reviewer try to reproduce issues, configure a provider as described in <a href="docs.html#reviewer">AI reviewer</a>. For GitHub Actions, see the <a href="https://github.com/gvinsot/SwiftProof/blob/main/app/docs/CI.md">CI integration guide</a>.</p>
+              <p>Working with a coding agent? Adopt the <a href="index.html#process">plan-first process</a>: the agent runs <code>probe plan --intent-file task.md --ci</code> before writing code (a flagged plan goes to a human), implements the plan, and CI runs <code>probe review --plan .probe/PLAN.json --ci</code>. Exit <code>0</code> means the change conforms to a low-risk plan and passed its checks, so it can merge without a human review; exit <code>2</code> lists why a human must look (<a href="docs.html#plan-gate">plan gate</a>).</p>
+              <p>Next steps: every flag, exit code and policy key is in the <a href="docs.html">reference</a>. To let an AI reviewer try to reproduce issues, configure a provider as described in <a href="docs.html#reviewer">AI reviewer</a>. For GitHub Actions, see the <a href="https://github.com/gvinsot/Probe/blob/main/app/docs/CI.md">CI integration guide</a>.</p>
             </div>
           </li>
         </ol>
@@ -156,7 +156,7 @@ swiftproof review HEAD~1..HEAD --reviewer=false</code></pre>
             <thead><tr><th>Message</th><th>What to do</th></tr></thead>
             <tbody>
               <tr><td><code>base: git rev-parse … Needed a single revision</code></td><td class="desc">A revision does not exist. The repository may have a single commit (so there is no <code>HEAD~1</code>), or its default branch is not <code>main</code>: pass <code>--base master</code> or an explicit range.</td></tr>
-              <tr><td>The report misses your latest edits</td><td class="desc">They are not committed yet. SwiftProof only analyzes commits; commit them, then run it again.</td></tr>
+              <tr><td>The report misses your latest edits</td><td class="desc">They are not committed yet. Probe only analyzes commits; commit them, then run it again.</td></tr>
               <tr><td>Exit code <code>2</code></td><td class="desc">Not an error: with <code>--ci</code>, it means human review is required. See <a href="docs.html#exit-codes">exit codes</a>.</td></tr>
               <tr><td>Exit code <code>4</code> during <code>review</code></td><td class="desc">Docker is not running or the sandbox image is not present locally. Pull it first, or use <code>lint</code>.</td></tr>
               <tr><td><code>reviewer.model must be configured…</code></td><td class="desc"><code>--reviewer</code> was requested without a model. Drop it, or configure a provider.</td></tr>
@@ -169,8 +169,8 @@ swiftproof review HEAD~1..HEAD --reviewer=false</code></pre>
 
   <footer class="footer">
     <div class="wrap footer-inner">
-      <span>© SwiftProof contributors · AGPL-3.0 License</span>
-      <span><a href="getting-started.html">Getting started</a> · <a href="index.html#hub">Docker</a> · <a href="https://app.swiftproof.net">Web app</a> · <a href="download.html">Download</a> · <a href="docs.html">Docs</a> · <a href="https://github.com/gvinsot/SwiftProof">GitHub</a></span>
+      <span>© Probe contributors · AGPL-3.0 License</span>
+      <span><a href="getting-started.html">Getting started</a> · <a href="index.html#hub">Docker</a> · <a href="https://app.probe.technology">Web app</a> · <a href="download.html">Download</a> · <a href="docs.html">Docs</a> · <a href="https://github.com/gvinsot/Probe">GitHub</a></span>
     </div>
   </footer>
 </body>

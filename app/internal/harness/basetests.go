@@ -33,7 +33,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/gvinsot/SwiftProof/app/internal/model"
+	"github.com/gvinsot/Probe/app/internal/model"
 )
 
 // baseTestState is the per-harness state of the stage.
@@ -413,7 +413,7 @@ func (h *Harness) buildBaseTestHybrid(units []baseTestUnit) (string, func(), []b
 	if err != nil {
 		return "", func() {}, nil, nil, err
 	}
-	m := baseTestManifest{Schema: "swiftproof-base-tests-hybrid/v1", Dirs: []string{}, FailedDirs: []string{}, Entries: []baseTestManifestEntry{}}
+	m := baseTestManifest{Schema: "probe-base-tests-hybrid/v1", Dirs: []string{}, FailedDirs: []string{}, Entries: []baseTestManifestEntry{}}
 	seen := map[string]bool{}
 	for _, u := range units {
 		if !seen[u.dir] {

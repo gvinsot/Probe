@@ -7,9 +7,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gvinsot/SwiftProof/hub/internal/forge"
-	"github.com/gvinsot/SwiftProof/hub/internal/secrets"
-	"github.com/gvinsot/SwiftProof/hub/internal/store"
+	"github.com/gvinsot/Probe/hub/internal/forge"
+	"github.com/gvinsot/Probe/hub/internal/secrets"
+	"github.com/gvinsot/Probe/hub/internal/store"
 )
 
 type failedRefresh struct{ forge.Provider }

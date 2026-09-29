@@ -4,7 +4,7 @@ import (
 	"sort"
 	"time"
 
-	"github.com/gvinsot/SwiftProof/hub/internal/store"
+	"github.com/gvinsot/Probe/hub/internal/store"
 )
 
 // ActivityWindow retains completed attempts for 48 hours in this process only.

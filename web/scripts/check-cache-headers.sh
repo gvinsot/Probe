@@ -3,12 +3,12 @@
 # revalidated on each load (Cache-Control: no-cache, no max-age or Expires),
 # carries a validator, and an unchanged file answers 304 to a conditional
 # request. Run it against the built image, e.g.
-#   docker run -d -p 8080:80 swiftproof-web:ci
+#   docker run -d -p 8080:80 probe-web:ci
 #   web/scripts/check-cache-headers.sh http://127.0.0.1:8080
 set -eu
 
 BASE=${1:-http://127.0.0.1:8080}
-PATHS="/ /index.html /download.html /getting-started.html /docs.html /styles.css /site.js /favicon.svg"
+PATHS="/ /index.html /download.html /getting-started.html /docs.html /styles.css /site.js /logo.jpeg /title.jpeg"
 failed=0
 tmp=$(mktemp)
 trap 'rm -f "$tmp"' EXIT

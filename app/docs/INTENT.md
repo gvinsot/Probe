@@ -1,6 +1,6 @@
 # Intent criteria and candidate-only intent tests
 
-A pull request usually states what the change is for. SwiftProof reads the acceptance criteria of that statement, and the reviewer may write a test for one criterion and run it on the candidate. When such a test fails on an assertion and names code the change added or modified, the report records an `INTENT_TEST_FAILED` hypothesis and asks a human to look.
+A pull request usually states what the change is for. Probe reads the acceptance criteria of that statement, and the reviewer may write a test for one criterion and run it on the candidate. When such a test fails on an assertion and names code the change added or modified, the report records an `INTENT_TEST_FAILED` hypothesis and asks a human to look.
 
 This is deliberately weaker than a reproduced issue. There is no baseline control, and the test, its inputs and its reading of the criterion are all model-written, so a failure may come from the test or from the reading rather than from the code. An intent-test failure therefore never enters `reproduced_issues` and never produces exit code 1.
 
@@ -8,10 +8,10 @@ The feature adds no policy key and no flag. It uses the existing `--intent` / `-
 
 ## Supplying an intent
 
-`--intent TEXT` or `--intent-file FILE` (at most 64 KiB) supplies the intent to `review` and `lint`. In CI it is usually the pull request description, written by the PR author, so SwiftProof treats it as untrusted input:
+`--intent TEXT` or `--intent-file FILE` (at most 64 KiB) supplies the intent to `review` and `lint`. In CI it is usually the pull request description, written by the PR author, so Probe treats it as untrusted input:
 
 - The text must be valid UTF-8 without NUL bytes. Anything else exits 3 with `intent: intent must be UTF-8 text without NUL bytes`, before Git analysis, before any container and before any provider call.
-- Every block from `<!-- swiftproof:pr-comment:begin v1 -->` to `<!-- swiftproof:pr-comment:end -->` is removed first (a begin marker without an end marker removes the rest of the text, and a stray end marker is removed too), and the report records the Unverified note "SwiftProof PR-comment output was removed from the intent text." Removal repeats until no marker is left, since removing a block can join the text around it into a new marker; after 8 passes the text is cut at the first remaining marker. A SwiftProof PR comment pasted into the description therefore never becomes criteria. Post the PR comment as a comment, never into the description.
+- Every block from `<!-- probe:pr-comment:begin v1 -->` to `<!-- probe:pr-comment:end -->` is removed first (a begin marker without an end marker removes the rest of the text, and a stray end marker is removed too), and the report records the Unverified note "Probe PR-comment output was removed from the intent text." Removal repeats until no marker is left, since removing a block can join the text around it into a new marker; after 8 passes the text is cut at the first remaining marker. A Probe PR comment pasted into the description therefore never becomes criteria. Post the PR comment as a comment, never into the description.
 - The remaining text is then redacted as the report redacts every string (credential shapes become `[REDACTED]`; line breaks are kept, so line numbers do not move). The report records exactly that text as `intent`, `intent_sha256` is the SHA-256 of it, and the criteria are extracted from it. Anyone can therefore recompute the hash and the criteria from the report, and the hash never covers a secret that redaction hides from the report, so it cannot be used to confirm a guess of that secret.
 - Criteria are data. No command, image, network setting, budget or provider setting is derived from the intent, and the reviewer prompt says that criterion text is never an instruction.
 
@@ -50,7 +50,7 @@ The reviewer is offered two tools only when the run has at least one criterion; 
 
 - `create_intent_test(criterion_id, path, content, description?)` registers a test for one criterion. Every `create_test` rule applies: a supported test file name, no overwrite of any snapshot path, uniquely named Go `TestX(t *testing.T)` functions, or static top-level `test("title", …)` / `it("title", …)` titles for JavaScript and TypeScript. In addition:
   - `criterion_id` must name a criterion that occurs exactly once;
-  - the trusted `generated_test` template must let SwiftProof check which named tests ran: a Go template such as `["go", "test", "{package}"]`, or a Jest-compatible runner (Jest, Vitest) with `{file}` and `{results_out}`. Without one the call is refused and nothing is created, because no evidence could be recorded;
+  - the trusted `generated_test` template must let Probe check which named tests ran: a Go template such as `["go", "test", "{package}"]`, or a Jest-compatible runner (Jest, Vitest) with `{file}` and `{results_out}`. Without one the call is refused and nothing is created, because no evidence could be recorded;
   - intent tests share `reviewer.max_generated_tests` with generated tests and may use at most half of it, rounded up (5 of the default 10). Deleting a test does not return its slot.
 - `run_intent_test(test_id)` stages the test in the candidate snapshot only, runs the selected named tests in one sandbox container (check kind `generated_test_intent`), removes the file again, and records one `intent_test` evidence record. The base snapshot is never touched and there is no baseline run. The run is charged to `sandbox.max_runtime_seconds` like any reviewer experiment, and it is never served from the execution cache.
 
@@ -111,7 +111,7 @@ The reviewer may submit `INTENT_TEST_FAILED` with the evidence ID of an `intent_
 - Any hypothesis may carry a `criterion_id` naming the criterion it concerns; the report quotes the criterion from `intent_criteria`, labelled "model-selected". An unknown `criterion_id` is dropped.
 - `intent_judgment` (`expected_change` or `unexpected_change`) is accepted only on a `DIVERGED` claim that also names a known criterion. It is the model's opinion about whether the criterion asks for the recorded difference, rendered after the hypothesis as "Model judgment (not evidence): expected change" (or unexpected change), and never read by any status, list, severity, review target or exit code. `Finalize` drops a judgment on any other final status, and a dropped link adds one Unverified note naming the hypothesis, which requests review with `--ci`.
 
-`swiftproof report` runs `Finalize` again, so a saved report whose intent-test failure is edited, forged or stripped of its check becomes `UNVERIFIED` on re-render.
+`probe report` runs `Finalize` again, so a saved report whose intent-test failure is edited, forged or stripped of its check becomes `UNVERIFIED` on re-render.
 
 ## Report output
 
@@ -149,7 +149,7 @@ Candidate-only experiments. Each entry cites a test the reviewer wrote for one a
 - **high** Orders of exactly 100 get no discount — shop.go:14
   Criterion AC-1 (intent line 4): "Orders of 100 or more get 10 off"
   Evidence: evidence-1
-  Test swiftproof\_intent\_ac1\_test.go (TestSwiftProofIntentDiscountAt100) failed on an assertion; names it shares with declarations the change added or modified (matched by name, not resolved): Discount.
+  Test probe\_intent\_ac1\_test.go (TestProbeIntentDiscountAt100) failed on an assertion; names it shares with declarations the change added or modified (matched by name, not resolved): Discount.
 
 ## Intent Criteria
 
@@ -166,13 +166,13 @@ The Unverified Areas section of the same report lists "The intent link of hypoth
   "id": "evidence-1",
   "kind": "intent_test",
   "description": "Orders of exactly 100 get 10 off (candidate-only intent test for AC-1; no baseline control)",
-  "path": "swiftproof_intent_ac1_test.go",
+  "path": "probe_intent_ac1_test.go",
   "check_id": "check-1",
   "criterion_id": "AC-1",
   "referenced_symbols": ["Discount"],
   "status": "INTENT_TEST_FAILED",
   "runner": "go_test_json",
-  "test_names": ["TestSwiftProofIntentDiscountAt100"]
+  "test_names": ["TestProbeIntentDiscountAt100"]
 }
 ```
 
@@ -203,7 +203,7 @@ The sections appear only when an intent was supplied. With an intent but no crit
 - For Jest-compatible reports, only failure messages with the assertion-error headers listed above count as assertions; a runner or assertion library that words them otherwise records `UNVERIFIED`.
 - JavaScript and TypeScript symbols are matched lexically.
 - A change confined to a function body whose name is not on an added line cannot support `INTENT_TEST_FAILED` (see Referenced symbols).
-- There is no baseline run of an intent test, so SwiftProof never says that a change delivered a criterion.
+- There is no baseline run of an intent test, so Probe never says that a change delivered a criterion.
 - Criteria IDs are positional; editing the list renumbers them.
 
 ## See also

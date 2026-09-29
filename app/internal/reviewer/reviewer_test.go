@@ -11,8 +11,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gvinsot/SwiftProof/app/internal/model"
-	reports "github.com/gvinsot/SwiftProof/app/internal/report"
+	"github.com/gvinsot/Probe/app/internal/model"
+	reports "github.com/gvinsot/Probe/app/internal/report"
 )
 
 type fakeHarness struct{ calls []string }

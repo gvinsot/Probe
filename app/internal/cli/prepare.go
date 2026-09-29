@@ -11,11 +11,11 @@ import (
 	"io"
 	"strings"
 
-	"github.com/gvinsot/SwiftProof/app/internal/config"
-	"github.com/gvinsot/SwiftProof/app/internal/dockerutil"
-	"github.com/gvinsot/SwiftProof/app/internal/gitrepo"
-	"github.com/gvinsot/SwiftProof/app/internal/model"
-	"github.com/gvinsot/SwiftProof/app/internal/prepare"
+	"github.com/gvinsot/Probe/app/internal/config"
+	"github.com/gvinsot/Probe/app/internal/dockerutil"
+	"github.com/gvinsot/Probe/app/internal/gitrepo"
+	"github.com/gvinsot/Probe/app/internal/model"
+	"github.com/gvinsot/Probe/app/internal/prepare"
 )
 
 // preparation is the outcome of the prepare stage.
@@ -42,7 +42,7 @@ const prepareShadowedNote = "Dependency preparation: prepared outputs are shadow
 // on a prepared image while the candidate changes declared inputs. It states
 // what was not installed and attributes no check result to it.
 func prepareChangedInputsNote(changed []string) string {
-	return "Candidate changes dependency-preparation inputs (" + prepare.ListPaths(changed, 20) + "); sandbox checks used dependencies prepared from the base commit's versions of the declared inputs only. Candidate dependency changes were not installed, so checks may fail or behave differently for that reason alone; SwiftProof attributes no check result to it."
+	return "Candidate changes dependency-preparation inputs (" + prepare.ListPaths(changed, 20) + "); sandbox checks used dependencies prepared from the base commit's versions of the declared inputs only. Candidate dependency changes were not installed, so checks may fail or behave differently for that reason alone; Probe attributes no check result to it."
 }
 
 // prepareSignals returns the prepare_input_changed signals of a change that

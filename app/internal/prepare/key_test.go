@@ -5,8 +5,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/gvinsot/SwiftProof/app/internal/config"
-	"github.com/gvinsot/SwiftProof/app/internal/gitrepo"
+	"github.com/gvinsot/Probe/app/internal/config"
+	"github.com/gvinsot/Probe/app/internal/gitrepo"
 )
 
 type keyCase struct {
@@ -101,7 +101,7 @@ func TestTag(t *testing.T) {
 	key := strings.Repeat("ab", 32)
 	commit := strings.Repeat("c", 40)
 	got := Tag(key, commit)
-	if got != "swiftproof-prepared:"+strings.Repeat("ab", 16)+"-"+strings.Repeat("c", 32) {
+	if got != "probe-prepared:"+strings.Repeat("ab", 16)+"-"+strings.Repeat("c", 32) {
 		t.Fatalf("tag %q", got)
 	}
 	// Docker tags are at most 128 characters of [A-Za-z0-9_.-].

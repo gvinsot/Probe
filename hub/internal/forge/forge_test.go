@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gvinsot/SwiftProof/hub/internal/config"
+	"github.com/gvinsot/Probe/hub/internal/config"
 )
 
 // Both providers must satisfy the interface the hub programs against.
@@ -51,7 +51,7 @@ func TestRedactDropsTheQueryString(t *testing.T) {
 }
 
 func TestPathEscapeKeepsSeparatorsAndEscapesSegments(t *testing.T) {
-	if got := pathEscape(".swiftproof.json"); got != ".swiftproof.json" {
+	if got := pathEscape(".probe.json"); got != ".probe.json" {
 		t.Errorf("pathEscape = %q", got)
 	}
 	if got := pathEscape("dir/sub dir/file.json"); got != "dir/sub%20dir/file.json" {
@@ -198,7 +198,7 @@ func fakeForge(t *testing.T, routes map[string]func(w http.ResponseWriter, r *ht
 func TestGitHubReadFileAndCreateFile(t *testing.T) {
 	var created map[string]any
 	server := fakeForge(t, map[string]func(http.ResponseWriter, *http.Request){
-		"/repos/acme/shop/contents/.swiftproof.json": func(w http.ResponseWriter, r *http.Request) {
+		"/repos/acme/shop/contents/.probe.json": func(w http.ResponseWriter, r *http.Request) {
 			if r.Method == http.MethodPut {
 				json.NewDecoder(r.Body).Decode(&created)
 				w.WriteHeader(http.StatusCreated)
@@ -217,7 +217,7 @@ func TestGitHubReadFileAndCreateFile(t *testing.T) {
 	g := NewGitHub(config.Forge{APIURL: server.URL})
 	repo := Repo{ID: "42", FullName: "acme/shop", DefaultBranch: "main"}
 
-	content, found, err := g.ReadFile(context.Background(), Token{AccessToken: "t"}, repo, "main", ".swiftproof.json")
+	content, found, err := g.ReadFile(context.Background(), Token{AccessToken: "t"}, repo, "main", ".probe.json")
 	if err != nil || !found || string(content) != `{"version": 1}` {
 		t.Fatalf("ReadFile = %q, %v, %v", content, found, err)
 	}
@@ -225,7 +225,7 @@ func TestGitHubReadFileAndCreateFile(t *testing.T) {
 	if err != nil || found {
 		t.Fatalf("a missing file must report found=false without an error, got %v, %v", found, err)
 	}
-	if err := g.CreateFile(context.Background(), Token{AccessToken: "t"}, repo, "main", ".swiftproof.json", "Add policy", []byte(`{"version":1}`)); err != nil {
+	if err := g.CreateFile(context.Background(), Token{AccessToken: "t"}, repo, "main", ".probe.json", "Add policy", []byte(`{"version":1}`)); err != nil {
 		t.Fatalf("CreateFile: %v", err)
 	}
 	if created["branch"] != "main" || created["message"] != "Add policy" {

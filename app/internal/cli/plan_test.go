@@ -12,8 +12,8 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/gvinsot/SwiftProof/app/internal/config"
-	"github.com/gvinsot/SwiftProof/app/internal/model"
+	"github.com/gvinsot/Probe/app/internal/config"
+	"github.com/gvinsot/Probe/app/internal/model"
 )
 
 // planFixture is a Go repository whose exported calc.Discount is called by
@@ -73,7 +73,7 @@ func planPolicy(t *testing.T, endpoint string) string {
 	cfg := config.Default("go")
 	cfg.Reviewer.Model = "planner-model"
 	cfg.Reviewer.Endpoint = endpoint + "/v1"
-	cfg.Reviewer.APIKeyEnv = "SWIFTPROOF_TEST_PLAN_KEY"
+	cfg.Reviewer.APIKeyEnv = "PROBE_TEST_PLAN_KEY"
 	t.Setenv(cfg.Reviewer.APIKeyEnv, "test-plan-key")
 	policy := filepath.Join(t.TempDir(), "policy.json")
 	writeReviewerPolicy(t, policy, cfg)
@@ -256,7 +256,7 @@ func TestPlanRequiresAProviderAndAnIntent(t *testing.T) {
 			t.Errorf("%s: exit %d, want 3 (%s)", name, code, stderr)
 		}
 	}
-	if _, err := os.Stat(filepath.Join(dir, ".swiftproof", "PLAN.json")); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(dir, ".probe", "PLAN.json")); !os.IsNotExist(err) {
 		t.Error("a refused plan must write nothing")
 	}
 }

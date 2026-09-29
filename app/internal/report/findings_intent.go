@@ -4,7 +4,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/gvinsot/SwiftProof/app/internal/model"
+	"github.com/gvinsot/Probe/app/internal/model"
 )
 
 // intentStatement is the fixed text of an intent_test_failed finding; %s is the

@@ -4,11 +4,11 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/gvinsot/SwiftProof/app/internal/harness"
-	"github.com/gvinsot/SwiftProof/app/internal/model"
+	"github.com/gvinsot/Probe/app/internal/harness"
+	"github.com/gvinsot/Probe/app/internal/model"
 )
 
-var scriptCommand = []string{"vitest", "run", "web/swiftproof-fuzz-abcdef12.test.ts", "--reporter=json", "--outputFile=/tmp/swiftproof-test-results.json"}
+var scriptCommand = []string{"vitest", "run", "web/probe-fuzz-abcdef12.test.ts", "--reporter=json", "--outputFile=/tmp/probe-test-results.json"}
 
 func scriptResults(t *testing.T, fns ...FunctionStream) string {
 	t.Helper()
@@ -105,7 +105,7 @@ func TestEvaluateScriptRequiresPassingFramedRuns(t *testing.T) {
 		"passing run ended inside an earlier test": {func() Checks {
 			c := scriptPair(t, &same, &same, nil, nil)
 			earlier := interrupted
-			earlier.Test = "TestSwiftProofFuzz_abcdef12_2"
+			earlier.Test = "TestProbeFuzz_abcdef12_2"
 			c.Candidate.Results = scriptResults(t, earlier, FunctionStream{Test: testName, Planned: 3, State: StateNotStarted, At: -1, Records: []Record{}})
 			return c
 		}, "the candidate process ended before this function was evaluated"},
@@ -113,7 +113,7 @@ func TestEvaluateScriptRequiresPassingFramedRuns(t *testing.T) {
 		"passing run ended after an earlier test": {func() Checks {
 			c := scriptPair(t, &same, &same, nil, nil)
 			earlier := completeFn(3, encodings("0", "1", "2"))
-			earlier.Test = "TestSwiftProofFuzz_abcdef12_2"
+			earlier.Test = "TestProbeFuzz_abcdef12_2"
 			c.Candidate.Results = scriptResults(t, earlier, FunctionStream{Test: testName, Planned: 3, State: StateNotStarted, At: -1, Records: []Record{}})
 			return c
 		}, "the candidate run observation stream has no done record of the fuzz test although the run passed"},

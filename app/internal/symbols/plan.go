@@ -6,8 +6,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/gvinsot/SwiftProof/app/internal/gitrepo"
-	"github.com/gvinsot/SwiftProof/app/internal/model"
+	"github.com/gvinsot/Probe/app/internal/gitrepo"
+	"github.com/gvinsot/Probe/app/internal/model"
 )
 
 // IndexCommit builds the static index of a whole commit, for a pre-change

@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/gvinsot/SwiftProof/app/internal/model"
+	"github.com/gvinsot/Probe/app/internal/model"
 )
 
 // Cross-feature tests of the integration agent (contract §2 "Agent I"): every
@@ -26,13 +26,13 @@ type exportClassCase struct {
 
 func exportClassCases() []exportClassCase {
 	return []exportClassCase{
-		{ClassReproduced, "swiftproof/reproduced", 1, func(*testing.T) *model.Report { return proofReport() }},
-		{ClassBaseTestFailsOnCandidate, "swiftproof/base-test-fails-on-candidate", 2, func(*testing.T) *model.Report { return baseTestsReport() }},
-		{ClassImpactedTestFailsOnCandidate, "swiftproof/impacted-test-fails-on-candidate", 2, func(*testing.T) *model.Report { return impactedReport() }},
-		{ClassFuzzDivergence, "swiftproof/fuzz-divergence", 2, func(t *testing.T) *model.Report { return fuzzReport(t, divergeAt(discountCall, "w:"+discountCall)) }},
-		{ClassObservedDivergence, "swiftproof/observed-divergence", 2, func(*testing.T) *model.Report { return observationReport() }},
-		{ClassIntentTestFailed, "swiftproof/intent-test-failed", 2, func(*testing.T) *model.Report { return intentProofReport() }},
-		{ClassSurvivingMutant, "swiftproof/surviving-mutant", 0, func(*testing.T) *model.Report { return mutationReport() }},
+		{ClassReproduced, "probe/reproduced", 1, func(*testing.T) *model.Report { return proofReport() }},
+		{ClassBaseTestFailsOnCandidate, "probe/base-test-fails-on-candidate", 2, func(*testing.T) *model.Report { return baseTestsReport() }},
+		{ClassImpactedTestFailsOnCandidate, "probe/impacted-test-fails-on-candidate", 2, func(*testing.T) *model.Report { return impactedReport() }},
+		{ClassFuzzDivergence, "probe/fuzz-divergence", 2, func(t *testing.T) *model.Report { return fuzzReport(t, divergeAt(discountCall, "w:"+discountCall)) }},
+		{ClassObservedDivergence, "probe/observed-divergence", 2, func(*testing.T) *model.Report { return observationReport() }},
+		{ClassIntentTestFailed, "probe/intent-test-failed", 2, func(*testing.T) *model.Report { return intentProofReport() }},
+		{ClassSurvivingMutant, "probe/surviving-mutant", 0, func(*testing.T) *model.Report { return mutationReport() }},
 	}
 }
 
@@ -98,9 +98,9 @@ func TestExportClassesFromRealFixtures(t *testing.T) {
 					t.Errorf("level error for %s", tc.class)
 				}
 			}
-			want := "## SwiftProof: 1 evidence-backed finding\n"
+			want := "## Probe: 1 evidence-backed finding\n"
 			if n := classes[tc.class]; n != 1 {
-				want = fmt.Sprintf("## SwiftProof: %d evidence-backed findings\n", n)
+				want = fmt.Sprintf("## Probe: %d evidence-backed findings\n", n)
 			}
 			if !strings.Contains(string(comment), want) || !strings.Contains(string(comment), notApprovalText) {
 				t.Errorf("the comment does not list the finding (want %q):\n%s", want, comment)

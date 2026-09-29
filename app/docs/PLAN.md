@@ -1,16 +1,16 @@
 # Pre-change plans and scope drift
 
-`swiftproof plan` is the pre-change counterpart of `review`. The configured provider simulates, **without modifying or running anything**, how it would implement an intent in the repository at the base commit, and submits a structured plan. SwiftProof then evaluates that plan with fixed, deterministic rules and writes `PLAN.json` and `PLAN.md`.
+`probe plan` is the pre-change counterpart of `review`. The configured provider simulates, **without modifying or running anything**, how it would implement an intent in the repository at the base commit, and submits a structured plan. Probe then evaluates that plan with fixed, deterministic rules and writes `PLAN.json` and `PLAN.md`.
 
-The model produces a plan; it never judges risk. Whether a plan touches critical parts, needs architecture changes or risks regressions is decided by SwiftProof from what the plan names, measured at the base commit.
+The model produces a plan; it never judges risk. Whether a plan touches critical parts, needs architecture changes or risks regressions is decided by Probe from what the plan names, measured at the base commit.
 
-The plan then becomes a contract. `review --plan` (or `lint --plan`) compares the real diff with it, deterministically: files changed outside the plan, exported signatures changed without being announced, critical paths touched although the plan did not list them, and dependency manifests changed without being declared. This is what turns an agent's announcement into something checkable: the agent says what it will do, and SwiftProof checks that it did what it said.
+The plan then becomes a contract. `review --plan` (or `lint --plan`) compares the real diff with it, deterministically: files changed outside the plan, exported signatures changed without being announced, critical paths touched although the plan did not list them, and dependency manifests changed without being declared. This is what turns an agent's announcement into something checkable: the agent says what it will do, and Probe checks that it did what it said.
 
 ## Running a plan
 
 ```sh
-swiftproof plan --intent-file demande.md            # writes .swiftproof/PLAN.json and PLAN.md
-swiftproof plan --intent-file demande.md --base origin/main --ci
+probe plan --intent-file demande.md            # writes .probe/PLAN.json and PLAN.md
+probe plan --intent-file demande.md --base origin/main --ci
 ```
 
 | Flag | Meaning |
@@ -18,11 +18,11 @@ swiftproof plan --intent-file demande.md --base origin/main --ci
 | `--intent-file FILE` / `--intent TEXT` | The change to plan (required; at most 64 KiB, UTF-8, read like the review intent: PR-comment blocks removed, secrets redacted, criteria extracted). |
 | `--base REF` | The revision the plan starts from (default `main`). Its tip supplies the trusted policy, as for `review`. |
 | `--config FILE` | Explicit trusted local policy. |
-| `--out DIR` | Output directory, relative to the repository (default `.swiftproof`). |
+| `--out DIR` | Output directory, relative to the repository (default `.probe`). |
 | `--ci` | Exit 2 when a category is flagged or something was left unverified. |
 | `--max-iterations N` | Override the provider iteration budget. |
 
-A provider is **mandatory**: `reviewer.model` in the trusted policy or `SWIFTPROOF_REVIEWER_MODEL`, with the endpoint and credential resolved exactly as for `review` (see the main README). Without one, or with `--reviewer=false`, `plan` exits 3 and writes nothing.
+A provider is **mandatory**: `reviewer.model` in the trusted policy or `PROBE_REVIEWER_MODEL`, with the endpoint and credential resolved exactly as for `review` (see the main README). Without one, or with `--reviewer=false`, `plan` exits 3 and writes nothing.
 
 Exit codes: 0 (no category flagged, or no `--ci`), 2 (with `--ci`: a category is flagged or something is unverified), 3 (usage or configuration), 4 (operational: provider failure, or the model ended without an accepted plan).
 
@@ -63,18 +63,18 @@ Every rule reads the plan and the base commit only. Each raises a plan signal; a
 
 Callers and reaching tests come from the static index of the base commit (Go type-checked, TypeScript/JavaScript, Python and Rust lexical) with the bounds of [impact analysis](IMPACT.md): they are approximate, an empty list is not proof of absence, and a measure whose search stopped at a bound is marked incomplete (`+` in `PLAN.md`). Types, variables and constants are not indexed, so they are never measured. Thresholds are constants recorded in `assessment.thresholds`.
 
-`PLAN.json` (schema: [`schema/plan.schema.json`](../schema/plan.schema.json)) holds the redacted intent and its SHA-256, the base commit, the policy source, the planner model, the `proposal` (model-written, untrusted), the `assessment`, the `contract`, Unverified notes, the audit of the session and the exit code. `PLAN.md` renders the same content; the proposal is labelled "model-written, not evidence". `swiftproof plan` recomputes categories, the major flag and the exit code from the signals before writing.
+`PLAN.json` (schema: [`schema/plan.schema.json`](../schema/plan.schema.json)) holds the redacted intent and its SHA-256, the base commit, the policy source, the planner model, the `proposal` (model-written, untrusted), the `assessment`, the `contract`, Unverified notes, the audit of the session and the exit code. `PLAN.md` renders the same content; the proposal is labelled "model-written, not evidence". `probe plan` recomputes categories, the major flag and the exit code from the signals before writing.
 
 A plan that raises nothing is not proof that the change is safe, and a flagged plan is not a defect: it names what a human should look at before the work starts.
 
 ## Scope drift: `review --plan` and `lint --plan`
 
 ```sh
-swiftproof review --base origin/main --plan .swiftproof/PLAN.json --ci
-swiftproof lint   --base origin/main --plan .swiftproof/PLAN.json
+probe review --base origin/main --plan .probe/PLAN.json --ci
+probe lint   --base origin/main --plan .probe/PLAN.json
 ```
 
-`--plan` reads the `contract` of a PLAN.json (at most 4 MiB, format `swiftproof-plan` version 1, with a base commit and planned files; anything else exits 3 before Git analysis). The report gains a `plan_drift` section, and every difference that points into the diff is also added to the linter list as a file-level (`"scope": "file"`) `plan_drift` signal, located on the file's first changed line, so tools that render signals, such as the hub, show it without recomputing anything.
+`--plan` reads the `contract` of a PLAN.json (at most 4 MiB, format `probe-plan` version 1, with a base commit and planned files; anything else exits 3 before Git analysis). The report gains a `plan_drift` section, and every difference that points into the diff is also added to the linter list as a file-level (`"scope": "file"`) `plan_drift` signal, located on the file's first changed line, so tools that render signals, such as the hub, show it without recomputing anything.
 
 | Kind | Severity | When |
 | --- | --- | --- |
@@ -87,7 +87,7 @@ swiftproof lint   --base origin/main --plan .swiftproof/PLAN.json
 
 The status is `drifted` when an item is medium or higher, `conforming` otherwise. A drifted change, and a plan made against another base commit than the one the review compares from (`base_matches: false`, with an Unverified note), request human review: exit 2 with `--ci`, never exit 1.
 
-`report.Finalize` recomputes the items, the status, `base_matches` and the `plan_drift` signals from the recorded contract, critical globs, diff and `public_api_change` signals. `swiftproof report` therefore corrects a saved report whose section was edited or emptied. The section records `plan_sha256`, the SHA-256 of the PLAN.json file that was read, and the plan's `intent_sha256`: compare them with the plan that was approved, since the file itself lives in the working tree and could be regenerated.
+`report.Finalize` recomputes the items, the status, `base_matches` and the `plan_drift` signals from the recorded contract, critical globs, diff and `public_api_change` signals. `probe report` therefore corrects a saved report whose section was edited or emptied. The section records `plan_sha256`, the SHA-256 of the PLAN.json file that was read, and the plan's `intent_sha256`: compare them with the plan that was approved, since the file itself lives in the working tree and could be regenerated.
 
 Drift checks that the change stays within what was announced. It does not check that the change implements the intent, that the plan was a good one, or that planned files were changed correctly.
 
@@ -108,15 +108,15 @@ The gate is a **process** decision, not a verdict on correctness: it says the ch
 
 ### The process
 
-1. **Plan and check the intent**: `swiftproof plan --intent-file task.md --ci`. Exit 0: no category flagged. Exit 2: a human validates the plan (or the task is split or reworded) before any code is written.
+1. **Plan and check the intent**: `probe plan --intent-file task.md --ci`. Exit 0: no category flagged. Exit 2: a human validates the plan (or the task is split or reworded) before any code is written.
 2. **Implement the plan**: an agent codes the plan, and only the plan.
-3. **Check conformance**: `swiftproof review --base origin/main --plan .swiftproof/PLAN.json --ci` runs the checks and the gate.
+3. **Check conformance**: `probe review --base origin/main --plan .probe/PLAN.json --ci` runs the checks and the gate.
 4. **Merge or review**: exit 0 lets the pipeline merge without a human review; exit 2 requests a human review of the pull request, with the reasons in the report.
 
 See [CI integration](CI.md#merging-without-review-behind-the-plan-gate) for a workflow that applies the decision.
 
 ## Agent loop
 
-1. `swiftproof plan --intent-file task.md` before writing code; read `PLAN.md`, and raise a flagged category with a human when the task requires it.
+1. `probe plan --intent-file task.md` before writing code; read `PLAN.md`, and raise a flagged category with a human when the task requires it.
 2. Implement, commit.
-3. `swiftproof lint --plan .swiftproof/PLAN.json` (and `review --plan` before PR review); report every drift item in the handoff, and either explain it or update the plan and have it approved again.
+3. `probe lint --plan .probe/PLAN.json` (and `review --plan` before PR review); report every drift item in the handoff, and either explain it or update the plan and have it approved again.

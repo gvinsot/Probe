@@ -17,7 +17,7 @@ import (
 	"unicode/utf8"
 )
 
-// Image is what SwiftProof reads from `docker image inspect`.
+// Image is what Probe reads from `docker image inspect`.
 type Image struct {
 	ID, OS, Architecture string
 	Size                 int64
@@ -26,7 +26,7 @@ type Image struct {
 	Env                  []string
 }
 
-// Info is what SwiftProof reads from `docker info`.
+// Info is what Probe reads from `docker info`.
 type Info struct {
 	ServerVersion, OSType, Architecture string
 	NCPU                                int

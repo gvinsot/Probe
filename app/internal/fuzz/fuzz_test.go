@@ -10,9 +10,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gvinsot/SwiftProof/app/internal/config"
-	"github.com/gvinsot/SwiftProof/app/internal/harness"
-	"github.com/gvinsot/SwiftProof/app/internal/model"
+	"github.com/gvinsot/Probe/app/internal/config"
+	"github.com/gvinsot/Probe/app/internal/harness"
+	"github.com/gvinsot/Probe/app/internal/model"
 )
 
 // behavior says what one revision records for input i of a test: an
@@ -135,7 +135,7 @@ func behaviorByName(m map[string]behavior) behavior {
 func options() Options {
 	return Options{
 		Limits:           Limits{MaxFunctions: 8, MaxPackages: 4, MaxInputs: 8, CallTimeout: time.Second, MaxRuntime: 240 * time.Second},
-		ObservationsPath: "/tmp/swiftproof-observations.jsonl",
+		ObservationsPath: "/tmp/probe-observations.jsonl",
 		PayloadLimit:     harness.PayloadLimit(32 * 1024),
 		NewSuffix:        func() (string, error) { return "abcdef12", nil },
 	}
@@ -189,7 +189,7 @@ func TestRunConfirmsADivergenceOnce(t *testing.T) {
 	if e.Output != "Input: A(1)\nBaseline: int(1)\nCandidate: int(-1)\n1 of 4 compared inputs recorded different values on baseline and candidate; each revision repeated its own value in a second run." {
 		t.Fatalf("output %q", e.Output)
 	}
-	if e.Description != "Differential fuzzing of obs.A on 4 seeded inputs (swiftproof-fuzz/v1)" {
+	if e.Description != "Differential fuzzing of obs.A on 4 seeded inputs (probe-fuzz/v1)" {
 		t.Fatalf("description %q", e.Description)
 	}
 	if f.evidence[1].Status != model.StatusNotDiverged || f.evidence[1].Output != "4 of 4 inputs compared; baseline and candidate recorded equal encodings for each compared input." {
@@ -401,7 +401,7 @@ func TestRunRenderFailuresAndSuffixRetry(t *testing.T) {
 	good := obsPlan(target("B", 1, 2, scalar("int")))
 	good.Dir = "good"
 	good.Targets[0].Dir, good.Targets[0].Path = "good", "good/good.go"
-	good.Idents["swiftproofFuzz0123abcd_run"] = true
+	good.Idents["probeFuzz0123abcd_run"] = true
 	suffixes := []string{"0123abcd", "0123abcd", "89abcdef"}
 	o := options()
 	o.NewSuffix = func() (string, error) {

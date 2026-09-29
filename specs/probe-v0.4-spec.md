@@ -1,6 +1,6 @@
-# SwiftProof V0.4 — More deterministic evidence, less model dependence
+# Probe V0.4 — More deterministic evidence, less model dependence
 
-**Status:** consolidated specification of the CLI implemented on `main`, checked against commit `23a1d2e` on 2026-09-27. This describes source capabilities, not the feature set of every published binary. Release compatibility is covered in §7; Hub, website and deployment are covered in [swiftproof-hub-spec.md](swiftproof-hub-spec.md).
+**Status:** consolidated specification of the CLI implemented on `main`, checked against commit `23a1d2e` on 2026-09-27. This describes source capabilities, not the feature set of every published binary. Release compatibility is covered in §7; Hub, website and deployment are covered in [probe-hub-spec.md](probe-hub-spec.md).
 
 **Implementation:** portable Go CLI, standard library only.  
 **Outputs:** `CONFIDENCE_REPORT.md`, `confidence-report.json`, optionally `confidence-report.sarif` and `PR_COMMENT.md`, and retained experiment artifacts.
@@ -83,7 +83,7 @@ Budget rules:
 The commands are `init`, `lint`, `review`, `report` and `version` (also
 `--version`); `help`, `--help` and `-h` expose usage.
 
-- `init` writes a version-1 `.swiftproof.json` with argv arrays and defaults for
+- `init` writes a version-1 `.probe.json` with argv arrays and defaults for
   Go, TypeScript/JavaScript, Python or an unknown language; existing policy is
   not overwritten without `--force`. Defaults are starting points, not prepared
   dependency environments. It does not seed the optional F2/F4/F8 objects.
@@ -179,9 +179,9 @@ expected behavior. §3–5 define classification and exit effects.
 A nonempty reviewer model from trusted policy, explicit config or deployment
 activates investigation in `review`. Endpoint/key alone does not activate it;
 `--reviewer=false` disables calls, `--reviewer` requires a model, and lint or
-empty changes make no provider calls. `SWIFTPROOF_REVIEWER_ENDPOINT` and
-`SWIFTPROOF_REVIEWER_MODEL` override policy. The configured API-key variable
-(default `SWIFTPROOF_API_KEY`) takes precedence over its `_FILE` path and then
+empty changes make no provider calls. `PROBE_REVIEWER_ENDPOINT` and
+`PROBE_REVIEWER_MODEL` override policy. The configured API-key variable
+(default `PROBE_API_KEY`) takes precedence over its `_FILE` path and then
 `/run/secrets/<NAME>`. Secret resolution errors fail even when investigation is
 disabled; endpoint validation is required only for an active reviewer.
 
@@ -338,7 +338,7 @@ Reviewer-callable tools keep plain names: `find_callers` (F6), `create_intent_te
 
 ### 3.8 PR-comment markers
 
-The PR comment body sits between `<!-- swiftproof:pr-comment:begin v1 -->` and `<!-- swiftproof:pr-comment:end -->`. Intent parsing removes every such block from the intent text, with a recorded note (§F5).
+The PR comment body sits between `<!-- probe:pr-comment:begin v1 -->` and `<!-- probe:pr-comment:end -->`. Intent parsing removes every such block from the intent text, with a recorded note (§F5).
 
 ### 3.9 Retired names
 
@@ -383,13 +383,13 @@ Only these classes can become SARIF results or PR-comment findings (§F9). Rule 
 
 | Order | Class | Rule ID | Level |
 | --- | --- | --- | --- |
-| 1 | `reproduced` | `swiftproof/reproduced` | `error` if high/critical, else `warning` |
-| 2 | `base_test_fails_on_candidate` | `swiftproof/base-test-fails-on-candidate` | `warning` |
-| 3 | `impacted_test_fails_on_candidate` | `swiftproof/impacted-test-fails-on-candidate` | `warning` |
-| 4 | `fuzz_divergence` | `swiftproof/fuzz-divergence` | `warning` |
-| 5 | `observed_divergence` | `swiftproof/observed-divergence` | `warning` |
-| 6 | `intent_test_failed` | `swiftproof/intent-test-failed` | `note` |
-| 7 | `surviving_mutant` | `swiftproof/surviving-mutant` | `note` |
+| 1 | `reproduced` | `probe/reproduced` | `error` if high/critical, else `warning` |
+| 2 | `base_test_fails_on_candidate` | `probe/base-test-fails-on-candidate` | `warning` |
+| 3 | `impacted_test_fails_on_candidate` | `probe/impacted-test-fails-on-candidate` | `warning` |
+| 4 | `fuzz_divergence` | `probe/fuzz-divergence` | `warning` |
+| 5 | `observed_divergence` | `probe/observed-divergence` | `warning` |
+| 6 | `intent_test_failed` | `probe/intent-test-failed` | `note` |
+| 7 | `surviving_mutant` | `probe/surviving-mutant` | `note` |
 
 ## 5. Exit codes
 
@@ -531,14 +531,14 @@ An execution-only flag (`--base-tests`, `--fuzz`, `--impacted-tests`, `--cache-d
 
 Mandatory, and repeated in the CI documentation and the v0.4.0 release notes:
 
-1. Any of `fuzz`, `mutation` or `prepare` makes a binary built from v0.3.4 or earlier exit 3. Do not add them to the repository's own `.swiftproof.json`, to `app/examples/swiftproof.go.json`, or to any base-branch policy until a release that accepts them is published and the workflows are re-pinned (URL and sha256).
+1. Any of `fuzz`, `mutation` or `prepare` makes a binary built from v0.3.4 or earlier exit 3. Do not add them to the repository's own `.probe.json`, to `app/examples/probe.go.json`, or to any base-branch policy until a release that accepts them is published and the workflows are re-pinned (URL and sha256).
 2. The new CLI flags (§6.5) make those older binaries exit 3 at flag parsing. Do not add them to `review.yml` or `pr-review.yml` before re-pinning.
 
 The deployment pipeline tagged `main` as v0.3.5 and later v0.3 versions during the v0.4 integration. Binaries built from those tags accept the new keys and flags without implementing all of v0.4 (v0.3.5 to v0.3.9: the foundation, whose stages record `not_run`; v0.3.10 and later: the stages without all the integration fixes). They MUST NOT be presented or pinned as v0.4 releases; the rules above apply to v0.4.0 and later.
-3. An older binary's `swiftproof report` silently drops the new report fields, because it decodes with plain `json.Unmarshal`. Render with the producing binary.
+3. An older binary's `probe report` silently drops the new report fields, because it decodes with plain `json.Unmarshal`. Render with the producing binary.
 4. Consumers validating against the old schema reject new reports. Publish the schema with the release.
 
-The new policy keys are optional top-level objects. `swiftproof init` never writes them, `null` means absent, unknown nested fields and duplicate keys fail, and every validation error exits 3 with an English message. The command-name whitelist is unchanged. F1, F3, F5, F6, F7 and F9 add no policy key.
+The new policy keys are optional top-level objects. `probe init` never writes them, `null` means absent, unknown nested fields and duplicate keys fail, and every validation error exits 3 with an English message. The command-name whitelist is unchanged. F1, F3, F5, F6, F7 and F9 add no policy key.
 
 ## 8. Non-claims
 
@@ -566,7 +566,7 @@ These wording rules are binding for every output and document. A status or recor
 | Cache hit / replay-backed conclusion | A fresh execution, re-verification or re-test. More reliable. An authenticated record: the integrity hash is not authenticity. It captures kernel or runtime internals beyond the recorded identity. A speed-up without a measurement. |
 | Parallel checks | Any change in semantics or budget. |
 | Prepared image | Safe, unmodified, license-clean or vulnerability-free dependencies. A reproducible image (equal key means equal inputs, not equal content). Candidate dependencies installed or tested. Labels as an attestation. Network available to checks. |
-| SARIF / PR comment | An approval, "LGTM", "no issues", "safe to merge", or confidence, precision, security-severity or any percentage. An empty export is not approval ("No finding is not approval"). GitHub's "fixed" alert state is not a SwiftProof claim. Re-rendered exports are not authenticated, and exports from fork runs may be forged. |
+| SARIF / PR comment | An approval, "LGTM", "no issues", "safe to merge", or confidence, precision, security-severity or any percentage. An empty export is not approval ("No finding is not approval"). GitHub's "fixed" alert state is not a Probe claim. Re-rendered exports are not authenticated, and exports from fork runs may be forged. |
 | Any v0.4 record | "Executed" as "tested". Any path to exit 1 other than a reproduced high/critical hypothesis. Deleting a signal, lowering a severity or supporting a dismissal. The new evidence only ever adds review requests. |
 
 Documentation rule: about v0.4 statuses, never write "tested", "verified", "safe", "correct", "approved", "regression", "bug", "masked", "contradicts", "complete" (about coverage, callers or mutation) or "score", and never use "%", except inside the explicit negations above. Examples of report output come from real runs.
@@ -593,7 +593,7 @@ The implementation must meet the core criteria below and the acceptance bullets 
 - The check sandbox profile is unchanged; only the prepare container differs, as R2 allows.
 - Reports validate against the published schema, and the schema reflects every model field.
 - Outputs and documentation follow §8.
-- A combined end-to-end review using every part (a policy with `fuzz`, `mutation` and `prepare`, `--base-tests`, `--impacted-tests`, an intent, a scripted provider, every format, `--cache-dir`, `--parallel 2` and `--deadline`) exits 2 (never 1 unless a reproduced high/critical hypothesis is scripted), renders the sections in §6.2 order, re-renders identically, leaves the checkout clean and leaves no `swiftproof-` container behind.
+- A combined end-to-end review using every part (a policy with `fuzz`, `mutation` and `prepare`, `--base-tests`, `--impacted-tests`, an intent, a scripted provider, every format, `--cache-dir`, `--parallel 2` and `--deadline`) exits 2 (never 1 unless a reproduced high/critical hypothesis is scripted), renders the sections in §6.2 order, re-renders identically, leaves the checkout clean and leaves no `probe-` container behind.
 
 Product validation remains open: whether these parts save review time or catch important changes must be measured on representative pull requests.
 
@@ -606,7 +606,7 @@ The following capabilities are implemented in the bounded forms described here:
 - property-style testing, in the narrow form of deterministic differential fuzzing of changed Go functions and exported TS/JS functions of basic types (§F2);
 - differential existing suites: Go only, as baseline versions of changed tests (§F3) and, opt-in, impacted existing tests (§F6);
 - commit-, policy- and image-keyed caching: baseline-side runs only, opt-in, local (§F7);
-- SARIF: evidence-only files, never uploaded by SwiftProof (§F9).
+- SARIF: evidence-only files, never uploaded by Probe (§F9).
 
 These remain future extensions, not current capabilities:
 
@@ -620,13 +620,13 @@ These remain future extensions, not current capabilities:
 
 ## F1. Observation oracle
 
-A generated test may record values instead of asserting them: Go through `testing.T.Attr` (Go 1.25 or later in the image), Vitest through `task.meta.swiftproof`; Jest is not supported. When the test passes on both revisions and a recorded key differs, the harness runs exactly one live baseline repeat. Evidence kind `differential_observation`, hypothesis status `DIVERGED`. There is no policy key and no flag.
+A generated test may record values instead of asserting them: Go through `testing.T.Attr` (Go 1.25 or later in the image), Vitest through `task.meta.probe`; Jest is not supported. When the test passes on both revisions and a recorded key differs, the harness runs exactly one live baseline repeat. Evidence kind `differential_observation`, hypothesis status `DIVERGED`. There is no policy key and no flag.
 
 <!-- F1:begin -->
 ### F1.1 Channels
 
-- Go observations MUST be read only from `go test -json` events with `Action` `attr`, whose `Test` is exactly one of the generated top-level test names and whose `Key` starts with `swiftproof.`; the recorded key is what follows the prefix. Subtest events, other tests, keys without the prefix and ordinary output events MUST be ignored. A framed line too long for the runner to convert (an output event starting with the framing byte, `=== ATTR  `, the test name and the prefix) MUST make its key unreadable. An attr line that no longer parses (for example after redaction) or has no key MUST make the whole run's observations a channel error.
-- Vitest observations MUST be read only from `assertionResults[].meta.swiftproof` of the report entry for exactly the generated file, for top-level assertions whose title is a generated test name. Jest reports carry no per-test metadata; a Jest template MUST NOT be treated as recording observations.
+- Go observations MUST be read only from `go test -json` events with `Action` `attr`, whose `Test` is exactly one of the generated top-level test names and whose `Key` starts with `probe.`; the recorded key is what follows the prefix. Subtest events, other tests, keys without the prefix and ordinary output events MUST be ignored. A framed line too long for the runner to convert (an output event starting with the framing byte, `=== ATTR  `, the test name and the prefix) MUST make its key unreadable. An attr line that no longer parses (for example after redaction) or has no key MUST make the whole run's observations a channel error.
+- Vitest observations MUST be read only from `assertionResults[].meta.probe` of the report entry for exactly the generated file, for top-level assertions whose title is a generated test name. Jest reports carry no per-test metadata; a Jest template MUST NOT be treated as recording observations.
 - The normalized Vitest meta MUST be a JSON object of at most 32 keys with redacted keys and values, each value kept as canonical JSON text with its type (sorted object keys, numbers as written, strings quoted, so that `4` and `"4"` differ), and its encoding MUST be a `Redact` fixed point; anything else MUST be replaced by a fixed marker that retains no recorded text. A value whose canonical text exceeds 1024 bytes, and a key longer than 200 bytes, MUST be kept only as a fixed stand-in carrying its length and the sha256 of its redacted text, which is never compared. Meta decoding MUST NOT make a runner report unreadable, and observations MUST NOT turn an otherwise readable report into one that redaction would alter or that exceeds the per-run payload limit or its side's remaining results budget (all metas of that report are then replaced by a marker).
 - F1 MUST NOT add a policy key, flag, tool, container channel, mount or environment variable.
 
@@ -653,7 +653,7 @@ A generated test may record values instead of asserting them: Go through `testin
 - An equivalent rewrite gives `NOT_DIVERGED`, two checks, and an accepted `NOT_REPRODUCED` claim.
 - A key whose baseline value changes between runs is `UNSTABLE`; when no other key diverges, the record is `UNVERIFIED` and a `DIVERGED` claim is downgraded, and the both-pass `NOT_REPRODUCED` of the same test is withdrawn.
 - A `DIVERGED` claim citing the `differential_test` is `UNVERIFIED`, while the divergence stays listed uncited.
-- A Vitest run diverges through `task.meta.swiftproof`; a Jest template records an `UNVERIFIED` observation.
+- A Vitest run diverges through `task.meta.probe`; a Jest template records an `UNVERIFIED` observation.
 - Plain `=== ATTR` output from code under test adds no key; a forged framed line makes its key `INCOMPARABLE`, never `NOT_DIVERGED`.
 - A candidate value too long for the Go test runner to convert, and values made equal by redaction, withdraw the both-pass `NOT_REPRODUCED` of the same test. A large Vitest value never turns a readable `PASS` or `FAIL` generated-test check into `ERROR`. An ordinary generated test that records no observation keeps its single `differential_test` record, also when a run produced no report.
 - Stripping or altering the repeat, the checks, the evidence, the stored status or the recorded values, or marking the repeat replayed, makes a `DIVERGED` claim `UNVERIFIED` with no divergence; secret-shaped values are `INCOMPARABLE`, never `DIVERGED`, and divergence rows survive `Write` → decode → `Finalize` byte for byte.
@@ -661,7 +661,7 @@ A generated test may record values instead of asserting them: Go through `testin
 
 ## F2. Deterministic differential fuzzing
 
-Opt-in through the `fuzz` policy object, review only; `--fuzz=false` disables it for a run. Changed package-level Go functions, and changed exported TS/JS functions (§F2.8), whose signature is unchanged and whose parameters can be generated run on identical seeded inputs (seed scheme `swiftproof-fuzz/v1`) on both revisions, with one confirmation pair when the first pair differs. No model is involved. TS/JS support follows §1.2 decision 2 and §F2.8. Evidence kind `differential_fuzz`; check kinds `fuzz_base`, `fuzz_candidate`, `fuzz_base_confirm` and `fuzz_candidate_confirm`.
+Opt-in through the `fuzz` policy object, review only; `--fuzz=false` disables it for a run. Changed package-level Go functions, and changed exported TS/JS functions (§F2.8), whose signature is unchanged and whose parameters can be generated run on identical seeded inputs (seed scheme `probe-fuzz/v1`) on both revisions, with one confirmation pair when the first pair differs. No model is involved. TS/JS support follows §1.2 decision 2 and §F2.8. Evidence kind `differential_fuzz`; check kinds `fuzz_base`, `fuzz_candidate`, `fuzz_base_confirm` and `fuzz_candidate_confirm`.
 
 <!-- F2:begin -->
 ### F2.1 Selection (Go)
@@ -694,15 +694,15 @@ File-level reasons (line 0): sensitive path excluded from the sandbox; file move
 
 ### F2.2 Seeded corpus
 
-- The seed of a function MUST be the first eight bytes, big-endian, of SHA-256 over `swiftproof-fuzz/v1`, NUL, the package directory, NUL, the function name, NUL and the signature text. It MUST NOT depend on commits, file paths, run identifiers or time, so the inputs stay the same across updates of a pull request.
-- The generator is SplitMix64, implemented by SwiftProof rather than taken from `math/rand`, so the corpus does not change with the Go version. Any change to the corpus MUST come with a new seed scheme.
+- The seed of a function MUST be the first eight bytes, big-endian, of SHA-256 over `probe-fuzz/v1`, NUL, the package directory, NUL, the function name, NUL and the signature text. It MUST NOT depend on commits, file paths, run identifiers or time, so the inputs stay the same across updates of a pull request.
+- The generator is SplitMix64, implemented by Probe rather than taken from `math/rand`, so the corpus does not change with the Go version. Any change to the corpus MUST come with a new seed scheme.
 - Order: first, every parameter at its first edge value. Then each parameter runs through its other edge values while the others stay at their first. Then seeded random inputs follow: each value is an edge value or a random value with equal probability; strings have at most 64 bytes, from a biased alphabet with occasional multibyte characters, control characters and invalid UTF-8; slices have 0 to 8 elements and are nil one time in ten.
 - Edge values: for integers, 0, 1, -1, 2, -2, 7, 10, 100, -100, 255, 256, 1000, 65535, the 32-bit bounds, and each kind's minimum, maximum and their neighbours; for runes also letters, a multibyte rune, U+10FFFF, a surrogate and 0x110000; for floats also 0.5, 0.1, 1e-9, 1e6, the largest and smallest magnitudes, both infinities, NaN and negative zero; for strings the empty string, spaces, separators, a newline, a tab, NUL, multibyte text, a right-to-left override, an invalid byte, `../` and 64 bytes; for slices nil, empty, one element, two elements in both orders, a repeated element, and four elements ascending and descending; for arrays the zero value and the first edge values in both orders.
 - Inputs are deduplicated by their call text, for example `Discount(Cents(1000))`. An input whose call text redaction would alter, as it is or in its JSON-escaped form, is dropped, so every call is a stable observation key that redaction leaves unchanged. This applies to the one call of a function without parameters too. A function none of whose inputs remains (typically because its name or a named parameter type looks like a credential) is skipped at selection.
 
 ### F2.3 Observation harness
 
-- One internal `_test.go` file per package, `<dir>/swiftproof_fuzz_<suffix>_test.go`, is rendered on the host. `<suffix>` is 16 hexadecimal digits drawn at random for each run. Every import name, package-level identifier and test-function local of the file starts with `swiftproofFuzz<suffix>`, and the tests are named `TestSwiftProofFuzz_<suffix>_<n>`, so code under review cannot declare a colliding identifier in advance. Rendering MUST refuse an identifier that the package declares on either revision, and then draws a new suffix.
+- One internal `_test.go` file per package, `<dir>/probe_fuzz_<suffix>_test.go`, is rendered on the host. `<suffix>` is 16 hexadecimal digits drawn at random for each run. Every import name, package-level identifier and test-function local of the file starts with `probeFuzz<suffix>`, and the tests are named `TestProbeFuzz_<suffix>_<n>`, so code under review cannot declare a colliding identifier in advance. Rendering MUST refuse an identifier that the package declares on either revision, and then draws a new suffix.
 - The only repository-derived text in the file is the package name, the function names and the named parameter types, each re-checked as an identifier the package declares. Literals are produced by `strconv`. The file MUST NOT use `fmt`, and MUST compile with the language features of Go 1.13.
 - The harness MUST NOT assert anything. Its tests pass unless the observation file cannot be written.
 - For every input, each function is evaluated twice with fresh arguments, each evaluation in its own goroutine and bounded by `call_timeout_ms`. The canonical encoding of an evaluation records the results, a recovered panic as `panic(...)`, and each slice argument after the call. Results carry a type prefix; numbers use `strconv` forms that keep NaN, the infinities and negative zero apart; nil stays distinct from empty; maps are sorted by encoded key; struct fields are read in order through reflection, unexported ones included; pointers are followed with a cycle marker and never printed as addresses; and errors are encoded as their messages. The encoding is bounded to 64 KiB, depth 16 and 1,024 elements per container, and a record says when a bound was reached.
@@ -711,7 +711,7 @@ File-level reasons (line 0): sensitive path excluded from the sandbox; file move
 
 ### F2.4 Observation stream
 
-- The harness appends one JSON line per record to `/tmp/swiftproof-observations.jsonl`, which returns on the framed payload channel (R4). A `begin` record carries the planned count. One `obs` record per input carries its index, the SHA-256 and byte length of the full encoding, a display cut of at most 256 bytes of valid UTF-8 (smaller when the payload budget requires it), and three flags: panicked, unstable (the two evaluations differed) and truncated. A `stop` record carries its reason. An `end` record repeats the count.
+- The harness appends one JSON line per record to `/tmp/probe-observations.jsonl`, which returns on the framed payload channel (R4). A `begin` record carries the planned count. One `obs` record per input carries its index, the SHA-256 and byte length of the full encoding, a display cut of at most 256 bytes of valid UTF-8 (smaller when the payload budget requires it), and three flags: panicked, unstable (the two evaluations differed) and truncated. A `stop` record carries its reason. An `end` record repeats the count.
 - Validation MUST be all-or-nothing. Every line MUST be the byte-exact canonical form of one record. Functions MUST appear in harness order, each opening with a `begin` of its planned count. Indices MUST be consecutive from 0, and nothing may follow a function's `end` or `stop`. After a `timeout`, later functions may only record `poisoned`. Any violation rejects the whole stream.
 - The normalized stream stored in `Check.Results` gives, per function, its state: `complete`, `stopped`, `interrupted` (the records end without an `end` or `stop`, so the process ended) or `not_started`. It also gives the stop reason and the input being evaluated when the function ended. Per record, it gives the host-rendered call, the hash, the length, the redacted display and the flags. It MUST be canonical JSON with every object member and array element on its own line (Go's `json.MarshalIndent` with an empty prefix and indent), and unchanged by redaction; otherwise it is rejected. The line layout keeps a redaction rule from matching across fields: in compact JSON, a display ending in `http://host` and a later record holding `@` formed one match and rejected a stream of harmless values. A display that redaction would still alter in its JSON-escaped form is replaced by `[REDACTED]` as a whole. Redaction changes displays only: comparisons use the hashes computed in the sandbox.
 - A rejected stream makes every function of its package inconclusive for that run. A rejected candidate-side stream never makes a check ERROR; a baseline-side run that passed with a rejected stream is ERROR (§F2.6).
@@ -794,8 +794,8 @@ Changed exported TypeScript and JavaScript functions run on the same seed scheme
 
 **Harness.**
 
-- One test file per module, `<dir>/swiftproof-fuzz-<suffix>.test.ts` (`.test.js` for a JavaScript module), next to the module, with `<suffix>` drawn at random for each run. Its tests MUST be top-level `test(...)` calls at column 0 with the static titles `TestSwiftProofFuzz_<suffix>_<n>`, one per function, in plan order, so that the file satisfies the rules of generated JavaScript/TypeScript tests. With Vitest it imports `test` from `vitest`; with Jest it uses the global. Its first line MUST be `// @ts-nocheck`.
-- The only repository-derived text in the file MUST be the import specifier (`./<name>` without the extension for `.ts`, `.tsx`, `.js` and `.jsx`, `./<file name>` for `.mjs` and `.mts`) and the exported names, each re-checked; the functions are imported under aliases that carry the per-run prefix. Every literal MUST be rendered by SwiftProof.
+- One test file per module, `<dir>/probe-fuzz-<suffix>.test.ts` (`.test.js` for a JavaScript module), next to the module, with `<suffix>` drawn at random for each run. Its tests MUST be top-level `test(...)` calls at column 0 with the static titles `TestProbeFuzz_<suffix>_<n>`, one per function, in plan order, so that the file satisfies the rules of generated JavaScript/TypeScript tests. With Vitest it imports `test` from `vitest`; with Jest it uses the global. Its first line MUST be `// @ts-nocheck`.
+- The only repository-derived text in the file MUST be the import specifier (`./<name>` without the extension for `.ts`, `.tsx`, `.js` and `.jsx`, `./<file name>` for `.mjs` and `.mts`) and the exported names, each re-checked; the functions are imported under aliases that carry the per-run prefix. Every literal MUST be rendered by Probe.
 - The harness MUST NOT assert anything. For every input it evaluates the function twice with fresh arguments. The call MUST run inside `node:vm` with `call_timeout_ms`, which interrupts synchronous code; a returned native promise is awaited for the rest of that time. The encoding records the result as `resolved(...)`, `rejected(...)` or, for a synchronous exception, `throw(...)`, and each array argument after the call (not a rest parameter, which is a fresh array inside the function). Numbers keep NaN, the infinities and negative zero apart; strings are quoted in printable ASCII; `undefined` and `null` stay apart; objects carry their constructor name and their own enumerable keys in sorted order, and getters MUST NOT be called; `Map` and `Set` entries are sorted by encoding; errors are encoded as name and message, never with a stack; cycles are marked; proxies are not inspected. The encoding is bounded as in §F2.3.
 - A timeout ends the function with a `timeout` stop and poisons the process; a failure of the harness itself ends it with an `abort` stop. There is no `goexit` stop.
 - Each test writes, before its function's records, a **head** record `{"f":<n>,"k":"head","s":"<suffix>","w":"<test name>"}`, and after its end or stop record a **done** record `{"f":<n>,"k":"done","w":"<test name>","n":<observations written>}`. The per-test framework timeout is two evaluations of every input at `call_timeout_ms`, plus 60 s.
@@ -898,7 +898,7 @@ Outcomes:
 
 ### F4.2 Acceptance
 
-- On a fixture adding `Discount(total int) (int, error)` whose test asserts only `Discount(200) == 190` and an error for `Discount(-5)`, with `max_mutants: 10`: exit 0 with `--ci`; `mutation.status` `ran`; 8 generated and selected; the two `negate_condition`, the `drop_error` and the `swap_arithmetic` mutants `KILLED`; the two `boundary` and the two `increment_constant` mutants `SURVIVED`, each with a patch artifact whose hash matches and a medium signal that reaches the review targets; the Windows-only file skipped; one control and eight mutant checks in the mutation ledger, all with `./price`; `checks` holding only the initial checks; a clean checkout and no remaining container. A second run gives identical mutant IDs, operators, statuses and patches, and `swiftproof report` re-renders byte-identically.
+- On a fixture adding `Discount(total int) (int, error)` whose test asserts only `Discount(200) == 190` and an error for `Discount(-5)`, with `max_mutants: 10`: exit 0 with `--ci`; `mutation.status` `ran`; 8 generated and selected; the two `negate_condition`, the `drop_error` and the `swap_arithmetic` mutants `KILLED`; the two `boundary` and the two `increment_constant` mutants `SURVIVED`, each with a patch artifact whose hash matches and a medium signal that reaches the review targets; the Windows-only file skipped; one control and eight mutant checks in the mutation ledger, all with `./price`; `checks` holding only the initial checks; a clean checkout and no remaining container. A second run gives identical mutant IDs, operators, statuses and patches, and `probe report` re-renders byte-identically.
 - `max_mutants: 3` selects the first operator of each of the first three mutated lines, and the section is `incomplete` with exit 2 under `--ci`.
 - A `-run` flag in the command exits 3; a binary before v0.4.0 exits 3 on the policy; an absent sandbox image gives `not_run`, exit 4 and no survivor; `--checks=false` gives `not_run` and exit 2 under `--ci`; `lint` writes no `mutation` object.
 - Tampering with a saved report (colliding or duplicated check IDs, a patch hash mismatch, a cut log, a forged `tests_run`, a claimed `SURVIVED` for a killed mutant, a mutant citing another mutant's check or patch, a run whose command is not the section's command) makes the mutant `INCONCLUSIVE` and the section `incomplete` on re-render.
@@ -913,14 +913,14 @@ Acceptance criteria are parsed from `--intent` / `--intent-file` (criteria gramm
 ### F5.1 Intent input and criteria
 
 - The intent (`--intent` or `--intent-file`, at most 64 KiB) MUST be valid UTF-8 without NUL; otherwise the command MUST exit 3 ("intent: intent must be UTF-8 text without NUL bytes") before Git analysis, any container and any provider call.
-- Every block from `<!-- swiftproof:pr-comment:begin v1 -->` to `<!-- swiftproof:pr-comment:end -->` MUST be removed before parsing, an unterminated begin marker removing the rest and a stray end marker being removed, with the Unverified note "SwiftProof PR-comment output was removed from the intent text." The removal MUST repeat until neither marker occurs (at most 8 passes, after which the text is cut at the first remaining marker). The stripped text MUST then be redacted as report sanitizing redacts strings; `intent` MUST be that text, `intent_sha256` its SHA-256, and the criteria MUST be extracted from it, so that the hash never covers text that redaction hides from the report.
+- Every block from `<!-- probe:pr-comment:begin v1 -->` to `<!-- probe:pr-comment:end -->` MUST be removed before parsing, an unterminated begin marker removing the rest and a stray end marker being removed, with the Unverified note "Probe PR-comment output was removed from the intent text." The removal MUST repeat until neither marker occurs (at most 8 passes, after which the text is cut at the first remaining marker). The stripped text MUST then be redacted as report sanitizing redacts strings; `intent` MUST be that text, `intent_sha256` its SHA-256, and the criteria MUST be extracted from it, so that the hash never covers text that redaction hides from the report.
 - Criteria grammar v1: criteria MUST be Markdown list items (`-`, `*`, `+`, `N.`, `N)`), with a leading task checkbox removed and indented continuation lines joined with one space; when any ATX heading contains "acceptance criteria" or "acceptance criterion" (case-insensitive), only items inside such sections count (a matching heading of level L opens a section that the next heading of level L or higher closes); fenced code blocks and thematic breaks MUST be ignored. IDs MUST be positional (`AC-1` … `AC-100`); items beyond 100 and items longer than 1024 bytes MUST NOT be numbered and MUST add a fixed Unverified note with their count.
 - Extraction MUST be host-side, deterministic and executed by `lint` too, with no execution and no provider call. Outputs MUST NOT present extraction as understanding of the intent, or the absence of criteria as the absence of requirements.
 
 ### F5.2 Intent tests
 
 - `create_intent_test` and `run_intent_test` MUST be offered only when the run has criteria; without criteria the provider-facing tools, hypothesis schema and prompt MUST be unchanged. `criterion_id` MUST be refused on every other tool.
-- `create_intent_test` MUST apply every `create_test` rule, MUST refuse a criterion ID that does not occur exactly once, MUST refuse a test for which the trusted `generated_test` template has no named-test runner SwiftProof can check (`go_test_json` or `jest_json`), and MUST limit intent tests to half of `reviewer.max_generated_tests`, rounded up, inside the shared budget. A refused call MUST create nothing.
+- `create_intent_test` MUST apply every `create_test` rule, MUST refuse a criterion ID that does not occur exactly once, MUST refuse a test for which the trusted `generated_test` template has no named-test runner Probe can check (`go_test_json` or `jest_json`), and MUST limit intent tests to half of `reviewer.max_generated_tests`, rounded up, inside the shared budget. A refused call MUST create nothing.
 - `run_intent_test` MUST stage the test in the candidate snapshot only, run it once as a check of kind `generated_test_intent`, remove it, and record exactly one `intent_test` record with `check_id`, `criterion_id`, `runner`, `path` and `test_names`, and no `base_check_id`. It MUST NOT run anything on the base snapshot.
 - The record MUST be `INTENT_TEST_FAILED` only when the validated named execution failed with exit 1..124, untruncated, on an assertion of the test's own file (Go: a `<file>:<line>: <message>` output line of the named test or its subtests from the test's own file with a non-empty message, and no `panic:` output in the run; Jest-compatible: a failed named top-level test with a non-empty failure message, an empty file-level message, and every non-empty failure message of a failed named test starting, color codes removed, with `AssertionError:`, `AssertionError [`, `Error: expect(` or `Error: expect.`), and `referenced_symbols` holds 1 to 32 identifiers of which at least one occurs as a whole word on a redacted added line of a changed, non-deleted, non-test file whose path is neither secret-bearing nor altered by redaction. It MUST be `INTENT_TEST_PASSED` for a validated pass with exit 0, untruncated, whose `referenced_symbols` is not empty, and `UNVERIFIED` otherwise, with a fixed reason; an empty intersection MUST record "the intent test references no symbol the change added or modified" whether the test failed or passed. (`report.Finalize` re-derives it with the same rule.)
 - `referenced_symbols` MUST be computed by the harness: Go test identifiers and selector names (`go/ast`) intersected with the top-level declarations that contain an added line of a changed non-test Go file; JavaScript/TypeScript lexical identifiers intersected with lexically found changed top-level declarations, labelled lexical. Test files for these rules MUST include `_test.go`, JavaScript/TypeScript `<name>.test.<ext>` and `<name>.spec.<ext>` for `.js`, `.jsx`, `.mjs`, `.cjs`, `.ts`, `.tsx`, `.mts` and `.cts`, and JavaScript/TypeScript files under `__tests__`. The changed declarations and the words of the added lines MUST be computed at most once per run, so that the host-side cost stays linear in the size of the diff whatever the number of intent tests and symbols, and that work MUST stop when the run's context ends, without recording symbols.
@@ -987,7 +987,7 @@ Rules:
 
 Acceptance:
 
-- On the shop fixture with an unchanged `price/price_test.go` holding `TestTotal` and `TestTotalZero`, `review --impacted-tests --reviewer=false --ci` exits 2 (never 1) with no reproduced issue: `impacted_test_base` and `impacted_test_candidate` checks; `TestTotal` and `TestCheckout` `FAILS_ON_CANDIDATE` with high targets at their declarations; `TestTotalZero`, its passing sibling in the same package, `PASSES_ON_CANDIDATE` from a run pair of its own; no ERROR check and no new signal kind. The re-render is identical, the checkout clean, and no `swiftproof-` container remains.
+- On the shop fixture with an unchanged `price/price_test.go` holding `TestTotal` and `TestTotalZero`, `review --impacted-tests --reviewer=false --ci` exits 2 (never 1) with no reproduced issue: `impacted_test_base` and `impacted_test_candidate` checks; `TestTotal` and `TestCheckout` `FAILS_ON_CANDIDATE` with high targets at their declarations; `TestTotalZero`, its passing sibling in the same package, `PASSES_ON_CANDIDATE` from a run pair of its own; no ERROR check and no new signal kind. The re-render is identical, the checkout clean, and no `probe-` container remains.
 - The same fixture with a test that fails on the baseline too gives that test no evidence and a reason, narrows the baseline run to the other tests, and exits 2.
 - A forged pass after a real failure, a truncated or timed-out candidate run, a skipped test and a candidate compile failure (FAIL, not ERROR) give `UNVERIFIED`; a replayed baseline is confirmed live before `FAILS_ON_CANDIDATE`; a stored status that the checks do not support is `UNVERIFIED` after re-rendering.
 - 30 reaching tests in 6 packages run 16 tests from 4 packages, and the others carry the limit reason and request review; modified, missing, excluded and unparsable test files and undeclared names run nothing. A candidate run that did not start gives its tests a reason and no evidence record.
@@ -1002,11 +1002,11 @@ The baseline execution cache is opt-in with an explicit `--cache-dir` and replay
 
 **Rules.**
 
-- SwiftProof MUST use an execution cache only when `--cache-dir DIR` is passed to `review`. There is no default directory and no `--no-cache` flag.
-- Before dependency preparation and before any container starts, SwiftProof MUST exit 3 when DIR, after the links of its nearest existing ancestor are resolved (symlinks, and on Windows junctions and other reparse points that name another directory; the repository root and the report directory are resolved the same way), is the repository root or the report directory, is inside either, or contains either; when DIR is a symlink, a junction or another reparse point, or not a directory; when a reparse point on its path cannot be resolved; and, on Unix, when DIR is not owned by the effective user or grants any group or other permission. Existing directories MUST also be compared by file identity, so that another spelling of the same directory does not pass. A missing DIR MUST be created with mode 0700. Windows ownership and ACLs are not checked, and the documentation MUST say so.
+- Probe MUST use an execution cache only when `--cache-dir DIR` is passed to `review`. There is no default directory and no `--no-cache` flag.
+- Before dependency preparation and before any container starts, Probe MUST exit 3 when DIR, after the links of its nearest existing ancestor are resolved (symlinks, and on Windows junctions and other reparse points that name another directory; the repository root and the report directory are resolved the same way), is the repository root or the report directory, is inside either, or contains either; when DIR is a symlink, a junction or another reparse point, or not a directory; when a reparse point on its path cannot be resolved; and, on Unix, when DIR is not owned by the effective user or grants any group or other permission. Existing directories MUST also be compared by file identity, so that another spelling of the same directory does not pass. A missing DIR MUST be created with mode 0700. Windows ownership and ACLs are not checked, and the documentation MUST say so.
 - A run MUST be eligible only when a cache is enabled, the sandbox image was resolved to a local image ID, the check kind ends in `_base`, the run uses the baseline snapshot, sandbox networking is off, and every pristine file and directory of the baseline snapshot is unchanged. Entries a stage added under the snapshot MUST be hashed into the key. Every other run MUST NOT read or write the cache.
-- The key MUST be the SHA-256 of a canonical preimage (schema `swiftproof-execcache/v1`) that holds hashes and identifiers only: tool version and executable digest, kind, base commit, the pristine-manifest digest and the added entries, the digest of the trusted policy's execution settings, the image ID, the Docker server identity, the digest of the complete docker argument vector built with fixed placeholders, the argv digest, the capture path, the per-run timeout before budget clamping, and the output limit.
-- With a cache, SwiftProof MUST resolve the image once (`docker image inspect` and `docker info`, no pull) and MUST execute every run of the review on that image ID. The probe MUST end at the review's deadline or cancellation. A resolution failure, sandbox networking or an unusable store MUST disable the cache with a recorded reason and MUST NOT change execution or the exit code.
+- The key MUST be the SHA-256 of a canonical preimage (schema `probe-execcache/v1`) that holds hashes and identifiers only: tool version and executable digest, kind, base commit, the pristine-manifest digest and the added entries, the digest of the trusted policy's execution settings, the image ID, the Docker server identity, the digest of the complete docker argument vector built with fixed placeholders, the argv digest, the capture path, the per-run timeout before budget clamping, and the output limit.
+- With a cache, Probe MUST resolve the image once (`docker image inspect` and `docker info`, no pull) and MUST execute every run of the review on that image ID. The probe MUST end at the review's deadline or cancellation. A resolution failure, sandbox networking or an unusable store MUST disable the cache with a recorded reason and MUST NOT change execution or the exit code.
 - Only a live result with status PASS or FAIL, exit code 0 to 124, no timeout, no executor error and a retained log MAY be stored, with a payload only when it is complete and a redaction fixed point. The stored log MUST be the recorded, redacted log; raw output MUST NOT be stored.
 - Every live eligible run MUST be written through: a new entry starts at one live run, an agreeing entry (same status, exit code and truncation) gains one, and a disagreeing entry MUST be removed and counted as contradicted and evicted.
 - An entry MUST be served only when the run is not live, the entry passes every integrity check, at least two live runs agreed on it, its status is PASS, it was never contradicted, and its recorded duration is below the current per-run timeout. A FAIL entry MUST NOT be served. Every read MUST check the content hash, recompute the key from the stored preimage and compare it with the file name and the requested key, decode strictly and check bounds and age; a file that fails MUST be removed and counted as rejected.
@@ -1055,15 +1055,15 @@ Trust and inputs:
 
 Container and network:
 
-- Preparation MUST run before any candidate code, in one container created from the local `sandbox.image` resolved to its image ID, with `--pull=never`. SwiftProof MUST NOT pull images, and MUST NOT build them from a Dockerfile or from candidate content; the only image it derives is the committed prepare container.
-- The container MUST use the §2 R2 profile: `--cap-drop=ALL` plus, only for `user: root`, `CHOWN`, `DAC_OVERRIDE`, `FOWNER`, `FSETID`, `SETGID` and `SETUID`; no-new-privileges; the sandbox memory and CPU limits; `--pids-limit=256`; `--ulimit=nofile=1024:1024`; UID/GID 65534 unless the policy says `user: root`; exactly one read-only bind mount (the exported inputs at `/swiftproof/inputs`) and no other mount, so a created container with another mount, such as a `VOLUME` the sandbox image declares, MUST fail the stage before the command starts; `--workdir=/swiftproof/work`; `HOME=/swiftproof/home` and exactly the policy `env`. Its output MUST be bounded by `sandbox.max_output_bytes`, redacted and retained as a hashed `prepare_output` artifact.
-- The container MUST have network only when `prepare.network` is true, `--allow-prepare-network` is passed and `--no-network` is not. That permission MUST NOT change the network of any check. On a miss that needs network without permission, the status MUST be `not_permitted`, and SwiftProof MUST NOT start a container.
+- Preparation MUST run before any candidate code, in one container created from the local `sandbox.image` resolved to its image ID, with `--pull=never`. Probe MUST NOT pull images, and MUST NOT build them from a Dockerfile or from candidate content; the only image it derives is the committed prepare container.
+- The container MUST use the §2 R2 profile: `--cap-drop=ALL` plus, only for `user: root`, `CHOWN`, `DAC_OVERRIDE`, `FOWNER`, `FSETID`, `SETGID` and `SETUID`; no-new-privileges; the sandbox memory and CPU limits; `--pids-limit=256`; `--ulimit=nofile=1024:1024`; UID/GID 65534 unless the policy says `user: root`; exactly one read-only bind mount (the exported inputs at `/probe/inputs`) and no other mount, so a created container with another mount, such as a `VOLUME` the sandbox image declares, MUST fail the stage before the command starts; `--workdir=/probe/work`; `HOME=/probe/home` and exactly the policy `env`. Its output MUST be bounded by `sandbox.max_output_bytes`, redacted and retained as a hashed `prepare_output` artifact.
+- The container MUST have network only when `prepare.network` is true, `--allow-prepare-network` is passed and `--no-network` is not. That permission MUST NOT change the network of any check. On a miss that needs network without permission, the status MUST be `not_permitted`, and Probe MUST NOT start a container.
 
 Key and reuse:
 
-- The key MUST be the SHA-256 of a canonical JSON of the schema `swiftproof-prepare/v1`, the tool version, the base image ID, the argv, the user, the build's network setting, the sorted `env`, the sorted path and SHA-256 of every exported input, the SHA-256 of the container-argument template and `max_added_mb`.
-- An image MAY be reused only when exactly one image carries this key's tag and key label, and its labels equal the full key, the source commit and the base image ID, its layers are the base image's layers plus exactly one, its environment holds the policy `env`, and its committed layer is within `max_added_mb`. Otherwise SwiftProof MUST build. Reuse MUST NOT start a container.
-- A build MUST fail when the command exits non-zero, times out, or changes nothing outside the directories SwiftProof creates. When every change is under `/workspace`, `/tmp` or `/swiftproof/home`, the report MUST add the Unverified entry "prepared outputs are shadowed by check mounts". Both decisions MUST rest on the whole `docker diff` listing; a change that was not read in full MUST NOT be taken as shadowed or as one SwiftProof made. After `docker commit`, an image whose committed layer exceeds `max_added_mb` MUST be removed and the stage MUST fail.
+- The key MUST be the SHA-256 of a canonical JSON of the schema `probe-prepare/v1`, the tool version, the base image ID, the argv, the user, the build's network setting, the sorted `env`, the sorted path and SHA-256 of every exported input, the SHA-256 of the container-argument template and `max_added_mb`.
+- An image MAY be reused only when exactly one image carries this key's tag and key label, and its labels equal the full key, the source commit and the base image ID, its layers are the base image's layers plus exactly one, its environment holds the policy `env`, and its committed layer is within `max_added_mb`. Otherwise Probe MUST build. Reuse MUST NOT start a container.
+- A build MUST fail when the command exits non-zero, times out, or changes nothing outside the directories Probe creates. When every change is under `/workspace`, `/tmp` or `/probe/home`, the report MUST add the Unverified entry "prepared outputs are shadowed by check mounts". Both decisions MUST rest on the whole `docker diff` listing; a change that was not read in full MUST NOT be taken as shadowed or as one Probe made. After `docker commit`, an image whose committed layer exceeds `max_added_mb` MUST be removed and the stage MUST fail.
 - Every sandbox run of the review MUST use the derived image by its ID. The check profile MUST NOT change.
 
 Outcome:
@@ -1076,7 +1076,7 @@ Outcome:
 ### F8.2 Acceptance
 
 - The container argv matches the golden profile for `sandbox` and `root`, with and without network, and never gains a second mount, a volume, `--privileged`, `--rm`, `--read-only` or the Docker socket.
-- A real offline build commits an image with the base layers plus one and the policy env; a check in it finds the prepared file and fails on the base image; the build container had only a loopback interface, ran as 65534 in `/swiftproof/work` and saw no host environment; a root build has exactly the six capabilities; a second run reuses the image without starting a container.
+- A real offline build commits an image with the base layers plus one and the policy env; a check in it finds the prepared file and fails on the base image; the build container had only a loopback interface, ran as 65534 in `/probe/work` and saw no host environment; a root build has exactly the six capabilities; a second run reuses the image without starting a container.
 - Inputs come from the base commit only: a head-only file and the head version of a changed input are never exported.
 - An image with a matching key label but a different source-commit label, base image label, schema, layer structure, environment or size is rebuilt, not reused.
 - Without `--allow-prepare-network`, or with `--no-network`, a build that needs network is `not_permitted`, exits 4 and starts no container; an existing image for the key is still reused.
@@ -1087,14 +1087,14 @@ Outcome:
 
 ## F9. Evidence-only exports
 
-`--format sarif` and `--format pr-comment` write findings of the §4.3 classes only, read from finalized fields; `--report-url` adds a validated link to the PR comment. SwiftProof publishes nothing itself.
+`--format sarif` and `--format pr-comment` write findings of the §4.3 classes only, read from finalized fields; `--report-url` adds a validated link to the PR comment. Probe publishes nothing itself.
 
 <!-- F9:begin -->
 **Formats and options.**
 
 - `--format` MUST accept `sarif` (`confidence-report.sarif`) and `pr-comment` (`PR_COMMENT.md`) in `lint`, `review` and `report`; the default stays `markdown,json`. Every requested format MUST be rendered in memory before any file is written, and a render error MUST write nothing.
-- `--report-url` MUST be refused with exit 3, before any container starts, unless `pr-comment` is requested and the URL is `https`, names a host, has no user information, is at most 512 bytes and uses only `[A-Za-z0-9._~:/?#!$&*+,;=%-]`. Since the report's sanitizing never sees it, it MUST also be refused when it, or its percent-decoded form, contains a private-key header or a token shape of the credential redaction that starts at a token boundary (the start of the URL or a character other than `[A-Za-z0-9_-]`), or a query, fragment or path parameter whose name reads as a credential. A token prefix inside a word (`flask-sqlalchemy`, `task-scheduler`) MUST NOT cause a refusal. The pr-comment renderer MUST re-validate it. SwiftProof MUST NOT fetch it.
-- Rendering MUST NOT change the exit code, any status, or the Markdown and JSON reports, and MUST NOT execute anything or make a network request. SwiftProof MUST NOT post a comment or upload SARIF.
+- `--report-url` MUST be refused with exit 3, before any container starts, unless `pr-comment` is requested and the URL is `https`, names a host, has no user information, is at most 512 bytes and uses only `[A-Za-z0-9._~:/?#!$&*+,;=%-]`. Since the report's sanitizing never sees it, it MUST also be refused when it, or its percent-decoded form, contains a private-key header or a token shape of the credential redaction that starts at a token boundary (the start of the URL or a character other than `[A-Za-z0-9_-]`), or a query, fragment or path parameter whose name reads as a credential. A token prefix inside a word (`flask-sqlalchemy`, `task-scheduler`) MUST NOT cause a refusal. The pr-comment renderer MUST re-validate it. Probe MUST NOT fetch it.
+- Rendering MUST NOT change the exit code, any status, or the Markdown and JSON reports, and MUST NOT execute anything or make a network request. Probe MUST NOT post a comment or upload SARIF.
 
 **Findings.**
 
@@ -1111,7 +1111,7 @@ Outcome:
 
 **SARIF.**
 
-- The log MUST be SARIF 2.1.0 with one run, `message.text` only (never `message.markdown`), exactly one location per result, `partialFingerprints` `swiftproof/v1`, and the attribution in the log's `properties.attribution`. Rule IDs and levels MUST follow §4.3; `error` MUST occur only for a reproduced high or critical hypothesis.
+- The log MUST be SARIF 2.1.0 with one run, `message.text` only (never `message.markdown`), exactly one location per result, `partialFingerprints` `probe/v1`, and the attribution in the log's `properties.attribution`. Rule IDs and levels MUST follow §4.3; `error` MUST occur only for a reproduced high or critical hypothesis.
 - `invocations[0].executionSuccessful` MUST be `false` when the exit code is 4, when a check in `checks` is `ERROR`, `SKIPPED` or `TIMEOUT`, or when `execution.budget.deadline_reached` is true. `toolExecutionNotifications` MUST list, at level `warning`, each unverified area, each stage that did not run, each check in `checks` that did not pass, each unanchored finding, omitted findings, and the absence of any execution. The operational-failure, no-execution, stage, omitted-findings and unanchored-finding notifications MUST come before the per-check, per-area and per-hypothesis ones, so that the notification cap drops the latter first. A hypothesis that stayed `UNVERIFIED` MUST be named by its ID only, with a fixed text that holds for every `UNVERIFIED` hypothesis (including one the model submitted as `UNVERIFIED`): the reviewer model's text of such a hypothesis MUST NOT appear in either export. An unverified area MUST be listed by its position with a fixed text: its note can quote model output and MUST NOT appear in either export.
 - No rule, result or property MAY carry a precision, a security severity, a confidence, a percentage, or a result `kind` of `pass`, `informational` or `notApplicable`. Untrusted message fragments MUST have control and bidirectional characters removed and brackets escaped.
 
@@ -1125,7 +1125,7 @@ Outcome:
 
 **Acceptance.**
 
-- A reproduced high hypothesis through Docker gives exit 1, one SARIF result `swiftproof/reproduced` at level `error` on the hypothesis's changed line, whose evidence IDs equal the JSON's, and a PR comment listing it; `swiftproof report` re-renders both files byte for byte.
+- A reproduced high hypothesis through Docker gives exit 1, one SARIF result `probe/reproduced` at level `error` on the hypothesis's changed line, whose evidence IDs equal the JSON's, and a PR comment listing it; `probe report` re-renders both files byte for byte.
 - A hypothesis citing a nonexistent evidence ID gives no finding in either file, `"results": []`, and a status block counting the unverified hypothesis.
 - For every class, a valid record gives one finding; removing the checks and evidence, or forcing the statuses without them and finalizing, gives none; each tampered record (unresolved or duplicated IDs, another kind or status, a record not re-derived, an ID in both check ledgers) gives none.
 - `lint` exports have no result and say that no checks or experiments ran; an unknown format and every invalid `--report-url` combination exit 3 without writing a report.
@@ -1147,7 +1147,7 @@ Outcome:
 | F7–F8 | [execcache](../app/internal/execcache/), [prepare](../app/internal/prepare/), harness and CLI integration tests |
 
 Run `go test ./...` and `go vet ./...` from `app/`. Real Docker tests need
-`SWIFTPROOF_TEST_DOCKER_IMAGE` and a preloaded trusted image. Their absence is
+`PROBE_TEST_DOCKER_IMAGE` and a preloaded trusted image. Their absence is
 an incomplete integration check, not evidence that isolation or experiments
 worked. [VALIDATION.md](../app/docs/VALIDATION.md) records prior runs and
 [PERFORMANCE.md](../app/docs/PERFORMANCE.md) bounds measured performance claims.

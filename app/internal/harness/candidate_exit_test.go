@@ -10,7 +10,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/gvinsot/SwiftProof/app/internal/model"
+	"github.com/gvinsot/Probe/app/internal/model"
 )
 
 // §1.17 / Appendix D.6: a candidate-side capture run (fuzz_candidate, as a
@@ -27,7 +27,7 @@ func TestCandidateCaptureScriptKeepsHighExitCodesForTheSandbox(t *testing.T) {
 		t.Skip("no sh")
 	}
 	const copyStep = "cp -R /source/. /workspace/ 1>&2 || exit 125; "
-	const path = "/nonexistent/swiftproof-capture"
+	const path = "/nonexistent/probe-capture"
 	exitOf := func(script string, status string) int {
 		t.Helper()
 		err := exec.Command(sh, "-c", script, "sh", "sh", "-c", "exit "+status).Run()
@@ -58,9 +58,9 @@ func TestCandidateCaptureScriptKeepsHighExitCodesForTheSandbox(t *testing.T) {
 	}
 	// A failed snapshot copy exits 125. The copy source is replaced by a path
 	// that does not exist, so the step fails wherever the test runs (inside
-	// a SwiftProof sandbox /source exists) and copies nothing.
+	// a Probe sandbox /source exists) and copies nothing.
 	if _, err := exec.LookPath("cp"); err == nil {
-		failing := strings.Replace(candidateCaptureScript(path), "cp -R /source/. ", "cp -R /nonexistent/swiftproof-source/. ", 1)
+		failing := strings.Replace(candidateCaptureScript(path), "cp -R /source/. ", "cp -R /nonexistent/probe-source/. ", 1)
 		if failing == candidateCaptureScript(path) {
 			t.Fatal("the copy step was not found")
 		}

@@ -8,9 +8,9 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/gvinsot/SwiftProof/app/internal/linter"
-	"github.com/gvinsot/SwiftProof/app/internal/model"
-	"github.com/gvinsot/SwiftProof/app/internal/symbols"
+	"github.com/gvinsot/Probe/app/internal/linter"
+	"github.com/gvinsot/Probe/app/internal/model"
+	"github.com/gvinsot/Probe/app/internal/symbols"
 )
 
 // Assessment thresholds. They are constants, recorded in every assessment,

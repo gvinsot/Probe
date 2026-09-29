@@ -1,4 +1,4 @@
-// Command swiftproof-hub serves the SwiftProof web application: forge sign-in,
+// Command probe-hub serves the Probe web application: forge sign-in,
 // policy bootstrap, push monitoring and the dynamic report viewer.
 //
 // It is one container with no database and no queue of its own, so a company
@@ -18,14 +18,14 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/gvinsot/SwiftProof/hub/internal/accounts"
-	"github.com/gvinsot/SwiftProof/hub/internal/analysis"
-	"github.com/gvinsot/SwiftProof/hub/internal/config"
-	"github.com/gvinsot/SwiftProof/hub/internal/events"
-	"github.com/gvinsot/SwiftProof/hub/internal/forge"
-	"github.com/gvinsot/SwiftProof/hub/internal/secrets"
-	"github.com/gvinsot/SwiftProof/hub/internal/server"
-	"github.com/gvinsot/SwiftProof/hub/internal/store"
+	"github.com/gvinsot/Probe/hub/internal/accounts"
+	"github.com/gvinsot/Probe/hub/internal/analysis"
+	"github.com/gvinsot/Probe/hub/internal/config"
+	"github.com/gvinsot/Probe/hub/internal/events"
+	"github.com/gvinsot/Probe/hub/internal/forge"
+	"github.com/gvinsot/Probe/hub/internal/secrets"
+	"github.com/gvinsot/Probe/hub/internal/server"
+	"github.com/gvinsot/Probe/hub/internal/store"
 )
 
 // version is set at build time with -ldflags "-X main.version=...".
@@ -35,12 +35,12 @@ func main() {
 	if len(os.Args) > 1 {
 		switch os.Args[1] {
 		case "version", "--version", "-v":
-			fmt.Printf("swiftproof-hub %s\nAGPL-3.0 with an attribution term, see NOTICE: https://github.com/gvinsot/SwiftProof\n", version)
+			fmt.Printf("probe-hub %s\nAGPL-3.0 with an attribution term, see NOTICE: https://github.com/gvinsot/Probe\n", version)
 			return
 		case "healthcheck":
 			// Used by the container HEALTHCHECK so the image needs no curl.
 			if err := healthcheck(); err != nil {
-				fmt.Fprintf(os.Stderr, "swiftproof-hub: %v\n", err)
+				fmt.Fprintf(os.Stderr, "probe-hub: %v\n", err)
 				os.Exit(1)
 			}
 			return
@@ -53,42 +53,42 @@ func main() {
 		}
 	}
 	if err := run(); err != nil {
-		fmt.Fprintf(os.Stderr, "swiftproof-hub: %v\n", err)
+		fmt.Fprintf(os.Stderr, "probe-hub: %v\n", err)
 		os.Exit(1)
 	}
 }
 
-const usage = `swiftproof-hub — the SwiftProof web application
+const usage = `probe-hub — the Probe web application
 
 The service is configured through the environment:
 
-  SWIFTPROOF_HUB_BASE_URL            public URL of this deployment (required)
-  SWIFTPROOF_HUB_ADDR                listen address (default :8080)
-  SWIFTPROOF_HUB_DATA_DIR            state directory (default /var/lib/swiftproof-hub)
-  SWIFTPROOF_HUB_SESSION_KEY         64 hex characters; generated and persisted when unset
-  SWIFTPROOF_HUB_SESSION_KEY_PREVIOUS keys retired by a rotation, still able to open
+  PROBE_HUB_BASE_URL            public URL of this deployment (required)
+  PROBE_HUB_ADDR                listen address (default :8080)
+  PROBE_HUB_DATA_DIR            state directory (default /var/lib/probe-hub)
+  PROBE_HUB_SESSION_KEY         64 hex characters; generated and persisted when unset
+  PROBE_HUB_SESSION_KEY_PREVIOUS keys retired by a rotation, still able to open
                                      stored credentials, which are resealed at start-up
-  SWIFTPROOF_HUB_INSTANCE            public (default) or private; a public instance
+  PROBE_HUB_INSTANCE            public (default) or private; a public instance
                                      permits lint and read-only AI review
-  SWIFTPROOF_HUB_MODE                auto (default), lint, review-read-only or review;
+  PROBE_HUB_MODE                auto (default), lint, review-read-only or review;
                                      full review requires a private instance
                                      auto uses read-only AI review with an endpoint
                                      and model configured, otherwise lint
-  SWIFTPROOF_HUB_REVIEW_POLICIES     review allowlist, entries
+  PROBE_HUB_REVIEW_POLICIES     review allowlist, entries
                                      <github|gitlab>:<owner/repo>@sha256:<policy digest>;
                                      every other repository is linted
-  SWIFTPROOF_HUB_WORKERS             concurrent analyses (default 2)
-  SWIFTPROOF_HUB_USER_QUOTA          analyses one account may have queued or running (default 8)
-  SWIFTPROOF_HUB_HOOK_RATE           webhook deliveries per routing key and minute (default 30)
+  PROBE_HUB_WORKERS             concurrent analyses (default 2)
+  PROBE_HUB_USER_QUOTA          analyses one account may have queued or running (default 8)
+  PROBE_HUB_HOOK_RATE           webhook deliveries per routing key and minute (default 30)
 
 Any *_SECRET, *_KEY, *_KEY_PREVIOUS or *_POLICIES value can be read from the
 file named by <NAME>_FILE, or from /run/secrets/<NAME>.
-  SWIFTPROOF_HUB_DEFAULT_BRANCH_ONLY analyze only the default branch (default false)
-  SWIFTPROOF_HUB_COMMIT_STATUS       publish the verdict on the commit (default true)
+  PROBE_HUB_DEFAULT_BRANCH_ONLY analyze only the default branch (default false)
+  PROBE_HUB_COMMIT_STATUS       publish the verdict on the commit (default true)
 
-  SWIFTPROOF_HUB_GITHUB_CLIENT_ID / _SECRET [, _URL, _API_URL, _SCOPES]
-  SWIFTPROOF_HUB_GITLAB_CLIENT_ID / _SECRET [, _URL, _SCOPES]
-  SWIFTPROOF_HUB_ALLOW_NO_FORGE      serve without sign-in while no forge is
+  PROBE_HUB_GITHUB_CLIENT_ID / _SECRET [, _URL, _API_URL, _SCOPES]
+  PROBE_HUB_GITLAB_CLIENT_ID / _SECRET [, _URL, _SCOPES]
+  PROBE_HUB_ALLOW_NO_FORGE      serve without sign-in while no forge is
                                      configured (default false)
 
 Commands: no argument serves the application, "healthcheck" probes /healthz
@@ -168,7 +168,7 @@ func run() error {
 	}
 	if len(forges) == 0 {
 		log.Warn("no forge configured: the application serves, but nobody can sign in until " +
-			"SWIFTPROOF_HUB_GITHUB_CLIENT_ID/_SECRET or the GitLab pair is set")
+			"PROBE_HUB_GITHUB_CLIENT_ID/_SECRET or the GitLab pair is set")
 	}
 	log.Info("starting", "version", version, "addr", cfg.Addr, "base_url", cfg.BaseURL,
 		"instance", cfg.Instance, "mode", cfg.Mode, "review_policies", len(cfg.ReviewPolicies), "workers", cfg.Workers, "forges", forges, "cli", runner.Version(ctx))
@@ -192,7 +192,7 @@ func run() error {
 
 // healthcheck probes the local /healthz endpoint of this container.
 func healthcheck() error {
-	addr := os.Getenv("SWIFTPROOF_HUB_ADDR")
+	addr := os.Getenv("PROBE_HUB_ADDR")
 	if addr == "" {
 		addr = ":8080"
 	}
@@ -213,7 +213,7 @@ func healthcheck() error {
 }
 
 func level() slog.Level {
-	switch os.Getenv("SWIFTPROOF_HUB_LOG_LEVEL") {
+	switch os.Getenv("PROBE_HUB_LOG_LEVEL") {
 	case "debug":
 		return slog.LevelDebug
 	case "warn":

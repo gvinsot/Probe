@@ -3,7 +3,7 @@ package fuzz
 import (
 	"strconv"
 
-	"github.com/gvinsot/SwiftProof/app/internal/model"
+	"github.com/gvinsot/Probe/app/internal/model"
 )
 
 // Parameter kinds a target may take. Anything else is skipped at selection.

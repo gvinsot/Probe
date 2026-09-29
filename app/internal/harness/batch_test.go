@@ -13,8 +13,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gvinsot/SwiftProof/app/internal/dockerutil"
-	"github.com/gvinsot/SwiftProof/app/internal/model"
+	"github.com/gvinsot/Probe/app/internal/dockerutil"
+	"github.com/gvinsot/Probe/app/internal/model"
 )
 
 // batchCommands are the initial checks of the batch tests; the last argument
@@ -689,9 +689,9 @@ func TestSandboxCapacity(t *testing.T) {
 // recorded in configured order with the statuses the commands produce, every
 // check's own time is charged, and no container survives.
 func TestDockerRunChecksRunsInitialChecksConcurrently(t *testing.T) {
-	image := os.Getenv("SWIFTPROOF_TEST_DOCKER_IMAGE")
+	image := os.Getenv("PROBE_TEST_DOCKER_IMAGE")
 	if image == "" {
-		t.Skip("set SWIFTPROOF_TEST_DOCKER_IMAGE to a preloaded golang Linux image")
+		t.Skip("set PROBE_TEST_DOCKER_IMAGE to a preloaded golang Linux image")
 	}
 	info, err := dockerutil.ServerInfo(context.Background(), dockerutil.DefaultRunner)
 	if err != nil {

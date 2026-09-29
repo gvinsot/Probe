@@ -14,10 +14,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gvinsot/SwiftProof/hub/internal/config"
-	"github.com/gvinsot/SwiftProof/hub/internal/events"
-	"github.com/gvinsot/SwiftProof/hub/internal/report"
-	"github.com/gvinsot/SwiftProof/hub/internal/store"
+	"github.com/gvinsot/Probe/hub/internal/config"
+	"github.com/gvinsot/Probe/hub/internal/events"
+	"github.com/gvinsot/Probe/hub/internal/report"
+	"github.com/gvinsot/Probe/hub/internal/store"
 )
 
 func discardLogger() *slog.Logger {
@@ -48,8 +48,8 @@ func repoWithCommits(t *testing.T, n int) (*gitRunner, []string) {
 	}
 	dir := t.TempDir()
 	g := &gitRunner{dir: dir, env: append(gitEnv(dir, "", ""),
-		"GIT_AUTHOR_NAME=SwiftProof", "GIT_AUTHOR_EMAIL=test@example.com",
-		"GIT_COMMITTER_NAME=SwiftProof", "GIT_COMMITTER_EMAIL=test@example.com",
+		"GIT_AUTHOR_NAME=Probe", "GIT_AUTHOR_EMAIL=test@example.com",
+		"GIT_COMMITTER_NAME=Probe", "GIT_COMMITTER_EMAIL=test@example.com",
 	)}
 	ctx := context.Background()
 	if _, err := g.run(ctx, "init", "--quiet", "--initial-branch=main"); err != nil {
@@ -147,13 +147,13 @@ func TestPrepareRefusesANonHTTPRemote(t *testing.T) {
 
 /* --------------------------------------------------------------- CLI -- */
 
-// fakeCLI installs a stand-in for the SwiftProof binary.
+// fakeCLI installs a stand-in for the Probe binary.
 func fakeCLI(t *testing.T, script string) string {
 	t.Helper()
 	if runtime.GOOS == "windows" {
 		t.Skip("the fake CLI is a POSIX shell script")
 	}
-	path := filepath.Join(t.TempDir(), "swiftproof")
+	path := filepath.Join(t.TempDir(), "probe")
 	if err := os.WriteFile(path, []byte("#!/bin/sh\n"+script), 0o700); err != nil {
 		t.Fatalf("write fake CLI: %v", err)
 	}
@@ -171,8 +171,8 @@ const fakeReport = `{"version":1,"tool_version":"v9.9.9","generated_at":"2026-09
 func TestRunCLIPassesTheExactRangeAndReadsTheReport(t *testing.T) {
 	binary := fakeCLI(t, `
 echo "$@" > args.txt
-mkdir -p .swiftproof
-cat > .swiftproof/confidence-report.json <<'JSON'
+mkdir -p .probe
+cat > .probe/confidence-report.json <<'JSON'
 `+fakeReport+`
 JSON
 exit 2
@@ -216,7 +216,7 @@ while [ $# -gt 0 ]; do
     *) shift;;
   esac
 done
-printf '{"version":1,"language":"%s","commands":{}}' "$lang" > "$dir/.swiftproof.json"
+printf '{"version":1,"language":"%s","commands":{}}' "$lang" > "$dir/.probe.json"
 `)
 	r, _ := testRunner(t, binary)
 	policy, err := r.Policy(context.Background(), "go")
@@ -350,10 +350,10 @@ func TestReviewOnlyRunsForAValidatedPolicy(t *testing.T) {
 	g, _ := repoWithCommits(t, 1)
 	ctx := context.Background()
 	policy := []byte(`{"version":1,"language":"go","commands":{}}` + "\n")
-	if err := os.WriteFile(filepath.Join(g.dir, ".swiftproof.json"), policy, 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(g.dir, ".probe.json"), policy, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := g.run(ctx, "add", ".swiftproof.json"); err != nil {
+	if _, err := g.run(ctx, "add", ".probe.json"); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := g.run(ctx, "commit", "--quiet", "-m", "policy"); err != nil {
@@ -377,7 +377,7 @@ func TestReviewOnlyRunsForAValidatedPolicy(t *testing.T) {
 		t.Errorf("an unlisted repository must be linted, got %s", got)
 	}
 	// Any edit of the policy invalidates the operator's validation.
-	if err := os.WriteFile(filepath.Join(g.dir, ".swiftproof.json"), []byte(`{"version":1,"commands":{"test":["sh","-c","curl evil"]}}`), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(g.dir, ".probe.json"), []byte(`{"version":1,"commands":{"test":["sh","-c","curl evil"]}}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	g.run(ctx, "commit", "--quiet", "-am", "tamper")

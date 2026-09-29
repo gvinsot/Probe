@@ -1,22 +1,22 @@
 # Changed baseline tests on candidate code (`--base-tests`)
 
-A change can alter behavior and, in the same commit, edit, delete or turn off the test that asserted the old behavior. The candidate's own test suite then passes. `swiftproof review --base-tests` runs the **baseline version** of the Go test functions of each changed Go test file that the change modified, removed or affected through the rest of the file (see [What is selected](#what-is-selected)) against the candidate code, inside the sandbox, and records what the two runs showed. No model is involved.
+A change can alter behavior and, in the same commit, edit, delete or turn off the test that asserted the old behavior. The candidate's own test suite then passes. `probe review --base-tests` runs the **baseline version** of the Go test functions of each changed Go test file that the change modified, removed or affected through the rest of the file (see [What is selected](#what-is-selected)) against the candidate code, inside the sandbox, and records what the two runs showed. No model is involved.
 
 The stage is opt-in, runs during `review` only, executes Go tests only, and adds no policy key. It adds evidence and review requests; it never produces exit 1 and never removes, lowers or dismisses anything else in the report.
 
 ## Enabling it
 
 ```sh
-swiftproof review --base main --base-tests --ci
+probe review --base main --base-tests --ci
 ```
 
 - `--base-tests` exits 3 on `lint` and together with `--checks=false`, before any container starts.
-- The trusted policy's `generated_test` command must let SwiftProof establish which Go tests ran: `go test` with exactly one standalone `{package}` or `{file}` target and only flags otherwise, without `-C`, `-exec`, `-overlay`, `-args` or `--`. `["go", "test", "{package}"]` is the recommended template. With `{file}`, only that one file is compiled, without the package's other source or test files, so tests that use package-internal code usually do not build and stay `UNVERIFIED`. An external test file that imports the package can build. With any other template nothing runs and the section is `not_run` with the reason.
+- The trusted policy's `generated_test` command must let Probe establish which Go tests ran: `go test` with exactly one standalone `{package}` or `{file}` target and only flags otherwise, without `-C`, `-exec`, `-overlay`, `-args` or `--`. `["go", "test", "{package}"]` is the recommended template. With `{file}`, only that one file is compiled, without the package's other source or test files, so tests that use package-internal code usually do not build and stay `UNVERIFIED`. An external test file that imports the package can build. With any other template nothing runs and the section is `not_run` with the reason.
 - A binary without the flag exits 3 while parsing arguments. Re-pin to v0.4.0 or later before using it; intermediate v0.3 builds may accept the flag without the completed stage (see [CI integration](CI.md#release-ordering-for-v04)).
 
 ## What is selected
 
-Selection is static. SwiftProof reads the baseline and candidate versions of each changed Go test file from Git (at most 2 MiB per file) and parses them with `go/parser`. It never runs repository code to select tests.
+Selection is static. Probe reads the baseline and candidate versions of each changed Go test file from Git (at most 2 MiB per file) and parses them with `go/parser`. It never runs repository code to select tests.
 
 Considered files are `*_test.go` files that the change modified (`M`), deleted (`D`) or renamed from a `*_test.go` path (`R`). Added and copied files are not considered: their tests have no baseline version. Files that `go test` never compiles are skipped: anything under `testdata` or `vendor`, and any directory or file name starting with `_` or `.`.
 
@@ -69,7 +69,7 @@ Each run pair is classified per test name from the `go test -json` events of bot
 
 Typical `UNVERIFIED` reasons: the candidate-side package did not build (for example after an API change), the test failed or was skipped on the baseline, a build constraint excluded its file, a run timed out, was skipped for the runtime budget or the overall deadline, or was cut by `sandbox.max_output_bytes`, the package was removed from the candidate, the test passed inside a hybrid run that failed as a whole, the baseline test files of its package directory could not be restored in the hybrid tree, and the stage limits. When no selected test of a unit passed on the baseline, the hybrid run is not started, because none of them could get a result.
 
-`report.Finalize` re-derives every status from the recorded checks, including when `swiftproof report` re-renders a saved report: a test is `FAILS_ON_CANDIDATE` or `PASSES_ON_CANDIDATE` only when its `base_test_differential` evidence record resolves, names the same test and file, cites a `base_test_base` and a `base_test_hybrid` check with the same command targeting that package, and those checks give that status. A `base_test_differential` record never supports a hypothesis status: a model cannot turn it into a reproduced, not reproduced or dismissed hypothesis.
+`report.Finalize` re-derives every status from the recorded checks, including when `probe report` re-renders a saved report: a test is `FAILS_ON_CANDIDATE` or `PASSES_ON_CANDIDATE` only when its `base_test_differential` evidence record resolves, names the same test and file, cites a `base_test_base` and a `base_test_hybrid` check with the same command targeting that package, and those checks give that status. A `base_test_differential` record never supports a hypothesis status: a model cannot turn it into a reproduced, not reproduced or dismissed hypothesis.
 
 The section status is `ran` when at least one run started, `no_candidates` when no test was selected, and `not_run` with a reason otherwise.
 
@@ -95,7 +95,7 @@ Every run is charged to the shared `sandbox.max_runtime_seconds` budget. The sta
 
 - JSON: the `base_tests` object (`status`, `reason`, `tests[]`, `note`), present exactly when `--base-tests` was passed to `review`. Each test has its baseline location (`path`, `line`, `end_line`), its edited location when the candidate still declares it (`candidate_path`, `candidate_line`, `candidate_end_line`), `change`, `status`, `evidence_id` and `reason`.
 - Evidence: one `base_test_differential` record per test and recorded run pair, runner `go_test_json`, exactly one test name, `check_id` (hybrid run) and `base_check_id` (baseline run).
-- Markdown: the section **Changed Baseline Tests on Candidate Code**, after Reproduced Issues, lists `FAILS_ON_CANDIDATE` first, then `UNVERIFIED`, then at most 20 `PASSES_ON_CANDIDATE` entries, followed by the fixed note. When an intent was supplied it adds: "Intent was supplied; SwiftProof does not decide whether a behavior change matches it." With `no_candidates` it reads: "No test was selected, so no baseline version was re-run. Only the tests declared in modified, deleted or renamed Go test files are considered; this says nothing about any other test."
+- Markdown: the section **Changed Baseline Tests on Candidate Code**, after Reproduced Issues, lists `FAILS_ON_CANDIDATE` first, then `UNVERIFIED`, then at most 20 `PASSES_ON_CANDIDATE` entries, followed by the fixed note. When an intent was supplied it adds: "Intent was supplied; Probe does not decide whether a behavior change matches it." With `no_candidates` it reads: "No test was selected, so no baseline version was re-run. Only the tests declared in modified, deleted or renamed Go test files are considered; this says nothing about any other test."
 - Suggested Human Review: a high target on the baseline test function (old side) and, when present, on its edited version (new side), for each `FAILS_ON_CANDIDATE` test only.
 - Unverified Areas: a line for a section that did not run, for planning notes, and, when some test has no result, the line "Some baseline versions of changed tests have no FAILS\_ON\_CANDIDATE or PASSES\_ON\_CANDIDATE result; see Changed Baseline Tests on Candidate Code."
 - Audit: one `stage:run_base_tests` event per unit, and one `ERROR` event per package directory that could not be reverted, naming the directory and the failure with host paths replaced by placeholders such as `(hybrid tree)`.
@@ -117,7 +117,7 @@ A high signal requests human review under `--ci`, as every high signal does.
 
 ## Security notes
 
-The hybrid tree is assembled on the host from the already sanitized snapshots: secret-bearing file names stay excluded, symlinks are never created or followed, every path is checked, and files are created exclusively. Candidate entries that block a baseline path are removed and listed in the manifest, so the shape of the candidate tree cannot turn the stage into an operational failure. The runs add no mount, volume, network or payload channel. Baseline test code runs against candidate code in the same sandbox, which is no different from the existing experiments. Candidate code can make a baseline test pass on purpose (for example by detecting the sandbox), so `PASSES_ON_CANDIDATE` is an observation only; a forged pass after a real failure makes the result `UNVERIFIED`. Forging a failure only adds a review request. The flag is set by whoever invokes SwiftProof, never by the candidate branch.
+The hybrid tree is assembled on the host from the already sanitized snapshots: secret-bearing file names stay excluded, symlinks are never created or followed, every path is checked, and files are created exclusively. Candidate entries that block a baseline path are removed and listed in the manifest, so the shape of the candidate tree cannot turn the stage into an operational failure. The runs add no mount, volume, network or payload channel. Baseline test code runs against candidate code in the same sandbox, which is no different from the existing experiments. Candidate code can make a baseline test pass on purpose (for example by detecting the sandbox), so `PASSES_ON_CANDIDATE` is an observation only; a forged pass after a real failure makes the result `UNVERIFIED`. Forging a failure only adds a review request. The flag is set by whoever invokes Probe, never by the candidate branch.
 
 ## Limitations
 

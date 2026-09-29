@@ -12,10 +12,10 @@ import (
 	"io"
 	"strings"
 
-	"github.com/gvinsot/SwiftProof/app/internal/gitrepo"
-	"github.com/gvinsot/SwiftProof/app/internal/harness"
-	"github.com/gvinsot/SwiftProof/app/internal/model"
-	"github.com/gvinsot/SwiftProof/app/internal/suites"
+	"github.com/gvinsot/Probe/app/internal/gitrepo"
+	"github.com/gvinsot/Probe/app/internal/harness"
+	"github.com/gvinsot/Probe/app/internal/model"
+	"github.com/gvinsot/Probe/app/internal/suites"
 )
 
 // baseTestsUnverifiedPrefix starts every Unverified entry of a stage that
@@ -67,7 +67,7 @@ func runBaseTests(ctx context.Context, repo *gitrepo.Repository, change model.Ch
 	section, err := h.RunBaseTests(ctx, sel.Tests)
 	r.BaseTests = &section
 	if err != nil {
-		fmt.Fprintf(errOut, "swiftproof: baseline versions of changed tests: %v\n", err)
+		fmt.Fprintf(errOut, "probe: baseline versions of changed tests: %v\n", err)
 		r.Unverified = append(r.Unverified, baseTestsUnverifiedPrefix+section.Reason)
 		return true
 	}

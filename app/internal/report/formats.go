@@ -8,8 +8,8 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/gvinsot/SwiftProof/app/internal/model"
-	"github.com/gvinsot/SwiftProof/app/internal/redact"
+	"github.com/gvinsot/Probe/app/internal/model"
+	"github.com/gvinsot/Probe/app/internal/redact"
 )
 
 // Report formats. ValidFormat is the single whitelist that the cli flags and
@@ -45,7 +45,7 @@ type Option func(*writeOptions)
 // WithReportURL records the link to the full report that a PR-comment render
 // cites. The cli validates it (ValidateReportURL) before anything runs, and the
 // pr-comment renderer validates it again, so an invalid URL writes nothing.
-// SwiftProof never fetches it.
+// Probe never fetches it.
 func WithReportURL(url string) Option {
 	return func(o *writeOptions) { o.reportURL = url }
 }

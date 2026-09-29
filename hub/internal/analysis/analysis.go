@@ -1,4 +1,4 @@
-// Package analysis fetches a pushed commit and runs the SwiftProof CLI on it.
+// Package analysis fetches a pushed commit and runs the Probe CLI on it.
 //
 // The hub never becomes a second implementation of the review: it prepares a
 // disposable checkout, executes the trusted binary, and stores the confidence
@@ -22,16 +22,16 @@ import (
 	"sync"
 	"time"
 
-	"github.com/gvinsot/SwiftProof/hub/internal/accounts"
-	"github.com/gvinsot/SwiftProof/hub/internal/config"
-	"github.com/gvinsot/SwiftProof/hub/internal/events"
-	"github.com/gvinsot/SwiftProof/hub/internal/forge"
-	"github.com/gvinsot/SwiftProof/hub/internal/report"
-	"github.com/gvinsot/SwiftProof/hub/internal/store"
+	"github.com/gvinsot/Probe/hub/internal/accounts"
+	"github.com/gvinsot/Probe/hub/internal/config"
+	"github.com/gvinsot/Probe/hub/internal/events"
+	"github.com/gvinsot/Probe/hub/internal/forge"
+	"github.com/gvinsot/Probe/hub/internal/report"
+	"github.com/gvinsot/Probe/hub/internal/store"
 )
 
 // reportPath is where the CLI writes the machine-readable report.
-const reportPath = ".swiftproof/confidence-report.json"
+const reportPath = ".probe/confidence-report.json"
 
 // maxReportBytes bounds the report read back from the sandbox output.
 const maxReportBytes = 64 << 20
@@ -395,7 +395,7 @@ func (r *Runner) analyze(ctx context.Context, j Job, run *store.Run) (record *st
 		return nil, err
 	}
 
-	work, err := os.MkdirTemp("", "swiftproof-hub-")
+	work, err := os.MkdirTemp("", "probe-hub-")
 	if err != nil {
 		return nil, fmt.Errorf("workspace: %w", err)
 	}
@@ -419,7 +419,7 @@ func (r *Runner) analyze(ctx context.Context, j Job, run *store.Run) (record *st
 	run.BaseCommit = base
 	// Only artifacts freshly written by the trusted CLI may become results.
 	// Remove a tracked output directory or symlink before either variant runs.
-	if err := os.RemoveAll(filepath.Join(work, ".swiftproof")); err != nil {
+	if err := os.RemoveAll(filepath.Join(work, ".probe")); err != nil {
 		return nil, fmt.Errorf("prepare analysis output: %w", err)
 	}
 	if j.Variant == "plan" {
@@ -432,7 +432,7 @@ func (r *Runner) analyze(ctx context.Context, j Job, run *store.Run) (record *st
 	data, readErr := readBounded(filepath.Join(work, reportPath), maxReportBytes)
 	if readErr != nil {
 		if runErr != nil {
-			return nil, fmt.Errorf("swiftproof %s exited %d: %s", mode, exitCode, tail(output))
+			return nil, fmt.Errorf("probe %s exited %d: %s", mode, exitCode, tail(output))
 		}
 		return nil, fmt.Errorf("no confidence report was produced: %w", readErr)
 	}
@@ -448,7 +448,7 @@ func (r *Runner) analyze(ctx context.Context, j Job, run *store.Run) (record *st
 	if exitCode < 0 || exitCode >= 3 {
 		return &store.Record{
 			UserKey: j.UserKey, RepoKey: j.RepoKey, RepoName: repo.FullName, Raw: json.RawMessage(data),
-		}, fmt.Errorf("swiftproof %s could not complete (exit %d): %s", mode, exitCode, tail(output))
+		}, fmt.Errorf("probe %s could not complete (exit %d): %s", mode, exitCode, tail(output))
 	}
 	return &store.Record{
 		UserKey: j.UserKey, RepoKey: j.RepoKey, RepoName: repo.FullName, Raw: json.RawMessage(data),
@@ -498,7 +498,7 @@ func (r *Runner) runCLI(ctx context.Context, work, mode, base, head string) (str
 		"--head", head,
 		"--exact",
 		"--format", "json,markdown",
-		"--out", ".swiftproof",
+		"--out", ".probe",
 		"--ci",
 	}
 	if readOnly {
@@ -555,7 +555,7 @@ func (r *Runner) publishStatus(ctx context.Context, j Job, run store.Run) {
 
 func statusDescription(run store.Run) string {
 	if run.Status == store.StatusFailed {
-		return "SwiftProof could not complete this analysis"
+		return "Probe could not complete this analysis"
 	}
 	c := run.Summary.Counts
 	switch run.Summary.Verdict {
@@ -578,7 +578,7 @@ func cliEnv(work string) []string {
 		"GIT_TERMINAL_PROMPT=0",
 		"GIT_CONFIG_NOSYSTEM=1",
 	}
-	for _, name := range []string{"DOCKER_HOST", "DOCKER_CERT_PATH", "DOCKER_TLS_VERIFY", config.EndpointEnvName, config.ModelEnvName, config.AllowInsecureHTTPEnvName, "SWIFTPROOF_API_KEY", "SWIFTPROOF_API_KEY_FILE"} {
+	for _, name := range []string{"DOCKER_HOST", "DOCKER_CERT_PATH", "DOCKER_TLS_VERIFY", config.EndpointEnvName, config.ModelEnvName, config.AllowInsecureHTTPEnvName, "PROBE_API_KEY", "PROBE_API_KEY_FILE"} {
 		if v := os.Getenv(name); v != "" {
 			env = append(env, name+"="+v)
 		}

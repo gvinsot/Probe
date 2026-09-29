@@ -15,8 +15,8 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/gvinsot/SwiftProof/app/internal/config"
-	"github.com/gvinsot/SwiftProof/app/internal/model"
+	"github.com/gvinsot/Probe/app/internal/config"
+	"github.com/gvinsot/Probe/app/internal/model"
 )
 
 // intentStep returns the next tool call from the previous tool result, or
@@ -114,7 +114,7 @@ func runIntentReview(t *testing.T, dir, image string, template []string, steps [
 	cfg.Commands["generated_test"] = template
 	cfg.Reviewer.Endpoint = server.URL + "/v1"
 	cfg.Reviewer.Model = "scripted-intent"
-	cfg.Reviewer.APIKeyEnv = "SWIFTPROOF_INTENT_TEST_KEY"
+	cfg.Reviewer.APIKeyEnv = "PROBE_INTENT_TEST_KEY"
 	t.Setenv(cfg.Reviewer.APIKeyEnv, "")
 	policy := filepath.Join(t.TempDir(), "policy.json")
 	writeReviewerPolicy(t, policy, cfg)
@@ -228,17 +228,17 @@ func shopRepo(t *testing.T, files, candidate map[string]string) string {
 // with --ci, 0 without, never 1); the passing AC-2 test supports nothing; the
 // judgment on an unsupported claim is dropped with a note.
 func TestDockerIntentEndToEnd(t *testing.T) {
-	image := os.Getenv("SWIFTPROOF_TEST_DOCKER_IMAGE")
+	image := os.Getenv("PROBE_TEST_DOCKER_IMAGE")
 	if image == "" {
-		t.Skip("set SWIFTPROOF_TEST_DOCKER_IMAGE to a preloaded Go image")
+		t.Skip("set PROBE_TEST_DOCKER_IMAGE to a preloaded Go image")
 	}
 	base := "package shop\n\nfunc Total(xs []int) int {\n\tsum := 0\n\tfor _, x := range xs {\n\t\tsum += x\n\t}\n\treturn sum\n}\n"
 	candidate := base + "\nfunc Discount(total int) int {\n\tif total > 100 {\n\t\treturn total - 10\n\t}\n\treturn total\n}\n\nfunc FreeShipping(total int) bool { return total >= 50 }\n"
 	dir := shopRepo(t, map[string]string{"go.mod": "module example.test/shop\n\ngo 1.23\n", "shop.go": base}, map[string]string{"shop.go": candidate})
-	failing := map[string]any{"criterion_id": "AC-1", "path": "swiftproof_intent_ac1_test.go", "description": "Orders of exactly 100 get 10 off",
-		"content": "package shop\n\nimport \"testing\"\n\nfunc TestSwiftProofIntentDiscountAt100(t *testing.T) {\n\tif got := Discount(100); got != 90 {\n\t\tt.Errorf(\"Discount(100) = %d, want 90\", got)\n\t}\n}\n"}
-	passing := map[string]any{"criterion_id": "AC-2", "path": "swiftproof_intent_ac2_test.go", "description": "Orders of 50 ship free",
-		"content": "package shop\n\nimport \"testing\"\n\nfunc TestSwiftProofIntentFreeShippingAt50(t *testing.T) {\n\tif !FreeShipping(50) {\n\t\tt.Error(\"FreeShipping(50) = false\")\n\t}\n}\n"}
+	failing := map[string]any{"criterion_id": "AC-1", "path": "probe_intent_ac1_test.go", "description": "Orders of exactly 100 get 10 off",
+		"content": "package shop\n\nimport \"testing\"\n\nfunc TestProbeIntentDiscountAt100(t *testing.T) {\n\tif got := Discount(100); got != 90 {\n\t\tt.Errorf(\"Discount(100) = %d, want 90\", got)\n\t}\n}\n"}
+	passing := map[string]any{"criterion_id": "AC-2", "path": "probe_intent_ac2_test.go", "description": "Orders of 50 ship free",
+		"content": "package shop\n\nimport \"testing\"\n\nfunc TestProbeIntentFreeShippingAt50(t *testing.T) {\n\tif !FreeShipping(50) {\n\t\tt.Error(\"FreeShipping(50) = false\")\n\t}\n}\n"}
 	steps := intentScript(failing, passing, "shop.go")
 	code, r, output := runIntentReview(t, dir, image, []string{"go", "test", "{package}"}, steps, true)
 	if code != 2 {
@@ -257,12 +257,12 @@ func TestDockerIntentEndToEnd(t *testing.T) {
 }
 
 // The same review of a TypeScript change with a Vitest template (image
-// SWIFTPROOF_TEST_TS_IMAGE): the failure is read from the Jest-compatible
+// PROBE_TEST_TS_IMAGE): the failure is read from the Jest-compatible
 // report and the referenced symbols are matched lexically.
 func TestDockerTSIntentEndToEnd(t *testing.T) {
-	image := os.Getenv("SWIFTPROOF_TEST_TS_IMAGE")
+	image := os.Getenv("PROBE_TEST_TS_IMAGE")
 	if image == "" {
-		t.Skip("set SWIFTPROOF_TEST_TS_IMAGE to a preloaded image with vitest on PATH (for example swiftproof-ts-test:local)")
+		t.Skip("set PROBE_TEST_TS_IMAGE to a preloaded image with vitest on PATH (for example probe-ts-test:local)")
 	}
 	base := "export function total(xs: number[]): number {\n  return xs.reduce((a, b) => a + b, 0);\n}\n"
 	candidate := base + "\nexport function discount(total: number): number {\n  return total > 100 ? total - 10 : total;\n}\n\nexport function freeShipping(total: number): boolean {\n  return total >= 50;\n}\n"

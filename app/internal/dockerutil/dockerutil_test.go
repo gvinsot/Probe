@@ -41,12 +41,12 @@ func TestValidImageID(t *testing.T) {
 }
 
 func TestInspectImageParsesDockerJSON(t *testing.T) {
-	f := &fakeRunner{stdout: `{"Id":"` + imageID + `","RepoTags":["golang:1.26-bookworm"],"Os":"linux","Architecture":"amd64","Size":123456,"Config":{"Labels":{"org.swiftproof.prepare.key":"abc"},"Env":["PATH=/usr/bin","GOLANG_VERSION=1.26"]},"RootFS":{"Type":"layers","Layers":["sha256:1","sha256:2"]}}` + "\n"}
+	f := &fakeRunner{stdout: `{"Id":"` + imageID + `","RepoTags":["golang:1.26-bookworm"],"Os":"linux","Architecture":"amd64","Size":123456,"Config":{"Labels":{"org.probe.prepare.key":"abc"},"Env":["PATH=/usr/bin","GOLANG_VERSION=1.26"]},"RootFS":{"Type":"layers","Layers":["sha256:1","sha256:2"]}}` + "\n"}
 	img, found, err := InspectImage(context.Background(), f.run, "golang:1.26-bookworm")
 	if err != nil || !found {
 		t.Fatalf("found=%v err=%v", found, err)
 	}
-	want := Image{ID: imageID, OS: "linux", Architecture: "amd64", Size: 123456, Labels: map[string]string{"org.swiftproof.prepare.key": "abc"}, Layers: []string{"sha256:1", "sha256:2"}, Env: []string{"PATH=/usr/bin", "GOLANG_VERSION=1.26"}}
+	want := Image{ID: imageID, OS: "linux", Architecture: "amd64", Size: 123456, Labels: map[string]string{"org.probe.prepare.key": "abc"}, Layers: []string{"sha256:1", "sha256:2"}, Env: []string{"PATH=/usr/bin", "GOLANG_VERSION=1.26"}}
 	if !reflect.DeepEqual(img, want) {
 		t.Fatalf("got %+v\nwant %+v", img, want)
 	}
@@ -154,9 +154,9 @@ func TestDefaultRunnerRefusesInteractiveFlags(t *testing.T) {
 
 // TestDockerInspectAndInfo runs the real docker CLI; it starts no container.
 func TestDockerInspectAndInfo(t *testing.T) {
-	image := os.Getenv("SWIFTPROOF_TEST_DOCKER_IMAGE")
+	image := os.Getenv("PROBE_TEST_DOCKER_IMAGE")
 	if image == "" {
-		t.Skip("set SWIFTPROOF_TEST_DOCKER_IMAGE to a preloaded image")
+		t.Skip("set PROBE_TEST_DOCKER_IMAGE to a preloaded image")
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
@@ -168,7 +168,7 @@ func TestDockerInspectAndInfo(t *testing.T) {
 	if err != nil || !found || byID.ID != img.ID {
 		t.Fatalf("inspect by ID: %+v found=%v err=%v", byID, found, err)
 	}
-	_, found, err = InspectImage(ctx, DefaultRunner, "swiftproof-dockerutil-absent-image:never-built")
+	_, found, err = InspectImage(ctx, DefaultRunner, "probe-dockerutil-absent-image:never-built")
 	if err != nil || found {
 		t.Fatalf("absent image: found=%v err=%v", found, err)
 	}

@@ -3,8 +3,8 @@ package harness_test
 // TS/JS differential fuzzing (F2c) with real Docker: selection, rendering and
 // comparison from the fuzz package, run through Harness.RunObserved and
 // Harness.AddFuzzEvidence with the sandbox isolation profile and a real
-// Vitest or Jest run. Gated on SWIFTPROOF_TEST_TS_IMAGE (a preloaded image
-// with node, vitest, jest and ts-jest, for example swiftproof-ts-test:local).
+// Vitest or Jest run. Gated on PROBE_TEST_TS_IMAGE (a preloaded image
+// with node, vitest, jest and ts-jest, for example probe-ts-test:local).
 
 import (
 	"context"
@@ -17,9 +17,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gvinsot/SwiftProof/app/internal/fuzz"
-	"github.com/gvinsot/SwiftProof/app/internal/harness"
-	"github.com/gvinsot/SwiftProof/app/internal/model"
+	"github.com/gvinsot/Probe/app/internal/fuzz"
+	"github.com/gvinsot/Probe/app/internal/harness"
+	"github.com/gvinsot/Probe/app/internal/model"
 )
 
 const tsCartBase = `export function discount(total: number, percent: number): number {
@@ -144,9 +144,9 @@ func tsFuzzRun(t *testing.T, image string, template []string, project map[string
 // inconclusive. Four checks pass; the snapshots keep no harness file and no
 // container of the test remains.
 func TestDockerTSFuzzObservedRun(t *testing.T) {
-	image := os.Getenv("SWIFTPROOF_TEST_TS_IMAGE")
+	image := os.Getenv("PROBE_TEST_TS_IMAGE")
 	if image == "" {
-		t.Skip("set SWIFTPROOF_TEST_TS_IMAGE to a preloaded image with node, vitest, jest and ts-jest (for example swiftproof-ts-test:local)")
+		t.Skip("set PROBE_TEST_TS_IMAGE to a preloaded image with node, vitest, jest and ts-jest (for example probe-ts-test:local)")
 	}
 	variants := map[string]struct {
 		template []string
@@ -243,7 +243,7 @@ func TestDockerTSFuzzObservedRun(t *testing.T) {
 				t.Fatalf("%d source and %d stream artifacts", sources, streams)
 			}
 			for _, dir := range snaps {
-				if matches, _ := filepath.Glob(filepath.Join(dir, "web", "swiftproof-fuzz-*")); len(matches) != 0 {
+				if matches, _ := filepath.Glob(filepath.Join(dir, "web", "probe-fuzz-*")); len(matches) != 0 {
 					t.Fatalf("harness left behind: %v", matches)
 				}
 			}
@@ -257,9 +257,9 @@ func TestDockerTSFuzzObservedRun(t *testing.T) {
 // failure on trusted code (ERROR, exit 4), while the candidate run keeps
 // FAIL. Nothing is compared.
 func TestDockerTSFuzzHarnessSetupFailure(t *testing.T) {
-	image := os.Getenv("SWIFTPROOF_TEST_TS_IMAGE")
+	image := os.Getenv("PROBE_TEST_TS_IMAGE")
 	if image == "" {
-		t.Skip("set SWIFTPROOF_TEST_TS_IMAGE to a preloaded image with node, vitest, jest and ts-jest (for example swiftproof-ts-test:local)")
+		t.Skip("set PROBE_TEST_TS_IMAGE to a preloaded image with node, vitest, jest and ts-jest (for example probe-ts-test:local)")
 	}
 	h, rep, containers, _ := tsFuzzRun(t, image, []string{"jest", "{file}", "--json", "--outputFile={results_out}"}, map[string]string{"package.json": "{\"name\": \"cart\", \"private\": true}\n"})
 	checks := h.Checks()

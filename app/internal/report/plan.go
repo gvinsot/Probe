@@ -9,8 +9,8 @@ import (
 	"reflect"
 	"strings"
 
-	"github.com/gvinsot/SwiftProof/app/internal/model"
-	"github.com/gvinsot/SwiftProof/app/internal/plan"
+	"github.com/gvinsot/Probe/app/internal/model"
+	"github.com/gvinsot/Probe/app/internal/plan"
 )
 
 // Plan output file names, written next to the confidence report.
@@ -214,6 +214,6 @@ func renderPlanMarkdown(p *model.Plan) []byte {
 		fmt.Fprintf(&b, "- %s\n", inline(u))
 	}
 	line(&b, "\n"+inline(p.Note))
-	line(&b, "\nCheck the implementation against this plan with `swiftproof review --plan "+PlanJSONName+"`.")
+	line(&b, "\nCheck the implementation against this plan with `probe review --plan "+PlanJSONName+"`.")
 	return b.Bytes()
 }

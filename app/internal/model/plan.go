@@ -2,15 +2,15 @@ package model
 
 import "time"
 
-// Pre-change planning (swiftproof plan) and scope-drift control (review
-// --plan). A model proposes a plan without touching the repository; SwiftProof
+// Pre-change planning (probe plan) and scope-drift control (review
+// --plan). A model proposes a plan without touching the repository; Probe
 // evaluates the plan deterministically against the base commit, and a later
 // review compares the real diff with the plan's contract. The model never
 // judges risk: every category below is a fixed rule applied to the plan.
 
 // PlanFormat identifies a PLAN.json document; PlanVersion is its version.
 const (
-	PlanFormat  = "swiftproof-plan"
+	PlanFormat  = "probe-plan"
 	PlanVersion = 1
 )
 
@@ -76,12 +76,12 @@ var PlanSignalCategory = map[string]string{
 }
 
 // PlanNote is the fixed caveat of every plan document.
-const PlanNote = "The plan is a model's proposal, written without executing or modifying anything. SwiftProof did not verify that the plan implements the intent. The assessment applies fixed rules to the files, symbols and dependencies the plan names, at the base commit; it is not a prediction of what the implementation will do, and a plan that raises nothing is not proof that the change is safe. Use review --plan to check that the implementation stays within the plan."
+const PlanNote = "The plan is a model's proposal, written without executing or modifying anything. Probe did not verify that the plan implements the intent. The assessment applies fixed rules to the files, symbols and dependencies the plan names, at the base commit; it is not a prediction of what the implementation will do, and a plan that raises nothing is not proof that the change is safe. Use review --plan to check that the implementation stays within the plan."
 
 // PlanDriftNote is the fixed caveat of the plan_drift section of a report.
 const PlanDriftNote = "Scope drift compares the recorded diff with the files, symbols, dependency manifests and critical paths a plan declared. It checks that the change stays within what was announced, not that it implements the intent or that the plan was right."
 
-// Plan is the PLAN.json document written by swiftproof plan.
+// Plan is the PLAN.json document written by probe plan.
 type Plan struct {
 	Format       string         `json:"format"`
 	Version      int            `json:"version"`
@@ -102,7 +102,7 @@ type Plan struct {
 	ExitCode     int            `json:"exit_code"`
 }
 
-// PlanProposal is the model-written plan. It is untrusted data: SwiftProof
+// PlanProposal is the model-written plan. It is untrusted data: Probe
 // validates its shape and measures what it names, never what it claims.
 type PlanProposal struct {
 	Summary      string              `json:"summary"`
@@ -138,7 +138,7 @@ type PlannedDependency struct {
 	Version  string `json:"version,omitempty"`
 }
 
-// PlanAssessment is SwiftProof's deterministic evaluation of the proposal.
+// PlanAssessment is Probe's deterministic evaluation of the proposal.
 type PlanAssessment struct {
 	Major           bool                   `json:"major"`
 	Categories      []PlanCategory         `json:"categories"`

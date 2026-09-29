@@ -3,15 +3,15 @@ version: "3.9"
 # Docker Swarm stack deployed by PulsarCD behind the Traefik v3 edge (WAF,
 # security headers, rate limiting through global@file):
 #
-#   swiftproof-web  the promotional website        https://swiftproof.net
-#   swiftproof-app  the hub, i.e. the web app      https://app.swiftproof.net
+#   probe-web  the promotional website        https://probe.technology
+#   probe-app  the hub, i.e. the web app      https://app.probe.technology
 #
 # The CLI in app/ is not a service: it ships as GitHub release binaries and,
 # for the hub, inside the hub image that runs it.
 
 services:
-  swiftproof-web:
-    image: registry.methodinfo.fr/swiftproof-web:latest
+  probe-web:
+    image: registry.methodinfo.fr/probe-web:latest
     build:
       context: ../web
       dockerfile: Dockerfile
@@ -31,27 +31,27 @@ services:
       labels:
         - "traefik.enable=true"
         - "traefik.docker.network=proxy"
-        - "traefik.http.services.swiftproof-web.loadbalancer.server.port=80"
+        - "traefik.http.services.probe-web.loadbalancer.server.port=80"
 
         # HTTPS router
-        - "traefik.http.routers.swiftproof-web.rule=Host(`${SWIFTPROOF_WEB_DOMAIN:-swiftproof.net}`)"
-        - "traefik.http.routers.swiftproof-web.entrypoints=websecure"
-        - "traefik.http.routers.swiftproof-web.tls.certresolver=letsencrypt"
-        - "traefik.http.routers.swiftproof-web.middlewares=global@file"
+        - "traefik.http.routers.probe-web.rule=Host(`${PROBE_WEB_DOMAIN:-probe.technology}`)"
+        - "traefik.http.routers.probe-web.entrypoints=websecure"
+        - "traefik.http.routers.probe-web.tls.certresolver=letsencrypt"
+        - "traefik.http.routers.probe-web.middlewares=global@file"
 
         # HTTP -> HTTPS redirect
-        - "traefik.http.routers.swiftproof-web-http.rule=Host(`${SWIFTPROOF_WEB_DOMAIN:-swiftproof.net}`)"
-        - "traefik.http.routers.swiftproof-web-http.entrypoints=web"
-        - "traefik.http.routers.swiftproof-web-http.middlewares=redirect-to-https@file"
-        - "traefik.http.routers.swiftproof-web-http.service=noop@internal"
+        - "traefik.http.routers.probe-web-http.rule=Host(`${PROBE_WEB_DOMAIN:-probe.technology}`)"
+        - "traefik.http.routers.probe-web-http.entrypoints=web"
+        - "traefik.http.routers.probe-web-http.middlewares=redirect-to-https@file"
+        - "traefik.http.routers.probe-web-http.service=noop@internal"
 
   # The web application. One replica, because its state — sealed forge tokens,
   # tracked repositories and a bounded report history — lives in one volume.
   # Back that volume up, together with the session key (generated inside it
-  # when SWIFTPROOF_HUB_SESSION_KEY is unset): losing either makes every user
+  # when PROBE_HUB_SESSION_KEY is unset): losing either makes every user
   # sign in again and reinstall their webhooks.
-  swiftproof-app:
-    image: registry.methodinfo.fr/swiftproof-hub:latest
+  probe-app:
+    image: registry.methodinfo.fr/probe-hub:latest
     build:
       # The image needs both modules, so the context is the repository root.
       context: ..
@@ -61,37 +61,37 @@ services:
         # without it the UI would report them as "dev".
         VERSION: "${VERSION:-dev}"
     environment:
-      SWIFTPROOF_HUB_BASE_URL: "https://${SWIFTPROOF_APP_DOMAIN:-app.swiftproof.net}"
-      SWIFTPROOF_HUB_DATA_DIR: /var/lib/swiftproof-hub
-      # app.swiftproof.net is open to anybody who signs in, so it is a public
+      PROBE_HUB_BASE_URL: "https://${PROBE_APP_DOMAIN:-app.probe.technology}"
+      PROBE_HUB_DATA_DIR: /var/lib/probe-hub
+      # app.probe.technology is open to anybody who signs in, so it is a public
       # instance. Auto uses read-only AI review when a deployment LLM is
       # configured, otherwise lint. Neither mode executes repository code;
       # full review remains forbidden on this public instance.
-      SWIFTPROOF_HUB_INSTANCE: public
-      SWIFTPROOF_HUB_MODE: auto
-      SWIFTPROOF_REVIEWER_ENDPOINT: "${SWIFTPROOF_REVIEWER_ENDPOINT:-}"
-      SWIFTPROOF_REVIEWER_MODEL: "${SWIFTPROOF_REVIEWER_MODEL:-}"
+      PROBE_HUB_INSTANCE: public
+      PROBE_HUB_MODE: auto
+      PROBE_REVIEWER_ENDPOINT: "${PROBE_REVIEWER_ENDPOINT:-}"
+      PROBE_REVIEWER_MODEL: "${PROBE_REVIEWER_MODEL:-}"
       # PulsarCD mounts _KEY variables as secrets for the CLI to read.
-      SWIFTPROOF_API_KEY: "${SWIFTPROOF_API_KEY:-}"
-      SWIFTPROOF_REVIEWER_ALLOW_INSECURE_HTTP: "${SWIFTPROOF_REVIEWER_ALLOW_INSECURE_HTTP:-false}"
+      PROBE_API_KEY: "${PROBE_API_KEY:-}"
+      PROBE_REVIEWER_ALLOW_INSECURE_HTTP: "${PROBE_REVIEWER_ALLOW_INSECURE_HTTP:-false}"
       # One analysis at a time: each read-only review holds a long session with
       # the reviewer endpoint, and a shared model slows down for every parallel
       # session. Raise it only when the endpoint can serve several reviews.
-      SWIFTPROOF_HUB_WORKERS: "${SWIFTPROOF_HUB_WORKERS:-1}"
+      PROBE_HUB_WORKERS: "${PROBE_HUB_WORKERS:-1}"
       # One account cannot hold more than this many queued or running analyses,
       # and one webhook routing key is accepted this many times per minute.
-      SWIFTPROOF_HUB_USER_QUOTA: "${SWIFTPROOF_HUB_USER_QUOTA:-8}"
-      SWIFTPROOF_HUB_HOOK_RATE: "${SWIFTPROOF_HUB_HOOK_RATE:-30}"
-      SWIFTPROOF_HUB_DEFAULT_BRANCH_ONLY: "${SWIFTPROOF_HUB_DEFAULT_BRANCH_ONLY:-false}"
+      PROBE_HUB_USER_QUOTA: "${PROBE_HUB_USER_QUOTA:-8}"
+      PROBE_HUB_HOOK_RATE: "${PROBE_HUB_HOOK_RATE:-30}"
+      PROBE_HUB_DEFAULT_BRANCH_ONLY: "${PROBE_HUB_DEFAULT_BRANCH_ONLY:-false}"
       # Serve the application even before an OAuth app exists: the sign-in page
       # then states that no forge is configured, instead of the task crash
       # looping and the domain answering 502.
-      SWIFTPROOF_HUB_ALLOW_NO_FORGE: "${SWIFTPROOF_HUB_ALLOW_NO_FORGE:-true}"
-      SWIFTPROOF_HUB_GITHUB_CLIENT_ID: "${SWIFTPROOF_HUB_GITHUB_CLIENT_ID:-}"
-      SWIFTPROOF_HUB_GITHUB_URL: "${SWIFTPROOF_HUB_GITHUB_URL:-https://github.com}"
-      SWIFTPROOF_HUB_GITHUB_API_URL: "${SWIFTPROOF_HUB_GITHUB_API_URL:-https://api.github.com}"
-      SWIFTPROOF_HUB_GITLAB_CLIENT_ID: "${SWIFTPROOF_HUB_GITLAB_CLIENT_ID:-}"
-      SWIFTPROOF_HUB_GITLAB_URL: "${SWIFTPROOF_HUB_GITLAB_URL:-https://gitlab.com}"
+      PROBE_HUB_ALLOW_NO_FORGE: "${PROBE_HUB_ALLOW_NO_FORGE:-true}"
+      PROBE_HUB_GITHUB_CLIENT_ID: "${PROBE_HUB_GITHUB_CLIENT_ID:-}"
+      PROBE_HUB_GITHUB_URL: "${PROBE_HUB_GITHUB_URL:-https://github.com}"
+      PROBE_HUB_GITHUB_API_URL: "${PROBE_HUB_GITHUB_API_URL:-https://api.github.com}"
+      PROBE_HUB_GITLAB_CLIENT_ID: "${PROBE_HUB_GITLAB_CLIENT_ID:-}"
+      PROBE_HUB_GITLAB_URL: "${PROBE_HUB_GITLAB_URL:-https://gitlab.com}"
       # As written, this file passes the client secrets and the session key as
       # plain environment variables: they are visible to `docker service
       # inspect` and to anything reading the container environment. This file
@@ -104,18 +104,18 @@ services:
       # The session key seals every user's forge token at rest. Losing it
       # signs everybody out and breaks every installed webhook: back it up
       # with the volume. To rotate, move the current value to
-      # SWIFTPROOF_HUB_SESSION_KEY_PREVIOUS, set a new key and redeploy; the
+      # PROBE_HUB_SESSION_KEY_PREVIOUS, set a new key and redeploy; the
       # hub reseals the stored credentials at start-up (see hub/README.md).
-      SWIFTPROOF_HUB_GITHUB_CLIENT_SECRET: "${SWIFTPROOF_HUB_GITHUB_CLIENT_SECRET:-}"
-      SWIFTPROOF_HUB_GITLAB_CLIENT_SECRET: "${SWIFTPROOF_HUB_GITLAB_CLIENT_SECRET:-}"
-      SWIFTPROOF_HUB_SESSION_KEY: "${SWIFTPROOF_HUB_SESSION_KEY:-}"
-      SWIFTPROOF_HUB_SESSION_KEY_PREVIOUS: "${SWIFTPROOF_HUB_SESSION_KEY_PREVIOUS:-}"
+      PROBE_HUB_GITHUB_CLIENT_SECRET: "${PROBE_HUB_GITHUB_CLIENT_SECRET:-}"
+      PROBE_HUB_GITLAB_CLIENT_SECRET: "${PROBE_HUB_GITLAB_CLIENT_SECRET:-}"
+      PROBE_HUB_SESSION_KEY: "${PROBE_HUB_SESSION_KEY:-}"
+      PROBE_HUB_SESSION_KEY_PREVIOUS: "${PROBE_HUB_SESSION_KEY_PREVIOUS:-}"
     volumes:
-      - swiftproof-hub-data:/var/lib/swiftproof-hub
+      - probe-hub-data:/var/lib/probe-hub
     networks:
       - proxy
       # Reaches the cluster LLM services for read-only AI review, e.g.
-      # SWIFTPROOF_REVIEWER_ENDPOINT=http://vllm-dev-service:8000/v1.
+      # PROBE_REVIEWER_ENDPOINT=http://vllm-dev-service:8000/v1.
       - llm-net
     deploy:
       mode: replicated
@@ -132,7 +132,7 @@ services:
       labels:
         - "traefik.enable=true"
         - "traefik.docker.network=proxy"
-        - "traefik.http.services.swiftproof-app.loadbalancer.server.port=8080"
+        - "traefik.http.services.probe-app.loadbalancer.server.port=8080"
 
         # The webhook URL carries the installation token in its query
         # (/hooks/<key>?token=...): GitHub cannot send a custom header. The
@@ -141,10 +141,10 @@ services:
         # accesslog.fields.queryparameters.defaultmode=drop). This is static
         # edge configuration; labels cannot set it.
         # HTTPS router
-        - "traefik.http.routers.swiftproof-app.rule=Host(`${SWIFTPROOF_APP_DOMAIN:-app.swiftproof.net}`)"
-        - "traefik.http.routers.swiftproof-app.entrypoints=websecure"
-        - "traefik.http.routers.swiftproof-app.tls.certresolver=letsencrypt"
-        - "traefik.http.routers.swiftproof-app.middlewares=global@file"
+        - "traefik.http.routers.probe-app.rule=Host(`${PROBE_APP_DOMAIN:-app.probe.technology}`)"
+        - "traefik.http.routers.probe-app.entrypoints=websecure"
+        - "traefik.http.routers.probe-app.tls.certresolver=letsencrypt"
+        - "traefik.http.routers.probe-app.middlewares=global@file"
 
         # OAuth callback router, without the WAF. GitHub appends the RFC 9207
         # issuer to the callback (iss=https://github.com/login/oauth), and the
@@ -152,21 +152,21 @@ services:
         # ended on a bare 403 before reaching the hub. The hub authenticates
         # this request itself (signed state pinned to a cookie, single-use
         # code); it keeps the edge headers and rate limit.
-        - "traefik.http.routers.swiftproof-app-oauth.rule=Host(`${SWIFTPROOF_APP_DOMAIN:-app.swiftproof.net}`) && (Path(`/auth/github/callback`) || Path(`/auth/gitlab/callback`))"
-        - "traefik.http.routers.swiftproof-app-oauth.priority=1000"
-        - "traefik.http.routers.swiftproof-app-oauth.entrypoints=websecure"
-        - "traefik.http.routers.swiftproof-app-oauth.tls.certresolver=letsencrypt"
-        - "traefik.http.routers.swiftproof-app-oauth.service=swiftproof-app"
-        - "traefik.http.routers.swiftproof-app-oauth.middlewares=security-headers@file,rate-limit@file"
+        - "traefik.http.routers.probe-app-oauth.rule=Host(`${PROBE_APP_DOMAIN:-app.probe.technology}`) && (Path(`/auth/github/callback`) || Path(`/auth/gitlab/callback`))"
+        - "traefik.http.routers.probe-app-oauth.priority=1000"
+        - "traefik.http.routers.probe-app-oauth.entrypoints=websecure"
+        - "traefik.http.routers.probe-app-oauth.tls.certresolver=letsencrypt"
+        - "traefik.http.routers.probe-app-oauth.service=probe-app"
+        - "traefik.http.routers.probe-app-oauth.middlewares=security-headers@file,rate-limit@file"
 
         # HTTP -> HTTPS redirect
-        - "traefik.http.routers.swiftproof-app-http.rule=Host(`${SWIFTPROOF_APP_DOMAIN:-app.swiftproof.net}`)"
-        - "traefik.http.routers.swiftproof-app-http.entrypoints=web"
-        - "traefik.http.routers.swiftproof-app-http.middlewares=redirect-to-https@file"
-        - "traefik.http.routers.swiftproof-app-http.service=noop@internal"
+        - "traefik.http.routers.probe-app-http.rule=Host(`${PROBE_APP_DOMAIN:-app.probe.technology}`)"
+        - "traefik.http.routers.probe-app-http.entrypoints=web"
+        - "traefik.http.routers.probe-app-http.middlewares=redirect-to-https@file"
+        - "traefik.http.routers.probe-app-http.service=noop@internal"
 
 volumes:
-  swiftproof-hub-data:
+  probe-hub-data:
 
 networks:
   proxy:

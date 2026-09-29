@@ -29,7 +29,7 @@ import (
 
 // PreimageSchema names the key preimage format. Changing any field of
 // Preimage, or its meaning, requires a new schema name.
-const PreimageSchema = "swiftproof-execcache/v1"
+const PreimageSchema = "probe-execcache/v1"
 
 // maxAdded bounds the files a caller may add to the baseline tree of one
 // cacheable run (staged tests, harness files). A run with more is uncacheable.

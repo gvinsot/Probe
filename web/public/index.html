@@ -3,21 +3,22 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>SwiftProof — Review AI-assisted pull requests with evidence</title>
-  <meta name="description" content="SwiftProof maps Git changes to risk signals, runs isolated checks and adversarial tests, and produces a focused review plan with traceable evidence. Open source, works without an AI provider.">
-  <meta property="og:title" content="SwiftProof — Spend review time on the changes that need your judgment">
+  <title>Probe — Review AI-assisted pull requests with evidence</title>
+  <meta name="description" content="Probe maps Git changes to risk signals, runs isolated checks and adversarial tests, and produces a focused review plan with traceable evidence. Open source, works without an AI provider.">
+  <meta property="og:title" content="Probe — Spend review time on the changes that need your judgment">
   <meta property="og:description" content="A Go CLI that turns an AI-assisted pull request in Go, TypeScript, Python or Rust into a focused, evidence-backed review plan.">
   <meta property="og:type" content="website">
-  <link rel="icon" href="favicon.svg" type="image/svg+xml">
+  <meta property="og:image" content="https://probe.technology/title.jpeg">
+  <link rel="icon" href="logo.jpeg" type="image/jpeg">
+  <link rel="apple-touch-icon" href="logo.jpeg">
   <link rel="stylesheet" href="styles.css">
   <script src="site.js" defer></script>
 </head>
 <body>
   <header class="nav">
     <div class="wrap nav-inner">
-      <a class="brand" href="./" aria-label="SwiftProof home">
-        <img src="favicon.svg" alt="" width="28" height="28">
-        <span>SwiftProof</span>
+      <a class="brand" href="./" aria-label="Probe home">
+        <img class="brand-title" src="title.jpeg" alt="Probe" width="87" height="32">
       </a>
       <nav aria-label="Main">
         <a href="index.html#process">Process</a>
@@ -25,7 +26,7 @@
         <a href="index.html#hub">Docker</a>
         <a href="download.html">Download</a>
         <a href="docs.html">Docs</a>
-        <a class="btn btn-small" href="https://app.swiftproof.net">Login</a>
+        <a class="btn btn-small" href="https://app.probe.technology">Login</a>
       </nav>
     </div>
   </header>
@@ -36,9 +37,9 @@
         <div>
           <p class="eyebrow">Open-source CLI · Windows, Linux, macOS</p>
           <h1>Spend review time on the changes that need your judgment.</h1>
-          <p class="lead">AI assistants write large pull requests fast. SwiftProof tells you which lines to read first: it maps the diff to risk signals, runs your checks in disposable containers, tries to reproduce issues with differential tests, and hands you a focused review plan with traceable evidence.</p>
+          <p class="lead">AI assistants write large pull requests fast. Probe tells you which lines to read first: it maps the diff to risk signals, runs your checks in disposable containers, tries to reproduce issues with differential tests, and hands you a focused review plan with traceable evidence.</p>
           <div class="cta">
-            <a class="btn" href="download.html" data-download-latest>Download SwiftProof</a>
+            <a class="btn" href="download.html" data-download-latest>Download Probe</a>
             <a class="btn btn-ghost" href="getting-started.html">Try it in 2 minutes</a>
           </div>
           <p class="note">Latest <a href="download.html"><span data-version>v0.3.9</span></a> · Works without an AI provider · <a href="#process">Plan first, review less</a>.</p>
@@ -50,11 +51,11 @@
       <div class="wrap">
         <span class="kicker">The process</span>
         <h2>Know the impact before the code exists. Review only what needs you.</h2>
-        <p class="lead" style="max-width:820px">AI-written code gets predictable when the agent announces its work first. SwiftProof measures the risk of the plan <strong>before</strong> any code is written, then checks that the change did exactly what was announced. A change that follows a low-risk plan and passes its checks can merge without a human reading the diff; everything else goes to review, with the reasons.</p>
+        <p class="lead" style="max-width:820px">AI-written code gets predictable when the agent announces its work first. Probe measures the risk of the plan <strong>before</strong> any code is written, then checks that the change did exactly what was announced. A change that follows a low-risk plan and passes its checks can merge without a human reading the diff; everything else goes to review, with the reasons.</p>
         <ol class="steps">
           <li>
             <h3>Plan and check the intent</h3>
-            <p><code>swiftproof plan</code> has the agent simulate the change read-only. Fixed rules, not the model, flag critical paths, public API and dependency changes, widely used or untested code. A flagged plan goes to a human before any code is written.</p>
+            <p><code>probe plan</code> has the agent simulate the change read-only. Fixed rules, not the model, flag critical paths, public API and dependency changes, widely used or untested code. A flagged plan goes to a human before any code is written.</p>
           </li>
           <li>
             <h3>An agent codes the plan</h3>
@@ -62,7 +63,7 @@
           </li>
           <li>
             <h3>Check conformance</h3>
-            <p><code>swiftproof review --plan</code> re-assesses the plan, runs the checks in the sandbox and compares the diff with the contract: every unplanned file, unannounced API change, critical path or dependency is reported.</p>
+            <p><code>probe review --plan</code> re-assesses the plan, runs the checks in the sandbox and compares the diff with the contract: every unplanned file, unannounced API change, critical path or dependency is reported.</p>
           </li>
           <li>
             <h3>Merge, or review</h3>
@@ -89,10 +90,10 @@
         </div>
         <div class="code" style="margin-top:28px">
 <pre><code><span class="c"># 1. before coding: plan, and let a human validate a flagged plan</span>
-swiftproof plan --intent-file task.md --ci
-<span class="c"># 2. the agent implements .swiftproof/PLAN.json</span>
+probe plan --intent-file task.md --ci
+<span class="c"># 2. the agent implements .probe/PLAN.json</span>
 <span class="c"># 3-4. in CI: conformance, checks and the gate (exit 0 = merge, 2 = review)</span>
-swiftproof review --base origin/main --plan .swiftproof/PLAN.json --ci
+probe review --base origin/main --plan .probe/PLAN.json --ci
 <span class="o">Plan conformance: conforming; 0 high, 0 medium, 0 low differences from the plan.
 Plan gate: no human review required (low-risk plan, conforming change, checks passed, nothing else requests review).</span></code></pre>
         </div>
@@ -102,7 +103,7 @@ Plan gate: no human review required (low-risk plan, conforming change, checks pa
 
     <section class="band">
       <div class="wrap">
-        <p class="pull">Tests, vet, build and coverage all passed on this change. It also dropped the refund amount validation and let the support role issue refunds. <span>SwiftProof put both at the top of the review plan, among 19 flagged lines out of 125.</span></p>
+        <p class="pull">Tests, vet, build and coverage all passed on this change. It also dropped the refund amount validation and let the support role issue refunds. <span>Probe put both at the top of the review plan, among 19 flagged lines out of 125.</span></p>
       </div>
     </section>
 
@@ -110,10 +111,10 @@ Plan gate: no human review required (low-risk plan, conforming change, checks pa
       <div class="wrap">
         <span class="kicker">Why it saves time</span>
         <h2>Stop reading AI-generated diffs top to bottom.</h2>
-        <p class="lead" style="max-width:760px">The expensive part of reviewing an AI-assisted pull request is not the risky lines. It is finding them among the helpers, tests and docs around them, then working out whether a suspicion is real. SwiftProof does that sorting and gathers the evidence before you open the diff.</p>
+        <p class="lead" style="max-width:760px">The expensive part of reviewing an AI-assisted pull request is not the risky lines. It is finding them among the helpers, tests and docs around them, then working out whether a suspicion is real. Probe does that sorting and gathers the evidence before you open the diff.</p>
         <div class="compare">
           <div>
-            <h3>Without SwiftProof <span class="tag">every line, same attention</span></h3>
+            <h3>Without Probe <span class="tag">every line, same attention</span></h3>
             <ol>
               <li>Check out the branch and run tests, vet and build by hand.</li>
               <li>Read 125 changed lines in file order, helpers first.</li>
@@ -123,7 +124,7 @@ Plan gate: no human review required (low-risk plan, conforming change, checks pa
             </ol>
           </div>
           <div class="with">
-            <h3>With SwiftProof <span class="tag">risk first, evidence attached</span></h3>
+            <h3>With Probe <span class="tag">risk first, evidence attached</span></h3>
             <ol>
               <li>Checks already ran in an isolated container, with logs and hashes.</li>
               <li>Open the report: 19 flagged lines, ranked by severity, with reasons.</li>
@@ -154,10 +155,10 @@ Plan gate: no human review required (low-risk plan, conforming change, checks pa
       <div class="wrap">
         <span class="kicker">Example report</span>
         <h2>What you open instead of the raw diff</h2>
-        <p class="lead" style="max-width:760px">Excerpt of <code>.swiftproof/CONFIDENCE_REPORT.md</code>, produced by <code>swiftproof review HEAD~1..HEAD --reviewer=false --ci</code> (v0.3.0) on a small shop repository. The commit added catalog helpers with tests, reworked refunds and touched authorization. No AI provider was used.</p>
+        <p class="lead" style="max-width:760px">Excerpt of <code>.probe/CONFIDENCE_REPORT.md</code>, produced by <code>probe review HEAD~1..HEAD --reviewer=false --ci</code> (v0.3.0) on a small shop repository. The commit added catalog helpers with tests, reworked refunds and touched authorization. No AI provider was used.</p>
         <div class="annotated">
           <figure class="report" aria-label="Generated confidence report">
-            <figcaption><span class="dot"></span><span class="dot"></span><span class="dot"></span> .swiftproof/CONFIDENCE_REPORT.md</figcaption>
+            <figcaption><span class="dot"></span><span class="dot"></span><span class="dot"></span> .probe/CONFIDENCE_REPORT.md</figcaption>
 <pre><code><span class="h">## Change Summary</span>
 120 additions / 5 deletions · 5 files changed
 Exit code: 2. No confidence percentage is assigned.
@@ -199,7 +200,7 @@ instrumented block.</code></pre>
             <li><strong>Evidence, not opinions.</strong> A reproduced issue needs a test that passes on the base and fails on the candidate. Without an AI provider nothing is claimed here, and the report says so.</li>
             <li><strong>Your reading order.</strong> High signals first: an authorization rule and a refund path changed, and a validation call was removed with no nearby test change. That is where the bug is.</li>
             <li><strong>The size of the job.</strong> 19 of 125 changed lines carry a signal. Read those first, then decide how much of the rest deserves attention.</li>
-            <li><strong>An observation, not a proof.</strong> The new refund code ran during the tests, yet no test asserts the amount check. SwiftProof reports execution but never presents it as proof that the code is tested.</li>
+            <li><strong>An observation, not a proof.</strong> The new refund code ran during the tests, yet no test asserts the amount check. Probe reports execution but never presents it as proof that the code is tested.</li>
           </ol>
         </div>
       </div>
@@ -238,14 +239,14 @@ instrumented block.</code></pre>
         </div>
         <div class="code">
 <pre><code><span class="c"># try it: compare with the previous commit</span>
-swiftproof lint HEAD~1..HEAD
+probe lint HEAD~1..HEAD
 
 <span class="c"># adopt it: once, in your repository</span>
-swiftproof init
-git add .swiftproof.json &amp;&amp; git commit -m "Add review policy"
+probe init
+git add .probe.json &amp;&amp; git commit -m "Add review policy"
 
 <span class="c"># on every pull request</span>
-swiftproof review --base main --ci</code></pre>
+probe review --base main --ci</code></pre>
         </div>
       </div>
     </section>
@@ -254,24 +255,24 @@ swiftproof review --base main --ci</code></pre>
       <div class="wrap two-col">
         <div>
           <span class="kicker">Docker</span>
-          <h2>Or run it for a whole account: SwiftProof&nbsp;Hub</h2>
-          <p>The hub is the companion Docker image. Run one container, sign in with GitHub or GitLab, and every repository still missing a <code>.swiftproof.json</code> gets a policy proposed in one click, previewed before it is committed to the default branch.</p>
+          <h2>Or run it for a whole account: Probe&nbsp;Hub</h2>
+          <p>The hub is the companion Docker image. Run one container, sign in with GitHub or GitLab, and every repository still missing a <code>.probe.json</code> gets a policy proposed in one click, previewed before it is committed to the default branch.</p>
           <p>Repositories that have a policy can be watched: each new commit is analyzed and its report opens on its own. A severity slider filters the alerts from low to critical, and clicking one unfolds every modification it concerns, with the flagged lines highlighted in the diff.</p>
           <p>One Docker container, no database, no external service — so a company can deploy it internally against its own GitHub Enterprise or GitLab instance. In its default mode it never executes the analyzed code.</p>
           <div class="cta">
-            <a class="btn" href="https://app.swiftproof.net">Open the web app</a>
-            <a class="btn btn-ghost" href="https://github.com/gvinsot/SwiftProof/blob/main/hub/README.md">Deploy your own</a>
+            <a class="btn" href="https://app.probe.technology">Open the web app</a>
+            <a class="btn btn-ghost" href="https://github.com/gvinsot/Probe/blob/main/hub/README.md">Deploy your own</a>
           </div>
-          <p class="note">Hosted at <a href="https://app.swiftproof.net">app.swiftproof.net</a> — the same image you can run on your own network.</p>
+          <p class="note">Hosted at <a href="https://app.probe.technology">app.probe.technology</a> — the same image you can run on your own network.</p>
         </div>
-        <div class="code" aria-label="Running the SwiftProof Hub container">
+        <div class="code" aria-label="Running the Probe Hub container">
 <pre><code><span class="c"># one container, on your own network</span>
 <span class="p">$ </span>docker run -p 8080:8080 \
-    -e SWIFTPROOF_HUB_BASE_URL=https://hub.example.com \
-    -e SWIFTPROOF_HUB_GITHUB_CLIENT_ID=... \
-    -e SWIFTPROOF_HUB_GITHUB_CLIENT_SECRET=... \
-    -v hub-data:/var/lib/swiftproof-hub \
-    gvinsot/swiftproof-hub
+    -e PROBE_HUB_BASE_URL=https://hub.example.com \
+    -e PROBE_HUB_GITHUB_CLIENT_ID=... \
+    -e PROBE_HUB_GITHUB_CLIENT_SECRET=... \
+    -v hub-data:/var/lib/probe-hub \
+    gvinsot/probe-hub
 
 <span class="o">Sign in · bootstrap the missing policies · watch pushes
 Reports open by themselves, filtered by severity.</span></code></pre>
@@ -305,7 +306,7 @@ Reports open by themselves, filtered by severity.</span></code></pre>
           </article>
           <article class="card">
             <h3>Plan, then check the scope</h3>
-            <p><code>swiftproof plan</code> assesses an agent's plan before any code exists; <code>--plan</code> then flags every file or exported API the change touched without announcing it.</p>
+            <p><code>probe plan</code> assesses an agent's plan before any code exists; <code>--plan</code> then flags every file or exported API the change touched without announcing it.</p>
           </article>
           <article class="card">
             <h3>Bounded AI reviewer</h3>
@@ -326,8 +327,8 @@ Reports open by themselves, filtered by severity.</span></code></pre>
     <section id="honesty" class="section alt">
       <div class="wrap two-col">
         <div>
-          <h2>What SwiftProof does not claim</h2>
-          <p>A review tool earns trust by being precise about its limits. SwiftProof assigns no confidence percentages and never approves a pull request on a model's word. It lifts human review only through the plan gate, when a low-risk plan was followed and every automated check came back clean.</p>
+          <h2>What Probe does not claim</h2>
+          <p>A review tool earns trust by being precise about its limits. Probe assigns no confidence percentages and never approves a pull request on a model's word. It lifts human review only through the plan gate, when a low-risk plan was followed and every automated check came back clean.</p>
         </div>
         <ul class="checks">
           <li>Signals are reasons to investigate, not confirmed bugs.</li>
@@ -345,7 +346,7 @@ Reports open by themselves, filtered by severity.</span></code></pre>
         <h2>Put your review time where it matters.</h2>
         <p class="lead">Single static binary. AGPL-3.0 licensed. Git required; Docker only to execute repository code.</p>
         <div class="cta center">
-          <a class="btn" href="download.html" data-download-latest>Get SwiftProof</a>
+          <a class="btn" href="download.html" data-download-latest>Get Probe</a>
           <a class="btn btn-ghost" href="docs.html">Read the reference</a>
         </div>
       </div>
@@ -354,8 +355,8 @@ Reports open by themselves, filtered by severity.</span></code></pre>
 
   <footer class="footer">
     <div class="wrap footer-inner">
-      <span>© SwiftProof contributors · AGPL-3.0 License</span>
-      <span><a href="getting-started.html">Getting started</a> · <a href="index.html#hub">Docker</a> · <a href="https://app.swiftproof.net">Web app</a> · <a href="download.html">Download</a> · <a href="docs.html">Docs</a></span>
+      <span>© Probe contributors · AGPL-3.0 License</span>
+      <span><a href="getting-started.html">Getting started</a> · <a href="index.html#hub">Docker</a> · <a href="https://app.probe.technology">Web app</a> · <a href="download.html">Download</a> · <a href="docs.html">Docs</a></span>
     </div>
   </footer>
 </body>

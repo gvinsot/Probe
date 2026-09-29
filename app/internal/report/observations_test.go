@@ -6,13 +6,13 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/gvinsot/SwiftProof/app/internal/model"
-	"github.com/gvinsot/SwiftProof/app/internal/observe"
-	"github.com/gvinsot/SwiftProof/app/internal/redact"
+	"github.com/gvinsot/Probe/app/internal/model"
+	"github.com/gvinsot/Probe/app/internal/observe"
+	"github.com/gvinsot/Probe/app/internal/redact"
 )
 
 const (
-	obsTest = "TestSwiftProofObserve"
+	obsTest = "TestProbeObserve"
 	obsPath = "pkg/obs_test.go"
 )
 
@@ -24,7 +24,7 @@ func obsLog(action string, pairs ...string) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, `{"Action":"run","Package":"example.com/m/pkg","Test":%q}`+"\n", obsTest)
 	for i := 0; i+1 < len(pairs); i += 2 {
-		line, _ := json.Marshal(map[string]string{"Action": "attr", "Package": "example.com/m/pkg", "Test": obsTest, "Key": "swiftproof." + pairs[i], "Value": pairs[i+1]})
+		line, _ := json.Marshal(map[string]string{"Action": "attr", "Package": "example.com/m/pkg", "Test": obsTest, "Key": "probe." + pairs[i], "Value": pairs[i+1]})
 		b.Write(line)
 		b.WriteByte('\n')
 	}
@@ -89,7 +89,7 @@ func TestObservationDivergenceIsVerifiedAndListed(t *testing.T) {
 	md := string(Markdown(r))
 	body := section(t, md, "## Behavior Divergences")
 	for _, want := range []string{
-		"- **evidence-2** differential\\_observation — price.go:3 (model-chosen location); test pkg/obs\\_test.go (TestSwiftProofObserve); hypotheses: h1\n",
+		"- **evidence-2** differential\\_observation — price.go:3 (model-chosen location); test pkg/obs\\_test.go (TestProbeObserve); hypotheses: h1\n",
 		"  - Discount\\(5,33\\): baseline 4; candidate 3\n",
 		inline(model.DivergenceNote),
 	} {
@@ -156,7 +156,7 @@ func TestObservationTamperingFallsBackToUnverified(t *testing.T) {
 			}
 		},
 		"attr line altered by redaction": func(r *model.Report) {
-			r.Checks[1].Output += `{"Action":"attr","Test":"` + obsTest + `","Key":"swiftproof.x","Value":"[REDACTED]` + "\n"
+			r.Checks[1].Output += `{"Action":"attr","Test":"` + obsTest + `","Key":"probe.x","Value":"[REDACTED]` + "\n"
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -325,7 +325,7 @@ func TestObservationRoundTripWithSecretShapedValues(t *testing.T) {
 	// A JSON escape hides this value from log redaction; decoded, it is a value
 	// redaction would alter ("sk-abcdefghijklmnop0" or "...1").
 	escaped := func(suffix string) string {
-		return `{"Action":"attr","Package":"example.com/m/pkg","Test":"` + obsTest + `","Key":"swiftproof.Escaped()","Value":"sk-abcdefghijklmnop` + suffix + `"}` + "\n"
+		return `{"Action":"attr","Package":"example.com/m/pkg","Test":"` + obsTest + `","Key":"probe.Escaped()","Value":"sk-abcdefghijklmnop` + suffix + `"}` + "\n"
 	}
 	for i, value := range []string{"4", "3", "4"} {
 		side := 0
@@ -402,9 +402,9 @@ func TestObservationLongValuesCompareInFull(t *testing.T) {
 
 func TestVitestObservationVerification(t *testing.T) {
 	const title, path = "observe total", "src/obs.test.ts"
-	command := []string{"npx", "--no", "vitest", "run", path, "--reporter=json", "--outputFile=/tmp/swiftproof-test-results.json"}
+	command := []string{"npx", "--no", "vitest", "run", path, "--reporter=json", "--outputFile=/tmp/probe-test-results.json"}
 	results := func(meta string) string {
-		return `{"testResults":[{"name":"/workspace/` + path + `","status":"passed","assertionResults":[{"ancestorTitles":[],"title":"` + title + `","status":"passed","meta":{"swiftproof":` + meta + `}}]}]}`
+		return `{"testResults":[{"name":"/workspace/` + path + `","status":"passed","assertionResults":[{"ancestorTitles":[],"title":"` + title + `","status":"passed","meta":{"probe":` + meta + `}}]}]}`
 	}
 	check := func(id, kind, meta string) model.Check {
 		return model.Check{ID: id, Kind: kind, Status: "PASS", Command: command, Results: results(meta)}
@@ -423,7 +423,7 @@ func TestVitestObservationVerification(t *testing.T) {
 		t.Fatalf("status %s, divergences %+v", r.Hypotheses[0].Status, r.Divergences)
 	}
 	// A meta that is not an object of strings is a channel error.
-	r.Checks[1].Results = results(`"swiftproof: observations were not a key/value object"`)
+	r.Checks[1].Results = results(`"probe: observations were not a key/value object"`)
 	Finalize(r, true)
 	if r.Hypotheses[0].Status != model.StatusUnverified || len(r.Divergences) != 0 {
 		t.Fatalf("a marker meta diverged: %s", r.Hypotheses[0].Status)
@@ -450,7 +450,7 @@ func TestObservationFinalizeIsIdempotent(t *testing.T) {
 func lineLimitLog(key, value string) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, `{"Action":"run","Package":"example.com/m/pkg","Test":%q}`+"\n", obsTest)
-	for _, chunk := range []string{"\x16=== ATTR  " + obsTest + " swiftproof." + key + " " + value[:len(value)/2], value[len(value)/2:] + "\n"} {
+	for _, chunk := range []string{"\x16=== ATTR  " + obsTest + " probe." + key + " " + value[:len(value)/2], value[len(value)/2:] + "\n"} {
 		line, _ := json.Marshal(map[string]string{"Action": "output", "Package": "example.com/m/pkg", "Test": obsTest, "Output": chunk})
 		b.Write(line)
 		b.WriteByte('\n')
@@ -467,9 +467,9 @@ func TestUnknownEqualityWithdrawsNotReproduced(t *testing.T) {
 	claim := model.Hypothesis{ID: "h2", Title: "Label unchanged", Severity: "high", Status: "NOT_REPRODUCED", Rationale: "passes on both", EvidenceIDs: []string{"evidence-1"}, Path: "price.go", Line: 3}
 	const title, path = "observe total", "src/obs.test.ts"
 	vitest := func(r *model.Report, base, candidate string) {
-		command := []string{"npx", "--no", "vitest", "run", path, "--reporter=json", "--outputFile=/tmp/swiftproof-test-results.json"}
+		command := []string{"npx", "--no", "vitest", "run", path, "--reporter=json", "--outputFile=/tmp/probe-test-results.json"}
 		results := func(meta string) string {
-			return `{"testResults":[{"name":"/workspace/` + path + `","status":"passed","assertionResults":[{"ancestorTitles":[],"title":"` + title + `","status":"passed","meta":{"swiftproof":` + meta + `}}]}]}`
+			return `{"testResults":[{"name":"/workspace/` + path + `","status":"passed","assertionResults":[{"ancestorTitles":[],"title":"` + title + `","status":"passed","meta":{"probe":` + meta + `}}]}]}`
 		}
 		r.Checks = []model.Check{
 			{ID: "check-1", Kind: model.CheckGeneratedBase, Status: "PASS", Command: command, Results: results(base)},
@@ -479,7 +479,7 @@ func TestUnknownEqualityWithdrawsNotReproduced(t *testing.T) {
 		r.Evidence[0].Runner, r.Evidence[0].Path, r.Evidence[0].TestNames = "jest_json", path, []string{title}
 	}
 	standIn := func(text string) string { b, _ := json.Marshal(observe.Oversized(text)); return string(b) }
-	notObject := `"swiftproof: observations were not a key/value object"`
+	notObject := `"probe: observations were not a key/value object"`
 	for _, tc := range []struct {
 		name   string
 		mutate func(*model.Report)
@@ -508,7 +508,7 @@ func TestUnknownEqualityWithdrawsNotReproduced(t *testing.T) {
 		}, model.StatusUnverified},
 		{"attr line that no longer parses", func(r *model.Report) {
 			r.Checks[1] = obsCheck("check-2", model.CheckGeneratedCandidate, "Discount(100,10)", "90", "Discount(5,33)", "4")
-			r.Checks[1].Output += `{"Action":"attr","Test":"` + obsTest + `","Key":"swiftproof.x","Value":"[REDACTED]` + "\n"
+			r.Checks[1].Output += `{"Action":"attr","Test":"` + obsTest + `","Key":"probe.x","Value":"[REDACTED]` + "\n"
 			r.Checks = r.Checks[:2]
 			r.Evidence = r.Evidence[:1]
 		}, model.StatusUnverified},

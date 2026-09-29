@@ -14,36 +14,36 @@ import (
 	"strings"
 	"time"
 
-	"github.com/gvinsot/SwiftProof/app/internal/config"
-	"github.com/gvinsot/SwiftProof/app/internal/coverage"
-	"github.com/gvinsot/SwiftProof/app/internal/fsutil"
-	"github.com/gvinsot/SwiftProof/app/internal/gitrepo"
-	"github.com/gvinsot/SwiftProof/app/internal/harness"
-	"github.com/gvinsot/SwiftProof/app/internal/linter"
-	"github.com/gvinsot/SwiftProof/app/internal/model"
-	"github.com/gvinsot/SwiftProof/app/internal/report"
-	"github.com/gvinsot/SwiftProof/app/internal/reviewer"
+	"github.com/gvinsot/Probe/app/internal/config"
+	"github.com/gvinsot/Probe/app/internal/coverage"
+	"github.com/gvinsot/Probe/app/internal/fsutil"
+	"github.com/gvinsot/Probe/app/internal/gitrepo"
+	"github.com/gvinsot/Probe/app/internal/harness"
+	"github.com/gvinsot/Probe/app/internal/linter"
+	"github.com/gvinsot/Probe/app/internal/model"
+	"github.com/gvinsot/Probe/app/internal/report"
+	"github.com/gvinsot/Probe/app/internal/reviewer"
 )
 
-const usage = `SwiftProof — evidence for focused review of AI-assisted changes
+const usage = `Probe — evidence for focused review of AI-assisted changes
 
 Usage:
-  swiftproof init [--repo PATH] [--language go|typescript|javascript|python|rust]
-  swiftproof lint [--base main] [--head HEAD] [--ci]
-  swiftproof review [--base main] [--reviewer=false] [--ci]
-  swiftproof review --read-only [--base main] [--ci]
-  swiftproof review [flags] BASE..HEAD
-  swiftproof plan --intent-file FILE [--base main] [--ci]
-  swiftproof review --plan .swiftproof/PLAN.json [flags]
-  swiftproof report [--input .swiftproof/confidence-report.json] [--out DIR] [--format LIST] [--report-url URL]
-  swiftproof version
+  probe init [--repo PATH] [--language go|typescript|javascript|python|rust]
+  probe lint [--base main] [--head HEAD] [--ci]
+  probe review [--base main] [--reviewer=false] [--ci]
+  probe review --read-only [--base main] [--ci]
+  probe review [flags] BASE..HEAD
+  probe plan --intent-file FILE [--base main] [--ci]
+  probe review --plan .probe/PLAN.json [flags]
+  probe report [--input .probe/confidence-report.json] [--out DIR] [--format LIST] [--report-url URL]
+  probe version
 
 Analysis compares the merge base by default; BASE..HEAD compares exact commits.
-Policy is read from .swiftproof.json at the tip of the base branch (main).
-Only committed files are reviewed. Output defaults to .swiftproof/.
+Policy is read from .probe.json at the tip of the base branch (main).
+Only committed files are reviewed. Output defaults to .probe/.
 Review runs configured checks in Docker. Lint never executes repository code.
 Review automatically uses the LLM when reviewer.model is configured in trusted policy.
-SWIFTPROOF_REVIEWER_ENDPOINT and SWIFTPROOF_REVIEWER_MODEL override that policy, and
+PROBE_REVIEWER_ENDPOINT and PROBE_REVIEWER_MODEL override that policy, and
 the API key comes from the api_key_env variable or its /run/secrets/<NAME> Docker secret.
 The reviewer sends bounded, redacted source context to its configured API.
 Use --reviewer=false to disable it. Lint never calls a provider.
@@ -64,7 +64,7 @@ are opt-in and need a v0.4 binary):
   --deadline D             overall time limit from 1m to 24h (30s are kept for the report)
   --format LIST            report formats: markdown,json,sarif,pr-comment (lint, review and report)
   --report-url URL         link to the full report cited by the pr-comment format
-Use 'swiftproof <command> --help' for options.
+Use 'probe <command> --help' for options.
 `
 
 func Run(ctx context.Context, args []string, stdout, stderr io.Writer, version string) int {
@@ -74,7 +74,7 @@ func Run(ctx context.Context, args []string, stdout, stderr io.Writer, version s
 	}
 	switch args[0] {
 	case "version", "--version":
-		fmt.Fprintf(stdout, "swiftproof %s\nAGPL-3.0 with an attribution term, see NOTICE: https://github.com/gvinsot/SwiftProof\n", version)
+		fmt.Fprintf(stdout, "probe %s\nAGPL-3.0 with an attribution term, see NOTICE: https://github.com/gvinsot/Probe\n", version)
 		return 0
 	case "init":
 		return initialize(args[1:], stdout, stderr)
@@ -141,7 +141,7 @@ func analyze(ctx context.Context, mode string, args []string, out, errOut io.Wri
 	head := f.String("head", "HEAD", "candidate Git revision")
 	exact := f.Bool("exact", false, "compare exact base instead of merge base")
 	policyPath := f.String("config", "", "explicit trusted local configuration (default: policy at the tip of --base)")
-	outDir := f.String("out", ".swiftproof", "report directory, relative to repository")
+	outDir := f.String("out", ".probe", "report directory, relative to repository")
 	format := f.String("format", "markdown,json", "comma-separated output formats: markdown,json,sarif,pr-comment")
 	ci := f.Bool("ci", false, "return 2 when human review is required")
 	checks := f.Bool("checks", mode == "review", "run configured checks in the Docker sandbox")
@@ -162,7 +162,7 @@ func analyze(ctx context.Context, mode string, args []string, out, errOut io.Wri
 	parallel := f.Int("parallel", 1, "review: number of initial checks run at a time (1..4)")
 	allowPrepareNetwork := f.Bool("allow-prepare-network", false, "review: permit network for the trusted prepare container only, if policy prepare.network also enables it")
 	deadline := f.Duration("deadline", 0, "review: overall time limit from 1m to 24h; 30s of it are kept for cleanup and the report")
-	planFile := f.String("plan", "", "PLAN.json written by swiftproof plan: check the diff against its contract (scope drift)")
+	planFile := f.String("plan", "", "PLAN.json written by probe plan: check the diff against its contract (scope drift)")
 	if len(args) > 0 && !strings.HasPrefix(args[0], "-") {
 		args = append(append([]string{}, args[1:]...), args[0])
 	}
@@ -364,7 +364,7 @@ func analyze(ctx context.Context, mode string, args []string, out, errOut io.Wri
 	}
 	if needExecution {
 		sc.executed = true
-		temp, err := os.MkdirTemp("", "swiftproof-")
+		temp, err := os.MkdirTemp("", "probe-")
 		if err != nil {
 			return fail(errOut, 4, "%v", err)
 		}
@@ -564,8 +564,8 @@ func detect(exists func(string) bool) string {
 func render(args []string, out, errOut io.Writer) int {
 	f := flag.NewFlagSet("report", flag.ContinueOnError)
 	f.SetOutput(errOut)
-	input := f.String("input", ".swiftproof/confidence-report.json", "saved JSON report")
-	dir := f.String("out", ".swiftproof", "output directory")
+	input := f.String("input", ".probe/confidence-report.json", "saved JSON report")
+	dir := f.String("out", ".probe", "output directory")
 	format := f.String("format", "markdown,json", "comma-separated output formats: markdown,json,sarif,pr-comment")
 	reportURL := f.String("report-url", "", "https link to the full report, cited by the pr-comment format")
 	if err := f.Parse(args); err != nil {
@@ -661,7 +661,7 @@ func validateOutput(dir string) error {
 	return nil
 }
 func fail(w io.Writer, code int, format string, args ...any) int {
-	fmt.Fprintf(w, "swiftproof: "+format+"\n", args...)
+	fmt.Fprintf(w, "probe: "+format+"\n", args...)
 	return code
 }
 func flagCode(err error) int {

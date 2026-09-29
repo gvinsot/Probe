@@ -28,9 +28,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/gvinsot/SwiftProof/app/internal/dockerutil"
-	"github.com/gvinsot/SwiftProof/app/internal/execcache"
-	"github.com/gvinsot/SwiftProof/app/internal/model"
+	"github.com/gvinsot/Probe/app/internal/dockerutil"
+	"github.com/gvinsot/Probe/app/internal/execcache"
+	"github.com/gvinsot/Probe/app/internal/model"
 )
 
 // CacheReasonNotRequested is the reason recorded for a review that did not
@@ -40,7 +40,7 @@ const CacheReasonNotRequested = "not requested (the execution cache is opt-in wi
 // Fixed placeholders of the docker argv that goes into a key, so that the
 // random container name and the temporary snapshot path never change it.
 const (
-	cacheKeyContainer = "swiftproof-cachekey"
+	cacheKeyContainer = "probe-cachekey"
 	cacheKeySource    = "/cachekey-source"
 )
 
@@ -182,7 +182,7 @@ func policyDigest(opts Options) string {
 		MemoryMB          int                 `json:"memory_mb"`
 		CPUs              int                 `json:"cpus"`
 		MaxGeneratedTests int                 `json:"max_generated_tests"`
-	}{"swiftproof-execpolicy/v1", opts.Commands, opts.Image, opts.Network, opts.Timeout.Milliseconds(), opts.MaxRuntime.Milliseconds(), opts.MaxOutputBytes, opts.MemoryMB, opts.CPUs, opts.MaxGeneratedTests})
+	}{"probe-execpolicy/v1", opts.Commands, opts.Image, opts.Network, opts.Timeout.Milliseconds(), opts.MaxRuntime.Milliseconds(), opts.MaxOutputBytes, opts.MemoryMB, opts.CPUs, opts.MaxGeneratedTests})
 	return sha256Hex(raw)
 }
 

@@ -6,8 +6,8 @@ import (
 	"path"
 	"strings"
 
-	"github.com/gvinsot/SwiftProof/app/internal/harness"
-	"github.com/gvinsot/SwiftProof/app/internal/model"
+	"github.com/gvinsot/Probe/app/internal/harness"
+	"github.com/gvinsot/Probe/app/internal/model"
 )
 
 // This file belongs to F3: baseline versions of changed tests run on candidate
@@ -28,7 +28,7 @@ const (
 	// baseTestsNoneSelectedText is the text of a no_candidates section.
 	baseTestsNoneSelectedText = "No test was selected, so no baseline version was re-run. Only the tests declared in modified, deleted or renamed Go test files are considered; this says nothing about any other test."
 	// baseTestsIntentText is rendered when an intent was supplied.
-	baseTestsIntentText = "Intent was supplied; SwiftProof does not decide whether a behavior change matches it."
+	baseTestsIntentText = "Intent was supplied; Probe does not decide whether a behavior change matches it."
 	// maxPassesShown caps the PASSES_ON_CANDIDATE lines of the Markdown
 	// section; the JSON keeps every test.
 	maxPassesShown = 20

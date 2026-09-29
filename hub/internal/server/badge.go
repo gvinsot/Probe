@@ -6,8 +6,8 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/gvinsot/SwiftProof/hub/internal/report"
-	"github.com/gvinsot/SwiftProof/hub/internal/store"
+	"github.com/gvinsot/Probe/hub/internal/report"
+	"github.com/gvinsot/Probe/hub/internal/store"
 )
 
 // handleBadge renders the latest verdict of a monitored repository as an SVG,
@@ -27,7 +27,7 @@ func (s *Server) handleBadge(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	label := "swiftproof latest"
+	label := "probe latest"
 	value, color := badgeState(repo)
 	w.Header().Set("Content-Type", "image/svg+xml; charset=utf-8")
 	// A badge must never be cached across a new report.

@@ -13,9 +13,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gvinsot/SwiftProof/app/internal/fuzz"
-	"github.com/gvinsot/SwiftProof/app/internal/harness"
-	"github.com/gvinsot/SwiftProof/app/internal/model"
+	"github.com/gvinsot/Probe/app/internal/fuzz"
+	"github.com/gvinsot/Probe/app/internal/harness"
+	"github.com/gvinsot/Probe/app/internal/model"
 )
 
 const tsPriceBase = "export function price(n: number): number {\n  return n;\n}\n\nexport function tax(n: number): number {\n  return n * 2;\n}\n"
@@ -108,7 +108,7 @@ func TestScriptFuzzDivergenceIsVerified(t *testing.T) {
 	}
 	d := r.Divergences[0]
 	if d.Kind != model.EvidenceDifferentialFuzz || d.Path != "web/price.ts" || d.Line != 1 || d.Symbol != "price" || d.AnchorSource != "changed_function" ||
-		d.TestPath != "web/swiftproof-fuzz-abcdef1234567890.test.ts" || len(d.CheckIDs) != 4 {
+		d.TestPath != "web/probe-fuzz-abcdef1234567890.test.ts" || len(d.CheckIDs) != 4 {
 		t.Fatalf("divergence %+v", d)
 	}
 	for _, e := range r.Evidence {
@@ -118,7 +118,7 @@ func TestScriptFuzzDivergenceIsVerified(t *testing.T) {
 	}
 	md := string(Markdown(r))
 	for _, want := range []string{
-		"Seeded inputs (swiftproof-fuzz/v1) were planned for 2 changed TS/JS functions, 2 of them with recorded fuzz checks",
+		"Seeded inputs (probe-fuzz/v1) were planned for 2 changed TS/JS functions, 2 of them with recorded fuzz checks",
 		"- **diverged** price (web/price.ts:1)",
 		"- **not diverged** tax (web/price.ts:5)",
 		inline(fuzzLexicalNote),

@@ -18,7 +18,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/gvinsot/SwiftProof/app/internal/gitrepo"
+	"github.com/gvinsot/Probe/app/internal/gitrepo"
 )
 
 // indexable reports whether a tree path may be read by the index: a portable

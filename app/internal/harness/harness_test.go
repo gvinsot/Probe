@@ -14,18 +14,18 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gvinsot/SwiftProof/app/internal/coverage"
-	"github.com/gvinsot/SwiftProof/app/internal/model"
+	"github.com/gvinsot/Probe/app/internal/coverage"
+	"github.com/gvinsot/Probe/app/internal/model"
 )
 
 const generatedSource = `package pkg
 import "testing"
-func TestSwiftProof(t *testing.T) {}
+func TestProbe(t *testing.T) {}
 `
 
 func writeGoEvents(w io.Writer, action string) {
-	fmt.Fprintln(w, `{"Action":"run","Test":"TestSwiftProof"}`)
-	fmt.Fprintf(w, "{\"Action\":%q,\"Test\":\"TestSwiftProof\"}\n", action)
+	fmt.Fprintln(w, `{"Action":"run","Test":"TestProbe"}`)
+	fmt.Fprintf(w, "{\"Action\":%q,\"Test\":\"TestProbe\"}\n", action)
 }
 
 func fixture(t *testing.T) *Harness {
@@ -201,7 +201,7 @@ func TestDifferentialEvidenceRequiresBasePass(t *testing.T) {
 			calls := 0
 			h.execute = func(_ context.Context, _ string, args []string, out io.Writer) execution {
 				calls++
-				if !reflect.DeepEqual(args[len(args)-7:], []string{"go", "test", "./pkg", "-json", "-count=1", "-run", "^(TestSwiftProof)$"}) {
+				if !reflect.DeepEqual(args[len(args)-7:], []string{"go", "test", "./pkg", "-json", "-count=1", "-run", "^(TestProbe)$"}) {
 					t.Fatalf("wrong generated command %v", args)
 				}
 				for _, dir := range []string{h.base, h.candidate} {
@@ -392,14 +392,14 @@ func TestArtifactFailureCannotClaimPass(t *testing.T) {
 }
 
 func TestDockerIntegration(t *testing.T) {
-	image := os.Getenv("SWIFTPROOF_TEST_DOCKER_IMAGE")
+	image := os.Getenv("PROBE_TEST_DOCKER_IMAGE")
 	if image == "" {
-		t.Skip("set SWIFTPROOF_TEST_DOCKER_IMAGE to an already-present Linux image with /bin/sh and cp")
+		t.Skip("set PROBE_TEST_DOCKER_IMAGE to an already-present Linux image with /bin/sh and cp")
 	}
 	h := fixture(t)
 	h.opts.Image = image
-	t.Setenv("SWIFTPROOF_HOST_SECRET", "must-not-reach-container")
-	h.opts.Commands["test"] = []string{"/bin/sh", "-c", `test -f /workspace/pkg/main.go && test -z "$SWIFTPROOF_HOST_SECRET" && ! touch /source/mutated && touch /workspace/disposable && echo isolated`}
+	t.Setenv("PROBE_HOST_SECRET", "must-not-reach-container")
+	h.opts.Commands["test"] = []string{"/bin/sh", "-c", `test -f /workspace/pkg/main.go && test -z "$PROBE_HOST_SECRET" && ! touch /source/mutated && touch /workspace/disposable && echo isolated`}
 	c := h.Run(context.Background(), "test")
 	if c.Status != "PASS" || !strings.Contains(c.Output, "isolated") {
 		t.Fatalf("sandbox check failed: %+v", c)
@@ -526,7 +526,7 @@ func TestNonCoverageKindsKeepExecWrapper(t *testing.T) {
 	if at < 0 || at+4 >= len(plain) {
 		t.Fatalf("shell entrypoint form changed: %v", plain)
 	}
-	if plain[at+1] != h.opts.Image || plain[at+2] != "-c" || plain[at+4] != "swiftproof" {
+	if plain[at+1] != h.opts.Image || plain[at+2] != "-c" || plain[at+4] != "probe" {
 		t.Fatalf("shell invocation form changed: %v", plain[at:at+5])
 	}
 	if plain[at+3] != `cp -R /source/. /workspace/ && exec "$@"` {

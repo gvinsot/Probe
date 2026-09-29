@@ -1,8 +1,8 @@
 package cli
 
-// swiftproof plan: a pre-change analysis. The configured provider simulates
+// probe plan: a pre-change analysis. The configured provider simulates
 // the implementation of an intent at the base commit, through read-only tools,
-// and submits a structured plan; SwiftProof evaluates that plan with fixed
+// and submits a structured plan; Probe evaluates that plan with fixed
 // rules (package plan) and writes PLAN.json and PLAN.md. Nothing is executed
 // and nothing in the repository is modified. review --plan later checks the
 // real diff against the plan's contract.
@@ -22,14 +22,14 @@ import (
 	"strings"
 	"time"
 
-	"github.com/gvinsot/SwiftProof/app/internal/config"
-	"github.com/gvinsot/SwiftProof/app/internal/gitrepo"
-	"github.com/gvinsot/SwiftProof/app/internal/harness"
-	"github.com/gvinsot/SwiftProof/app/internal/model"
-	"github.com/gvinsot/SwiftProof/app/internal/plan"
-	"github.com/gvinsot/SwiftProof/app/internal/report"
-	"github.com/gvinsot/SwiftProof/app/internal/reviewer"
-	"github.com/gvinsot/SwiftProof/app/internal/symbols"
+	"github.com/gvinsot/Probe/app/internal/config"
+	"github.com/gvinsot/Probe/app/internal/gitrepo"
+	"github.com/gvinsot/Probe/app/internal/harness"
+	"github.com/gvinsot/Probe/app/internal/model"
+	"github.com/gvinsot/Probe/app/internal/plan"
+	"github.com/gvinsot/Probe/app/internal/report"
+	"github.com/gvinsot/Probe/app/internal/reviewer"
+	"github.com/gvinsot/Probe/app/internal/symbols"
 )
 
 // maxPlanBytes bounds a PLAN.json read by review --plan.
@@ -46,7 +46,7 @@ func planCommand(ctx context.Context, args []string, out, errOut io.Writer, vers
 	repoPath := f.String("repo", ".", "repository directory")
 	base := f.String("base", "main", "base branch or revision the plan starts from; its tip supplies the trusted policy")
 	policyPath := f.String("config", "", "explicit trusted local configuration (default: policy at the tip of --base)")
-	outDir := f.String("out", ".swiftproof", "output directory, relative to repository")
+	outDir := f.String("out", ".probe", "output directory, relative to repository")
 	ci := f.Bool("ci", false, "return 2 when a category is flagged or something is unverified")
 	maxIterations := f.Int("max-iterations", 0, "override the provider iteration budget (1..100)")
 	intent := f.String("intent", "", "intent of the change to plan")
@@ -59,7 +59,7 @@ func planCommand(ctx context.Context, args []string, out, errOut io.Writer, vers
 		return fail(errOut, 3, "plan accepts no positional arguments")
 	}
 	if !*useReviewer {
-		return fail(errOut, 3, "plan needs the configured provider: the model writes the plan that SwiftProof evaluates; --reviewer=false cannot be used with plan")
+		return fail(errOut, 3, "plan needs the configured provider: the model writes the plan that Probe evaluates; --reviewer=false cannot be used with plan")
 	}
 	if *intentFile != "" {
 		if *intent != "" {
@@ -154,7 +154,7 @@ func planCommand(ctx context.Context, args []string, out, errOut io.Writer, vers
 	if err != nil {
 		return fail(errOut, 4, "static index: %v", err)
 	}
-	temp, err := os.MkdirTemp("", "swiftproof-plan-")
+	temp, err := os.MkdirTemp("", "probe-plan-")
 	if err != nil {
 		return fail(errOut, 4, "%v", err)
 	}
@@ -215,7 +215,7 @@ func planCommand(ctx context.Context, args []string, out, errOut io.Writer, vers
 		flagged = []string{"none"}
 	}
 	fmt.Fprintf(out, "Plan: %d files, %d symbols, %d dependencies; %d plan signals.\nFlagged categories: %s (fixed rules applied to the plan; the model did not judge risk).\n", len(p.Proposal.Files), len(p.Proposal.Symbols), len(p.Proposal.Dependencies), len(p.Assessment.Signals), strings.Join(flagged, ", "))
-	fmt.Fprintf(out, "Plan: %s\nCheck the implementation with: swiftproof review --plan %s\n", filepath.Join(output, report.PlanJSONName), filepath.Join(output, report.PlanJSONName))
+	fmt.Fprintf(out, "Plan: %s\nCheck the implementation with: probe review --plan %s\n", filepath.Join(output, report.PlanJSONName), filepath.Join(output, report.PlanJSONName))
 	return p.ExitCode
 }
 

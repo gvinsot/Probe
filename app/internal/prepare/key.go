@@ -7,21 +7,21 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/gvinsot/SwiftProof/app/internal/config"
-	"github.com/gvinsot/SwiftProof/app/internal/gitrepo"
+	"github.com/gvinsot/Probe/app/internal/config"
+	"github.com/gvinsot/Probe/app/internal/gitrepo"
 )
 
 // Schema names the key preimage, the labels and the container profile. Bump it
 // whenever any of them changes meaning.
-const Schema = "swiftproof-prepare/v1"
+const Schema = "probe-prepare/v1"
 
 // TagRepository is the local repository of derived images.
-const TagRepository = "swiftproof-prepared"
+const TagRepository = "probe-prepared"
 
 // Label keys written on every derived image. They are unsigned local metadata:
-// SwiftProof checks them before reuse, but they are not an attestation.
+// Probe checks them before reuse, but they are not an attestation.
 const (
-	LabelPrefix       = "org.swiftproof.prepare."
+	LabelPrefix       = "org.probe.prepare."
 	LabelSchema       = LabelPrefix + "schema"
 	LabelKey          = LabelPrefix + "key"
 	LabelSourceCommit = LabelPrefix + "source_commit"
@@ -42,7 +42,7 @@ const (
 // of the key.
 const (
 	templateName   = containerPrefix + "key"
-	templateInputs = "/swiftproof-key-inputs"
+	templateInputs = "/probe-key-inputs"
 )
 
 // keyMaterial is the canonical preimage of a prepare key (contract §2 F8

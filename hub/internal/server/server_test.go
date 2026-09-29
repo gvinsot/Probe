@@ -20,13 +20,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gvinsot/SwiftProof/hub/internal/accounts"
-	"github.com/gvinsot/SwiftProof/hub/internal/analysis"
-	"github.com/gvinsot/SwiftProof/hub/internal/config"
-	"github.com/gvinsot/SwiftProof/hub/internal/events"
-	"github.com/gvinsot/SwiftProof/hub/internal/forge"
-	"github.com/gvinsot/SwiftProof/hub/internal/secrets"
-	"github.com/gvinsot/SwiftProof/hub/internal/store"
+	"github.com/gvinsot/Probe/hub/internal/accounts"
+	"github.com/gvinsot/Probe/hub/internal/analysis"
+	"github.com/gvinsot/Probe/hub/internal/config"
+	"github.com/gvinsot/Probe/hub/internal/events"
+	"github.com/gvinsot/Probe/hub/internal/forge"
+	"github.com/gvinsot/Probe/hub/internal/secrets"
+	"github.com/gvinsot/Probe/hub/internal/store"
 )
 
 /* ------------------------------------------------------- a fake forge -- */
@@ -312,7 +312,7 @@ func TestAnonymousAccess(t *testing.T) {
 	}
 
 	page := h.do(http.MethodGet, "/", nil)
-	if page.Code != http.StatusOK || !strings.Contains(page.Body.String(), "SwiftProof Hub") {
+	if page.Code != http.StatusOK || !strings.Contains(page.Body.String(), "Probe Hub") {
 		t.Errorf("the sign-in page must be served anonymously, got %d", page.Code)
 	}
 	if got := page.Header().Get("Content-Security-Policy"); !strings.Contains(got, "frame-ancestors 'none'") {
@@ -460,7 +460,7 @@ func TestPolicyBootstrap(t *testing.T) {
 	if h.provider.createdFile.path != forge.PolicyPath || h.provider.createdFile.branch != "main" {
 		t.Errorf("the policy must be committed on the default branch, got %+v", h.provider.createdFile)
 	}
-	if !strings.Contains(h.provider.createdFile.message, "SwiftProof") {
+	if !strings.Contains(h.provider.createdFile.message, "Probe") {
 		t.Errorf("commit message = %q", h.provider.createdFile.message)
 	}
 	stored, _ := h.store.Repo(h.userKey, repo.Key)
@@ -953,7 +953,7 @@ func TestUnknownBadgeIsIndistinguishable(t *testing.T) {
 }
 
 func TestBadgeSVGEscapesItsInput(t *testing.T) {
-	svg := badgeSVG("swiftproof", `"><script>alert(1)</script>`, "#000")
+	svg := badgeSVG("probe", `"><script>alert(1)</script>`, "#000")
 	if strings.Contains(svg, "<script>") {
 		t.Fatalf("the badge must escape its value: %s", svg)
 	}
@@ -1033,8 +1033,8 @@ func newFakeRunner(t *testing.T, h *harness) *analysis.Runner {
 	t.Helper()
 	dir := t.TempDir()
 	script := "#!/bin/sh\nwhile [ $# -gt 0 ]; do case \"$1\" in --repo) d=\"$2\"; shift 2;; --language) l=\"$2\"; shift 2;; *) shift;; esac; done\n" +
-		"printf '{\"version\":1,\"language\":\"%s\"}' \"$l\" > \"$d/.swiftproof.json\"\n"
-	path := dir + "/swiftproof"
+		"printf '{\"version\":1,\"language\":\"%s\"}' \"$l\" > \"$d/.probe.json\"\n"
+	path := dir + "/probe"
 	if err := writeExecutable(path, script); err != nil {
 		t.Skipf("cannot install the stub CLI here: %v", err)
 	}
@@ -1168,7 +1168,7 @@ func TestCommitAnalysisVariantsAndScopedCache(t *testing.T) {
 		}
 		raw := json.RawMessage(storedReport)
 		if variant == "plan" {
-			raw = json.RawMessage(`{"format":"swiftproof-plan","version":1,"exit_code":2}`)
+			raw = json.RawMessage(`{"format":"probe-plan","version":1,"exit_code":2}`)
 		}
 		if err := h.store.PutRecord(&store.Record{UserKey: h.userKey, RepoKey: repo.Key, Run: store.Run{Commit: commit, Variant: variant, Status: store.StatusDone}, Raw: raw}); err != nil {
 			t.Fatal(err)

@@ -12,9 +12,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/gvinsot/SwiftProof/app/internal/config"
-	"github.com/gvinsot/SwiftProof/app/internal/dockerutil"
-	"github.com/gvinsot/SwiftProof/app/internal/model"
+	"github.com/gvinsot/Probe/app/internal/config"
+	"github.com/gvinsot/Probe/app/internal/dockerutil"
+	"github.com/gvinsot/Probe/app/internal/model"
 )
 
 // clampFixture has a baseline Clamp that floors negatives at zero, a candidate
@@ -63,8 +63,8 @@ func scriptedClampProvider(t *testing.T) *httptest.Server {
 		switch tools {
 		case 0:
 			name = "create_test"
-			args = map[string]any{"path": "clamp_swiftproof_test.go", "description": "negative inputs are floored at zero",
-				"content": "package clamp\n\nimport \"testing\"\n\nfunc TestSwiftProofClampNegative(t *testing.T) {\n\tif got := Clamp(-1); got != 0 {\n\t\tt.Fatalf(\"Clamp(-1) = %d\", got)\n\t}\n}\n"}
+			args = map[string]any{"path": "clamp_probe_test.go", "description": "negative inputs are floored at zero",
+				"content": "package clamp\n\nimport \"testing\"\n\nfunc TestProbeClampNegative(t *testing.T) {\n\tif got := Clamp(-1); got != 0 {\n\t\tt.Fatalf(\"Clamp(-1) = %d\", got)\n\t}\n}\n"}
 		case 1:
 			name = "run_generated_test"
 			args = map[string]any{"test_id": "generated-test-1"}
@@ -103,9 +103,9 @@ type cacheRun struct {
 // benign head rests NOT_REPRODUCED on the replay and lists it in
 // replay_backed; a tampered entry is rejected and replaced by a live run.
 func TestDockerExecutionCacheEndToEnd(t *testing.T) {
-	image := os.Getenv("SWIFTPROOF_TEST_DOCKER_IMAGE")
+	image := os.Getenv("PROBE_TEST_DOCKER_IMAGE")
 	if image == "" {
-		t.Skip("set SWIFTPROOF_TEST_DOCKER_IMAGE to a preloaded Go image")
+		t.Skip("set PROBE_TEST_DOCKER_IMAGE to a preloaded Go image")
 	}
 	pinned, found, err := dockerutil.InspectImage(context.Background(), nil, image)
 	if err != nil || !found {
@@ -119,7 +119,7 @@ func TestDockerExecutionCacheEndToEnd(t *testing.T) {
 	cfg.Sandbox.CPUs = 1
 	cfg.Reviewer.Endpoint = server.URL
 	cfg.Reviewer.Model = "scripted-cache"
-	cfg.Reviewer.APIKeyEnv = "SWIFTPROOF_INTEGRATION_KEY"
+	cfg.Reviewer.APIKeyEnv = "PROBE_INTEGRATION_KEY"
 	t.Setenv(cfg.Reviewer.APIKeyEnv, "")
 	policy := filepath.Join(t.TempDir(), "policy.json")
 	writeReviewerPolicy(t, policy, cfg)
@@ -229,7 +229,7 @@ func TestDockerExecutionCacheEndToEnd(t *testing.T) {
 	if status := git(t, repo, "status", "--porcelain"); strings.TrimSpace(status) != "" {
 		t.Fatalf("checkout changed:\n%s", status)
 	}
-	if _, err := os.Stat(filepath.Join(repo, "clamp_swiftproof_test.go")); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(repo, "clamp_probe_test.go")); !os.IsNotExist(err) {
 		t.Fatal("the generated test leaked into the checkout")
 	}
 }

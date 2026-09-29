@@ -14,9 +14,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gvinsot/SwiftProof/app/internal/fuzz"
-	"github.com/gvinsot/SwiftProof/app/internal/harness"
-	"github.com/gvinsot/SwiftProof/app/internal/model"
+	"github.com/gvinsot/Probe/app/internal/fuzz"
+	"github.com/gvinsot/Probe/app/internal/harness"
+	"github.com/gvinsot/Probe/app/internal/model"
 )
 
 const fuzzCalcBase = `package calc
@@ -170,7 +170,7 @@ func fuzzReportOf(t testing.TB, baseSrc, candidateSrc string, limits fuzz.Limits
 	}
 	runner := &fakeFuzzRunner{t: t, value: value}
 	rep := fuzz.Run(context.Background(), runner, plan, fuzz.Options{
-		Limits: limits, ObservationsPath: "/tmp/swiftproof-observations.jsonl", PayloadLimit: harness.PayloadLimit(65536),
+		Limits: limits, ObservationsPath: "/tmp/probe-observations.jsonl", PayloadLimit: harness.PayloadLimit(65536),
 		NewSuffix: func() (string, error) { return "abcdef1234567890", nil },
 	})
 	return &model.Report{
@@ -239,7 +239,7 @@ func TestFuzzDivergenceIsListedAndNeverReproduced(t *testing.T) {
 	want := []string{discount.Checks.Base, discount.Checks.Candidate, discount.Checks.BaseConfirm, discount.Checks.CandidateConfirm}
 	if d.EvidenceID != discount.EvidenceID || d.Kind != model.EvidenceDifferentialFuzz || d.Path != "calc/calc.go" || d.Line != discount.Line || d.Symbol != "calc.Discount" ||
 		d.AnchorSource != anchorChangedFunction || strings.Join(d.CheckIDs, ",") != strings.Join(want, ",") || strings.Join(d.HypothesisIDs, ",") != "h-diverged" ||
-		d.TestPath != "calc/swiftproof_fuzz_abcdef1234567890_test.go" || len(d.TestNames) != 1 || d.TestNames[0] != discount.TestName {
+		d.TestPath != "calc/probe_fuzz_abcdef1234567890_test.go" || len(d.TestNames) != 1 || d.TestNames[0] != discount.TestName {
 		t.Fatalf("divergence %+v", d)
 	}
 	if len(d.Observations) != 1 || d.Observations[0].Key != discountCall || d.Observations[0].Base != "v:"+discountCall || d.Observations[0].Candidate != "w:"+discountCall || d.Observations[0].Test != discount.TestName {
@@ -472,7 +472,7 @@ func TestFuzzMarkdownSection(t *testing.T) {
 	md := string(Markdown(r))
 	body := section(t, md, "## Differential Fuzzing")
 	for _, want := range []string{
-		"Seeded inputs (swiftproof-fuzz/v1) were planned for 2 changed Go functions, 2 of them with recorded fuzz checks on the baseline and the candidate: 1 diverged, 1 not diverged, 0 inconclusive.",
+		"Seeded inputs (probe-fuzz/v1) were planned for 2 changed Go functions, 2 of them with recorded fuzz checks on the baseline and the candidate: 1 diverged, 1 not diverged, 0 inconclusive.",
 		"- **diverged** calc.Discount (calc/calc.go:7): 1 of 64 compared inputs recorded different values",
 		"Smallest divergent input tried: Discount\\(Cents\\(1000\\)\\); baseline v:Discount\\(Cents\\(1000\\)\\); candidate \\*\\*bold\\*\\* \\[link\\]\\(https:​//example.invalid\\) &lt;script&gt;",
 		"- **not diverged** calc.Twice (calc/calc.go:15): 64 of 64 inputs compared",

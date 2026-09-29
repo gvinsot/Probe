@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gvinsot/SwiftProof/app/internal/model"
+	"github.com/gvinsot/Probe/app/internal/model"
 )
 
 // ledgerWith indexes a report holding only these evidence records and marks

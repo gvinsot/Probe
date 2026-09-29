@@ -6,7 +6,7 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/gvinsot/SwiftProof/app/internal/report"
+	"github.com/gvinsot/Probe/app/internal/report"
 )
 
 // reportOptions validates --report-url against the requested formats and

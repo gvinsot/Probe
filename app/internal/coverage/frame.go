@@ -14,7 +14,7 @@ import (
 // ProfilePath is the fixed in-container path a coverage command must write to.
 // /tmp is a fresh tmpfs per run and the snapshot is copied to /workspace, so a
 // committed or stale profile cannot occupy it and no discovery is needed.
-const ProfilePath = "/tmp/swiftproof-coverage.out"
+const ProfilePath = "/tmp/probe-coverage.out"
 
 const (
 	// CommandKey names the optional trusted policy command.
@@ -27,8 +27,8 @@ const (
 // must match exactly at the declared offset. The sandbox wrapper that emits the
 // frame is built from these constants so producer and decoder cannot drift.
 const (
-	FrameHeader = "SWIFTPROOF-COVERAGE-BEGIN "
-	FrameFooter = "SWIFTPROOF-COVERAGE-END\n"
+	FrameHeader = "PROBE-COVERAGE-BEGIN "
+	FrameFooter = "PROBE-COVERAGE-END\n"
 )
 
 // Every error message is the exact sentence reported to the user, so a caller

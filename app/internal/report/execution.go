@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/gvinsot/SwiftProof/app/internal/model"
+	"github.com/gvinsot/Probe/app/internal/model"
 )
 
 // This file belongs to F7a (execution cache): the replay-backed list, the

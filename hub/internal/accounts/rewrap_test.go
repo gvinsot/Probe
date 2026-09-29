@@ -3,8 +3,8 @@ package accounts
 import (
 	"testing"
 
-	"github.com/gvinsot/SwiftProof/hub/internal/secrets"
-	"github.com/gvinsot/SwiftProof/hub/internal/store"
+	"github.com/gvinsot/Probe/hub/internal/secrets"
+	"github.com/gvinsot/Probe/hub/internal/store"
 )
 
 func TestRewrapMovesCredentialsToTheCurrentKey(t *testing.T) {

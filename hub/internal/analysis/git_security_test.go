@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gvinsot/SwiftProof/hub/internal/store"
+	"github.com/gvinsot/Probe/hub/internal/store"
 )
 
 func TestGitFailuresRedactCredentialsAndKeepDiagnostics(t *testing.T) {

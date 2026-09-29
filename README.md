@@ -1,8 +1,8 @@
-# SwiftProof
+# Probe
 
 **Spend review time on the changes that need your judgment.**
 
-SwiftProof is a Go CLI for reviewing AI-assisted pull requests: it maps Git
+Probe is a Go CLI for reviewing AI-assisted pull requests: it maps Git
 changes to risk signals, runs isolated checks and adversarial tests, and
 produces a focused review plan with traceable evidence.
 
@@ -10,24 +10,24 @@ produces a focused review plan with traceable evidence.
 
 | Directory | Contents |
 | --- | --- |
-| [`app/`](app/README.md) | The SwiftProof CLI (Go module `github.com/gvinsot/SwiftProof/app`) and its documentation, examples and report schema. |
-| [`hub/`](hub/README.md) | The SwiftProof Hub web application (Go module `github.com/gvinsot/SwiftProof/hub`): forge sign-in, policy bootstrap and the live report viewer. |
+| [`app/`](app/README.md) | The Probe CLI (Go module `github.com/gvinsot/Probe/app`) and its documentation, examples and report schema. |
+| [`hub/`](hub/README.md) | The Probe Hub web application (Go module `github.com/gvinsot/Probe/hub`): forge sign-in, policy bootstrap and the live report viewer. |
 | [`web/`](web/) | The static promotional website, served by nginx. |
 | [`devops/`](devops/) | PulsarCD / Docker Swarm deployment of the website. |
 | [`specs/`](specs/README.md) | Current CLI, Hub, website and deployment specifications. |
 
 A root `go.work` includes `app/` and `hub/`, so Go commands also work from the
-repository root with workspace patterns (`go test ./app/...`, `go test ./hub/...`). SwiftProof
-reviews its own pull requests with the root [`.swiftproof.json`](.swiftproof.json).
+repository root with workspace patterns (`go test ./app/...`, `go test ./hub/...`). Probe
+reviews its own pull requests with the root [`.probe.json`](.probe.json).
 
 ## Quick start
 
-Download a binary from [GitHub Releases](https://github.com/gvinsot/SwiftProof/releases),
+Download a binary from [GitHub Releases](https://github.com/gvinsot/Probe/releases),
 or build from source:
 
 ```sh
 cd app
-go build -o swiftproof ./cmd/swiftproof
+go build -o probe ./cmd/probe
 ```
 
 See [app/README.md](app/README.md) for usage, configuration and CI integration.
@@ -35,8 +35,8 @@ See [app/README.md](app/README.md) for usage, configuration and CI integration.
 ## Website
 
 ```sh
-docker build -t swiftproof-web web
-docker run --rm -p 8080:80 swiftproof-web   # http://localhost:8080
+docker build -t probe-web web
+docker run --rm -p 8080:80 probe-web   # http://localhost:8080
 ```
 
 Deployment goes through PulsarCD with `devops/docker-compose.swarm.yml`; copy
@@ -45,19 +45,19 @@ Deployment goes through PulsarCD with `devops/docker-compose.swarm.yml`; copy
 ## Web application
 
 The hub complements the website: sign in with GitHub or GitLab, let it create a
-`.swiftproof.json` policy in the repositories that have none, and read a
+`.probe.json` policy in the repositories that have none, and read a
 severity-filtered report for every new commit — clicking an alert unfolds the
 modifications it concerns. It is deployed from the same stack as the website and
-served on [app.swiftproof.net](https://app.swiftproof.net), linked from every
+served on [app.probe.technology](https://app.probe.technology), linked from every
 page of the site.
 
 ```sh
-docker build -f hub/Dockerfile -t swiftproof-hub .
+docker build -f hub/Dockerfile -t probe-hub .
 docker run --rm -p 8080:8080 \
-  -e SWIFTPROOF_HUB_BASE_URL=http://localhost:8080 \
-  -e SWIFTPROOF_HUB_GITHUB_CLIENT_ID=... \
-  -e SWIFTPROOF_HUB_GITHUB_CLIENT_SECRET=... \
-  swiftproof-hub
+  -e PROBE_HUB_BASE_URL=http://localhost:8080 \
+  -e PROBE_HUB_GITHUB_CLIENT_ID=... \
+  -e PROBE_HUB_GITHUB_CLIENT_SECRET=... \
+  probe-hub
 ```
 
 It runs as a single container with no database, so a company can deploy it

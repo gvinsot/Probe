@@ -6,13 +6,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/gvinsot/SwiftProof/hub/internal/config"
+	"github.com/gvinsot/Probe/hub/internal/config"
 	"os"
 	"os/exec"
 	"path/filepath"
 
-	"github.com/gvinsot/SwiftProof/hub/internal/report"
-	"github.com/gvinsot/SwiftProof/hub/internal/store"
+	"github.com/gvinsot/Probe/hub/internal/report"
+	"github.com/gvinsot/Probe/hub/internal/store"
 )
 
 // analyzePlan asks the trusted CLI for a read-only proposal at the selected
@@ -22,11 +22,11 @@ func (r *Runner) analyzePlan(ctx context.Context, work, base string, j Job, run 
 	if os.Getenv(config.EndpointEnvName) == "" || os.Getenv(config.ModelEnvName) == "" {
 		return nil, fmt.Errorf("plan analysis requires a deployment-configured reviewer endpoint and model")
 	}
-	output, code, runErr := r.executeCLI(ctx, work, []string{"plan", "--repo", work, "--base", base, "--intent", j.Intent, "--out", ".swiftproof", "--ci"})
-	data, err := readBounded(filepath.Join(work, ".swiftproof/PLAN.json"), 4<<20)
+	output, code, runErr := r.executeCLI(ctx, work, []string{"plan", "--repo", work, "--base", base, "--intent", j.Intent, "--out", ".probe", "--ci"})
+	data, err := readBounded(filepath.Join(work, ".probe/PLAN.json"), 4<<20)
 	if err != nil {
 		if runErr != nil {
-			return nil, fmt.Errorf("swiftproof plan exited %d: %s", code, tail(output))
+			return nil, fmt.Errorf("probe plan exited %d: %s", code, tail(output))
 		}
 		return nil, fmt.Errorf("no plan was produced: %w", err)
 	}
@@ -40,14 +40,14 @@ func (r *Runner) analyzePlan(ctx context.Context, work, base string, j Job, run 
 	if err := json.Unmarshal(data, &plan); err != nil {
 		return nil, fmt.Errorf("decode plan: %w", err)
 	}
-	if plan.Format != "swiftproof-plan" || plan.Version != 1 || plan.BaseCommit != base {
+	if plan.Format != "probe-plan" || plan.Version != 1 || plan.BaseCommit != base {
 		return nil, fmt.Errorf("invalid plan format or base commit")
 	}
 	run.Summary = report.Summary{Verdict: report.Verdict(plan.ExitCode), ExitCode: plan.ExitCode, ToolVersion: plan.ToolVersion}
 	run.ToolVersion = plan.ToolVersion
 	rec := &store.Record{UserKey: j.UserKey, RepoKey: j.RepoKey, RepoName: repoName, Raw: data}
 	if code < 0 || code >= 3 {
-		return rec, fmt.Errorf("swiftproof plan could not complete (exit %d): %s", code, tail(output))
+		return rec, fmt.Errorf("probe plan could not complete (exit %d): %s", code, tail(output))
 	}
 	return rec, nil
 }

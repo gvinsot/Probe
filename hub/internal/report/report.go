@@ -1,4 +1,4 @@
-// Package report decodes the SwiftProof confidence report (schema v1) and
+// Package report decodes the Probe confidence report (schema v1) and
 // turns it into the view the web UI renders.
 //
 // The hub never re-derives conclusions: severities, statuses and counts are

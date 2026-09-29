@@ -10,7 +10,7 @@ import (
 	"testing"
 	"unicode/utf8"
 
-	"github.com/gvinsot/SwiftProof/app/internal/model"
+	"github.com/gvinsot/Probe/app/internal/model"
 )
 
 func mustParse(t *testing.T, text string) Document {
@@ -236,8 +236,8 @@ func TestStripPRCommentsNeverLeavesAMarker(t *testing.T) {
 	begin, end := model.PRCommentBegin, model.PRCommentEnd
 	block := begin + "\n- Reproduced: 1 issue\n" + end
 	// Split points inside the markers, so that the halves join again.
-	bl, br := begin[:len("<!-- swiftproof:pr-")], begin[len("<!-- swiftproof:pr-"):]
-	el, er := end[:len("<!-- swiftproof:pr-comment")], end[len("<!-- swiftproof:pr-comment"):]
+	bl, br := begin[:len("<!-- probe:pr-")], begin[len("<!-- probe:pr-"):]
+	el, er := end[:len("<!-- probe:pr-comment")], end[len("<!-- probe:pr-comment"):]
 	nested := func(levels int) string { // one end marker is rebuilt per pass
 		return strings.Repeat(el, levels) + strings.Repeat(er, levels)
 	}
@@ -266,9 +266,9 @@ func FuzzStripPRComments(f *testing.F) {
 	begin, end := model.PRCommentBegin, model.PRCommentEnd
 	for _, seed := range []string{
 		"", "- a\n", begin + "x" + end, "a" + begin, "a" + end + "b",
-		"<!-- swiftproof:pr-" + begin + end + "comment:begin v1 -->",
-		"<!-- swiftproof:pr-comment" + end + ":end -->",
-		strings.Repeat("<!-- swiftproof:pr-comment", 20) + strings.Repeat(":end -->", 20),
+		"<!-- probe:pr-" + begin + end + "comment:begin v1 -->",
+		"<!-- probe:pr-comment" + end + ":end -->",
+		strings.Repeat("<!-- probe:pr-comment", 20) + strings.Repeat(":end -->", 20),
 	} {
 		f.Add(seed)
 	}

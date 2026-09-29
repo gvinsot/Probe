@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gvinsot/SwiftProof/app/internal/model"
+	"github.com/gvinsot/Probe/app/internal/model"
 )
 
 // The F3 and F6b stages key their baseline runs with their fixed 180 s

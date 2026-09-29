@@ -21,7 +21,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/gvinsot/SwiftProof/hub/internal/report"
+	"github.com/gvinsot/Probe/hub/internal/report"
 )
 
 // ErrNotFound is returned when a record does not exist.

@@ -8,10 +8,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/gvinsot/SwiftProof/app/internal/config"
-	"github.com/gvinsot/SwiftProof/app/internal/coverage"
-	"github.com/gvinsot/SwiftProof/app/internal/fuzz"
-	"github.com/gvinsot/SwiftProof/app/internal/model"
+	"github.com/gvinsot/Probe/app/internal/config"
+	"github.com/gvinsot/Probe/app/internal/coverage"
+	"github.com/gvinsot/Probe/app/internal/fuzz"
+	"github.com/gvinsot/Probe/app/internal/model"
 )
 
 func fuzzPolicy() config.Config {
@@ -201,14 +201,14 @@ func TestFuzzStageThroughTheCLI(t *testing.T) {
 		}
 	}
 	// The harness file never reaches the checkout.
-	matches, _ := filepath.Glob(filepath.Join(dir, "swiftproof_fuzz_*"))
+	matches, _ := filepath.Glob(filepath.Join(dir, "probe_fuzz_*"))
 	if len(matches) != 0 {
 		t.Fatalf("harness file in the checkout: %v", matches)
 	}
 	if status := git(t, dir, "status", "--porcelain"); status != "" {
 		t.Fatalf("checkout changed: %s", status)
 	}
-	if _, err := os.Stat(filepath.Join(dir, ".swiftproof")); err == nil {
+	if _, err := os.Stat(filepath.Join(dir, ".probe")); err == nil {
 		t.Fatal("the report was written into the checkout")
 	}
 }

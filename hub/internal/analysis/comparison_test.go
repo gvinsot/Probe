@@ -12,11 +12,11 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/gvinsot/SwiftProof/hub/internal/accounts"
-	"github.com/gvinsot/SwiftProof/hub/internal/config"
-	"github.com/gvinsot/SwiftProof/hub/internal/forge"
-	"github.com/gvinsot/SwiftProof/hub/internal/secrets"
-	"github.com/gvinsot/SwiftProof/hub/internal/store"
+	"github.com/gvinsot/Probe/hub/internal/accounts"
+	"github.com/gvinsot/Probe/hub/internal/config"
+	"github.com/gvinsot/Probe/hub/internal/forge"
+	"github.com/gvinsot/Probe/hub/internal/secrets"
+	"github.com/gvinsot/Probe/hub/internal/store"
 )
 
 // The embedded interface catches accidental extra forge calls in this fixture.
@@ -29,13 +29,13 @@ func TestAnalysisVariantsFetchGitAndKeepBothResults(t *testing.T) {
 	t.Setenv(config.ModelEnvName, "test-model")
 	g, commits := repoWithCommits(t, 2)
 	// A committed report must never stand in for output from the trusted CLI.
-	if err := os.MkdirAll(filepath.Join(g.dir, ".swiftproof"), 0700); err != nil {
+	if err := os.MkdirAll(filepath.Join(g.dir, ".probe"), 0700); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(g.dir, reportPath), []byte(fakeReport), 0600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := g.run(context.Background(), "add", ".swiftproof"); err != nil {
+	if _, err := g.run(context.Background(), "add", ".probe"); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := g.run(context.Background(), "commit", "-m", "Implement requested behavior"); err != nil {
@@ -55,16 +55,16 @@ func TestAnalysisVariantsFetchGitAndKeepBothResults(t *testing.T) {
 	binary := fakeCLI(t, `
 printf '%s\n' "$*" >> '`+logPath+`'
 if [ "$1" = plan ]; then
- test ! -e .swiftproof/confidence-report.json || exit 4
- mkdir -p .swiftproof
- printf '%s' '{"format":"swiftproof-plan","version":1,"base_commit":"`+commits[1]+`","exit_code":2,"proposal":{"summary":"generated"}}' > .swiftproof/PLAN.json
+ test ! -e .probe/confidence-report.json || exit 4
+ mkdir -p .probe
+ printf '%s' '{"format":"probe-plan","version":1,"base_commit":"`+commits[1]+`","exit_code":2,"proposal":{"summary":"generated"}}' > .probe/PLAN.json
  exit 2
 fi
 case "$*" in
- *--plan*) test -s .swiftproof/PLAN.json || exit 4;;
+ *--plan*) test -s .probe/PLAN.json || exit 4;;
 esac
-mkdir -p .swiftproof
-cat > .swiftproof/confidence-report.json <<'JSON'
+mkdir -p .probe
+cat > .probe/confidence-report.json <<'JSON'
 `+fakeReport+`
 JSON
 exit 2
@@ -101,7 +101,7 @@ exit 2
 		if err != nil || rec.Status != store.StatusDone || rec.BaseCommit != commits[1] {
 			t.Fatalf("%s result: %+v %v", variant, rec, err)
 		}
-		if strings.Contains(string(rec.Raw), "swiftproof-plan") != (variant == "plan") {
+		if strings.Contains(string(rec.Raw), "probe-plan") != (variant == "plan") {
 			t.Fatalf("wrong plan in %s", variant)
 		}
 	}

@@ -1,16 +1,16 @@
-// SwiftProof website behaviour: platform detection, release data from GitHub,
+// Probe website behaviour: platform detection, release data from GitHub,
 // copy buttons, OS tabs and the reference filter. The pages stay usable
 // without JavaScript: every download link falls back to GitHub Releases.
 (function () {
   "use strict";
 
-  var REPO = "gvinsot/SwiftProof";
+  var REPO = "gvinsot/Probe";
   var RELEASES_PAGE = "https://github.com/" + REPO + "/releases";
   var API = "https://api.github.com/repos/" + REPO + "/releases?per_page=100";
-  var CACHE_KEY = "swiftproof-releases-v1";
+  var CACHE_KEY = "probe-releases-v1";
   var CACHE_MS = 10 * 60 * 1000;
 
-  // Archive names are fixed by app/tools/build: swiftproof-<tag>-<os>-<arch>.<ext>.
+  // Archive names are fixed by app/tools/build: probe-<tag>-<os>-<arch>.<ext>.
   var PLATFORMS = [
     { id: "windows-amd64", os: "windows", label: "Windows", arch: "x64", ext: ".zip" },
     { id: "windows-arm64", os: "windows", label: "Windows", arch: "ARM64", ext: ".zip" },
@@ -59,18 +59,18 @@
   }
   function reportMissing() {
     if (!missing.length) return;
-    if (window.console) console.error("SwiftProof site: missing page elements " + missing.join(", "));
+    if (window.console) console.error("Probe site: missing page elements " + missing.join(", "));
     showError();
   }
   // safely runs one page step: a failure is reported and the other steps run.
   function safely(step) {
     try { step(); } catch (e) {
-      if (window.console) console.error("SwiftProof site:", e);
+      if (window.console) console.error("Probe site:", e);
       showError();
     }
   }
   function platform(id) { for (var i = 0; i < PLATFORMS.length; i++) if (PLATFORMS[i].id === id) return PLATFORMS[i]; return PLATFORMS[0]; }
-  function archiveName(tag, p) { return "swiftproof-" + tag + "-" + p.id + p.ext; }
+  function archiveName(tag, p) { return "probe-" + tag + "-" + p.id + p.ext; }
   function assetUrl(tag, p) { return RELEASES_PAGE + "/download/" + tag + "/" + archiveName(tag, p); }
   function escapeHtml(s) { return String(s).replace(/[&<>"']/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]; }); }
   function formatDate(iso) {
@@ -207,7 +207,7 @@
     var main = link(latest, p);
     var offline = latest.offline;
 
-    setText("#dl-version", "SwiftProof " + latest.tag);
+    setText("#dl-version", "Probe " + latest.tag);
     setHtml("#dl-meta", "Released " + escapeHtml(formatDate(latest.date)) +
       ' · <a href="' + escapeHtml(latest.url) + '">release notes</a>' +
       ' · <a href="' + escapeHtml(RELEASES_PAGE + "/download/" + latest.tag + "/SHA256SUMS") + '">SHA256SUMS</a>');
@@ -218,7 +218,7 @@
     }
     setText("#dl-file", archiveName(latest.tag, p) + (main.size ? " · " + formatSize(main.size) : ""));
     setText("#dl-detect", detected.mobile
-      ? "SwiftProof is a command-line tool for desktop and server systems. Pick the platform of the machine you will run it on."
+      ? "Probe is a command-line tool for desktop and server systems. Pick the platform of the machine you will run it on."
       : !detected.exact
         ? "Detected " + p.label + ". On an Intel Mac, choose macOS Intel below."
         : "Detected from your browser: " + p.label + " " + p.arch + ". Other platforms are listed alongside.");
@@ -399,7 +399,7 @@
       reportMissing();
     });
   }).catch(function (e) {
-    if (window.console) console.error("SwiftProof site:", e);
+    if (window.console) console.error("Probe site:", e);
     showError();
   });
 })();

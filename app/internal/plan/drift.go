@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"sort"
 
-	"github.com/gvinsot/SwiftProof/app/internal/linter"
-	"github.com/gvinsot/SwiftProof/app/internal/model"
+	"github.com/gvinsot/Probe/app/internal/linter"
+	"github.com/gvinsot/Probe/app/internal/model"
 )
 
 // Summaries of the linter's public_api_change signals that change or remove

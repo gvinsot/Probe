@@ -7,11 +7,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/gvinsot/SwiftProof/hub/internal/secrets"
-	"github.com/gvinsot/SwiftProof/hub/internal/store"
+	"github.com/gvinsot/Probe/hub/internal/secrets"
+	"github.com/gvinsot/Probe/hub/internal/store"
 )
 
-const stateCookie = "swiftproof_hub_state"
+const stateCookie = "probe_hub_state"
 
 // handleAuthStart begins an OAuth flow on the requested forge.
 func (s *Server) handleAuthStart(w http.ResponseWriter, r *http.Request) {

@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/gvinsot/SwiftProof/app/internal/model"
+	"github.com/gvinsot/Probe/app/internal/model"
 )
 
 func TestGeneratedGoDeclarationsAndCollisions(t *testing.T) {
@@ -42,7 +42,7 @@ func TestGoExecutionRequiresExactGeneratedTest(t *testing.T) {
 	var output strings.Builder
 	writeGoEvents(&output, "pass")
 	valid := model.Check{Status: "PASS", ExitCode: 0, Output: output.String()}
-	if c := ValidateGoExecution(valid, []string{"TestSwiftProof"}); c.Status != "PASS" {
+	if c := ValidateGoExecution(valid, []string{"TestProbe"}); c.Status != "PASS" {
 		t.Fatal("valid Go execution rejected")
 	}
 	for _, tc := range []struct {
@@ -52,12 +52,12 @@ func TestGoExecutionRequiresExactGeneratedTest(t *testing.T) {
 		{"empty", model.Check{Status: "PASS", ExitCode: 0}},
 		{"unrelated", model.Check{Status: "FAIL", ExitCode: 1, Output: `{"Action":"fail","Test":"TestUnrelated"}`}},
 		{"package_only", model.Check{Status: "FAIL", ExitCode: 1, Output: `{"Action":"fail","Package":"pkg"}`}},
-		{"no_run", model.Check{Status: "PASS", ExitCode: 0, Output: `{"Action":"pass","Test":"TestSwiftProof"}`}},
-		{"skip", model.Check{Status: "PASS", ExitCode: 0, Output: "{\"Action\":\"run\",\"Test\":\"TestSwiftProof\"}\n{\"Action\":\"skip\",\"Test\":\"TestSwiftProof\"}"}},
+		{"no_run", model.Check{Status: "PASS", ExitCode: 0, Output: `{"Action":"pass","Test":"TestProbe"}`}},
+		{"skip", model.Check{Status: "PASS", ExitCode: 0, Output: "{\"Action\":\"run\",\"Test\":\"TestProbe\"}\n{\"Action\":\"skip\",\"Test\":\"TestProbe\"}"}},
 		{"truncated", model.Check{Status: "PASS", ExitCode: 0, Output: output.String(), Truncated: true}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			if c := ValidateGoExecution(tc.check, []string{"TestSwiftProof"}); c.Status != "ERROR" {
+			if c := ValidateGoExecution(tc.check, []string{"TestProbe"}); c.Status != "ERROR" {
 				t.Fatalf("false execution proof: %+v", c)
 			}
 		})
@@ -122,7 +122,7 @@ func TestRunExistingTest(t *testing.T) {
 		t.Fatal(err)
 	}
 	h.execute = func(_ context.Context, _ string, args []string, w io.Writer) execution {
-		if args[len(args)-1] != "^(TestSwiftProof)$" {
+		if args[len(args)-1] != "^(TestProbe)$" {
 			t.Fatal("existing Go test was not selected")
 		}
 		writeGoEvents(w, "pass")
@@ -149,8 +149,8 @@ func TestGoProofRejectsMultiPackageAndExecutionOverrides(t *testing.T) {
 	if !verifiableGoTemplate([]string{"go", "test", "-race", "-tags=integration", "{package}"}) {
 		t.Fatal("safe single-package template rejected")
 	}
-	check := model.Check{Status: "FAIL", ExitCode: 1, Output: "{\"Action\":\"run\",\"Test\":\"TestSwiftProof\",\"Package\":\"target\"}\n{\"Action\":\"pass\",\"Test\":\"TestSwiftProof\",\"Package\":\"target\"}\n{\"Action\":\"run\",\"Test\":\"TestSwiftProof\",\"Package\":\"other\"}\n{\"Action\":\"fail\",\"Test\":\"TestSwiftProof\",\"Package\":\"other\"}\n"}
-	if ValidateGoExecution(check, []string{"TestSwiftProof"}).Status != "ERROR" {
+	check := model.Check{Status: "FAIL", ExitCode: 1, Output: "{\"Action\":\"run\",\"Test\":\"TestProbe\",\"Package\":\"target\"}\n{\"Action\":\"pass\",\"Test\":\"TestProbe\",\"Package\":\"target\"}\n{\"Action\":\"run\",\"Test\":\"TestProbe\",\"Package\":\"other\"}\n{\"Action\":\"fail\",\"Test\":\"TestProbe\",\"Package\":\"other\"}\n"}
+	if ValidateGoExecution(check, []string{"TestProbe"}).Status != "ERROR" {
 		t.Fatal("same-named test from different package accepted")
 	}
 }

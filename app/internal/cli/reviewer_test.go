@@ -12,8 +12,8 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"github.com/gvinsot/SwiftProof/app/internal/config"
-	"github.com/gvinsot/SwiftProof/app/internal/model"
+	"github.com/gvinsot/Probe/app/internal/config"
+	"github.com/gvinsot/Probe/app/internal/model"
 )
 
 func TestReviewerActivation(t *testing.T) {
@@ -60,7 +60,7 @@ func TestReviewerActivation(t *testing.T) {
 			cfg := config.Default("go")
 			cfg.Reviewer.Model = tc.model
 			cfg.Reviewer.Endpoint = server.URL + "/v1"
-			cfg.Reviewer.APIKeyEnv = "SWIFTPROOF_TEST_REVIEWER_KEY"
+			cfg.Reviewer.APIKeyEnv = "PROBE_TEST_REVIEWER_KEY"
 			t.Setenv(cfg.Reviewer.APIKeyEnv, "test-reviewer-key")
 			if tc.invalidEndpoint {
 				cfg.Reviewer.Endpoint = "file:///invalid-provider"
@@ -104,7 +104,7 @@ func TestReviewerTrustsOnlySelectedPolicy(t *testing.T) {
 	cfg := config.Default("go")
 	cfg.Reviewer.Model = "test-model"
 	cfg.Reviewer.Endpoint = candidate.URL
-	cfg.Reviewer.APIKeyEnv = "SWIFTPROOF_TEST_REVIEWER_KEY"
+	cfg.Reviewer.APIKeyEnv = "PROBE_TEST_REVIEWER_KEY"
 	t.Setenv(cfg.Reviewer.APIKeyEnv, "") // Local providers may run without a key.
 	policy := filepath.Join(dir, config.Filename)
 	writeReviewerPolicy(t, policy, cfg)
@@ -140,7 +140,7 @@ func TestAutomaticReviewerFailurePreservesStaticReport(t *testing.T) {
 	defer server.Close()
 	cfg := config.Default("go")
 	cfg.Reviewer.Endpoint, cfg.Reviewer.Model = server.URL, "test-model"
-	cfg.Reviewer.APIKeyEnv = "SWIFTPROOF_TEST_REVIEWER_KEY"
+	cfg.Reviewer.APIKeyEnv = "PROBE_TEST_REVIEWER_KEY"
 	t.Setenv(cfg.Reviewer.APIKeyEnv, "")
 	policy := filepath.Join(t.TempDir(), "policy.json")
 	writeReviewerPolicy(t, policy, cfg)
@@ -201,12 +201,12 @@ func TestReviewerTakesProviderFromDeployment(t *testing.T) {
 	defer server.Close()
 	cfg := config.Default("go")
 	cfg.Reviewer.Endpoint, cfg.Reviewer.Model = "https://unreachable.invalid/v1", ""
-	cfg.Reviewer.APIKeyEnv = "SWIFTPROOF_TEST_REVIEWER_KEY"
+	cfg.Reviewer.APIKeyEnv = "PROBE_TEST_REVIEWER_KEY"
 	policy := filepath.Join(t.TempDir(), "policy.json")
 	writeReviewerPolicy(t, policy, cfg)
 	// The deployment converts the variable into a secret and removes it from
 	// the container environment, leaving only the mounted file behind.
-	secret := filepath.Join(t.TempDir(), "SWIFTPROOF_TEST_REVIEWER_KEY")
+	secret := filepath.Join(t.TempDir(), "PROBE_TEST_REVIEWER_KEY")
 	if err := os.WriteFile(secret, []byte("secret-key\n"), 0600); err != nil {
 		t.Fatal(err)
 	}

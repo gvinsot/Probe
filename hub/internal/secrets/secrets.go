@@ -39,9 +39,9 @@ func New(key []byte) (*Keyring, error) {
 		return nil, fmt.Errorf("deployment key must be 32 bytes, got %d", len(key))
 	}
 	return &Keyring{
-		storage: derive(key, "swiftproof-hub/storage/v1"),
-		session: derive(key, "swiftproof-hub/session/v1"),
-		csrf:    derive(key, "swiftproof-hub/csrf/v1"),
+		storage: derive(key, "probe-hub/storage/v1"),
+		session: derive(key, "probe-hub/session/v1"),
+		csrf:    derive(key, "probe-hub/csrf/v1"),
 	}, nil
 }
 
@@ -74,7 +74,7 @@ func (k *Keyring) WithPrevious(keys [][]byte) error {
 		if len(key) != 32 {
 			return fmt.Errorf("previous deployment key must be 32 bytes, got %d", len(key))
 		}
-		k.previous = append(k.previous, derive(key, "swiftproof-hub/storage/v1"))
+		k.previous = append(k.previous, derive(key, "probe-hub/storage/v1"))
 	}
 	return nil
 }

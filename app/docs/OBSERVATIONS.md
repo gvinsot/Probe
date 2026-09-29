@@ -1,32 +1,32 @@
 # Observation experiments
 
-A generated test normally asserts what the changed code should return, and the reviewer model guesses that expected value. When the guess is wrong, the experiment says more about the model than about the change. An observation experiment removes the guess: the generated test records the values the code returns, under named keys, and SwiftProof compares what the baseline and the candidate recorded for the same inputs. A human then decides which value is intended.
+A generated test normally asserts what the changed code should return, and the reviewer model guesses that expected value. When the guess is wrong, the experiment says more about the model than about the change. An observation experiment removes the guess: the generated test records the values the code returns, under named keys, and Probe compares what the baseline and the candidate recorded for the same inputs. A human then decides which value is intended.
 
-Observation experiments add no policy key, no flag, no tool, no container channel and no environment variable. They run inside the reviewer's existing `create_test` and `run_generated_test` tools whenever the trusted policy has a `generated_test` template whose named execution SwiftProof can establish (Go `["go", "test", "{package}"]`, or a Vitest template with `{file}` and `{results_out}`).
+Observation experiments add no policy key, no flag, no tool, no container channel and no environment variable. They run inside the reviewer's existing `create_test` and `run_generated_test` tools whenever the trusted policy has a `generated_test` template whose named execution Probe can establish (Go `["go", "test", "{package}"]`, or a Vitest template with `{file}` and `{results_out}`).
 
 ## Recording values
 
-**Go** (the sandbox image needs a Go 1.25 or later toolchain for `testing.T.Attr`). In the top-level test function, record one attribute per input under a key that starts with `swiftproof.`:
+**Go** (the sandbox image needs a Go 1.25 or later toolchain for `testing.T.Attr`). In the top-level test function, record one attribute per input under a key that starts with `probe.`:
 
 ```go
-func TestSwiftProofDiscountObservations(t *testing.T) {
+func TestProbeDiscountObservations(t *testing.T) {
 	for _, in := range [][2]int{{100, 10}, {5, 33}, {0, 50}} {
-		t.Attr(fmt.Sprintf("swiftproof.Discount(%d,%d)", in[0], in[1]), fmt.Sprintf("%#v", Discount(in[0], in[1])))
+		t.Attr(fmt.Sprintf("probe.Discount(%d,%d)", in[0], in[1]), fmt.Sprintf("%#v", Discount(in[0], in[1])))
 	}
 }
 ```
 
-`go test -json` turns each call into an `attr` event in the recorded check log. SwiftProof reads only `attr` events of exactly the generated top-level test names; subtests, other tests and keys without the prefix are ignored. An older toolchain fails to compile the test, which leaves the experiment `UNVERIFIED`.
+`go test -json` turns each call into an `attr` event in the recorded check log. Probe reads only `attr` events of exactly the generated top-level test names; subtests, other tests and keys without the prefix are ignored. An older toolchain fails to compile the test, which leaves the experiment `UNVERIFIED`.
 
 **Vitest** (the channel is the Jest-compatible JSON report that the template writes to `{results_out}`):
 
 ```ts
 test("observe discount", ({ task }) => {
-  (task.meta as any).swiftproof = { "discount(5,33)": discount(5, 33), "discount(100,10)": discount(100, 10) };
+  (task.meta as any).probe = { "discount(5,33)": discount(5, 33), "discount(100,10)": discount(100, 10) };
 });
 ```
 
-Vitest copies `task.meta` into the report; console output cannot reach it. SwiftProof keeps each value as canonical JSON text with its type: a string is recorded quoted (`"4"`), a number as written (`4`), an object with sorted keys. The number `4` and the string `"4"` are therefore different values. JSON drops `undefined` and turns `NaN` into `null`, so record such values with `String(x)`. A value whose canonical text exceeds 1024 bytes, or a key longer than 200 bytes, is kept only as a fixed stand-in that carries its length and a sha256 of its redacted text; a stand-in is never compared.
+Vitest copies `task.meta` into the report; console output cannot reach it. Probe keeps each value as canonical JSON text with its type: a string is recorded quoted (`"4"`), a number as written (`4`), an object with sorted keys. The number `4` and the string `"4"` are therefore different values. JSON drops `undefined` and turns `NaN` into `null`, so record such values with `String(x)`. A value whose canonical text exceeds 1024 bytes, or a key longer than 200 bytes, is kept only as a fixed stand-in that carries its length and a sha256 of its redacted text; a stand-in is never compared.
 
 **Jest** reports carry no per-test metadata, so a Jest template cannot record observations. A generated test that declares observations but records none gets an `UNVERIFIED` observation record that says so.
 
@@ -39,7 +39,7 @@ Rules for keys and values:
 
 The `create_test` and `run_generated_test` tool descriptions and the reviewer's system prompt carry the same recipe.
 
-## What SwiftProof compares
+## What Probe compares
 
 `run_generated_test` runs the generated test on the baseline and on the candidate as before, and records the ordinary `differential_test` evidence. When either run recorded observations, or the test source declares them, it also records one `differential_observation` evidence record that cites the same two checks. Values are compared only when the named test passed on both revisions with exit code 0, under the same command, and the named executions were validated from the runner's structured output.
 
@@ -52,7 +52,7 @@ Each key gets one row status:
 | `UNSTABLE` | The baseline repeat did not record the value of the first baseline run. |
 | `INCOMPARABLE` | The key is invalid, or was recorded more than once in one run, or on one revision only; a value contains `[REDACTED]`, would be altered by redaction, exceeds 1024 bytes or is the stand-in of a longer Vitest value; a Go value was too long for the test runner to convert; or two differing values look like a memory address or a source position. |
 
-When at least one key differs and nothing else prevents a comparison, SwiftProof runs the staged generated test **once more on the baseline**, live, as a check of kind `generated_test_base_repeat`. That run is never served from the execution cache and is charged to the sandbox runtime budget like any other run. Only this one repeat runs per experiment.
+When at least one key differs and nothing else prevents a comparison, Probe runs the staged generated test **once more on the baseline**, live, as a check of kind `generated_test_base_repeat`. That run is never served from the execution cache and is charged to the sandbox runtime budget like any other run. Only this one repeat runs per experiment.
 
 The record's status is:
 
@@ -75,7 +75,7 @@ The Markdown report always has a `## Behavior Divergences` section. From a real 
 ```text
 ## Behavior Divergences
 
-- **evidence-2** differential\_observation — price/price.go:5 (model-chosen location); test price/swiftproof\_observe\_test.go (TestSwiftProofDiscountObservations); hypotheses: hypothesis-1
+- **evidence-2** differential\_observation — price/price.go:5 (model-chosen location); test price/probe\_observe\_test.go (TestProbeDiscountObservations); hypotheses: hypothesis-1
   - Discount\(5,33\): baseline 4; candidate 3
 
 Recorded values differ between revisions for the same inputs: the candidate differed from baseline runs that agreed with each other. This does not establish which revision is correct.
@@ -96,12 +96,12 @@ and recorded this entry in `confidence-report.json` (abridged to the divergence)
   "path": "price/price.go",
   "line": 5,
   "anchor_source": "hypothesis",
-  "test_path": "price/swiftproof_observe_test.go",
-  "test_names": ["TestSwiftProofDiscountObservations"],
+  "test_path": "price/probe_observe_test.go",
+  "test_names": ["TestProbeDiscountObservations"],
   "check_ids": ["check-1", "check-2", "check-3"],
   "hypothesis_ids": ["hypothesis-1"],
   "observations": [
-    {"test": "TestSwiftProofDiscountObservations", "key": "Discount(5,33)", "status": "DIVERGED", "base": "4", "candidate": "3", "base_recorded": true, "candidate_recorded": true}
+    {"test": "TestProbeDiscountObservations", "key": "Discount(5,33)", "status": "DIVERGED", "base": "4", "candidate": "3", "base_recorded": true, "candidate_recorded": true}
   ],
   "note": "Recorded values differ between revisions for the same inputs: the candidate differed from baseline runs that agreed with each other. This does not establish which revision is correct."
 }
@@ -133,7 +133,7 @@ This holds whatever the observation record's own status is (for example when the
 
 Both channels can be written by code executing in the sandbox. They are kept apart from ordinary log text so that unrelated output cannot impersonate an observation, and nothing more:
 
-- In Go, a plain line such as `=== ATTR  TestX swiftproof.k v` printed by the code under test stays an ordinary output event. Only a line carrying the test runner's framing byte (`\x16`) becomes an `attr` event. Code under test that prints such a framed line for a key the test also records makes that key recorded twice, hence `INCOMPARABLE`: a forged line can turn a divergence into `UNVERIFIED`, and can add a key, but it cannot produce `NOT_DIVERGED` for a key it duplicates.
+- In Go, a plain line such as `=== ATTR  TestX probe.k v` printed by the code under test stays an ordinary output event. Only a line carrying the test runner's framing byte (`\x16`) becomes an `attr` event. Code under test that prints such a framed line for a key the test also records makes that key recorded twice, hence `INCOMPARABLE`: a forged line can turn a divergence into `UNVERIFIED`, and can add a key, but it cannot produce `NOT_DIVERGED` for a key it duplicates.
 - In Vitest, console output cannot reach `task.meta`; the test code and the code it calls can.
 - Code that sabotages its own test process (for example by writing directly to the process's standard output descriptors) can forge anything a passing test can. This is the same limit as for `NOT_REPRODUCED`, and it is why these records are observations, not proof.
 

@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/gvinsot/SwiftProof/app/internal/model"
+	"github.com/gvinsot/Probe/app/internal/model"
 )
 
 func classify(t *testing.T, pairs ...sourcePair) ([]string, int) {

@@ -10,11 +10,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gvinsot/SwiftProof/app/internal/coverage"
-	"github.com/gvinsot/SwiftProof/app/internal/model"
+	"github.com/gvinsot/Probe/app/internal/coverage"
+	"github.com/gvinsot/Probe/app/internal/model"
 )
 
-const absentImage = "swiftproof.invalid/absent:test-only"
+const absentImage = "probe.invalid/absent:test-only"
 
 // runReport runs the CLI and returns the exit code, the decoded report and the
 // raw JSON of its top-level members.
@@ -241,7 +241,7 @@ func TestInitWritesNoReleaseOrderedKeys(t *testing.T) {
 		if code := Run(context.Background(), []string{"init", "--repo", dir, "--language", language}, &out, &errOut, "test"); code != 0 {
 			t.Fatalf("init %s: %d %s", language, code, errOut.String())
 		}
-		data, err := os.ReadFile(filepath.Join(dir, ".swiftproof.json"))
+		data, err := os.ReadFile(filepath.Join(dir, ".probe.json"))
 		if err != nil {
 			t.Fatal(err)
 		}

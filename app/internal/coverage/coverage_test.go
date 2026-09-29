@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/gvinsot/SwiftProof/app/internal/model"
+	"github.com/gvinsot/Probe/app/internal/model"
 )
 
 const module = "example.com/m"
@@ -36,7 +36,7 @@ func file(path string, added []int, removed []int) model.ChangedFile {
 }
 
 func pass(module string) Run {
-	return Run{CheckID: "check-4", Status: "PASS", Command: []string{"go", "test", "-coverprofile=/tmp/swiftproof-coverage.out", "./..."}, SHA256: strings.Repeat("a", 64), Module: module}
+	return Run{CheckID: "check-4", Status: "PASS", Command: []string{"go", "test", "-coverprofile=/tmp/probe-coverage.out", "./..."}, SHA256: strings.Repeat("a", 64), Module: module}
 }
 
 // Every added line lands in exactly one of the four states, and removed lines

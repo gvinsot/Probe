@@ -9,7 +9,7 @@ const (
 	FuzzDiverged     = "diverged"
 	FuzzNotDiverged  = "not_diverged"
 	FuzzInconclusive = "inconclusive"
-	FuzzSeedScheme   = "swiftproof-fuzz/v1"
+	FuzzSeedScheme   = "probe-fuzz/v1"
 )
 
 // FuzzNote is the fixed note of the fuzz section. It describes the method and

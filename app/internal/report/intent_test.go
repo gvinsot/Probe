@@ -9,10 +9,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/gvinsot/SwiftProof/app/internal/model"
+	"github.com/gvinsot/Probe/app/internal/model"
 )
 
-const intentTestFile = "pkg/swiftproof_intent_ac1_test.go"
+const intentTestFile = "pkg/probe_intent_ac1_test.go"
 
 // goIntentOutput is a go test -json log of TestIntentAC1 ending with action
 // and carrying the given output lines.
@@ -32,7 +32,7 @@ func goIntentOutput(action string, outputs ...string) string {
 	return b.String()
 }
 
-const intentAssertion = "    swiftproof_intent_ac1_test.go:7: Discount(100) = 100, want 90\n"
+const intentAssertion = "    probe_intent_ac1_test.go:7: Discount(100) = 100, want 90\n"
 
 // intentProofReport holds one candidate-only intent test that failed on an
 // assertion and references the new Discount, and a critical hypothesis citing
@@ -191,7 +191,7 @@ func TestIntentFailureWithJestRunner(t *testing.T) {
 	build := func(message string) *model.Report {
 		r := intentProofReport()
 		r.Change.Files[0] = model.ChangedFile{Path: "src/cart.ts", Status: "M", Hunks: []model.Hunk{{Lines: []model.DiffLine{{Kind: "add", NewLine: 5, Content: "export function discount(total: number): number {"}}}}}
-		r.Checks[0].Command = []string{"npx", "vitest", "run", "src/cart.intent.test.ts", "--reporter=json", "--outputFile=/tmp/swiftproof-test-results.json"}
+		r.Checks[0].Command = []string{"npx", "vitest", "run", "src/cart.intent.test.ts", "--reporter=json", "--outputFile=/tmp/probe-test-results.json"}
 		r.Checks[0].Output = "vitest output"
 		r.Checks[0].Results = results(message)
 		r.Evidence[0].Path, r.Evidence[0].Runner, r.Evidence[0].TestNames, r.Evidence[0].ReferencedSymbols = "src/cart.intent.test.ts", "jest_json", []string{"orders of 100 get 10 off"}, []string{"discount"}
@@ -376,7 +376,7 @@ func TestIntentMarkdownSectionsOrderAndWording(t *testing.T) {
 		"- **critical** Discount skips orders of exactly 100 — pkg/cart.go:6\n",
 		"  Criterion AC-1 (intent line 2): \"Orders of 100 or more get 10 off\"\n",
 		"  Evidence: evidence-1\n",
-		"  Test pkg/swiftproof\\_intent\\_ac1\\_test.go (TestIntentAC1) failed on an assertion; names it shares with declarations the change added or modified (matched by name, not resolved): Discount.\n",
+		"  Test pkg/probe\\_intent\\_ac1\\_test.go (TestIntentAC1) failed on an assertion; names it shares with declarations the change added or modified (matched by name, not resolved): Discount.\n",
 	} {
 		if !strings.Contains(failures, want) {
 			t.Errorf("failures section lacks %q:\n%s", want, failures)

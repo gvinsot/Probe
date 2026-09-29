@@ -14,9 +14,9 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/gvinsot/SwiftProof/app/internal/config"
-	"github.com/gvinsot/SwiftProof/app/internal/model"
-	"github.com/gvinsot/SwiftProof/app/internal/prepare"
+	"github.com/gvinsot/Probe/app/internal/config"
+	"github.com/gvinsot/Probe/app/internal/model"
+	"github.com/gvinsot/Probe/app/internal/prepare"
 )
 
 const fakePrepareBaseID = "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
@@ -226,10 +226,10 @@ func TestPrepareFailureExecutesNothing(t *testing.T) {
 		if code != 4 || len(r.Checks) != 0 || f.count("run ") != 0 {
 			t.Fatalf("exit %d checks %v runs %d", code, checkKinds(r), f.count("run "))
 		}
-		if r.Prepare == nil || r.Prepare.Status != model.PrepareFailed || !strings.Contains(r.Prepare.Reason, "golang:absent is not available locally; SwiftProof never pulls images") {
+		if r.Prepare == nil || r.Prepare.Status != model.PrepareFailed || !strings.Contains(r.Prepare.Reason, "golang:absent is not available locally; Probe never pulls images") {
 			t.Fatalf("prepare %+v", r.Prepare)
 		}
-		if !unverifiedWith(r, "Dependency preparation failed: the sandbox image golang:absent is not available locally; SwiftProof never pulls images. The prepare command did not run; no repository code was executed and no check ran.") || unverifiedWith(r, "explicitly disabled") {
+		if !unverifiedWith(r, "Dependency preparation failed: the sandbox image golang:absent is not available locally; Probe never pulls images. The prepare command did not run; no repository code was executed and no check ran.") || unverifiedWith(r, "explicitly disabled") {
 			t.Fatalf("unverified %q", r.Unverified)
 		}
 		if len(r.Audit) == 0 || r.Audit[0].Tool != "stage:prepare" || r.Audit[0].Status != "ERROR" {
@@ -301,7 +301,7 @@ func TestPrepareBuildThenReuseAcrossReviews(t *testing.T) {
 		t.Fatal("no check ran on the prepared image")
 	}
 	// The entry is neutral: it attributes no failure to the dependency change.
-	if !unverifiedWith(r, "Candidate changes dependency-preparation inputs (go.sum)") || !unverifiedWith(r, "checks may fail or behave differently for that reason alone; SwiftProof attributes no check result to it.") || unverifiedWith(r, "failures they cause are expected") || !hasPrepareSignal(r, "go.sum") {
+	if !unverifiedWith(r, "Candidate changes dependency-preparation inputs (go.sum)") || !unverifiedWith(r, "checks may fail or behave differently for that reason alone; Probe attributes no check result to it.") || unverifiedWith(r, "failures they cause are expected") || !hasPrepareSignal(r, "go.sum") {
 		t.Fatalf("unverified %q", r.Unverified)
 	}
 	_, again, _, output := runReport(t, context.Background(), dir, "review", "--config", policy, "--reviewer=false", "--ci")

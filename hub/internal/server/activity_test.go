@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/gvinsot/SwiftProof/hub/internal/analysis"
-	"github.com/gvinsot/SwiftProof/hub/internal/store"
+	"github.com/gvinsot/Probe/hub/internal/analysis"
+	"github.com/gvinsot/Probe/hub/internal/store"
 )
 
 func TestAnalysesAuthenticationAndIsolation(t *testing.T) {

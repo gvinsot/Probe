@@ -12,8 +12,8 @@ import (
 	"testing"
 	"testing/iotest"
 
-	"github.com/gvinsot/SwiftProof/app/internal/config"
-	"github.com/gvinsot/SwiftProof/app/internal/gitrepo"
+	"github.com/gvinsot/Probe/app/internal/config"
+	"github.com/gvinsot/Probe/app/internal/gitrepo"
 )
 
 const goldenImage = "sha256:1111111111111111111111111111111111111111111111111111111111111111"
@@ -21,50 +21,50 @@ const goldenImage = "sha256:1111111111111111111111111111111111111111111111111111
 // The prepare container profile, argument for argument (contract §2 F8
 // delta 2, refinement R2).
 func TestCreateArgsGolden(t *testing.T) {
-	sandbox := config.Prepare{Command: []string{"go", "mod", "download"}, Env: map[string]string{"NODE_PATH": "/swiftproof/work/node_modules", "GOMODCACHE": "/opt/go mod"}}
-	got := createArgs("swiftproof-prepare-abc", "/tmp/in", goldenImage, sandbox, false, 512, 2)
+	sandbox := config.Prepare{Command: []string{"go", "mod", "download"}, Env: map[string]string{"NODE_PATH": "/probe/work/node_modules", "GOMODCACHE": "/opt/go mod"}}
+	got := createArgs("probe-prepare-abc", "/tmp/in", goldenImage, sandbox, false, 512, 2)
 	want := []string{
-		"create", "--pull=never", "--name", "swiftproof-prepare-abc", "--network", "none", "--cap-drop=ALL",
+		"create", "--pull=never", "--name", "probe-prepare-abc", "--network", "none", "--cap-drop=ALL",
 		"--security-opt=no-new-privileges", "--memory=512m", "--memory-swap=512m", "--cpus=2", "--pids-limit=256",
 		"--ulimit=nofile=1024:1024", "--log-driver=none", "--no-healthcheck", "--user=65534:65534",
-		"--mount", "type=bind,src=/tmp/in,dst=/swiftproof/inputs,readonly", "--workdir=/swiftproof/work", "--env=HOME=/swiftproof/home",
-		"--env=GOMODCACHE=/opt/go mod", "--env=NODE_PATH=/swiftproof/work/node_modules",
-		"--entrypoint=/bin/sh", goldenImage, "-c", wrapperScript, "swiftproof", "go", "mod", "download",
+		"--mount", "type=bind,src=/tmp/in,dst=/probe/inputs,readonly", "--workdir=/probe/work", "--env=HOME=/probe/home",
+		"--env=GOMODCACHE=/opt/go mod", "--env=NODE_PATH=/probe/work/node_modules",
+		"--entrypoint=/bin/sh", goldenImage, "-c", wrapperScript, "probe", "go", "mod", "download",
 	}
 	if strings.Join(got, "\n") != strings.Join(want, "\n") {
 		t.Fatalf("sandbox profile:\n got %q\nwant %q", got, want)
 	}
 	root := config.Prepare{Command: []string{"npm", "ci"}, User: "root"}
-	got = createArgs("swiftproof-prepare-abc", "/tmp/in", goldenImage, root, true, 1024, 4)
+	got = createArgs("probe-prepare-abc", "/tmp/in", goldenImage, root, true, 1024, 4)
 	want = []string{
-		"create", "--pull=never", "--name", "swiftproof-prepare-abc", "--network", "bridge", "--cap-drop=ALL",
+		"create", "--pull=never", "--name", "probe-prepare-abc", "--network", "bridge", "--cap-drop=ALL",
 		"--cap-add=CHOWN", "--cap-add=DAC_OVERRIDE", "--cap-add=FOWNER", "--cap-add=FSETID", "--cap-add=SETGID", "--cap-add=SETUID",
 		"--security-opt=no-new-privileges", "--memory=1024m", "--memory-swap=1024m", "--cpus=4", "--pids-limit=256",
 		"--ulimit=nofile=1024:1024", "--log-driver=none", "--no-healthcheck", "--user=0:0",
-		"--mount", "type=bind,src=/tmp/in,dst=/swiftproof/inputs,readonly", "--workdir=/swiftproof/work", "--env=HOME=/swiftproof/home",
-		"--entrypoint=/bin/sh", goldenImage, "-c", wrapperScript, "swiftproof", "npm", "ci",
+		"--mount", "type=bind,src=/tmp/in,dst=/probe/inputs,readonly", "--workdir=/probe/work", "--env=HOME=/probe/home",
+		"--entrypoint=/bin/sh", goldenImage, "-c", wrapperScript, "probe", "npm", "ci",
 	}
 	if strings.Join(got, "\n") != strings.Join(want, "\n") {
 		t.Fatalf("root profile:\n got %q\nwant %q", got, want)
 	}
-	if wrapperScript != `cp -R /swiftproof/inputs/. /swiftproof/work/ || { echo "swiftproof: could not copy the prepare inputs into /swiftproof/work" >&2; exit 125; }; exec "$@"` {
+	if wrapperScript != `cp -R /probe/inputs/. /probe/work/ || { echo "probe: could not copy the prepare inputs into /probe/work" >&2; exit 125; }; exec "$@"` {
 		t.Fatalf("wrapper script changed: %s", wrapperScript)
 	}
 }
 
 // Whatever the policy says, the profile never gains a host channel, and the
-// policy argv reaches the container verbatim after the fixed "swiftproof"
-// name, never through a shell of SwiftProof's making.
+// policy argv reaches the container verbatim after the fixed "probe"
+// name, never through a shell of Probe's making.
 func TestCreateArgsIsolation(t *testing.T) {
 	hostile := []string{"sh", "-c", "curl http://169.254.169.254; rm -rf /", "$(id)", "--privileged", "-v", "/var/run/docker.sock:/s"}
 	for _, spec := range []config.Prepare{
 		{Command: hostile},
 		{Command: hostile, User: "root", Network: true, Env: map[string]string{"X": "--volume=/:/host"}},
 	} {
-		args := createArgs("swiftproof-prepare-x", "/tmp/in", goldenImage, spec, spec.Network, 256, 1)
+		args := createArgs("probe-prepare-x", "/tmp/in", goldenImage, spec, spec.Network, 256, 1)
 		split := -1
 		for i, a := range args {
-			if a == "swiftproof" && i > 0 && args[i-1] == wrapperScript {
+			if a == "probe" && i > 0 && args[i-1] == wrapperScript {
 				split = i
 				break
 			}
@@ -83,7 +83,7 @@ func TestCreateArgsIsolation(t *testing.T) {
 				t.Fatalf("profile mentions the Docker socket: %q", args)
 			case a == "--mount":
 				mounts++
-				if args[i+1] != "type=bind,src=/tmp/in,dst=/swiftproof/inputs,readonly" {
+				if args[i+1] != "type=bind,src=/tmp/in,dst=/probe/inputs,readonly" {
 					t.Fatalf("unexpected mount %q", args[i+1])
 				}
 			case a == "--pull=always" || a == "--pull=missing":
@@ -115,18 +115,18 @@ func TestScaffoldArchive(t *testing.T) {
 		}
 		got = append(got, fmt.Sprintf("%s %o", h.Name, h.Mode))
 	}
-	if strings.Join(got, ",") != "swiftproof/work/ 755,swiftproof/home/ 700" {
+	if strings.Join(got, ",") != "probe/work/ 755,probe/home/ 700" {
 		t.Fatalf("scaffold entries %q", got)
 	}
 }
 
 func TestClassifyChanges(t *testing.T) {
 	inputs := []gitrepo.ExportedFile{{Path: "go.mod"}, {Path: "app/go.sum"}}
-	own := "A /swiftproof\nA /swiftproof/inputs\nA /swiftproof/work\nA /swiftproof/work/go.mod\nA /swiftproof/work/app\nA /swiftproof/work/app/go.sum\nA /swiftproof/home\n"
+	own := "A /probe\nA /probe/inputs\nA /probe/work\nA /probe/work/go.mod\nA /probe/work/app\nA /probe/work/app/go.sum\nA /probe/home\n"
 	// Far more than 64 KiB of listing under the prepare HOME and /tmp.
 	var home strings.Builder
 	for i := 0; i < 4000; i++ {
-		fmt.Fprintf(&home, "A /swiftproof/home/c/f%04d\nA /tmp/c/f%04d\n", i, i)
+		fmt.Fprintf(&home, "A /probe/home/c/f%04d\nA /tmp/c/f%04d\n", i, i)
 	}
 	long := strings.Repeat("x", diffLineLimit)
 	for _, tc := range []struct {
@@ -134,25 +134,25 @@ func TestClassifyChanges(t *testing.T) {
 		diff                 string
 		persistent, shadowed int
 	}{
-		{name: "nothing beyond SwiftProof's own paths", diff: own},
+		{name: "nothing beyond Probe's own paths", diff: own},
 		{name: "empty"},
 		{name: "go module cache", diff: own + "C /go\nA /go/pkg\nA /go/pkg/mod\n", persistent: 3},
-		{name: "work outputs are persistent", diff: own + "A /swiftproof/work/node_modules\n", persistent: 1},
-		{name: "shadowed", diff: own + "A /swiftproof/home/.cache\nC /tmp\nA /tmp/x\nA /workspace/y\n", shadowed: 4},
+		{name: "work outputs are persistent", diff: own + "A /probe/work/node_modules\n", persistent: 1},
+		{name: "shadowed", diff: own + "A /probe/home/.cache\nC /tmp\nA /tmp/x\nA /workspace/y\n", shadowed: 4},
 		{name: "prefix is not a parent", diff: "A /tmpfoo\nA /workspacex\n", persistent: 2},
 		{name: "deletions count", diff: "D /usr/share/doc\n", persistent: 1},
 		{name: "a final line without terminator counts", diff: own + "A /opt/lib", persistent: 1},
 		{name: "CRLF", diff: "A /opt/x\r\n", persistent: 1},
 		{name: "space in path", diff: "A /opt/a b\n", persistent: 1},
-		{name: "input mount content", diff: "A /swiftproof/inputs/go.mod\n"},
-		{name: "a work file that is not an input", diff: "A /swiftproof/work/go.sum\n", persistent: 1},
+		{name: "input mount content", diff: "A /probe/inputs/go.mod\n"},
+		{name: "a work file that is not an input", diff: "A /probe/work/go.sum\n", persistent: 1},
 		// Regression: the persistent change comes after 64 KiB of shadowed
 		// lines; the whole listing is classified, so nothing is called shadowed.
 		{name: "a persistent change after a long shadowed listing", diff: own + home.String() + "C /var\nC /var/tmp\nA /var/tmp/deps\n", persistent: 3, shadowed: 8000},
 		{name: "a long shadowed listing only", diff: own + home.String(), shadowed: 8000},
 		// A path longer than the line bound is never assumed shadowed or own.
 		{name: "an over-long path under /tmp", diff: own + "A /tmp/" + long + "\nA /tmp/x\n", persistent: 1, shadowed: 1},
-		{name: "an over-long path under the work directory", diff: "A /swiftproof/work/" + long + "\n", persistent: 1},
+		{name: "an over-long path under the work directory", diff: "A /probe/work/" + long + "\n", persistent: 1},
 	} {
 		c := newClassifier(inputs)
 		if err := scanLines(strings.NewReader(tc.diff), diffLineLimit, c.add); err != nil {
@@ -213,13 +213,13 @@ func TestScanLines(t *testing.T) {
 // inputs; a VOLUME of the sandbox image would add one that docker commit does
 // not keep.
 func TestOnlyInputsMount(t *testing.T) {
-	inputs := `{"Type":"bind","Source":"/tmp/in","Destination":"/swiftproof/inputs","Mode":"","RW":false,"Propagation":"rprivate"}`
+	inputs := `{"Type":"bind","Source":"/tmp/in","Destination":"/probe/inputs","Mode":"","RW":false,"Propagation":"rprivate"}`
 	if err := onlyInputsMount([]byte("[" + inputs + "]\n")); err != nil {
 		t.Fatal(err)
 	}
 	for name, tc := range map[string]struct{ mounts, want string }{
 		"image volume":         {"[" + inputs + `,{"Type":"volume","Name":"abc","Destination":"/data","RW":true}]`, "mounts other than the read-only inputs (volume at /data)"},
-		"writable inputs":      {`[{"Type":"bind","Destination":"/swiftproof/inputs","RW":true}]`, "(bind at /swiftproof/inputs)"},
+		"writable inputs":      {`[{"Type":"bind","Destination":"/probe/inputs","RW":true}]`, "(bind at /probe/inputs)"},
 		"no mount":             {"[]", "does not have exactly one read-only inputs mount"},
 		"null":                 {"null", "does not have exactly one read-only inputs mount"},
 		"inputs mounted twice": {"[" + inputs + "," + inputs + "]", "does not have exactly one read-only inputs mount"},
@@ -265,11 +265,11 @@ func TestListImagesAndRemoveImage(t *testing.T) {
 	id := "sha256:" + strings.Repeat("a", 64)
 	other := "sha256:" + strings.Repeat("b", 64)
 	r := &recordingRunner{stdout: id + "\n" + id + "\n\n" + other + "\n"}
-	ids, err := listImages(context.Background(), r.run, "swiftproof-prepared:x-y", "k")
+	ids, err := listImages(context.Background(), r.run, "probe-prepared:x-y", "k")
 	if err != nil || strings.Join(ids, ",") != id+","+other {
 		t.Fatalf("ids %v %v", ids, err)
 	}
-	if got := strings.Join(r.args[0], " "); got != "image ls --no-trunc --format {{.ID}} --filter reference=swiftproof-prepared:x-y --filter label=org.swiftproof.prepare.key=k" {
+	if got := strings.Join(r.args[0], " "); got != "image ls --no-trunc --format {{.ID}} --filter reference=probe-prepared:x-y --filter label=org.probe.prepare.key=k" {
 		t.Fatalf("list args %q", got)
 	}
 	for _, bad := range []string{"abc\n", "sha256:ABC\n", id + " extra\n"} {
@@ -284,7 +284,7 @@ func TestListImagesAndRemoveImage(t *testing.T) {
 	if err := removeImage(context.Background(), r.run, id); err != nil || strings.Join(r.args[0], " ") != "image rm "+id {
 		t.Fatalf("remove %v %q", err, r.args)
 	}
-	if err := removeImage(context.Background(), r.run, "swiftproof-prepared:x"); err == nil {
+	if err := removeImage(context.Background(), r.run, "probe-prepared:x"); err == nil {
 		t.Fatal("removed an image by tag")
 	}
 	r = &recordingRunner{stdout: "20480\n4096\n0\n"}
@@ -296,7 +296,7 @@ func TestListImagesAndRemoveImage(t *testing.T) {
 			t.Errorf("accepted history %q", bad)
 		}
 	}
-	if _, err := layerSize(context.Background(), r.run, "swiftproof-prepared:x"); err == nil {
+	if _, err := layerSize(context.Background(), r.run, "probe-prepared:x"); err == nil {
 		t.Fatal("history by tag")
 	}
 }

@@ -16,9 +16,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gvinsot/SwiftProof/app/internal/fuzz"
-	"github.com/gvinsot/SwiftProof/app/internal/harness"
-	"github.com/gvinsot/SwiftProof/app/internal/model"
+	"github.com/gvinsot/Probe/app/internal/fuzz"
+	"github.com/gvinsot/Probe/app/internal/harness"
+	"github.com/gvinsot/Probe/app/internal/model"
 )
 
 // dockerCalcBase and dockerCalcCandidate are the F2 design's calc fixture
@@ -36,7 +36,7 @@ type Cents int64
 
 // Boundary reports the sandbox user and whether the source mount refused a write.
 func Boundary(n int) string {
-	err := os.WriteFile("/source/swiftproof-boundary", []byte("x"), 0o644)
+	err := os.WriteFile("/source/probe-boundary", []byte("x"), 0o644)
 	return fmt.Sprintf("uid=%d source-write-refused=%t", os.Getuid(), err != nil)
 }
 
@@ -97,7 +97,7 @@ type Cents int64
 // Boundary reports the sandbox user and whether the source mount refused a write.
 func Boundary(n int) string {
 	_ = n
-	err := os.WriteFile("/source/swiftproof-boundary", []byte("x"), 0o644)
+	err := os.WriteFile("/source/probe-boundary", []byte("x"), 0o644)
 	return fmt.Sprintf("uid=%d source-write-refused=%t", os.Getuid(), err != nil)
 }
 
@@ -172,9 +172,9 @@ func writeTree(t *testing.T, root string, files map[string]string) {
 }
 
 func TestDockerFuzzObservedRun(t *testing.T) {
-	image := os.Getenv("SWIFTPROOF_TEST_DOCKER_IMAGE")
+	image := os.Getenv("PROBE_TEST_DOCKER_IMAGE")
 	if image == "" {
-		t.Skip("set SWIFTPROOF_TEST_DOCKER_IMAGE to a preloaded Go image to run Docker-gated tests")
+		t.Skip("set PROBE_TEST_DOCKER_IMAGE to a preloaded Go image to run Docker-gated tests")
 	}
 	root := t.TempDir()
 	base, candidate := filepath.Join(root, "base"), filepath.Join(root, "candidate")
@@ -311,7 +311,7 @@ func TestDockerFuzzObservedRun(t *testing.T) {
 	}
 	// No harness file stays in any snapshot, and no container of this test remains.
 	for _, dir := range []string{base, candidate, snapBase, snapCandidate} {
-		matches, _ := filepath.Glob(filepath.Join(dir, "calc", "swiftproof_fuzz_*"))
+		matches, _ := filepath.Glob(filepath.Join(dir, "calc", "probe_fuzz_*"))
 		if len(matches) != 0 {
 			t.Fatalf("harness left behind: %v", matches)
 		}

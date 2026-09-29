@@ -4,7 +4,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/gvinsot/SwiftProof/app/internal/model"
+	"github.com/gvinsot/Probe/app/internal/model"
 )
 
 // reproducedFindings returns one finding per reproduced hypothesis (Finalize's

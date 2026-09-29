@@ -1,19 +1,19 @@
-# SwiftProof
+# Probe
 
 **Spend review time on the changes that need your judgment.**
 
-SwiftProof is a Go CLI for reviewing AI-assisted pull requests. It maps Git changes to risk signals, optionally runs isolated checks and adversarial tests, and produces a focused review plan with traceable evidence.
+Probe is a Go CLI for reviewing AI-assisted pull requests. It maps Git changes to risk signals, optionally runs isolated checks and adversarial tests, and produces a focused review plan with traceable evidence.
 
 It works without an AI provider. It does not assign confidence percentages or automatically approve PRs. Passing tests and a small review surface are not correctness guarantees.
 
 ## Quick start
 
-Download a binary for Windows, Linux or macOS from [GitHub Releases](https://github.com/gvinsot/SwiftProof/releases). Git is required at runtime. Docker with Linux containers is required only to execute repository code.
+Download a binary for Windows, Linux or macOS from [GitHub Releases](https://github.com/gvinsot/Probe/releases). Git is required at runtime. Docker with Linux containers is required only to execute repository code.
 
 To build from source, install Go 1.23+ and run from the `app` directory of the repository:
 
 ```sh
-go build -o swiftproof ./cmd/swiftproof
+go build -o probe ./cmd/probe
 go test ./...
 ```
 
@@ -23,28 +23,28 @@ To build Windows amd64 **and Linux amd64/arm64** together, run from the `app` di
 go run ./tools/build
 ```
 
-Binaries are written to `dist/windows-amd64/swiftproof.exe`, `dist/linux-amd64/swiftproof` and `dist/linux-arm64/swiftproof`. The same command produces portable ZIP/tar.gz archives and `dist/SHA256SUMS`. Every successful CI run retains these archives as the `swiftproof-build` artifact.
+Binaries are written to `dist/windows-amd64/probe.exe`, `dist/linux-amd64/probe` and `dist/linux-arm64/probe`. The same command produces portable ZIP/tar.gz archives and `dist/SHA256SUMS`. Every successful CI run retains these archives as the `probe-build` artifact.
 
-Put the binary on your PATH, then run `swiftproof lint --base main` in a Git repository. Windows builds produce `swiftproof.exe` when using `go build ./cmd/swiftproof`. The [release workflow](docs/RELEASE.md) prepares portable archives for distribution.
+Put the binary on your PATH, then run `probe lint --base main` in a Git repository. Windows builds produce `probe.exe` when using `go build ./cmd/probe`. The [release workflow](docs/RELEASE.md) prepares portable archives for distribution.
 
-Open `.swiftproof/CONFIDENCE_REPORT.md`; see a [real example report](examples/CONFIDENCE_REPORT.md). Its companion `confidence-report.json` contains commit IDs, changed lines, signals, checks, hypotheses, evidence, audit events and artifact hashes. Add `.swiftproof/` to your project's `.gitignore`.
+Open `.probe/CONFIDENCE_REPORT.md`; see a [real example report](examples/CONFIDENCE_REPORT.md). Its companion `confidence-report.json` contains commit IDs, changed lines, signals, checks, hypotheses, evidence, audit events and artifact hashes. Add `.probe/` to your project's `.gitignore`.
 
 ```sh
-swiftproof init
-# Review .swiftproof.json and commit it to your base branch.
-swiftproof review --base main --ci
+probe init
+# Review .probe.json and commit it to your base branch.
+probe review --base main --ci
 ```
 
-Checks require an **image containing the toolchain and project dependencies**: preload it, or let the trusted base-branch policy derive it with an optional `prepare` command ([dependency preparation](docs/PREPARE.md)). SwiftProof never pulls images and never installs dependencies from candidate content. For a Go project without third-party dependencies, preload the default image in a trusted environment:
+Checks require an **image containing the toolchain and project dependencies**: preload it, or let the trusted base-branch policy derive it with an optional `prepare` command ([dependency preparation](docs/PREPARE.md)). Probe never pulls images and never installs dependencies from candidate content. For a Go project without third-party dependencies, preload the default image in a trusted environment:
 
 ```sh
 docker pull golang:1.26-bookworm
-swiftproof review --base main
+probe review --base main
 ```
 
-Use `--config .swiftproof.json` to explicitly try the local policy before committing it. Missing Docker or images produce an operational error; execution never falls back to your host.
+Use `--config .probe.json` to explicitly try the local policy before committing it. Missing Docker or images produce an operational error; execution never falls back to your host.
 
-**See what needs your attention, even when tests pass.** In this [real example report](examples/CONFIDENCE_REPORT.md), all three checks passed, but SwiftProof highlighted a changed authorization function for human review. No AI provider was used. Excerpt from the generated `.swiftproof/CONFIDENCE_REPORT.md`:
+**See what needs your attention, even when tests pass.** In this [real example report](examples/CONFIDENCE_REPORT.md), all three checks passed, but Probe highlighted a changed authorization function for human review. No AI provider was used. Excerpt from the generated `.probe/CONFIDENCE_REPORT.md`:
 
 ```markdown
 ## Automated Checks
@@ -79,12 +79,12 @@ Start with the flagged lines and the reason for each review target. These signal
 - An opt-in baseline execution cache (`--cache-dir`) and up to four initial checks at a time (`--parallel`); a replayed baseline run never supports a positive result ([execution cache](docs/EXECUTION_CACHE.md)).
 - Changed baseline tests (`--base-tests`): the baseline version of each Go test function the change modified or removed runs on baseline and candidate code, and a baseline pass with a candidate failure is reported as `FAILS_ON_CANDIDATE` for review, not as a defect ([changed baseline tests](docs/BASE_TESTS.md)).
 - Impact analysis (`--impact`, on by default): a static index lists callers of changed functions and the existing tests that reach them, labelled approximate. Go packages are type-checked; TypeScript/JavaScript, Python and Rust sources are scanned lexically and calls are linked by name (`name` resolution). `--impacted-tests` runs the reaching Go tests on both revisions ([impact analysis](docs/IMPACT.md)).
-- Languages: Go, TypeScript/JavaScript, Python and Rust. `swiftproof init` detects `go.mod`, `Cargo.toml`, `tsconfig.json`/`package.json` and `pyproject.toml`/`setup.py`/`requirements.txt`, and writes matching sandbox images and commands (`--language go|typescript|javascript|python|rust`). Coverage, mutation testing, changed baseline tests and impacted-test runs remain Go-only; fuzzing covers Go and TS/JS.
+- Languages: Go, TypeScript/JavaScript, Python and Rust. `probe init` detects `go.mod`, `Cargo.toml`, `tsconfig.json`/`package.json` and `pyproject.toml`/`setup.py`/`requirements.txt`, and writes matching sandbox images and commands (`--language go|typescript|javascript|python|rust`). Coverage, mutation testing, changed baseline tests and impacted-test runs remain Go-only; fuzzing covers Go and TS/JS.
 - Optional deterministic differential fuzzing (`fuzz` policy object): changed Go functions, and exported TypeScript/JavaScript functions read lexically, whose signature is unchanged run on identical seeded inputs on both revisions, without a model, and a confirmed difference is shown with both values ([differential fuzzing](docs/FUZZ.md)).
 - Optional mutation of added Go lines (`mutation` policy object): surviving mutants are reported for review, killed mutants are only counted, and no mutation score is computed ([mutation of added lines](docs/MUTATION.md)).
 - Observation experiments: a generated test may record values instead of asserting them, and a value that differs between revisions, after a live baseline repeat agreed with the first baseline run, is shown with both values as a behavior divergence for a human to judge ([observations](docs/OBSERVATIONS.md)).
 - Acceptance criteria from `--intent` or `--intent-file`: the reviewer may write a candidate-only test for one quoted criterion, and a failure is reported as `INTENT_TEST_FAILED`, apart from reproduced issues and without a baseline control ([intent criteria](docs/INTENT.md)).
-- Pre-change plans (`swiftproof plan --intent-file FILE`, provider required): the model simulates the implementation read-only and submits a plan; SwiftProof evaluates it with fixed rules (critical paths, callers and reaching tests, exported signatures, dependency manifests, new packages) into `PLAN.json` and `PLAN.md`, and `review --plan` / `lint --plan` report every file, exported signature, critical path or manifest the diff changes outside the plan. `review --plan` ends with a **plan gate**: no human review is required only when the re-assessed plan raised no category and was fully measured, the change conforms to it, the checks passed and nothing else in the report requests review; with `--ci` the gate is the exit code (0 or 2) ([plans, scope drift and the plan gate](docs/PLAN.md)).
+- Pre-change plans (`probe plan --intent-file FILE`, provider required): the model simulates the implementation read-only and submits a plan; Probe evaluates it with fixed rules (critical paths, callers and reaching tests, exported signatures, dependency manifests, new packages) into `PLAN.json` and `PLAN.md`, and `review --plan` / `lint --plan` report every file, exported signature, critical path or manifest the diff changes outside the plan. `review --plan` ends with a **plan gate**: no human review is required only when the re-assessed plan raised no category and was fully measured, the change conforms to it, the checks passed and nothing else in the report requests review; with `--ci` the gate is the exit code (0 or 2) ([plans, scope drift and the plan gate](docs/PLAN.md)).
 - Evidence-only exports: `--format sarif,pr-comment` writes only findings backed by recorded evidence, and an empty export is not approval ([exports](docs/EXPORTS.md)).
 
 Go risk signals come from syntactic analysis. Impact analysis builds a static index of the repository's own Go packages on the host from committed source, without running repository code or loading imports from outside the repository, so its call graph is approximate and partial: interface edges are possible dispatch only, and an absent caller is not proof of absence. TypeScript support is lexical in this version. Signals are reasons to investigate, not confirmed bugs. Missing test changes do not establish missing coverage. A recorded coverage run establishes only which added lines ran and which did not; neither establishes that a line is tested.
@@ -92,22 +92,22 @@ Go risk signals come from syntactic analysis. Impact analysis builds a static in
 ## Commands
 
 ```sh
-swiftproof lint --base main                       # no Docker or API
-swiftproof review --base main                     # configured sandbox checks
-swiftproof review --base main --checks=false      # explicitly skip execution
-swiftproof review main..HEAD                      # exact endpoints
-swiftproof review main...HEAD                     # common ancestor to head
-swiftproof review --base main --intent-file PR.md # acceptance criteria
-swiftproof review --base main --base-tests        # baseline versions of changed Go tests
-swiftproof review --base main --impacted-tests    # existing Go tests that reach changed functions
-swiftproof lint --base main --impact=false        # skip the static impact index
-swiftproof review --base main --cache-dir "$HOME/.cache/swiftproof" --parallel 2
-swiftproof review --base main --deadline 25m      # overall bound for execution stages
-swiftproof review --base main --format markdown,json,sarif,pr-comment
-swiftproof plan --intent-file demande.md          # pre-change plan: PLAN.json, PLAN.md (provider required)
-swiftproof review --base main --plan .swiftproof/PLAN.json  # scope drift against the plan
-swiftproof report --input .swiftproof/confidence-report.json
-swiftproof review --help
+probe lint --base main                       # no Docker or API
+probe review --base main                     # configured sandbox checks
+probe review --base main --checks=false      # explicitly skip execution
+probe review main..HEAD                      # exact endpoints
+probe review main...HEAD                     # common ancestor to head
+probe review --base main --intent-file PR.md # acceptance criteria
+probe review --base main --base-tests        # baseline versions of changed Go tests
+probe review --base main --impacted-tests    # existing Go tests that reach changed functions
+probe lint --base main --impact=false        # skip the static impact index
+probe review --base main --cache-dir "$HOME/.cache/probe" --parallel 2
+probe review --base main --deadline 25m      # overall bound for execution stages
+probe review --base main --format markdown,json,sarif,pr-comment
+probe plan --intent-file demande.md          # pre-change plan: PLAN.json, PLAN.md (provider required)
+probe review --base main --plan .probe/PLAN.json  # scope drift against the plan
+probe report --input .probe/confidence-report.json
+probe review --help
 ```
 
 `--base main` uses the merge base by default; `--exact` selects a direct comparison. Only **committed** files are reviewed. Both refs resolve to immutable IDs. Local edits and untracked files are excluded. CI needs enough Git history to resolve the base.
@@ -120,7 +120,7 @@ swiftproof review --help
 | `--base-tests` | review | off | Runs the baseline versions of changed Go tests on candidate code. |
 | `--fuzz` | review | on | `--fuzz=false` skips differential fuzzing configured in policy. |
 | `--impact` | lint, review | on | `--impact=false` skips the static impact index. |
-| `--plan FILE` | lint, review | none | Checks the diff against the contract of a PLAN.json written by `swiftproof plan` and adds the `plan_drift` section ([plans and scope drift](docs/PLAN.md)). |
+| `--plan FILE` | lint, review | none | Checks the diff against the contract of a PLAN.json written by `probe plan` and adds the `plan_drift` section ([plans and scope drift](docs/PLAN.md)). |
 | `--impacted-tests` | review | off | Runs the existing Go tests that reach changed functions on both revisions. |
 | `--cache-dir DIR` | review | none: no cache | Enables the baseline execution cache in DIR, which must be outside the repository and the report directory. |
 | `--parallel N` | review | 1 | Runs up to N (at most 4) initial checks at a time. The runtime budget is unchanged. |
@@ -139,7 +139,7 @@ The execution flags (`--base-tests`, `--fuzz`, `--impacted-tests`, `--cache-dir`
 
 ## Configuration and trust
 
-`swiftproof init` generates `.swiftproof.json`; see [the Go example](examples/swiftproof.go.json). Policy comes from the **tip of the base branch** (`--base`, `main` by default), never implicitly from the candidate checkout. The diff still starts at the merge base, so a branch forked before the policy landed still gets it. The report records the policy commit, and SwiftProof warns when no policy exists there and built-in defaults apply. `--config PATH` explicitly selects a local file you trust.
+`probe init` generates `.probe.json`; see [the Go example](examples/probe.go.json). Policy comes from the **tip of the base branch** (`--base`, `main` by default), never implicitly from the candidate checkout. The diff still starts at the merge base, so a branch forked before the policy landed still gets it. The report records the policy commit, and Probe warns when no policy exists there and built-in defaults apply. `--config PATH` explicitly selects a local file you trust.
 
 Commands are argv arrays, not shell strings. Configure only checks your project provides. `generated_test` accepts `{file}` and `{package}`; Go's default uses the test's package so it can exercise unexported code. Verified Go experiments require one standalone target placeholder; use `-tags=integration` for valued flags. Multi-package commands, execution wrappers and overlays cannot produce verified Go evidence. Avoid scripts that silently skip generated tests.
 
@@ -157,7 +157,7 @@ A JavaScript or TypeScript `generated_test` command supports differential eviden
 }
 ```
 
-For Jest: `["npx", "--no", "jest", "{file}", "--json", "--outputFile={results_out}"]`. `swiftproof init --language typescript` writes the Vitest form. The report travels back on the sandbox payload channel, apart from the command's log, so log text cannot impersonate it; code executing in the sandbox can still write it. It is normalized (redacted, bounded messages), stored in the check's `results` field and retained as a hashed `test_results` artifact.
+For Jest: `["npx", "--no", "jest", "{file}", "--json", "--outputFile={results_out}"]`. `probe init --language typescript` writes the Vitest form. The report travels back on the sandbox payload channel, apart from the command's log, so log text cannot impersonate it; code executing in the sandbox can still write it. It is normalized (redacted, bounded messages), stored in the check's `results` field and retained as a hashed `test_results` artifact.
 
 A run is verified only when the report has exactly one entry for `/workspace/<generated path>` and each generated title appears once in it at top level: every title passed for a passing run, and at least one failed for a failing run. Generated files must declare uniquely titled `test("…", …)` or `it("…", …)` calls at column 0, with static titles (no escapes or `${}`) and no `describe` block. A missing or truncated report, skipped or nested tests, and failures unrelated to the generated titles are inconclusive. `npm`, `yarn`, `pnpm`, `bun`, `sh`, `bash` and `env` cannot start the template, since they run repository-defined scripts; call the runner binary (for example through `npx`). The image must provide the runner and the project's dependencies, for example installed under `/node_modules`, which Node resolves from `/workspace`. Existing policies without `{results_out}` keep working, with `UNVERIFIED` results.
 
@@ -177,39 +177,39 @@ Add a `coverage` command to the trusted policy to measure which **added** Go lin
 }
 ```
 
-SwiftProof expands `{coverage_out}` to the in-container profile path and never appends a coverage flag of its own, so the executed argv equals the argv you reviewed. That fragment is the Go default written by `swiftproof init --language go`. Adding `-coverpkg=./...` is your choice and is what attributes execution across packages: without it, a line exercised only through another package's tests is reported as not executed. Profile entries are matched through the root `go.mod` and the `use` modules of a root `go.work`, so a Go module kept in a subdirectory (for example `app/`) is measured under its own module path; configure such a repository with workspace patterns such as `./app/...`.
+Probe expands `{coverage_out}` to the in-container profile path and never appends a coverage flag of its own, so the executed argv equals the argv you reviewed. That fragment is the Go default written by `probe init --language go`. Adding `-coverpkg=./...` is your choice and is what attributes execution across packages: without it, a line exercised only through another package's tests is reported as not executed. Profile entries are matched through the root `go.mod` and the `use` modules of a root `go.work`, so a Go module kept in a subdirectory (for example `app/`) is measured under its own module path; configure such a repository with workspace patterns such as `./app/...`.
 
-The coverage command runs **after the other configured checks and in addition to** `test`, before the v0.4 evidence stages and the reviewer, so it roughly doubles sandbox time against `sandbox.max_runtime_seconds`; raise that budget before enabling it. An existing `.swiftproof.json` does **not** acquire the key automatically: `init` refuses to overwrite an existing file, and policy decoding starts from an empty command map rather than merging the defaults. Add the key by hand, and read the release-ordering rule in [CI integration](docs/CI.md) first — an older pinned binary rejects the key with exit 3.
+The coverage command runs **after the other configured checks and in addition to** `test`, before the v0.4 evidence stages and the reviewer, so it roughly doubles sandbox time against `sandbox.max_runtime_seconds`; raise that budget before enabling it. An existing `.probe.json` does **not** acquire the key automatically: `init` refuses to overwrite an existing file, and policy decoding starts from an empty command map rather than merging the defaults. Add the key by hand, and read the release-ordering rule in [CI integration](docs/CI.md) first — an older pinned binary rejects the key with exit 3.
 
 Each added Go line in a changed non-test file is reported in exactly one of four states: **executed**, **not executed**, **not inside any instrumented block**, or **not measured**. Absent, truncated, unparsable or unmapped profile data is always reported as *not measured*, never as not executed. Executed means the line ran at least once; it does not mean the line is tested, asserted, correct or safe.
 
 ## Optional AI investigation
 
-`swiftproof review` automatically uses the LLM when `reviewer.model` is nonempty in trusted policy or in the deployment environment (see [provider settings from the deployment](#provider-settings-from-the-deployment)). No model anywhere (the default) keeps review independent of any provider. `swiftproof lint` always stays offline with respect to the reviewer, even when a model is configured.
+`probe review` automatically uses the LLM when `reviewer.model` is nonempty in trusted policy or in the deployment environment (see [provider settings from the deployment](#provider-settings-from-the-deployment)). No model anywhere (the default) keeps review independent of any provider. `probe lint` always stays offline with respect to the reviewer, even when a model is configured.
 
-Set the following fields in `.swiftproof.json`, using the model identifier and endpoint supplied by your provider. This is a fragment to merge into the configuration generated by `swiftproof init`:
+Set the following fields in `.probe.json`, using the model identifier and endpoint supplied by your provider. This is a fragment to merge into the configuration generated by `probe init`:
 
 ```json
 {
   "reviewer": {
     "endpoint": "https://your-provider.example/v1",
     "model": "your-tool-capable-model",
-    "api_key_env": "SWIFTPROOF_API_KEY",
+    "api_key_env": "PROBE_API_KEY",
     "max_iterations": 20,
     "max_generated_tests": 10
   }
 }
 ```
 
-Commit the policy to the trusted base branch, or use `--config .swiftproof.json` to explicitly select your local policy. Candidate PR changes cannot activate or redirect the reviewer. The provider must support Chat Completions function calling. Both a `/v1` base URL and a full `/chat/completions` URL are accepted. Remote endpoints require HTTPS by default; local servers may use HTTP on loopback (for example `http://127.0.0.1:1234/v1`). For an internal HTTP server, see the explicit deployment exception below. Local providers may work without an API key. Redirects are refused.
+Commit the policy to the trusted base branch, or use `--config .probe.json` to explicitly select your local policy. Candidate PR changes cannot activate or redirect the reviewer. The provider must support Chat Completions function calling. Both a `/v1` base URL and a full `/chat/completions` URL are accepted. Remote endpoints require HTTPS by default; local servers may use HTTP on loopback (for example `http://127.0.0.1:1234/v1`). For an internal HTTP server, see the explicit deployment exception below. Local providers may work without an API key. Redirects are refused.
 
 ```sh
-# Set SWIFTPROOF_API_KEY using your shell or CI secret store.
-swiftproof review --base main --max-iterations 20
+# Set PROBE_API_KEY using your shell or CI secret store.
+probe review --base main --max-iterations 20
 # Override automatic activation for this run:
-swiftproof review --base main --reviewer=false
+probe review --base main --reviewer=false
 # Try a local configuration before committing it:
-swiftproof review --base main --config .swiftproof.json
+probe review --base main --config .probe.json
 ```
 
 Configuring a model enables transmission of bounded, redacted source context during `review`. Common secret patterns and sensitive filenames are masked, but masking is best effort. Use static analysis or a local provider if source must stay local. API credentials come from the named environment variable or its Docker secret and never enter test containers. `--reviewer` remains supported as an explicit request and fails if no model is configured. `--checks=false` skips initial checks but still lets the configured reviewer request sandbox experiments; combine it with `--reviewer=false` for static analysis only, or use `lint`. It also turns off the v0.4 deterministic stages: configured differential fuzzing is recorded as `disabled`, configured mutation as `not_run`, and `--base-tests` or `--impacted-tests` exit 3.
@@ -220,7 +220,7 @@ The LLM can investigate business rules and interactions beyond static patterns a
 
 ### Read-only AI review
 
-`swiftproof review --read-only --base main --ci` analyzes the actual diff and
+`probe review --read-only --base main --ci` analyzes the actual diff and
 relevant source with the deployment's model, without Docker or repository code
 execution. It skips preparation, checks, coverage execution, fuzzing and mutation.
 The model can only read files, get the diff, search code and look up references,
@@ -229,10 +229,10 @@ Execution flags cannot be combined with `--read-only`; `--deadline` remains
 available. This is stronger than `--checks=false`, which still allows experiments
 in ordinary review.
 
-Set `SWIFTPROOF_REVIEWER_MODEL` and `SWIFTPROOF_REVIEWER_ENDPOINT` (the endpoint
+Set `PROBE_REVIEWER_MODEL` and `PROBE_REVIEWER_ENDPOINT` (the endpoint
 defaults to OpenAI for standalone CLI use). In this mode all policy `reviewer`
 settings are ignored: provider settings come from the deployment, credentials
-use `SWIFTPROOF_API_KEY` / `_FILE` / `/run/secrets/SWIFTPROOF_API_KEY`, and reviewer
+use `PROBE_API_KEY` / `_FILE` / `/run/secrets/PROBE_API_KEY`, and reviewer
 budgets use built-in defaults (`--max-iterations` can override the iteration cap).
 Source is sent to that provider with the existing redaction and input limits.
 
@@ -268,10 +268,10 @@ The provider belongs to the deployment rather than to the reviewed repository, s
 
 | Setting | Source | Notes |
 |---------|--------|-------|
-| `reviewer.endpoint` | `SWIFTPROOF_REVIEWER_ENDPOINT` | Overrides the policy value; the same URL rules apply. |
-| `reviewer.model` | `SWIFTPROOF_REVIEWER_MODEL` | Overrides the policy value and enables `review` on its own. |
-| HTTP exception (deployment only) | `SWIFTPROOF_REVIEWER_ALLOW_INSECURE_HTTP=false` | Set `true` for an explicitly configured HTTP endpoint on a trusted network. Requires `SWIFTPROOF_REVIEWER_ENDPOINT`; source and API key travel unencrypted. Applies to review and plan. |
-| API key | `SWIFTPROOF_API_KEY`, else `SWIFTPROOF_API_KEY_FILE`, else `/run/secrets/SWIFTPROOF_API_KEY` | The variable name is `reviewer.api_key_env`; `<NAME>_FILE` and `/run/secrets/<NAME>` follow it. |
+| `reviewer.endpoint` | `PROBE_REVIEWER_ENDPOINT` | Overrides the policy value; the same URL rules apply. |
+| `reviewer.model` | `PROBE_REVIEWER_MODEL` | Overrides the policy value and enables `review` on its own. |
+| HTTP exception (deployment only) | `PROBE_REVIEWER_ALLOW_INSECURE_HTTP=false` | Set `true` for an explicitly configured HTTP endpoint on a trusted network. Requires `PROBE_REVIEWER_ENDPOINT`; source and API key travel unencrypted. Applies to review and plan. |
+| API key | `PROBE_API_KEY`, else `PROBE_API_KEY_FILE`, else `/run/secrets/PROBE_API_KEY` | The variable name is `reviewer.api_key_env`; `<NAME>_FILE` and `/run/secrets/<NAME>` follow it. |
 
 A blank variable counts as unset and leaves the policy value in place. The key file is read whole, with surrounding whitespace stripped; a file named by `<NAME>_FILE` must be readable, and any mounted key file that cannot be used fails the run with exit 3 instead of silently sending an unauthenticated request. Provider settings and the HTTP exception come from the environment; execution settings stay decisions of the trusted policy. Read-only review uses built-in reviewer budgets. When the reviewer runs, the run log names each value's source — the variable or file name, never the credential.
 
@@ -279,27 +279,27 @@ In a Docker Swarm deployment the key is a [Docker secret](https://docs.docker.co
 
 ```yaml
 services:
-  swiftproof:
-    image: registry.example/swiftproof:v0.3.0
+  probe:
+    image: registry.example/probe:v0.3.0
     environment:
-      - SWIFTPROOF_REVIEWER_ENDPOINT=https://provider.internal/v1
-      - SWIFTPROOF_REVIEWER_MODEL=your-tool-capable-model
+      - PROBE_REVIEWER_ENDPOINT=https://provider.internal/v1
+      - PROBE_REVIEWER_MODEL=your-tool-capable-model
     secrets:
-      - source: swiftproof_SWIFTPROOF_API_KEY
-        target: SWIFTPROOF_API_KEY
+      - source: probe_PROBE_API_KEY
+        target: PROBE_API_KEY
 
 secrets:
-  swiftproof_SWIFTPROOF_API_KEY:
+  probe_PROBE_API_KEY:
     external: true
 ```
 
-On the PulsarCD cluster this is automatic: a variable whose name ends in `_KEY` is converted into the Docker secret `<stack>_<NAME>` at deployment, removed from the `environment:` block and mounted at `/run/secrets/<NAME>`, so declaring `SWIFTPROOF_API_KEY=${SWIFTPROOF_API_KEY}` in the compose file and putting the value in `devops/.env` is enough. Keep the name aligned with `reviewer.api_key_env` if you change it, and never commit the value.
+On the PulsarCD cluster this is automatic: a variable whose name ends in `_KEY` is converted into the Docker secret `<stack>_<NAME>` at deployment, removed from the `environment:` block and mounted at `/run/secrets/<NAME>`, so declaring `PROBE_API_KEY=${PROBE_API_KEY}` in the compose file and putting the value in `devops/.env` is enough. Keep the name aligned with `reviewer.api_key_env` if you change it, and never commit the value.
 
 ## Evidence stages beyond the initial checks
 
 v0.4 adds stages that record more deterministic evidence and depend less on a model. Each one is opt-in or bounded, only adds evidence or review requests, and never produces exit 1: only a reproduced high/critical hypothesis does. During `review` they run in this order: dependency preparation, initial checks, coverage, changed baseline tests, impacted tests, differential fuzzing, mutation of added lines, then the reviewer, whose experiments may record observations or run intent tests. `lint` executes none of them; it builds only the static impact index. Every sandbox run shares the one `sandbox.max_runtime_seconds` budget; dependency preparation has its own timeout instead.
 
-A stage's JSON object is present exactly when the stage was requested or configured, and its `status` then says what happened, including `not_run` with a reason. The [v0.4 specification](../specs/swiftproof-v0.4-spec.md) holds the binding rules.
+A stage's JSON object is present exactly when the stage was requested or configured, and its `status` then says what happened, including `not_run` with a reason. The [v0.4 specification](../specs/probe-v0.4-spec.md) holds the binding rules.
 
 <!-- F8:begin -->
 ### Trusted dependency preparation
@@ -316,17 +316,17 @@ The container gets the network only when the policy asks for it and `--allow-pre
 <!-- F7:begin -->
 ### Execution cache
 
-Opt-in with `--cache-dir DIR`, review only. A baseline-side run (a check kind ending in `_base`, on the baseline snapshot, without network) is replayed instead of executed when two earlier live runs of byte-identical inputs agreed on its result; candidate-side runs always execute. The key covers the baseline tree and any staged test, the command and the complete sandbox arguments, the image ID the run executes, the Docker server, the trusted policy's execution settings and the SwiftProof build. A replay never supports a reproduced issue, a divergence or a `FAILS_ON_CANDIDATE` result: before recording `REPRODUCED` on a replayed baseline, the harness runs that baseline again, live. A negative conclusion that rests on a replay is listed in `execution.replay_backed`. Only baseline PASS results are replayed. The directory must be outside the repository and the report directory and, on Unix, owner-only; otherwise the review exits 3 before any container starts. Entries are integrity-checked, not authenticated. Reviews of an updated pull request that share the directory replay the baseline runs whose key did not change, such as those of changed baseline tests, impacted tests and identical generated tests; a differential fuzzing harness changes on every review, so its baseline is not replayed in practice. See [Execution cache](docs/EXECUTION_CACHE.md).
+Opt-in with `--cache-dir DIR`, review only. A baseline-side run (a check kind ending in `_base`, on the baseline snapshot, without network) is replayed instead of executed when two earlier live runs of byte-identical inputs agreed on its result; candidate-side runs always execute. The key covers the baseline tree and any staged test, the command and the complete sandbox arguments, the image ID the run executes, the Docker server, the trusted policy's execution settings and the Probe build. A replay never supports a reproduced issue, a divergence or a `FAILS_ON_CANDIDATE` result: before recording `REPRODUCED` on a replayed baseline, the harness runs that baseline again, live. A negative conclusion that rests on a replay is listed in `execution.replay_backed`. Only baseline PASS results are replayed. The directory must be outside the repository and the report directory and, on Unix, owner-only; otherwise the review exits 3 before any container starts. Entries are integrity-checked, not authenticated. Reviews of an updated pull request that share the directory replay the baseline runs whose key did not change, such as those of changed baseline tests, impacted tests and identical generated tests; a differential fuzzing harness changes on every review, so its baseline is not replayed in practice. See [Execution cache](docs/EXECUTION_CACHE.md).
 
 ### Parallel initial checks
 
-`--parallel N` (review only, 1 to 4) runs up to N of the initial checks (test, typecheck, build) at the same time; everything else still runs one at a time. The limit is also capped by the Docker server's room for sandboxes of `sandbox.cpus` CPUs and `sandbox.memory_mb` MiB (one `docker info` call), and a group of checks starts together only while the remaining runtime budget covers each one's full per-run timeout. The rules for each check's timeout, classification and budget charge are those of `--parallel 1`, and the report records the checks in configured order; `execution.parallelism` gives the requested and effective values and why they differ. The outcomes can still differ: concurrent sandboxes share the Docker host, so a check can take longer than it would alone, reach its timeout and be charged more, which leaves less of `sandbox.max_runtime_seconds` for later stages; and with `--deadline`, checks that run together can all end `TIMEOUT` at the deadline, where one at a time the later ones would be `SKIPPED` as not started. See the [specification](../specs/swiftproof-v0.4-spec.md#f7b-parallel-initial-checks), the [CI guidance](docs/CI.md#parallel-initial-checks-in-ci) and the [measured costs](docs/PERFORMANCE.md#parallel-initial-checks).
+`--parallel N` (review only, 1 to 4) runs up to N of the initial checks (test, typecheck, build) at the same time; everything else still runs one at a time. The limit is also capped by the Docker server's room for sandboxes of `sandbox.cpus` CPUs and `sandbox.memory_mb` MiB (one `docker info` call), and a group of checks starts together only while the remaining runtime budget covers each one's full per-run timeout. The rules for each check's timeout, classification and budget charge are those of `--parallel 1`, and the report records the checks in configured order; `execution.parallelism` gives the requested and effective values and why they differ. The outcomes can still differ: concurrent sandboxes share the Docker host, so a check can take longer than it would alone, reach its timeout and be charged more, which leaves less of `sandbox.max_runtime_seconds` for later stages; and with `--deadline`, checks that run together can all end `TIMEOUT` at the deadline, where one at a time the later ones would be `SKIPPED` as not started. See the [specification](../specs/probe-v0.4-spec.md#f7b-parallel-initial-checks), the [CI guidance](docs/CI.md#parallel-initial-checks-in-ci) and the [measured costs](docs/PERFORMANCE.md#parallel-initial-checks).
 <!-- F7:end -->
 
 <!-- F3:begin -->
 ### Changed baseline tests on candidate code
 
-`swiftproof review --base-tests` runs the baseline version of the Go test functions of each changed Go test file that the change modified, removed or affected through the rest of the file (other declarations, imports, build constraints, a move to another directory) on two trees: the baseline, and a hybrid tree, which is the candidate with that test's package test files and `testdata` reverted to the baseline. Each test gets one `base_test_differential` evidence record, re-derived by `Finalize`:
+`probe review --base-tests` runs the baseline version of the Go test functions of each changed Go test file that the change modified, removed or affected through the rest of the file (other declarations, imports, build constraints, a move to another directory) on two trees: the baseline, and a hybrid tree, which is the candidate with that test's package test files and `testdata` reverted to the baseline. Each test gets one `base_test_differential` evidence record, re-derived by `Finalize`:
 
 - `FAILS_ON_CANDIDATE`: it passed on the baseline and failed on the hybrid tree, in one recorded run each. This is possibly a behavior change accompanied by a test edit, possibly flakiness, for a human to judge; it is not a reproduced issue.
 - `PASSES_ON_CANDIDATE`: it passed in both runs. This does not show that behavior is preserved or that the edited test is equivalent.
@@ -370,13 +370,13 @@ A mutant with which no test that the command ran for its package failed (`SURVIV
 <!-- F1:begin -->
 ### Observation experiments
 
-A generated test may record values instead of asserting a guessed one: Go tests call `t.Attr("swiftproof.<key>", value)` (Go 1.25 or later in the sandbox image) and Vitest tests set `task.meta.swiftproof`; Jest reports carry no per-test metadata. When the named test passes on both revisions, `run_generated_test` compares the recorded values key by key and records a `differential_observation` evidence record. A key whose candidate value differs triggers exactly one live baseline repeat. The record is `DIVERGED` when two baseline runs agreed and the candidate recorded a different value, `NOT_DIVERGED` when every compared value was equal, and `UNVERIFIED` otherwise (unstable, redacted, duplicated or one-sided values, a failing run). Every validated divergence is listed in `divergences` and in the Behavior Divergences section with both values, cited or not; a human decides which value is intended. A divergence requests review (exit 2 with `--ci`) and never produces exit 1; `NOT_DIVERGED` supports no hypothesis status, and a both-pass generated test whose recorded values differ, or cannot be shown equal (redacted, unconverted or unreadable), no longer supports `NOT_REPRODUCED`. There is no policy key and no flag. See [observation experiments](docs/OBSERVATIONS.md).
+A generated test may record values instead of asserting a guessed one: Go tests call `t.Attr("probe.<key>", value)` (Go 1.25 or later in the sandbox image) and Vitest tests set `task.meta.probe`; Jest reports carry no per-test metadata. When the named test passes on both revisions, `run_generated_test` compares the recorded values key by key and records a `differential_observation` evidence record. A key whose candidate value differs triggers exactly one live baseline repeat. The record is `DIVERGED` when two baseline runs agreed and the candidate recorded a different value, `NOT_DIVERGED` when every compared value was equal, and `UNVERIFIED` otherwise (unstable, redacted, duplicated or one-sided values, a failing run). Every validated divergence is listed in `divergences` and in the Behavior Divergences section with both values, cited or not; a human decides which value is intended. A divergence requests review (exit 2 with `--ci`) and never produces exit 1; `NOT_DIVERGED` supports no hypothesis status, and a both-pass generated test whose recorded values differ, or cannot be shown equal (redacted, unconverted or unreadable), no longer supports `NOT_REPRODUCED`. There is no policy key and no flag. See [observation experiments](docs/OBSERVATIONS.md).
 <!-- F1:end -->
 
 <!-- F5:begin -->
 ### Intent criteria and candidate-only intent tests
 
-The Markdown list items of `--intent` / `--intent-file` (only those under an "Acceptance criteria" heading when there is one) become criteria `AC-1`, `AC-2`, … with the SHA-256 of the recorded (redacted) intent; the intent must be UTF-8 without NUL (else exit 3), and a pasted SwiftProof PR comment is removed from it. With criteria, the reviewer may write a test for one criterion with `create_intent_test` and run it with `run_intent_test`, on the candidate only: there is no baseline control, and intent tests use at most half of the generated-test budget. The `intent_test` record is `INTENT_TEST_FAILED` only when the named test failed on an assertion of its own file and names a changed declaration (matched by name) whose name is on an added line; `INTENT_TEST_PASSED` says nothing about whether the criterion holds. An accepted `INTENT_TEST_FAILED` hypothesis is listed in `intent_test_failures` and the Intent Test Failures section, apart from reproduced issues, and requests review (exit 2 with `--ci`, never 1). `intent_judgment` is model judgment, kept only on `DIVERGED` hypotheses and never read by any status or exit code. See [intent criteria](docs/INTENT.md).
+The Markdown list items of `--intent` / `--intent-file` (only those under an "Acceptance criteria" heading when there is one) become criteria `AC-1`, `AC-2`, … with the SHA-256 of the recorded (redacted) intent; the intent must be UTF-8 without NUL (else exit 3), and a pasted Probe PR comment is removed from it. With criteria, the reviewer may write a test for one criterion with `create_intent_test` and run it with `run_intent_test`, on the candidate only: there is no baseline control, and intent tests use at most half of the generated-test budget. The `intent_test` record is `INTENT_TEST_FAILED` only when the named test failed on an assertion of its own file and names a changed declaration (matched by name) whose name is on an added line; `INTENT_TEST_PASSED` says nothing about whether the criterion holds. An accepted `INTENT_TEST_FAILED` hypothesis is listed in `intent_test_failures` and the Intent Test Failures section, apart from reproduced issues, and requests review (exit 2 with `--ci`, never 1). `intent_judgment` is model judgment, kept only on `DIVERGED` hypotheses and never read by any status or exit code. See [intent criteria](docs/INTENT.md).
 <!-- F5:end -->
 
 <!-- F9:begin -->
@@ -386,8 +386,8 @@ The Markdown list items of `--intent` / `--intent-file` (only those under an "Ac
 
 - Never findings: signals, review ranges, coverage, unverified, not-reproduced or dismissed hypotheses, passing or negative results, killed mutants and model judgments. Unverified areas, checks that did not pass and stages that did not run appear as status (SARIF notifications, the comment's status block), and "No finding is not approval."
 - Locations are emitted only in changed, non-deleted files; a model-chosen line outside the recorded diff becomes file-level, and a finding without such a location is listed only in the comment.
-- The comment sits between `<!-- swiftproof:pr-comment:begin v1 -->` and `<!-- swiftproof:pr-comment:end -->`, escapes every untrusted string, is at most 60 000 bytes, and links only the validated `--report-url`. Post it as a comment, never into the PR description.
-- Rendering never changes the exit code. SwiftProof publishes nothing; upload SARIF only when the exit code is 0, 1 or 2, `executionSuccessful` is true and no `no_execution`, `stage_not_run` or `omitted_findings` notification is present, and treat files from fork runs as forgeable. See [exports](docs/EXPORTS.md) and [CI integration](docs/CI.md#publishing-evidence-backed-findings-sarif-and-pr-comment).
+- The comment sits between `<!-- probe:pr-comment:begin v1 -->` and `<!-- probe:pr-comment:end -->`, escapes every untrusted string, is at most 60 000 bytes, and links only the validated `--report-url`. Post it as a comment, never into the PR description.
+- Rendering never changes the exit code. Probe publishes nothing; upload SARIF only when the exit code is 0, 1 or 2, `executionSuccessful` is true and no `no_execution`, `stage_not_run` or `omitted_findings` notification is present, and treat files from fork runs as forgeable. See [exports](docs/EXPORTS.md) and [CI integration](docs/CI.md#publishing-evidence-backed-findings-sarif-and-pr-comment).
 <!-- F9:end -->
 
 ## Boundaries and development
@@ -395,13 +395,13 @@ The Markdown list items of `--intent` / `--intent-file` (only those under an "Ac
 For the coding-to-deployment workflow, see the [agent loop](docs/AGENT_WORKFLOW.md),
 [reusable PR workflow](docs/CI.md) and [PulsarCD integration](docs/PULSARCD.md).
 
-SwiftProof never exits 1 except for a reproduced high/critical hypothesis. Divergences, baseline versions of changed tests failing on candidate code, and intent-test failures request human review; surviving mutants are reported for review. No equivalence, completeness or mutation-score claims. Impacted tests that fail on candidate code, inconclusive fuzz results and configured stages that did not run also request human review (exit 2 with `--ci`).
+Probe never exits 1 except for a reproduced high/critical hypothesis. Divergences, baseline versions of changed tests failing on candidate code, and intent-test failures request human review; surviving mutants are reported for review. No equivalence, completeness or mutation-score claims. Impacted tests that fail on candidate code, inconclusive fuzz results and configured stages that did not run also request human review (exit 2 with `--ci`).
 
 Containers run non-root, without network by default, with read-only source/root mounts, no added capabilities and CPU/RAM/PID/time limits. The Docker socket, working checkout and API keys are never mounted. The optional `prepare` container is the one documented exception: it has a writable root filesystem, may run as root when the trusted policy says so, and has network only when the policy and `--allow-prepare-network` both allow it ([dependency preparation](docs/PREPARE.md)). See [security boundaries](docs/SECURITY.md).
 
 Generated tests cannot overwrite source. Every executed run uses a fresh environment; with `--cache-dir`, a baseline run of byte-identical inputs may instead be replayed from recorded live runs, and the report marks each replay. Go experiments select the generated test names and verify their actual execution from structured test events; TypeScript/JavaScript experiments verify them from the Jest-compatible JSON report written to `{results_out}`. Other frameworks can execute experiments but remain `UNVERIFIED` until equivalent execution validation exists. Reproductions retain test source and hashed artifacts. Reviewers still judge whether a test's assertion reflects intended behavior.
 
-Execution snapshots currently reject symlinks/submodules. Large inputs fail explicitly or emit analysis-limit signals. There is no dependency installation from candidate content, semantic TypeScript engine, complete call graph, coverage proof, coverage threshold gate, mutation score, formal verification, automatic merge or PR comment publishing: SARIF and PR-comment exports are files that a separate job may publish. Changed-line execution is measured for Go only when a coverage command is present in the trusted policy; repositories whose `.swiftproof.json` predates this release measure nothing until that policy is updated by hand. An executed line is an observation, not proof that it is tested.
+Execution snapshots currently reject symlinks/submodules. Large inputs fail explicitly or emit analysis-limit signals. There is no dependency installation from candidate content, semantic TypeScript engine, complete call graph, coverage proof, coverage threshold gate, mutation score, formal verification, automatic merge or PR comment publishing: SARIF and PR-comment exports are files that a separate job may publish. Changed-line execution is measured for Go only when a coverage command is present in the trusted policy; repositories whose `.probe.json` predates this release measure nothing until that policy is updated by hand. An executed line is an observation, not proof that it is tested.
 
 ```sh
 go test ./...
@@ -410,6 +410,6 @@ go test -race ./...                 # supported native C toolchain required
 go test ./internal/linter -bench . -benchmem
 ```
 
-Tests use real temporary Git repositories, CLI/report integration, simulated providers, evidence validation and sandbox-policy checks. For real Docker integration, preload an appropriate Go image and set `SWIFTPROOF_TEST_DOCKER_IMAGE` to its name before running `go test ./... -run Docker`; the TypeScript/JavaScript scenarios (Vitest and Jest) run only when `SWIFTPROOF_TEST_TS_IMAGE` names a preloaded image with Node, Vitest and Jest, and skip otherwise.
+Tests use real temporary Git repositories, CLI/report integration, simulated providers, evidence validation and sandbox-policy checks. For real Docker integration, preload an appropriate Go image and set `PROBE_TEST_DOCKER_IMAGE` to its name before running `go test ./... -run Docker`; the TypeScript/JavaScript scenarios (Vitest and Jest) run only when `PROBE_TEST_TS_IMAGE` names a preloaded image with Node, Vitest and Jest, and skip otherwise.
 
-See [CI integration](docs/CI.md), [validation results](docs/VALIDATION.md), [performance measurements](docs/PERFORMANCE.md), the [report schema](schema/confidence-report.schema.json), the [current CLI specification](../specs/swiftproof-v0.4-spec.md) and the [v0.4.0 release notes](docs/releases/v0.4.0.md) (unreleased). Contributions should include reproducible counterexamples for new rules. Licensed under the AGPL-3.0 with an attribution term, see [LICENSE](../LICENSE) and [NOTICE](../NOTICE).
+See [CI integration](docs/CI.md), [validation results](docs/VALIDATION.md), [performance measurements](docs/PERFORMANCE.md), the [report schema](schema/confidence-report.schema.json), the [current CLI specification](../specs/probe-v0.4-spec.md) and the [v0.4.0 release notes](docs/releases/v0.4.0.md) (unreleased). Contributions should include reproducible counterexamples for new rules. Licensed under the AGPL-3.0 with an attribution term, see [LICENSE](../LICENSE) and [NOTICE](../NOTICE).

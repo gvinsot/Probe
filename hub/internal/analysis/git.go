@@ -10,7 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/gvinsot/SwiftProof/hub/internal/store"
+	"github.com/gvinsot/Probe/hub/internal/store"
 )
 
 // gitRunner drives git in a disposable directory with a minimal environment.
@@ -88,7 +88,7 @@ func (g *gitRunner) prepare(ctx context.Context, cloneURL string) error {
 	if !strings.HasPrefix(cloneURL, "https://") && !strings.HasPrefix(cloneURL, "http://") {
 		return fmt.Errorf("unsupported clone URL scheme")
 	}
-	if _, err := g.run(ctx, "init", "--quiet", "--initial-branch=swiftproof"); err != nil {
+	if _, err := g.run(ctx, "init", "--quiet", "--initial-branch=probe"); err != nil {
 		return err
 	}
 	if err := os.MkdirAll(filepath.Join(g.dir, "tmp"), 0o700); err != nil {

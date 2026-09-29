@@ -15,13 +15,13 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/gvinsot/SwiftProof/app/internal/model"
+	"github.com/gvinsot/Probe/app/internal/model"
 )
 
 // intentCart is the candidate's pkg/cart.go: Discount is new.
 const intentCart = "package pkg\n\nfunc Total(xs []int) int { return len(xs) }\n\nfunc Discount(total int) int {\n\tif total > 100 {\n\t\treturn total - 10\n\t}\n\treturn total\n}\n"
 
-const intentTestPath = "pkg/swiftproof_intent_ac1_test.go"
+const intentTestPath = "pkg/probe_intent_ac1_test.go"
 
 // intentGoTest references the changed Discount and fails through t.Errorf.
 const intentGoTest = `package pkg
@@ -153,7 +153,7 @@ func TestIntentTestRunsOnCandidateOnly(t *testing.T) {
 		if got := args[len(args)-len(want):]; !reflect.DeepEqual(got, want) {
 			t.Errorf("argv tail %q", got)
 		}
-		goIntentEvents(out, "TestIntentAC1", "fail", "=== RUN   TestIntentAC1\n", "    swiftproof_intent_ac1_test.go:7: Discount(100) = 100, want 90\n", "--- FAIL: TestIntentAC1 (0.00s)\n")
+		goIntentEvents(out, "TestIntentAC1", "fail", "=== RUN   TestIntentAC1\n", "    probe_intent_ac1_test.go:7: Discount(100) = 100, want 90\n", "--- FAIL: TestIntentAC1 (0.00s)\n")
 		return execution{ExitCode: 1}
 	}
 	var created map[string]any
@@ -207,7 +207,7 @@ func TestIntentTestRunsOnCandidateOnly(t *testing.T) {
 
 func TestIntentOutcomes(t *testing.T) {
 	noReference := "package pkg\n\nimport \"testing\"\n\nfunc TestIntentAC1(t *testing.T) { t.Fatal(\"x\") }\n"
-	assertion := "    swiftproof_intent_ac1_test.go:7: Discount(100) = 100, want 90\n"
+	assertion := "    probe_intent_ac1_test.go:7: Discount(100) = 100, want 90\n"
 	for _, tc := range []struct {
 		name    string
 		content string
@@ -223,7 +223,7 @@ func TestIntentOutcomes(t *testing.T) {
 		}, model.StatusIntentTestFailed, "FAIL", ""},
 		{"assertion in a subtest", intentGoTest, nil, func(w io.Writer) execution {
 			fmt.Fprintln(w, `{"Action":"run","Package":"p","Test":"TestIntentAC1"}`)
-			fmt.Fprintln(w, `{"Action":"output","Package":"p","Test":"TestIntentAC1/at_100","Output":"    swiftproof_intent_ac1_test.go:9: got 100\n"}`)
+			fmt.Fprintln(w, `{"Action":"output","Package":"p","Test":"TestIntentAC1/at_100","Output":"    probe_intent_ac1_test.go:9: got 100\n"}`)
 			fmt.Fprintln(w, `{"Action":"fail","Package":"p","Test":"TestIntentAC1/at_100"}`)
 			fmt.Fprintln(w, `{"Action":"fail","Package":"p","Test":"TestIntentAC1"}`)
 			return execution{ExitCode: 1}
@@ -237,7 +237,7 @@ func TestIntentOutcomes(t *testing.T) {
 			return execution{ExitCode: 2}
 		}, model.StatusUnverified, "FAIL", reasonNotAssertion},
 		{"no message", intentGoTest, nil, func(w io.Writer) execution {
-			goIntentEvents(w, "TestIntentAC1", "fail", "    swiftproof_intent_ac1_test.go:7: \n")
+			goIntentEvents(w, "TestIntentAC1", "fail", "    probe_intent_ac1_test.go:7: \n")
 			return execution{ExitCode: 1}
 		}, model.StatusUnverified, "FAIL", reasonNotAssertion},
 		{"assertion line of another file", intentGoTest, nil, func(w io.Writer) execution {
@@ -245,7 +245,7 @@ func TestIntentOutcomes(t *testing.T) {
 			return execution{ExitCode: 1}
 		}, model.StatusUnverified, "FAIL", reasonNotAssertion},
 		{"no changed symbol referenced", noReference, nil, func(w io.Writer) execution {
-			goIntentEvents(w, "TestIntentAC1", "fail", "    swiftproof_intent_ac1_test.go:5: x\n")
+			goIntentEvents(w, "TestIntentAC1", "fail", "    probe_intent_ac1_test.go:5: x\n")
 			return execution{ExitCode: 1}
 		}, model.StatusUnverified, "FAIL", reasonNoReference},
 		{"name not on an added line", intentGoTest, []int{7}, func(w io.Writer) execution {
@@ -253,7 +253,7 @@ func TestIntentOutcomes(t *testing.T) {
 			return execution{ExitCode: 1}
 		}, model.StatusUnverified, "FAIL", reasonNotOnAdded},
 		{"setup failure", intentGoTest, nil, func(w io.Writer) execution {
-			fmt.Fprintln(w, "# example.test/pkg\npkg/swiftproof_intent_ac1_test.go:6:12: undefined: Discount\nFAIL\texample.test/pkg [build failed]")
+			fmt.Fprintln(w, "# example.test/pkg\npkg/probe_intent_ac1_test.go:6:12: undefined: Discount\nFAIL\texample.test/pkg [build failed]")
 			return execution{ExitCode: 1}
 		}, model.StatusUnverified, "ERROR", reasonInconclusive},
 		{"pass without a changed symbol", "package pkg\n\nimport \"testing\"\n\nfunc TestIntentAC1(t *testing.T) { _ = Total(nil) }\n", nil, func(w io.Writer) execution {
@@ -265,7 +265,7 @@ func TestIntentOutcomes(t *testing.T) {
 			return execution{}
 		}, model.StatusUnverified, "ERROR", reasonInconclusive},
 		{"unrelated test", intentGoTest, nil, func(w io.Writer) execution {
-			goIntentEvents(w, "TestOther", "fail", "    swiftproof_intent_ac1_test.go:7: x\n")
+			goIntentEvents(w, "TestOther", "fail", "    probe_intent_ac1_test.go:7: x\n")
 			return execution{ExitCode: 1}
 		}, model.StatusUnverified, "ERROR", reasonInconclusive},
 		{"timeout", intentGoTest, nil, func(w io.Writer) execution {
@@ -307,7 +307,7 @@ func TestIntentRequiresVerifiedRunner(t *testing.T) {
 	for _, template := range [][]string{{"go", "test", "./..."}, {"go", "test", "-C", "x", "{package}"}, {"make", "test"}} {
 		h := intentFixture(t)
 		h.opts.Commands["generated_test"] = template
-		if _, err := h.Call(context.Background(), IntentCreateTool, json.RawMessage(`{"criterion_id":"AC-1","path":"pkg/swiftproof_intent_ac1_test.go","content":`+strconvQuote(intentGoTest)+`}`)); err == nil || !strings.Contains(err.Error(), "named-test runner") {
+		if _, err := h.Call(context.Background(), IntentCreateTool, json.RawMessage(`{"criterion_id":"AC-1","path":"pkg/probe_intent_ac1_test.go","content":`+strconvQuote(intentGoTest)+`}`)); err == nil || !strings.Contains(err.Error(), "named-test runner") {
 			t.Fatalf("%q: %v", template, err)
 		}
 		if h.generated != 0 || h.intent.created != 0 || len(h.tests) != 0 {
@@ -353,8 +353,8 @@ func TestIntentBudgetSharedAndCapped(t *testing.T) {
 		t.Fatalf("slot returned after deletion: %v", err)
 	}
 	// Intent tests used two of the four shared slots.
-	call(t, h, "create_test", map[string]any{"path": "pkg/a_test.go", "content": strings.ReplaceAll(generatedSource, "TestSwiftProof", "TestA")})
-	call(t, h, "create_test", map[string]any{"path": "pkg/b_test.go", "content": strings.ReplaceAll(generatedSource, "TestSwiftProof", "TestB")})
+	call(t, h, "create_test", map[string]any{"path": "pkg/a_test.go", "content": strings.ReplaceAll(generatedSource, "TestProbe", "TestA")})
+	call(t, h, "create_test", map[string]any{"path": "pkg/b_test.go", "content": strings.ReplaceAll(generatedSource, "TestProbe", "TestB")})
 	if _, err := h.Call(context.Background(), "create_test", json.RawMessage(`{"path":"pkg/c_test.go","content":"package pkg\nimport \"testing\"\nfunc TestC(t *testing.T) {}\n"}`)); err == nil || !strings.Contains(err.Error(), "generated test budget exhausted") {
 		t.Fatalf("shared budget: %v", err)
 	}
@@ -364,7 +364,7 @@ func TestIntentBudgetSharedAndCapped(t *testing.T) {
 	// With a budget of 1, generated tests leave no room for an intent test.
 	h = intentFixture(t)
 	h.opts.MaxGeneratedTests = 1
-	call(t, h, "create_test", map[string]any{"path": "pkg/a_test.go", "content": strings.ReplaceAll(generatedSource, "TestSwiftProof", "TestA")})
+	call(t, h, "create_test", map[string]any{"path": "pkg/a_test.go", "content": strings.ReplaceAll(generatedSource, "TestProbe", "TestA")})
 	if err := create(5); err == nil || !strings.Contains(err.Error(), "generated test budget exhausted") {
 		t.Fatalf("shared budget first: %v", err)
 	}
@@ -537,7 +537,7 @@ func TestIntentToolDefinitions(t *testing.T) {
 func TestIntentOutcomeRules(t *testing.T) {
 	fail := model.Check{ID: "check-1", Kind: model.CheckGeneratedIntent, Status: "FAIL", ExitCode: 1}
 	var b strings.Builder
-	goIntentEvents(&b, "TestIntentAC1", "fail", "    swiftproof_intent_ac1_test.go:7: Discount(100) = 100, want 90\n")
+	goIntentEvents(&b, "TestIntentAC1", "fail", "    probe_intent_ac1_test.go:7: Discount(100) = 100, want 90\n")
 	fail.Output = b.String()
 	names := []string{"TestIntentAC1"}
 	change := cartChange(5)
@@ -612,7 +612,7 @@ func TestIntentOutcomeRules(t *testing.T) {
 func TestIntentLinkingIsComputedOnce(t *testing.T) {
 	h := intentFixture(t)
 	h.execute = func(_ context.Context, _ string, _ []string, out io.Writer) execution {
-		goIntentEvents(out, "TestIntentAC1", "fail", "    swiftproof_intent_ac1_test.go:7: Discount(100) = 100, want 90\n")
+		goIntentEvents(out, "TestIntentAC1", "fail", "    probe_intent_ac1_test.go:7: Discount(100) = 100, want 90\n")
 		return execution{ExitCode: 1}
 	}
 	call(t, h, IntentCreateTool, map[string]any{"criterion_id": "AC-1", "path": intentTestPath, "content": intentGoTest})

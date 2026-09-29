@@ -7,8 +7,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/gvinsot/SwiftProof/app/internal/model"
-	"github.com/gvinsot/SwiftProof/app/internal/redact"
+	"github.com/gvinsot/Probe/app/internal/model"
+	"github.com/gvinsot/Probe/app/internal/redact"
 )
 
 // mutantSlack is added to three times the control duration to bound one
@@ -215,7 +215,7 @@ func patchText(m model.Mutant, s Site, src, mutated []byte, command []string) []
 	if m.Symbol != "" {
 		symbol = " in " + m.Symbol
 	}
-	fmt.Fprintf(&b, "SwiftProof mutant %s (%s) of %s:%d%s\n", m.ID, m.Operator, m.Path, m.Line, symbol)
+	fmt.Fprintf(&b, "Probe mutant %s (%s) of %s:%d%s\n", m.ID, m.Operator, m.Path, m.Line, symbol)
 	fmt.Fprintf(&b, "Command: %s\n", strings.Join(command, " "))
 	fmt.Fprintf(&b, "This patch records one single-change mutant that was run; it is not a proposed change.\n")
 	original, changed := lines(src, s.Line, s.EndLine), lines(mutated, s.Line, s.EndLine)

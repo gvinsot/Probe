@@ -14,7 +14,7 @@ func validPreimage() Preimage {
 		Schema: PreimageSchema, ToolVersion: "test sha256:" + digest("0"), Kind: "generated_test_base",
 		BaseCommit: strings.Repeat("c", 40), Tree: Tree{PristineSHA256: digest("1"), Added: [][]string{{"pkg/x_test.go", "f", "12", digest("2")}}},
 		PolicySHA256: digest("3"), ImageID: "sha256:" + digest("4"), DockerServer: "28.4.0 linux/x86_64",
-		DockerArgsSHA256: digest("5"), ArgvSHA256: digest("6"), Capture: "/tmp/swiftproof-results.json", TimeoutMS: 60000, MaxOutputBytes: 32768,
+		DockerArgsSHA256: digest("5"), ArgvSHA256: digest("6"), Capture: "/tmp/probe-results.json", TimeoutMS: 60000, MaxOutputBytes: 32768,
 	}
 }
 
@@ -97,7 +97,7 @@ func TestKeyGolden(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	const want = "bc65dde9725dce69e717a7eba2819a32f857c522f9c5a1d4b00cdb9526faddb0"
+	const want = "5daafd3900ea3750a64958216bce09c9a1481eab7d0c54639adcfc056e114e80"
 	if key != want {
 		t.Logf("golden key changed: got %s", key)
 		t.Fatalf("the preimage encoding changed; bump PreimageSchema and update the golden key")
@@ -106,7 +106,7 @@ func TestKeyGolden(t *testing.T) {
 
 func TestPreimageValidation(t *testing.T) {
 	for name, edit := range map[string]func(*Preimage){
-		"schema":           func(p *Preimage) { p.Schema = "swiftproof-execcache/v0" },
+		"schema":           func(p *Preimage) { p.Schema = "probe-execcache/v0" },
 		"empty kind":       func(p *Preimage) { p.Kind = "" },
 		"pristine digest":  func(p *Preimage) { p.Tree.PristineSHA256 = "abc" },
 		"policy digest":    func(p *Preimage) { p.PolicySHA256 = strings.ToUpper(digest("a")) },

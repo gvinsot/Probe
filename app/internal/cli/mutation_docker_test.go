@@ -12,7 +12,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/gvinsot/SwiftProof/app/internal/model"
+	"github.com/gvinsot/Probe/app/internal/model"
 )
 
 // The design's Discount scenario through the whole CLI with real Docker: the
@@ -23,9 +23,9 @@ import (
 // hash; the mutation ledger stays apart from the checks; the report re-renders
 // byte-identically; the checkout stays clean and no container survives.
 func TestDockerMutationEndToEnd(t *testing.T) {
-	image := os.Getenv("SWIFTPROOF_TEST_DOCKER_IMAGE")
+	image := os.Getenv("PROBE_TEST_DOCKER_IMAGE")
 	if image == "" {
-		t.Skip("set SWIFTPROOF_TEST_DOCKER_IMAGE to a preloaded Go image")
+		t.Skip("set PROBE_TEST_DOCKER_IMAGE to a preloaded Go image")
 	}
 	dir := discountFixture(t)
 	policy := mutationPolicy(t, image, nil)

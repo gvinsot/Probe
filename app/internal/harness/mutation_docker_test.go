@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/gvinsot/SwiftProof/app/internal/model"
-	"github.com/gvinsot/SwiftProof/app/internal/mutation"
+	"github.com/gvinsot/Probe/app/internal/model"
+	"github.com/gvinsot/Probe/app/internal/mutation"
 )
 
 const cartCandidate = "package cart\n\nfunc Total(prices []int) int {\n\tsum := 0\n\tfor _, p := range prices {\n\t\tsum += p\n\t}\n\treturn sum\n}\n\nfunc Count(prices []int) int { return len(prices) }\n\nfunc IsBig(n int) bool { return n > 100 }\n"
@@ -30,13 +30,13 @@ func init() {
 	if os.Geteuid() == 0 {
 		panic("sandbox must be non-root")
 	}
-	if os.Getenv("SWIFTPROOF_HOST_SECRET") != "" {
+	if os.Getenv("PROBE_HOST_SECRET") != "" {
 		panic("host environment reached the sandbox")
 	}
 	if err := os.WriteFile("/source/host-write", []byte("unsafe"), 0644); err == nil {
 		panic("source mount is writable")
 	}
-	if err := os.WriteFile("/etc/swiftproof-write", []byte("unsafe"), 0644); err == nil {
+	if err := os.WriteFile("/etc/probe-write", []byte("unsafe"), 0644); err == nil {
 		panic("root filesystem is writable")
 	}
 	interfaces, err := net.Interfaces()
@@ -71,11 +71,11 @@ func IsBig(n int) bool { return n > 100 }
 // only: the harness snapshots and the restored workspace are byte-identical
 // before and after, and no container survives.
 func TestDockerMutantBoundaryUnchanged(t *testing.T) {
-	image := os.Getenv("SWIFTPROOF_TEST_DOCKER_IMAGE")
+	image := os.Getenv("PROBE_TEST_DOCKER_IMAGE")
 	if image == "" {
-		t.Skip("set SWIFTPROOF_TEST_DOCKER_IMAGE to a preloaded Go image")
+		t.Skip("set PROBE_TEST_DOCKER_IMAGE to a preloaded Go image")
 	}
-	t.Setenv("SWIFTPROOF_HOST_SECRET", "must-not-reach-container")
+	t.Setenv("PROBE_HOST_SECRET", "must-not-reach-container")
 	h, names := dockerRunFixture(t, image, cartCandidate)
 	candidateBefore, baseBefore := treeDigest(t, h.candidate), treeDigest(t, h.base)
 	w, err := h.NewMutationWorkspace()
@@ -107,9 +107,9 @@ func TestDockerMutantBoundaryUnchanged(t *testing.T) {
 // a changed sum is KILLED, a boundary change of an untested function
 // SURVIVES, and a type error is INVALID.
 func TestDockerMutationClassifiesRealRuns(t *testing.T) {
-	image := os.Getenv("SWIFTPROOF_TEST_DOCKER_IMAGE")
+	image := os.Getenv("PROBE_TEST_DOCKER_IMAGE")
 	if image == "" {
-		t.Skip("set SWIFTPROOF_TEST_DOCKER_IMAGE to a preloaded Go image")
+		t.Skip("set PROBE_TEST_DOCKER_IMAGE to a preloaded Go image")
 	}
 	h, names := dockerRunFixture(t, image, cartCandidate)
 	w, err := h.NewMutationWorkspace()

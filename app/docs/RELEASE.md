@@ -18,9 +18,9 @@ It cross-compiles with `CGO_ENABLED=0` and produces all three default targets:
 
 | Target | Executable | Archive |
 | --- | --- | --- |
-| Windows amd64 | `dist/windows-amd64/swiftproof.exe` | `dist/swiftproof-dev-windows-amd64.zip` |
-| Linux amd64 | `dist/linux-amd64/swiftproof` | `dist/swiftproof-dev-linux-amd64.tar.gz` |
-| Linux arm64 | `dist/linux-arm64/swiftproof` | `dist/swiftproof-dev-linux-arm64.tar.gz` |
+| Windows amd64 | `dist/windows-amd64/probe.exe` | `dist/probe-dev-windows-amd64.zip` |
+| Linux amd64 | `dist/linux-amd64/probe` | `dist/probe-dev-linux-amd64.tar.gz` |
+| Linux arm64 | `dist/linux-arm64/probe` | `dist/probe-dev-linux-arm64.tar.gz` |
 
 Each archive contains the executable, `LICENSE`, `NOTICE` and `README.md`. Linux tar
 archives preserve executable permissions, including when built on Windows.
@@ -35,9 +35,9 @@ go run ./tools/build -version v0.2.0 -targets linux/amd64,linux/arm64
 Supported combinations are `windows`, `linux` and `darwin`, each with `amd64`
 or `arm64`. Git is still required at runtime; sandbox execution additionally
 requires Docker with Linux containers. To build only for the current host,
-`go build ./cmd/swiftproof` remains available.
+`go build ./cmd/probe` remains available.
 
-Every successful regular CI run creates a **swiftproof-build** artifact with
+Every successful regular CI run creates a **probe-build** artifact with
 the three default archives and checksums, retained for 30 days. Download it
 from the workflow run's artifacts section.
 
@@ -54,7 +54,7 @@ for Linux, macOS (`darwin`), and Windows, each on `amd64` and `arm64`. This is
 cross-compilation, not a runtime test of every target. The regular CI workflow
 runs native tests on Linux, Windows, and macOS runners.
 
-Download the **swiftproof-release** artifact from the completed run. It contains
+Download the **probe-release** artifact from the completed run. It contains
 six archives and `SHA256SUMS`. Each archive contains the executable, `LICENSE`, `NOTICE`
 and `README.md` inside a directory named after its version and target. Individual
 target artifacts are also available. Artifacts expire after 30 days.
@@ -70,7 +70,7 @@ shasum -a 256 --check SHA256SUMS
 ```
 
 On Windows, compute a selected archive's digest with
-`Get-FileHash ./swiftproof-<version>-windows-amd64.zip -Algorithm SHA256` and
+`Get-FileHash ./probe-<version>-windows-amd64.zip -Algorithm SHA256` and
 compare it with its entry in `SHA256SUMS`.
 
 Checksums detect mismatched bytes; these artifacts are not signed or notarized.
@@ -86,7 +86,7 @@ marked as prereleases.
 Alternatively, push a version tag from your checkout:
 
 ```sh
-git tag -a v0.1.0 -m "SwiftProof v0.1.0"
+git tag -a v0.1.0 -m "Probe v0.1.0"
 git push origin v0.1.0
 ```
 

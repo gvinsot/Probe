@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/gvinsot/SwiftProof/app/internal/model"
+	"github.com/gvinsot/Probe/app/internal/model"
 )
 
 // Write renders every format from the same finalized report and changes
@@ -162,13 +162,13 @@ func TestFormatsAgreeOnReproducedIssues(t *testing.T) {
 	}
 	var fromSARIF []string
 	for _, raw := range results(log) {
-		for _, id := range raw.(map[string]any)["properties"].(map[string]any)["swiftproof"].(map[string]any)["evidence_ids"].([]any) {
+		for _, id := range raw.(map[string]any)["properties"].(map[string]any)["probe"].(map[string]any)["evidence_ids"].([]any) {
 			fromSARIF = append(fromSARIF, id.(string))
 		}
 	}
 	for _, raw := range invocation(log)["toolExecutionNotifications"].([]any) {
 		n := raw.(map[string]any)
-		if n["properties"].(map[string]any)["swiftproof_kind"] == "unanchored_finding" {
+		if n["properties"].(map[string]any)["probe_kind"] == "unanchored_finding" {
 			m := regexp.MustCompile(`Evidence: "([^"]+)"`).FindStringSubmatch(n["message"].(map[string]any)["text"].(string))
 			fromSARIF = append(fromSARIF, strings.Split(m[1], ", ")...)
 		}

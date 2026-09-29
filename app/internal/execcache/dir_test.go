@@ -13,7 +13,7 @@ import (
 func TestValidateDirRejectsRepositoryAndOutputLocations(t *testing.T) {
 	root := t.TempDir()
 	repo := filepath.Join(root, "repo")
-	output := filepath.Join(repo, ".swiftproof")
+	output := filepath.Join(repo, ".probe")
 	external := filepath.Join(root, "reports")
 	for _, dir := range []string{repo, external} {
 		if err := os.MkdirAll(dir, 0700); err != nil {
@@ -22,7 +22,7 @@ func TestValidateDirRejectsRepositoryAndOutputLocations(t *testing.T) {
 	}
 	for name, tc := range map[string]struct{ dir, output string }{
 		"the repository itself":           {repo, output},
-		"inside the repository":           {filepath.Join(repo, ".cache", "swiftproof"), output},
+		"inside the repository":           {filepath.Join(repo, ".cache", "probe"), output},
 		"inside the default output":       {filepath.Join(output, "cache"), output},
 		"the output directory itself":     {external, external},
 		"inside an external output":       {filepath.Join(external, "cache"), external},
@@ -67,7 +67,7 @@ func relative(t *testing.T, path string) string {
 func TestValidateDirCreatesAnOwnerOnlyDirectory(t *testing.T) {
 	root := t.TempDir()
 	dir := filepath.Join(root, "a", "b", "cache")
-	got, err := ValidateDir(dir, filepath.Join(root, "repo"), filepath.Join(root, "repo", ".swiftproof"))
+	got, err := ValidateDir(dir, filepath.Join(root, "repo"), filepath.Join(root, "repo", ".probe"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -137,7 +137,7 @@ func junction(t *testing.T, link, target string) {
 // a junction to an external directory must stay usable on every later run.
 func TestValidateDirResolvesJunctionAncestors(t *testing.T) {
 	root := t.TempDir()
-	repo, outside, output := filepath.Join(root, "repo"), filepath.Join(root, "outside"), filepath.Join(root, "repo", ".swiftproof")
+	repo, outside, output := filepath.Join(root, "repo"), filepath.Join(root, "outside"), filepath.Join(root, "repo", ".probe")
 	for _, dir := range []string{filepath.Join(repo, "sub"), filepath.Join(outside, "a", "report")} {
 		if err := os.MkdirAll(dir, 0700); err != nil {
 			t.Fatal(err)

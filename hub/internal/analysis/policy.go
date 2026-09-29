@@ -33,7 +33,7 @@ func (r *Runner) Policy(ctx context.Context, language string) ([]byte, error) {
 	if !SupportedLanguage(language) {
 		return nil, fmt.Errorf("unsupported language %q", language)
 	}
-	dir, err := os.MkdirTemp("", "swiftproof-policy-")
+	dir, err := os.MkdirTemp("", "probe-policy-")
 	if err != nil {
 		return nil, err
 	}
@@ -46,11 +46,11 @@ func (r *Runner) Policy(ctx context.Context, language string) ([]byte, error) {
 	var out bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &out, &out
 	if err := cmd.Run(); err != nil {
-		return nil, fmt.Errorf("swiftproof init: %w: %s", err, tail(out.String()))
+		return nil, fmt.Errorf("probe init: %w: %s", err, tail(out.String()))
 	}
-	data, err := os.ReadFile(filepath.Join(dir, ".swiftproof.json"))
+	data, err := os.ReadFile(filepath.Join(dir, ".probe.json"))
 	if err != nil {
-		return nil, fmt.Errorf("swiftproof init produced no policy: %w", err)
+		return nil, fmt.Errorf("probe init produced no policy: %w", err)
 	}
 	// Re-encode so the committed file is stable and indented the same way
 	// whatever the CLI version formatting.
@@ -75,5 +75,5 @@ func (r *Runner) Version(ctx context.Context) string {
 		return "unknown"
 	}
 	line := strings.TrimSpace(strings.SplitN(string(out), "\n", 2)[0])
-	return strings.TrimSpace(strings.TrimPrefix(line, "swiftproof"))
+	return strings.TrimSpace(strings.TrimPrefix(line, "probe"))
 }

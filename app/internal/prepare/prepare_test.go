@@ -12,10 +12,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gvinsot/SwiftProof/app/internal/config"
-	"github.com/gvinsot/SwiftProof/app/internal/gitrepo"
-	"github.com/gvinsot/SwiftProof/app/internal/harness"
-	"github.com/gvinsot/SwiftProof/app/internal/model"
+	"github.com/gvinsot/Probe/app/internal/config"
+	"github.com/gvinsot/Probe/app/internal/gitrepo"
+	"github.com/gvinsot/Probe/app/internal/harness"
+	"github.com/gvinsot/Probe/app/internal/model"
 )
 
 func testOptions(t *testing.T, f *fakeDocker, repo *gitrepo.Repository, commit string) Options {
@@ -115,7 +115,7 @@ func TestUnverifiableImageIsRebuilt(t *testing.T) {
 		"different base image": func(f *fakeDocker, img *fakeImage) {
 			img.Labels[LabelBaseImageID] = "sha256:" + strings.Repeat("c", 64)
 		},
-		"other schema":           func(f *fakeDocker, img *fakeImage) { img.Labels[LabelSchema] = "swiftproof-prepare/v0" },
+		"other schema":           func(f *fakeDocker, img *fakeImage) { img.Labels[LabelSchema] = "probe-prepare/v0" },
 		"malformed outputs":      func(f *fakeDocker, img *fakeImage) { img.Labels[LabelOutputs] = "maybe" },
 		"malformed tool version": func(f *fakeDocker, img *fakeImage) { img.Labels[LabelToolVersion] = "a b" },
 		"malformed log hash":     func(f *fakeDocker, img *fakeImage) { img.Labels[LabelLogSHA256] = "x" },
@@ -150,7 +150,7 @@ func TestUnverifiableImageIsRebuilt(t *testing.T) {
 }
 
 // Without permission, a miss whose build needs network is not_permitted: no
-// container runs, and SwiftProof never tries offline instead. An image that
+// container runs, and Probe never tries offline instead. An image that
 // already exists for the key is still reused without the permission.
 func TestNetworkPermission(t *testing.T) {
 	repo, base, _ := repoFixture(t)
@@ -342,9 +342,9 @@ func TestDeadlineDuringReadBackDiscardsTheImage(t *testing.T) {
 func TestLongChangeListingIsClassifiedCompletely(t *testing.T) {
 	repo, base, _ := repoFixture(t)
 	var home strings.Builder
-	home.WriteString("A /swiftproof\nA /swiftproof/home\nA /swiftproof/home/c\n")
+	home.WriteString("A /probe\nA /probe/home\nA /probe/home/c\n")
 	for i := 0; i < 5000; i++ {
-		fmt.Fprintf(&home, "A /swiftproof/home/c/f%04d\n", i)
+		fmt.Fprintf(&home, "A /probe/home/c/f%04d\n", i)
 	}
 	f := newFakeDocker()
 	f.diff = home.String() + "C /usr\nC /usr/local\nA /usr/local/deps\n"
@@ -363,7 +363,7 @@ func TestLongChangeListingIsClassifiedCompletely(t *testing.T) {
 func TestNoFilesystemChangeFails(t *testing.T) {
 	repo, base, _ := repoFixture(t)
 	f := newFakeDocker()
-	f.diff = "A /swiftproof\nA /swiftproof/inputs\nA /swiftproof/work\nA /swiftproof/work/go.mod\nA /swiftproof/work/go.sum\nA /swiftproof/home\n"
+	f.diff = "A /probe\nA /probe/inputs\nA /probe/work\nA /probe/work/go.mod\nA /probe/work/go.sum\nA /probe/home\n"
 	res := Run(context.Background(), testOptions(t, f, repo, base))
 	assertFailed(t, res, "changed no file")
 	if f.count("commit ") != 0 || f.count("remove ") != 1 {
@@ -376,7 +376,7 @@ func TestNoFilesystemChangeFails(t *testing.T) {
 func TestShadowedOutputs(t *testing.T) {
 	repo, base, _ := repoFixture(t)
 	f := newFakeDocker()
-	f.diff = "A /swiftproof\nA /swiftproof/home\nA /swiftproof/home/.npm\nC /tmp\nA /tmp/node_modules\n"
+	f.diff = "A /probe\nA /probe/home\nA /probe/home/.npm\nC /tmp\nA /tmp/node_modules\n"
 	o := testOptions(t, f, repo, base)
 	res := Run(context.Background(), o)
 	if res.Record.Status != model.PrepareBuilt || !res.Shadowed || f.images[res.Image].Labels[LabelOutputs] != OutputsShadowed {
@@ -446,7 +446,7 @@ func TestBaseImageMustBeLocal(t *testing.T) {
 	o := testOptions(t, f, repo, base)
 	o.BaseImage = "golang:absent"
 	res := Run(context.Background(), o)
-	assertFailed(t, res, "is not available locally; SwiftProof never pulls images")
+	assertFailed(t, res, "is not available locally; Probe never pulls images")
 	if f.count("run ") != 0 || res.Record.BaseImageID != "" || len(res.Record.Inputs) != 0 {
 		t.Fatalf("calls %q", f.calls)
 	}
@@ -505,7 +505,7 @@ func TestUnconfirmedRemovalFailsTheBuild(t *testing.T) {
 	f := newFakeDocker()
 	f.removeErr = errors.New("daemon timeout")
 	res := Run(context.Background(), testOptions(t, f, repo, base))
-	assertFailed(t, res, "could not confirm the removal of the prepare container swiftproof-prepare-")
+	assertFailed(t, res, "could not confirm the removal of the prepare container probe-prepare-")
 	// The committed image is not used, so it is removed, not left tagged for
 	// a later review to reuse.
 	if !strings.HasSuffix(res.Record.Reason, ": daemon timeout; the image was removed") || len(f.images) != 1 || f.count("image rm ") != 1 {
@@ -523,7 +523,7 @@ func TestRunReceivesScaffoldAndEnv(t *testing.T) {
 	repo, base, _ := repoFixture(t)
 	f := newFakeDocker()
 	o := testOptions(t, f, repo, base)
-	o.Spec.Env = map[string]string{"NODE_PATH": "/swiftproof/work/node_modules"}
+	o.Spec.Env = map[string]string{"NODE_PATH": "/probe/work/node_modules"}
 	o.Spec.User = "root"
 	res := Run(context.Background(), o)
 	if res.Record.Status != model.PrepareBuilt || res.Record.User != "root" {
@@ -534,9 +534,9 @@ func TestRunReceivesScaffoldAndEnv(t *testing.T) {
 	}
 	found := false
 	for _, a := range f.args {
-		found = found || a == "--env=NODE_PATH=/swiftproof/work/node_modules"
+		found = found || a == "--env=NODE_PATH=/probe/work/node_modules"
 	}
-	if !found || !strings.HasPrefix(strings.TrimPrefix(f.calls[len(f.calls)-1], "remove "), "swiftproof-prepare-") {
+	if !found || !strings.HasPrefix(strings.TrimPrefix(f.calls[len(f.calls)-1], "remove "), "probe-prepare-") {
 		t.Fatalf("args %q calls %q", f.args, f.calls)
 	}
 }

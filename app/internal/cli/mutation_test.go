@@ -9,8 +9,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/gvinsot/SwiftProof/app/internal/config"
-	"github.com/gvinsot/SwiftProof/app/internal/model"
+	"github.com/gvinsot/Probe/app/internal/config"
+	"github.com/gvinsot/Probe/app/internal/model"
 )
 
 // discountSource is the candidate price.go of the mutation fixture: Clamp is
@@ -205,7 +205,7 @@ func TestMutationSkippedAddsOneUnverifiedSentence(t *testing.T) {
 }
 
 // Only the trusted policy can enable mutation: a mutation object the candidate
-// adds to .swiftproof.json is ignored.
+// adds to .probe.json is ignored.
 func TestMutationPolicyOnCandidateIsIgnored(t *testing.T) {
 	dir := discountFixture(t)
 	base := config.Default("go")

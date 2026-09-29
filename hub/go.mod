@@ -1,3 +1,3 @@
-module github.com/gvinsot/SwiftProof/hub
+module github.com/gvinsot/Probe/hub
 
 go 1.23.0

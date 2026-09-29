@@ -16,7 +16,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/gvinsot/SwiftProof/app/internal/fsutil"
+	"github.com/gvinsot/Probe/app/internal/fsutil"
 )
 
 // ExportedFile is one file ExportMatching wrote: its repository path, the

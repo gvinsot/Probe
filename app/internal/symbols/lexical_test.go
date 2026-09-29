@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/gvinsot/SwiftProof/app/internal/model"
+	"github.com/gvinsot/Probe/app/internal/model"
 )
 
 // declNames lists "name kind [test]" for each declaration of a parsed source.

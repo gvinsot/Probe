@@ -15,7 +15,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/gvinsot/SwiftProof/app/internal/model"
+	"github.com/gvinsot/Probe/app/internal/model"
 )
 
 // mutationState is the harness's mutation state slot. A mutation stage keeps

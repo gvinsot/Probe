@@ -9,8 +9,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/gvinsot/SwiftProof/app/internal/gitrepo"
-	"github.com/gvinsot/SwiftProof/app/internal/model"
+	"github.com/gvinsot/Probe/app/internal/gitrepo"
+	"github.com/gvinsot/Probe/app/internal/model"
 )
 
 // repoFixture is a real temporary Git repository.
@@ -29,7 +29,7 @@ func newRepo(t *testing.T) *repoFixture {
 
 func (f *repoFixture) git(args ...string) string {
 	f.t.Helper()
-	c := exec.Command("git", append([]string{"-C", f.dir, "-c", "user.name=SwiftProof Test", "-c", "user.email=test@example.invalid", "-c", "commit.gpgsign=false"}, args...)...)
+	c := exec.Command("git", append([]string{"-C", f.dir, "-c", "user.name=Probe Test", "-c", "user.email=test@example.invalid", "-c", "commit.gpgsign=false"}, args...)...)
 	b, err := c.CombinedOutput()
 	if err != nil {
 		f.t.Fatalf("git %v: %v %s", args, err, b)
@@ -244,7 +244,7 @@ func TestNoGoModUnavailable(t *testing.T) {
 	}
 }
 
-// The SwiftProof layout: go.work at the root and the module in app/.
+// The Probe layout: go.work at the root and the module in app/.
 func TestNestedModules(t *testing.T) {
 	f := newRepo(t)
 	f.put("go.work", "go 1.23.0\n\nuse ./app\nuse ./hub\n")

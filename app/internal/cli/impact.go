@@ -13,12 +13,12 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/gvinsot/SwiftProof/app/internal/gitrepo"
-	"github.com/gvinsot/SwiftProof/app/internal/harness"
-	"github.com/gvinsot/SwiftProof/app/internal/model"
-	"github.com/gvinsot/SwiftProof/app/internal/redact"
-	"github.com/gvinsot/SwiftProof/app/internal/report"
-	"github.com/gvinsot/SwiftProof/app/internal/symbols"
+	"github.com/gvinsot/Probe/app/internal/gitrepo"
+	"github.com/gvinsot/Probe/app/internal/harness"
+	"github.com/gvinsot/Probe/app/internal/model"
+	"github.com/gvinsot/Probe/app/internal/redact"
+	"github.com/gvinsot/Probe/app/internal/report"
+	"github.com/gvinsot/Probe/app/internal/symbols"
 )
 
 // impactResult is what the static impact analysis hands to the rest of the run.

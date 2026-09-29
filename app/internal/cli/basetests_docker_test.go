@@ -10,9 +10,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/gvinsot/SwiftProof/app/internal/config"
-	"github.com/gvinsot/SwiftProof/app/internal/harness"
-	"github.com/gvinsot/SwiftProof/app/internal/model"
+	"github.com/gvinsot/Probe/app/internal/config"
+	"github.com/gvinsot/Probe/app/internal/harness"
+	"github.com/gvinsot/Probe/app/internal/model"
 )
 
 // baseTestsReview runs review --base-tests on a fixture and returns the exit
@@ -46,9 +46,9 @@ func findCheck(r model.Report, id string) model.Check {
 // TestDockerBaseTestsEndToEnd runs the baseline versions of changed tests in
 // real sandboxes (scenarios A and B of the F3 design).
 func TestDockerBaseTestsEndToEnd(t *testing.T) {
-	image := os.Getenv("SWIFTPROOF_TEST_DOCKER_IMAGE")
+	image := os.Getenv("PROBE_TEST_DOCKER_IMAGE")
 	if image == "" {
-		t.Skip("set SWIFTPROOF_TEST_DOCKER_IMAGE to a preloaded Go image")
+		t.Skip("set PROBE_TEST_DOCKER_IMAGE to a preloaded Go image")
 	}
 	cfg := config.Default("go")
 	cfg.Sandbox.Image = image

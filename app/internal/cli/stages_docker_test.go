@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gvinsot/SwiftProof/app/internal/config"
-	"github.com/gvinsot/SwiftProof/app/internal/coverage"
+	"github.com/gvinsot/Probe/app/internal/config"
+	"github.com/gvinsot/Probe/app/internal/coverage"
 )
 
 // calcFixture is a change that keeps behavior and passes its tests, so a review
@@ -36,9 +36,9 @@ func calcFixture(t *testing.T) string {
 // and --deadline are accepted, and a review that requests no new stage adds no
 // review request of its own.
 func TestDockerReviewSkeletonAroundRealChecks(t *testing.T) {
-	image := os.Getenv("SWIFTPROOF_TEST_DOCKER_IMAGE")
+	image := os.Getenv("PROBE_TEST_DOCKER_IMAGE")
 	if image == "" {
-		t.Skip("set SWIFTPROOF_TEST_DOCKER_IMAGE to a preloaded Go image")
+		t.Skip("set PROBE_TEST_DOCKER_IMAGE to a preloaded Go image")
 	}
 	dir := calcFixture(t)
 	cfg := config.Default("go")
@@ -81,9 +81,9 @@ func TestDockerReviewSkeletonAroundRealChecks(t *testing.T) {
 // skips the checks that had not started, records the deadline entry, and does
 // not by itself make the run an operational failure.
 func TestDockerDeadlineStopsRunningCheck(t *testing.T) {
-	image := os.Getenv("SWIFTPROOF_TEST_DOCKER_IMAGE")
+	image := os.Getenv("PROBE_TEST_DOCKER_IMAGE")
 	if image == "" {
-		t.Skip("set SWIFTPROOF_TEST_DOCKER_IMAGE to a preloaded Go image")
+		t.Skip("set PROBE_TEST_DOCKER_IMAGE to a preloaded Go image")
 	}
 	dir := calcFixture(t)
 	cfg := config.Default("go")

@@ -1,1 +1,1 @@
-ok  	example.test/swiftproof-demo	0.002s
+ok  	example.test/probe-demo	0.002s

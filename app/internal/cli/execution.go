@@ -10,9 +10,9 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/gvinsot/SwiftProof/app/internal/execcache"
-	"github.com/gvinsot/SwiftProof/app/internal/harness"
-	"github.com/gvinsot/SwiftProof/app/internal/model"
+	"github.com/gvinsot/Probe/app/internal/execcache"
+	"github.com/gvinsot/Probe/app/internal/harness"
+	"github.com/gvinsot/Probe/app/internal/model"
 )
 
 // openExecutionCache validates --cache-dir (location, ownership, symlinks) and

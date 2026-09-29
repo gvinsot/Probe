@@ -71,7 +71,7 @@ jobs:
         run: docker pull golang:1.26-bookworm
       - if: runner.os == 'Linux'
         env:
-          SWIFTPROOF_TEST_DOCKER_IMAGE: golang:1.26-bookworm
+          PROBE_TEST_DOCKER_IMAGE: golang:1.26-bookworm
         run: go test ./internal/harness ./internal/cli -run Docker -count=1 -timeout 30m -v
 
   build:
@@ -105,7 +105,7 @@ jobs:
             -targets "$TARGET_GOOS/$TARGET_GOARCH"
       - uses: actions/upload-artifact@v4
         with:
-          name: swiftproof-${{ matrix.goos }}-${{ matrix.goarch }}
+          name: probe-${{ matrix.goos }}-${{ matrix.goarch }}
           path: |
             app/dist/*.tar.gz
             app/dist/*.zip
@@ -131,7 +131,7 @@ jobs:
           persist-credentials: false
       - uses: actions/download-artifact@v4
         with:
-          name: swiftproof-release
+          name: probe-release
           path: dist
       - name: Verify archives and publish release
         shell: bash
@@ -144,7 +144,7 @@ jobs:
           if [[ "$VERSION" == *-* ]]; then options+=(--prerelease); fi
           if [[ "$GITHUB_REF_TYPE" == tag ]]; then options+=(--verify-tag); fi
           gh release create "$VERSION" dist/*.zip dist/*.tar.gz dist/SHA256SUMS \
-            --target "$GITHUB_SHA" --title "SwiftProof $VERSION" --draft "${options[@]}"
+            --target "$GITHUB_SHA" --title "Probe $VERSION" --draft "${options[@]}"
           gh release edit "$VERSION" --draft=false
 
   checksums:
@@ -153,7 +153,7 @@ jobs:
     steps:
       - uses: actions/download-artifact@v4
         with:
-          pattern: swiftproof-*
+          pattern: probe-*
           path: dist
           merge-multiple: true
       - name: Compute archive checksums
@@ -161,11 +161,11 @@ jobs:
         run: |
           set -euo pipefail
           cd dist
-          sha256sum swiftproof-*.tar.gz swiftproof-*.zip > SHA256SUMS
+          sha256sum probe-*.tar.gz probe-*.zip > SHA256SUMS
           sha256sum --check SHA256SUMS
       - uses: actions/upload-artifact@v4
         with:
-          name: swiftproof-release
+          name: probe-release
           path: dist/*
           if-no-files-found: error
           retention-days: 30

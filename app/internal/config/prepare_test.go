@@ -98,7 +98,7 @@ func TestPrepareRejects(t *testing.T) {
 		"GOTOOLCHAIN":             {"env": map[string]string{"GOTOOLCHAIN": "auto"}},
 		"GOPROXY":                 {"env": map[string]string{"GOPROXY": "https://x"}},
 		"GOSUMDB":                 {"env": map[string]string{"GOSUMDB": "off"}},
-		"SWIFTPROOF_ prefix":      {"env": map[string]string{"SWIFTPROOF_X": "1"}},
+		"PROBE_ prefix":           {"env": map[string]string{"PROBE_X": "1"}},
 		"GOFLAGS":                 {"env": map[string]string{"GOFLAGS": "-exec=/opt/wrap"}},
 		"GOENV":                   {"env": map[string]string{"GOENV": "/opt/go.env"}},
 		"GOWORK":                  {"env": map[string]string{"GOWORK": "/opt/go.work"}},

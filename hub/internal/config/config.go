@@ -1,4 +1,4 @@
-// Package config reads the deployment configuration of the SwiftProof hub.
+// Package config reads the deployment configuration of the Probe hub.
 //
 // Everything an operator needs is an environment variable: the same image runs
 // on a public deployment and inside a company, pointed at github.com, a GitHub
@@ -48,9 +48,9 @@ const (
 // Provider settings belong to the deployment, exactly as for the CLI: the hub
 // holds no API key of its own and only forwards these to the binary it runs.
 const (
-	EndpointEnvName          = "SWIFTPROOF_REVIEWER_ENDPOINT"
-	ModelEnvName             = "SWIFTPROOF_REVIEWER_MODEL"
-	AllowInsecureHTTPEnvName = "SWIFTPROOF_REVIEWER_ALLOW_INSECURE_HTTP"
+	EndpointEnvName          = "PROBE_REVIEWER_ENDPOINT"
+	ModelEnvName             = "PROBE_REVIEWER_MODEL"
+	AllowInsecureHTTPEnvName = "PROBE_REVIEWER_ALLOW_INSECURE_HTTP"
 )
 
 // Forge holds the OAuth application and host of one code forge.
@@ -75,7 +75,7 @@ type Config struct {
 	// PreviousSessionKeys still open values sealed before a key rotation; the
 	// hub reseals them under SessionKey at start-up.
 	PreviousSessionKeys [][]byte
-	// Binary is the SwiftProof CLI the analysis runner executes.
+	// Binary is the Probe CLI the analysis runner executes.
 	Binary string
 	// Instance is public or private; it decides which modes are allowed.
 	Instance string
@@ -107,8 +107,8 @@ type Config struct {
 // Default values chosen so that a bare `docker run` with one OAuth app works.
 const (
 	defaultAddr      = ":8080"
-	defaultDataDir   = "/var/lib/swiftproof-hub"
-	defaultBinary    = "swiftproof"
+	defaultDataDir   = "/var/lib/probe-hub"
+	defaultBinary    = "probe"
 	defaultWorkers   = 2
 	defaultQueue     = 256
 	defaultUserQuota = 8
@@ -123,30 +123,30 @@ const (
 // a persistent session key when they do not exist yet.
 func Load(getenv func(string) string) (Config, error) {
 	c := Config{
-		Addr:              env(getenv, "SWIFTPROOF_HUB_ADDR", defaultAddr),
-		DataDir:           env(getenv, "SWIFTPROOF_HUB_DATA_DIR", defaultDataDir),
-		Binary:            env(getenv, "SWIFTPROOF_HUB_BINARY", defaultBinary),
-		Instance:          strings.ToLower(env(getenv, "SWIFTPROOF_HUB_INSTANCE", InstancePublic)),
-		Mode:              strings.ToLower(env(getenv, "SWIFTPROOF_HUB_MODE", ModeAuto)),
-		UserQuota:         envInt(getenv, "SWIFTPROOF_HUB_USER_QUOTA", defaultUserQuota),
-		HookRate:          envInt(getenv, "SWIFTPROOF_HUB_HOOK_RATE", defaultHookRate),
-		Workers:           envInt(getenv, "SWIFTPROOF_HUB_WORKERS", defaultWorkers),
-		QueueSize:         envInt(getenv, "SWIFTPROOF_HUB_QUEUE_SIZE", defaultQueue),
-		AnalysisTimeout:   envDuration(getenv, "SWIFTPROOF_HUB_ANALYSIS_TIMEOUT", defaultTimeout),
-		CloneDepth:        envInt(getenv, "SWIFTPROOF_HUB_CLONE_DEPTH", defaultDepth),
-		MaxRepos:          envInt(getenv, "SWIFTPROOF_HUB_MAX_REPOS", defaultMaxRepos),
-		SessionTTL:        envDuration(getenv, "SWIFTPROOF_HUB_SESSION_TTL", defaultSessionMs),
-		CommitStatus:      envBool(getenv, "SWIFTPROOF_HUB_COMMIT_STATUS", true),
-		DefaultBranchOnly: envBool(getenv, "SWIFTPROOF_HUB_DEFAULT_BRANCH_ONLY", false),
+		Addr:              env(getenv, "PROBE_HUB_ADDR", defaultAddr),
+		DataDir:           env(getenv, "PROBE_HUB_DATA_DIR", defaultDataDir),
+		Binary:            env(getenv, "PROBE_HUB_BINARY", defaultBinary),
+		Instance:          strings.ToLower(env(getenv, "PROBE_HUB_INSTANCE", InstancePublic)),
+		Mode:              strings.ToLower(env(getenv, "PROBE_HUB_MODE", ModeAuto)),
+		UserQuota:         envInt(getenv, "PROBE_HUB_USER_QUOTA", defaultUserQuota),
+		HookRate:          envInt(getenv, "PROBE_HUB_HOOK_RATE", defaultHookRate),
+		Workers:           envInt(getenv, "PROBE_HUB_WORKERS", defaultWorkers),
+		QueueSize:         envInt(getenv, "PROBE_HUB_QUEUE_SIZE", defaultQueue),
+		AnalysisTimeout:   envDuration(getenv, "PROBE_HUB_ANALYSIS_TIMEOUT", defaultTimeout),
+		CloneDepth:        envInt(getenv, "PROBE_HUB_CLONE_DEPTH", defaultDepth),
+		MaxRepos:          envInt(getenv, "PROBE_HUB_MAX_REPOS", defaultMaxRepos),
+		SessionTTL:        envDuration(getenv, "PROBE_HUB_SESSION_TTL", defaultSessionMs),
+		CommitStatus:      envBool(getenv, "PROBE_HUB_COMMIT_STATUS", true),
+		DefaultBranchOnly: envBool(getenv, "PROBE_HUB_DEFAULT_BRANCH_ONLY", false),
 		Forges:            map[string]Forge{},
 	}
-	base := strings.TrimRight(strings.TrimSpace(getenv("SWIFTPROOF_HUB_BASE_URL")), "/")
+	base := strings.TrimRight(strings.TrimSpace(getenv("PROBE_HUB_BASE_URL")), "/")
 	if base == "" {
-		return c, fmt.Errorf("SWIFTPROOF_HUB_BASE_URL is required: the forge needs a reachable callback and webhook URL")
+		return c, fmt.Errorf("PROBE_HUB_BASE_URL is required: the forge needs a reachable callback and webhook URL")
 	}
 	u, err := url.Parse(base)
 	if err != nil || u.Host == "" || (u.Scheme != "http" && u.Scheme != "https") {
-		return c, fmt.Errorf("SWIFTPROOF_HUB_BASE_URL must be an absolute http(s) URL, got %q", base)
+		return c, fmt.Errorf("PROBE_HUB_BASE_URL must be an absolute http(s) URL, got %q", base)
 	}
 	c.BaseURL = base
 	if c.Mode == ModeAuto {
@@ -156,15 +156,15 @@ func Load(getenv func(string) string) (Config, error) {
 		}
 	}
 	if c.Mode != ModeLint && c.Mode != ModeReview && c.Mode != ModeReadOnly {
-		return c, fmt.Errorf("SWIFTPROOF_HUB_MODE must be auto, lint, review-read-only or review, got %q", c.Mode)
+		return c, fmt.Errorf("PROBE_HUB_MODE must be auto, lint, review-read-only or review, got %q", c.Mode)
 	}
 	if c.Mode == ModeReadOnly && (strings.TrimSpace(getenv(EndpointEnvName)) == "" || strings.TrimSpace(getenv(ModelEnvName)) == "") {
 		return c, fmt.Errorf("read-only AI review requires deployment-configured %s and %s", EndpointEnvName, ModelEnvName)
 	}
 	if c.Instance != InstancePublic && c.Instance != InstancePrivate {
-		return c, fmt.Errorf("SWIFTPROOF_HUB_INSTANCE must be %q or %q, got %q", InstancePublic, InstancePrivate, c.Instance)
+		return c, fmt.Errorf("PROBE_HUB_INSTANCE must be %q or %q, got %q", InstancePublic, InstancePrivate, c.Instance)
 	}
-	c.ReviewPolicies, err = reviewPolicies(secret(getenv, "SWIFTPROOF_HUB_REVIEW_POLICIES"))
+	c.ReviewPolicies, err = reviewPolicies(secret(getenv, "PROBE_HUB_REVIEW_POLICIES"))
 	if err != nil {
 		return c, err
 	}
@@ -173,73 +173,73 @@ func Load(getenv func(string) string) (Config, error) {
 		// repository. On a public instance anybody chooses that repository,
 		// so the mode is refused outright rather than trusted to an env var.
 		if c.Instance == InstancePublic {
-			return c, fmt.Errorf("SWIFTPROOF_HUB_MODE=review is refused on a public instance: set SWIFTPROOF_HUB_INSTANCE=private for a deployment whose users you control")
+			return c, fmt.Errorf("PROBE_HUB_MODE=review is refused on a public instance: set PROBE_HUB_INSTANCE=private for a deployment whose users you control")
 		}
 		if len(c.ReviewPolicies) == 0 {
-			return c, fmt.Errorf("SWIFTPROOF_HUB_MODE=review needs SWIFTPROOF_HUB_REVIEW_POLICIES: list the repositories and policy digests you validated")
+			return c, fmt.Errorf("PROBE_HUB_MODE=review needs PROBE_HUB_REVIEW_POLICIES: list the repositories and policy digests you validated")
 		}
 	}
 	if c.UserQuota < 1 || c.UserQuota > 10000 {
-		return c, fmt.Errorf("SWIFTPROOF_HUB_USER_QUOTA must be between 1 and 10000")
+		return c, fmt.Errorf("PROBE_HUB_USER_QUOTA must be between 1 and 10000")
 	}
 	if c.HookRate < 1 || c.HookRate > 100000 {
-		return c, fmt.Errorf("SWIFTPROOF_HUB_HOOK_RATE must be between 1 and 100000")
+		return c, fmt.Errorf("PROBE_HUB_HOOK_RATE must be between 1 and 100000")
 	}
 	if c.Workers < 1 || c.Workers > 64 {
-		return c, fmt.Errorf("SWIFTPROOF_HUB_WORKERS must be between 1 and 64")
+		return c, fmt.Errorf("PROBE_HUB_WORKERS must be between 1 and 64")
 	}
 	if c.QueueSize < 1 || c.QueueSize > 100000 {
-		return c, fmt.Errorf("SWIFTPROOF_HUB_QUEUE_SIZE must be between 1 and 100000")
+		return c, fmt.Errorf("PROBE_HUB_QUEUE_SIZE must be between 1 and 100000")
 	}
 	if c.CloneDepth < 1 || c.CloneDepth > 10000 {
-		return c, fmt.Errorf("SWIFTPROOF_HUB_CLONE_DEPTH must be between 1 and 10000")
+		return c, fmt.Errorf("PROBE_HUB_CLONE_DEPTH must be between 1 and 10000")
 	}
 	if c.MaxRepos < 1 || c.MaxRepos > 10000 {
-		return c, fmt.Errorf("SWIFTPROOF_HUB_MAX_REPOS must be between 1 and 10000")
+		return c, fmt.Errorf("PROBE_HUB_MAX_REPOS must be between 1 and 10000")
 	}
 	if c.AnalysisTimeout < time.Minute || c.AnalysisTimeout > 6*time.Hour {
-		return c, fmt.Errorf("SWIFTPROOF_HUB_ANALYSIS_TIMEOUT must be between 1m and 6h")
+		return c, fmt.Errorf("PROBE_HUB_ANALYSIS_TIMEOUT must be between 1m and 6h")
 	}
 	if c.SessionTTL < time.Minute || c.SessionTTL > 30*24*time.Hour {
-		return c, fmt.Errorf("SWIFTPROOF_HUB_SESSION_TTL must be between 1m and 720h")
+		return c, fmt.Errorf("PROBE_HUB_SESSION_TTL must be between 1m and 720h")
 	}
 
-	if id := strings.TrimSpace(getenv("SWIFTPROOF_HUB_GITHUB_CLIENT_ID")); id != "" {
+	if id := strings.TrimSpace(getenv("PROBE_HUB_GITHUB_CLIENT_ID")); id != "" {
 		f := Forge{
 			Kind:         GitHub,
 			ClientID:     id,
-			ClientSecret: secret(getenv, "SWIFTPROOF_HUB_GITHUB_CLIENT_SECRET"),
-			BaseURL:      strings.TrimRight(env(getenv, "SWIFTPROOF_HUB_GITHUB_URL", "https://github.com"), "/"),
+			ClientSecret: secret(getenv, "PROBE_HUB_GITHUB_CLIENT_SECRET"),
+			BaseURL:      strings.TrimRight(env(getenv, "PROBE_HUB_GITHUB_URL", "https://github.com"), "/"),
 			// A GitHub Enterprise Server host serves its API under /api/v3.
-			APIURL: strings.TrimRight(env(getenv, "SWIFTPROOF_HUB_GITHUB_API_URL", "https://api.github.com"), "/"),
-			Scopes: env(getenv, "SWIFTPROOF_HUB_GITHUB_SCOPES", "repo,read:org"),
+			APIURL: strings.TrimRight(env(getenv, "PROBE_HUB_GITHUB_API_URL", "https://api.github.com"), "/"),
+			Scopes: env(getenv, "PROBE_HUB_GITHUB_SCOPES", "repo,read:org"),
 		}
 		if f.ClientSecret == "" {
-			return c, fmt.Errorf("SWIFTPROOF_HUB_GITHUB_CLIENT_SECRET is required when the GitHub client id is set")
+			return c, fmt.Errorf("PROBE_HUB_GITHUB_CLIENT_SECRET is required when the GitHub client id is set")
 		}
 		c.Forges[GitHub] = f
 	}
-	if id := strings.TrimSpace(getenv("SWIFTPROOF_HUB_GITLAB_CLIENT_ID")); id != "" {
+	if id := strings.TrimSpace(getenv("PROBE_HUB_GITLAB_CLIENT_ID")); id != "" {
 		f := Forge{
 			Kind:         GitLab,
 			ClientID:     id,
-			ClientSecret: secret(getenv, "SWIFTPROOF_HUB_GITLAB_CLIENT_SECRET"),
-			BaseURL:      strings.TrimRight(env(getenv, "SWIFTPROOF_HUB_GITLAB_URL", "https://gitlab.com"), "/"),
-			Scopes:       env(getenv, "SWIFTPROOF_HUB_GITLAB_SCOPES", "api"),
+			ClientSecret: secret(getenv, "PROBE_HUB_GITLAB_CLIENT_SECRET"),
+			BaseURL:      strings.TrimRight(env(getenv, "PROBE_HUB_GITLAB_URL", "https://gitlab.com"), "/"),
+			Scopes:       env(getenv, "PROBE_HUB_GITLAB_SCOPES", "api"),
 		}
 		f.APIURL = f.BaseURL + "/api/v4"
 		if f.ClientSecret == "" {
-			return c, fmt.Errorf("SWIFTPROOF_HUB_GITLAB_CLIENT_SECRET is required when the GitLab client id is set")
+			return c, fmt.Errorf("PROBE_HUB_GITLAB_CLIENT_SECRET is required when the GitLab client id is set")
 		}
 		c.Forges[GitLab] = f
 	}
 	// A deployment normally has to name a forge, so a typo in the OAuth
 	// variables fails loudly instead of serving an application nobody can sign
-	// in to. SWIFTPROOF_HUB_ALLOW_NO_FORGE is the deliberate exception: it lets
+	// in to. PROBE_HUB_ALLOW_NO_FORGE is the deliberate exception: it lets
 	// a public deployment answer on its domain before its OAuth application
 	// exists, with a sign-in page that says no forge is configured.
-	if len(c.Forges) == 0 && !envBool(getenv, "SWIFTPROOF_HUB_ALLOW_NO_FORGE", false) {
-		return c, fmt.Errorf("configure at least one forge: set SWIFTPROOF_HUB_GITHUB_CLIENT_ID or SWIFTPROOF_HUB_GITLAB_CLIENT_ID, or SWIFTPROOF_HUB_ALLOW_NO_FORGE=true to start without sign-in")
+	if len(c.Forges) == 0 && !envBool(getenv, "PROBE_HUB_ALLOW_NO_FORGE", false) {
+		return c, fmt.Errorf("configure at least one forge: set PROBE_HUB_GITHUB_CLIENT_ID or PROBE_HUB_GITLAB_CLIENT_ID, or PROBE_HUB_ALLOW_NO_FORGE=true to start without sign-in")
 	}
 
 	if err := os.MkdirAll(c.DataDir, 0o700); err != nil {
@@ -249,7 +249,7 @@ func Load(getenv func(string) string) (Config, error) {
 	if err != nil {
 		return c, err
 	}
-	c.PreviousSessionKeys, err = previousKeys(secret(getenv, "SWIFTPROOF_HUB_SESSION_KEY_PREVIOUS"))
+	c.PreviousSessionKeys, err = previousKeys(secret(getenv, "PROBE_HUB_SESSION_KEY_PREVIOUS"))
 	if err != nil {
 		return c, err
 	}
@@ -269,7 +269,7 @@ func (c Config) ReviewAllowed(forge, fullName, policyDigest string) bool {
 var reviewEntry = regexp.MustCompile(`^([a-z]+):([A-Za-z0-9._/-]+)@sha256:([0-9a-f]{64})$`)
 
 // reviewPolicies parses the operator's allowlist: entries separated by commas
-// or white space, each "<forge>:<owner/repo>@sha256:<digest of .swiftproof.json>".
+// or white space, each "<forge>:<owner/repo>@sha256:<digest of .probe.json>".
 func reviewPolicies(raw string) (map[string]map[string]bool, error) {
 	out := map[string]map[string]bool{}
 	for _, entry := range strings.FieldsFunc(raw, func(r rune) bool {
@@ -277,7 +277,7 @@ func reviewPolicies(raw string) (map[string]map[string]bool, error) {
 	}) {
 		m := reviewEntry.FindStringSubmatch(strings.ToLower(entry))
 		if m == nil || (m[1] != GitHub && m[1] != GitLab) {
-			return nil, fmt.Errorf("SWIFTPROOF_HUB_REVIEW_POLICIES entry %q must read <github|gitlab>:<owner/repo>@sha256:<64 hex>", entry)
+			return nil, fmt.Errorf("PROBE_HUB_REVIEW_POLICIES entry %q must read <github|gitlab>:<owner/repo>@sha256:<64 hex>", entry)
 		}
 		repo := m[1] + ":" + m[2]
 		if out[repo] == nil {
@@ -294,7 +294,7 @@ func previousKeys(raw string) ([][]byte, error) {
 	for _, item := range strings.FieldsFunc(raw, func(r rune) bool { return r == ',' || r == ' ' || r == '\n' }) {
 		key, err := hex.DecodeString(item)
 		if err != nil || len(key) != 32 {
-			return nil, fmt.Errorf("SWIFTPROOF_HUB_SESSION_KEY_PREVIOUS must list 64-hex-character keys")
+			return nil, fmt.Errorf("PROBE_HUB_SESSION_KEY_PREVIOUS must list 64-hex-character keys")
 		}
 		keys = append(keys, key)
 	}
@@ -316,10 +316,10 @@ func (c Config) WebhookURL(hookKey, token string) string {
 // sessionKey prefers an operator-provided key so that several replicas share
 // sessions; otherwise it persists a generated one next to the data.
 func sessionKey(getenv func(string) string, dir string) ([]byte, error) {
-	if raw := secret(getenv, "SWIFTPROOF_HUB_SESSION_KEY"); raw != "" {
+	if raw := secret(getenv, "PROBE_HUB_SESSION_KEY"); raw != "" {
 		key, err := hex.DecodeString(raw)
 		if err != nil || len(key) != 32 {
-			return nil, fmt.Errorf("SWIFTPROOF_HUB_SESSION_KEY must be 64 hex characters (32 bytes)")
+			return nil, fmt.Errorf("PROBE_HUB_SESSION_KEY must be 64 hex characters (32 bytes)")
 		}
 		return key, nil
 	}

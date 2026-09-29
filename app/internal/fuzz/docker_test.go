@@ -14,9 +14,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gvinsot/SwiftProof/app/internal/coverage"
-	"github.com/gvinsot/SwiftProof/app/internal/harness"
-	"github.com/gvinsot/SwiftProof/app/internal/model"
+	"github.com/gvinsot/Probe/app/internal/coverage"
+	"github.com/gvinsot/Probe/app/internal/harness"
+	"github.com/gvinsot/Probe/app/internal/model"
 )
 
 // dockerRunner runs harnesses in real containers with the isolation flags of
@@ -34,7 +34,7 @@ type dockerRunner struct {
 	names    []string
 }
 
-const dockerObservations = "/tmp/swiftproof-observations.jsonl"
+const dockerObservations = "/tmp/probe-observations.jsonl"
 
 // dockerCaptureScript mirrors the harness's capture wrapper: the command's
 // output goes to standard error, and the observation file comes back as one
@@ -76,14 +76,14 @@ func (d *dockerRunner) Observe(ctx context.Context, req Request) (Side, Side, er
 func (d *dockerRunner) run(ctx context.Context, kind, dir string, command []string, h Harness, timeout time.Duration) Side {
 	var id [6]byte
 	_, _ = rand.Read(id[:])
-	name := "swiftproof-f2atest-" + hex.EncodeToString(id[:])
+	name := "probe-f2atest-" + hex.EncodeToString(id[:])
 	d.names = append(d.names, name)
 	args := []string{"run", "--rm", "--pull=never", "--name", name, "--network", "none", "--read-only", "--cap-drop=ALL",
 		"--security-opt=no-new-privileges", "--pids-limit=128", "--memory=1024m", "--memory-swap=1024m", "--cpus=2", "--user=65534:65534",
 		"--tmpfs", "/workspace:rw,exec,nosuid,nodev,mode=1777,size=1024m", "--tmpfs", "/tmp:rw,exec,nosuid,nodev,mode=1777,size=1024m",
 		"--mount", "type=bind,src=" + dir + ",dst=/source,readonly", "--workdir=/workspace", "--env=HOME=/tmp", "--env=TMPDIR=/tmp",
 		"--env=GOCACHE=/tmp/go-build", "--env=GOTOOLCHAIN=local", "--env=GOPROXY=off", "--env=GOSUMDB=off",
-		"--entrypoint=/bin/sh", d.image, "-c", dockerCaptureScript, "swiftproof"}
+		"--entrypoint=/bin/sh", d.image, "-c", dockerCaptureScript, "probe"}
 	runCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	cmd := exec.CommandContext(runCtx, "docker", append(args, command...)...)
@@ -131,9 +131,9 @@ func (d *dockerRunner) AddEvidence(e model.Evidence) (model.Evidence, error) {
 // selection, rendering, four real container runs, normalization and
 // comparison.
 func TestDockerFuzzCalcFixture(t *testing.T) {
-	image := os.Getenv("SWIFTPROOF_TEST_DOCKER_IMAGE")
+	image := os.Getenv("PROBE_TEST_DOCKER_IMAGE")
 	if image == "" {
-		t.Skip("set SWIFTPROOF_TEST_DOCKER_IMAGE to a preloaded Go image to run Docker-gated tests")
+		t.Skip("set PROBE_TEST_DOCKER_IMAGE to a preloaded Go image to run Docker-gated tests")
 	}
 	base, candidate := calcTrees(t)
 	plan, err := Select(base, candidate, modified("calc/calc.go"), nil, defaultLimits())
@@ -205,12 +205,12 @@ func TestDockerFuzzCalcFixture(t *testing.T) {
 	}
 	// The harness file is gone from both snapshots and no container remains.
 	for _, root := range []string{base, candidate} {
-		matches, _ := filepath.Glob(filepath.Join(root, "calc", "swiftproof_fuzz_*"))
+		matches, _ := filepath.Glob(filepath.Join(root, "calc", "probe_fuzz_*"))
 		if len(matches) != 0 {
 			t.Fatalf("harness left behind: %v", matches)
 		}
 	}
-	out, err := exec.Command("docker", "ps", "-a", "--filter", "name=swiftproof-f2atest-", "--format", "{{.Names}}").Output()
+	out, err := exec.Command("docker", "ps", "-a", "--filter", "name=probe-f2atest-", "--format", "{{.Names}}").Output()
 	if err != nil {
 		t.Fatal(err)
 	}

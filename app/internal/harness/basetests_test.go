@@ -15,7 +15,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gvinsot/SwiftProof/app/internal/model"
+	"github.com/gvinsot/Probe/app/internal/model"
 )
 
 const btPkg = "example.test/m/pkg"
@@ -1179,9 +1179,9 @@ func TestBaseTestsReplayedBaselineIsConfirmedLive(t *testing.T) {
 // file, the retry pair for a test that passed inside a failed hybrid run, and
 // no surviving container.
 func TestDockerBaseTestsRealGo(t *testing.T) {
-	image := os.Getenv("SWIFTPROOF_TEST_DOCKER_IMAGE")
+	image := os.Getenv("PROBE_TEST_DOCKER_IMAGE")
 	if image == "" {
-		t.Skip("set SWIFTPROOF_TEST_DOCKER_IMAGE to a preloaded golang Linux image")
+		t.Skip("set PROBE_TEST_DOCKER_IMAGE to a preloaded golang Linux image")
 	}
 	h, names := dockerRunFixture(t, image, brokenTotal)
 	h.opts.Commands["generated_test"] = []string{"go", "test", "{package}"}

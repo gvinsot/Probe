@@ -10,7 +10,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/gvinsot/SwiftProof/app/internal/model"
+	"github.com/gvinsot/Probe/app/internal/model"
 )
 
 var updateExports = flag.Bool("update-exports", false, "rewrite the SARIF and PR-comment golden files")
@@ -57,13 +57,13 @@ func invocation(log map[string]any) map[string]any {
 func notificationKinds(log map[string]any) map[string]int {
 	out := map[string]int{}
 	for _, n := range invocation(log)["toolExecutionNotifications"].([]any) {
-		out[n.(map[string]any)["properties"].(map[string]any)["swiftproof_kind"].(string)]++
+		out[n.(map[string]any)["properties"].(map[string]any)["probe_kind"].(string)]++
 	}
 	return out
 }
 
 func runSummary(log map[string]any) map[string]any {
-	return run0(log)["properties"].(map[string]any)["swiftproof"].(map[string]any)
+	return run0(log)["properties"].(map[string]any)["probe"].(map[string]any)
 }
 
 // walkKeys calls visit for every object key and every string value.
@@ -88,7 +88,7 @@ func TestSARIFMinimalShape(t *testing.T) {
 	}
 	run := run0(log)
 	driver := run["tool"].(map[string]any)["driver"].(map[string]any)
-	if driver["name"] != "SwiftProof" || driver["informationUri"] != "https://github.com/gvinsot/SwiftProof" || driver["version"] != "v1.2.3" || driver["semanticVersion"] != "1.2.3" {
+	if driver["name"] != "Probe" || driver["informationUri"] != "https://github.com/gvinsot/Probe" || driver["version"] != "v1.2.3" || driver["semanticVersion"] != "1.2.3" {
 		t.Fatalf("driver %v", driver)
 	}
 	if run["columnKind"] != "utf16CodeUnits" {
@@ -138,10 +138,10 @@ func TestSARIFMinimalShape(t *testing.T) {
 		if artifact["uri"] != "auth.go" || artifact["uriBaseId"] != "%SRCROOT%" || region["startLine"].(float64) != 3 || region["endLine"].(float64) != 3 {
 			t.Fatalf("location %v", physical)
 		}
-		if !fingerprint.MatchString(r["partialFingerprints"].(map[string]any)["swiftproof/v1"].(string)) {
+		if !fingerprint.MatchString(r["partialFingerprints"].(map[string]any)["probe/v1"].(string)) {
 			t.Fatalf("fingerprint %v", r["partialFingerprints"])
 		}
-		props := r["properties"].(map[string]any)["swiftproof"].(map[string]any)
+		props := r["properties"].(map[string]any)["probe"].(map[string]any)
 		if props["class"] != "reproduced" || props["status"] != "REPRODUCED" || props["severity"] != "high" || props["severity_source"] != "reviewer model" ||
 			props["title_source"] != "reviewer model" || props["location_source"] != "model-chosen location" || props["location_precision"] != "line" {
 			t.Fatalf("properties %v", props)
@@ -334,7 +334,7 @@ func TestSARIFAnchoring(t *testing.T) {
 	res := results(decodeSARIF(t, sarifOf(t, finalized(r, true))))
 	result := res[0].(map[string]any)
 	region := result["locations"].([]any)[0].(map[string]any)["physicalLocation"].(map[string]any)["region"].(map[string]any)
-	props := result["properties"].(map[string]any)["swiftproof"].(map[string]any)
+	props := result["properties"].(map[string]any)["probe"].(map[string]any)
 	if region["startLine"].(float64) != 1 || props["location_precision"] != "file" || !strings.Contains(result["message"].(map[string]any)["text"].(string), fileLevelText) {
 		t.Fatalf("file-level anchor %v %v", region, props)
 	}
@@ -476,7 +476,7 @@ func TestExportsNeverShowUnverifiedModelText(t *testing.T) {
 	found := false
 	for _, raw := range invocation(log)["toolExecutionNotifications"].([]any) {
 		n := raw.(map[string]any)
-		if n["properties"].(map[string]any)["swiftproof_kind"] == "unverified_hypothesis" {
+		if n["properties"].(map[string]any)["probe_kind"] == "unverified_hypothesis" {
 			found = true
 			if text := n["message"].(map[string]any)["text"].(string); text != `Hypothesis "h2" `+unverifiedHypothesisText {
 				t.Errorf("notification %q", text)
@@ -494,7 +494,7 @@ func TestExportsNeverShowUnverifiedModelText(t *testing.T) {
 // A hypothesis the model itself submitted as UNVERIFIED, citing valid
 // evidence, stays UNVERIFIED. Its notification must not say that the evidence
 // fails to support a claimed status: the claimed status was UNVERIFIED, and
-// SwiftProof established nothing about the evidence beyond accepting no other
+// Probe established nothing about the evidence beyond accepting no other
 // status.
 func TestUnverifiedHypothesisTextHoldsForAClaimedUnverified(t *testing.T) {
 	r := exportFixture()
@@ -505,7 +505,7 @@ func TestUnverifiedHypothesisTextHoldsForAClaimedUnverified(t *testing.T) {
 		t.Fatalf("fixture hypothesis finalized %s citing %v", r.Hypotheses[1].Status, r.Hypotheses[1].EvidenceIDs)
 	}
 	data := string(sarifOf(t, r))
-	if !strings.Contains(data, `Hypothesis \"hypothesis-2\" is UNVERIFIED: SwiftProof accepted no evidence-backed status for it.`) {
+	if !strings.Contains(data, `Hypothesis \"hypothesis-2\" is UNVERIFIED: Probe accepted no evidence-backed status for it.`) {
 		t.Fatalf("notification text:\n%s", data)
 	}
 	for _, text := range []string{"does not support", "claimed status", "Might also affect admins"} {
@@ -539,7 +539,7 @@ func TestUnverifiedAreaTextIsNotExported(t *testing.T) {
 	var areas []string
 	for _, raw := range invocation(decodeSARIF(t, data))["toolExecutionNotifications"].([]any) {
 		n := raw.(map[string]any)
-		if n["properties"].(map[string]any)["swiftproof_kind"] == "unverified_area" {
+		if n["properties"].(map[string]any)["probe_kind"] == "unverified_area" {
 			areas = append(areas, n["message"].(map[string]any)["text"].(string))
 		}
 	}
@@ -596,9 +596,9 @@ func TestSARIFNotificationPriority(t *testing.T) {
 
 func TestSARIFAttribution(t *testing.T) {
 	for version, want := range map[string]string{
-		"v1.2.3": "Generated by SwiftProof v1.2.3 (https://github.com/gvinsot/SwiftProof).",
-		"e2e-f9": "Generated by SwiftProof e2e-f9 (https://github.com/gvinsot/SwiftProof).",
-		"":       "Generated by SwiftProof (https://github.com/gvinsot/SwiftProof).",
+		"v1.2.3": "Generated by Probe v1.2.3 (https://github.com/gvinsot/Probe).",
+		"e2e-f9": "Generated by Probe e2e-f9 (https://github.com/gvinsot/Probe).",
+		"":       "Generated by Probe (https://github.com/gvinsot/Probe).",
 	} {
 		r := finalized(exportFixture(), true)
 		r.ToolVersion = version

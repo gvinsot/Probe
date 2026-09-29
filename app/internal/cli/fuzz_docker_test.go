@@ -10,9 +10,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/gvinsot/SwiftProof/app/internal/config"
-	"github.com/gvinsot/SwiftProof/app/internal/fuzz"
-	"github.com/gvinsot/SwiftProof/app/internal/model"
+	"github.com/gvinsot/Probe/app/internal/config"
+	"github.com/gvinsot/Probe/app/internal/fuzz"
+	"github.com/gvinsot/Probe/app/internal/model"
 )
 
 const e2eCalcBase = `package calc
@@ -27,7 +27,7 @@ type Cents int64
 
 // Boundary reports the sandbox user and whether the source mount refused a write.
 func Boundary(n int) string {
-	err := os.WriteFile("/source/swiftproof-boundary", []byte("x"), 0o644)
+	err := os.WriteFile("/source/probe-boundary", []byte("x"), 0o644)
 	return fmt.Sprintf("uid=%d source-write-refused=%t", os.Getuid(), err != nil)
 }
 
@@ -87,12 +87,12 @@ type Cents int64
 
 // The unsuffixed harness names: the harness draws a random suffix, so these
 // collide with nothing.
-var swiftproofFuzz, swiftproofFuzz_run = 1, 2
+var probeFuzz, probeFuzz_run = 1, 2
 
 // Boundary reports the sandbox user and whether the source mount refused a write.
 func Boundary(n int) string {
 	_ = n
-	err := os.WriteFile("/source/swiftproof-boundary", []byte("x"), 0o644)
+	err := os.WriteFile("/source/probe-boundary", []byte("x"), 0o644)
 	return fmt.Sprintf("uid=%d source-write-refused=%t", os.Getuid(), err != nil)
 }
 
@@ -154,7 +154,7 @@ func fuzzCalcRepo(t *testing.T) string {
 	git(t, dir, "commit", "-m", "baseline")
 	git(t, dir, "checkout", "-b", "candidate")
 	write(t, dir, "calc/calc.go", e2eCalcCandidate)
-	write(t, dir, "calc/extra_test.go", "package calc\n\nimport \"testing\"\n\nfunc TestSwiftProofFuzz(t *testing.T) {}\n")
+	write(t, dir, "calc/extra_test.go", "package calc\n\nimport \"testing\"\n\nfunc TestProbeFuzz(t *testing.T) {}\n")
 	write(t, dir, "broken/broken.go", "package broken\n\n// Double doubles n.\nfunc Double(n int) int {\n\treturn n*2 + undefinedName\n}\n")
 	write(t, dir, "web/price.ts", "export function price(n: number): number {\n  return n + 1;\n}\n")
 	git(t, dir, "add", ".")
@@ -181,9 +181,9 @@ func fuzzCheck(r model.Report, id string) *model.Check {
 // clean, and nothing of the run remains in its private temporary directory or
 // as a container.
 func TestDockerFuzzReviewEndToEnd(t *testing.T) {
-	image := os.Getenv("SWIFTPROOF_TEST_DOCKER_IMAGE")
+	image := os.Getenv("PROBE_TEST_DOCKER_IMAGE")
 	if image == "" {
-		t.Skip("set SWIFTPROOF_TEST_DOCKER_IMAGE to a preloaded Go image")
+		t.Skip("set PROBE_TEST_DOCKER_IMAGE to a preloaded Go image")
 	}
 	dir := fuzzCalcRepo(t)
 	head := git(t, dir, "rev-parse", "HEAD")
@@ -362,12 +362,12 @@ func TestDockerFuzzReviewEndToEnd(t *testing.T) {
 	}
 }
 
-// assertNoContainerMounts fails when a swiftproof- container whose mounts name
+// assertNoContainerMounts fails when a probe- container whose mounts name
 // marker (a directory of this test) still exists. Containers of other jobs on
 // the host are ignored.
 func assertNoContainerMounts(t *testing.T, marker string) {
 	t.Helper()
-	ids, err := exec.Command("docker", "ps", "-a", "--filter", "name=swiftproof-", "--format", "{{.ID}}").Output()
+	ids, err := exec.Command("docker", "ps", "-a", "--filter", "name=probe-", "--format", "{{.ID}}").Output()
 	if err != nil {
 		t.Fatal(err)
 	}

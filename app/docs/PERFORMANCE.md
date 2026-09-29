@@ -59,18 +59,18 @@ With the harness, report and CLI wiring (F2b), measured on the same host the sam
 | Workload | Measured |
 | --- | --- |
 | The calc fixture plus `Boundary` (six functions, 384 inputs) through `Harness.RunObserved`, four containers (`TestDockerFuzzObservedRun`) | 57 s for the stage; 11.8 s to 18.2 s per container |
-| `swiftproof review --reviewer=false --ci` with a Windows binary on a two-package fixture (seven functions: a calc package whose first pair differs, and a package whose candidate does not build), one `test` check and six fuzz containers | 113 s end to end; 12.5 s to 17.9 s per fuzz container; the same scenario as `TestDockerFuzzReviewEndToEnd` took 65 s, with 6.3 s to 12.9 s per container |
-| `swiftproof report` re-rendering that 496 KB report (five streams of up to 90 KB), which derives every fuzz outcome again | 235 to 242 ms |
+| `probe review --reviewer=false --ci` with a Windows binary on a two-package fixture (seven functions: a calc package whose first pair differs, and a package whose candidate does not build), one `test` check and six fuzz containers | 113 s end to end; 12.5 s to 17.9 s per fuzz container; the same scenario as `TestDockerFuzzReviewEndToEnd` took 65 s, with 6.3 s to 12.9 s per container |
+| `probe report` re-rendering that 496 KB report (five streams of up to 90 KB), which derives every fuzz outcome again | 235 to 242 ms |
 | `Finalize` on the largest package run a policy allows (16 functions, 1,024 records per stream, four streams, a 953 KB report), decoding included, GOMAXPROCS 2 | 226 to 323 ms/op over two sessions; 45 MB allocated/op. Each `Finalize` derives the fuzz outcomes three times (evidence, divergences, section), and each derivation parses and checks every stream of the package once |
 | The TS/JS enumeration of one 2 MiB module built to defeat it (six shapes: typed bindings without an initializer, type parameters or return types that never close, template literals nested without end), GOMAXPROCS 2 in a container limited to 2 CPUs, measured after the F2b review fixes | at most 60 ms per module over three runs, under 5 ms for the nested template literals, which stop at the nesting bound (`TestScriptEnumerationIsBoundedOnAdversarialInput`); the review of F2b had measured 72 s for `SelectScripts` on one such module before the work bound |
 
-With the TS/JS harness (F2c), measured on the same host on 2026-09-26 with other jobs sharing the CPUs, image `swiftproof-ts-test:local` (Node 22.23, Vitest 3.2.7, Jest 29.7 with ts-jest):
+With the TS/JS harness (F2c), measured on the same host on 2026-09-26 with other jobs sharing the CPUs, image `probe-ts-test:local` (Node 22.23, Vitest 3.2.7, Jest 29.7 with ts-jest):
 
 | Workload | Measured |
 | --- | --- |
 | One Vitest fuzz container of a six-function TypeScript module (384 inputs) or a one-function JavaScript module (64 inputs), with the sandbox isolation flags | 1.0 s to 1.9 s per container over four runs; the candidate containers of the TypeScript module, where one call stops at its 500 ms timeout and another function records unstable values, took about 0.5 s longer than the baseline ones |
 | The same with Jest and ts-jest | 2.2 s to 3.2 s per container over three runs |
-| `swiftproof review --reviewer=false --ci` with a Windows binary on the two-module TS/JS fixture of [differential fuzzing](FUZZ.md#examples): six fuzz containers | 9 s end to end with Vitest (twice), 16 s and 17 s with Jest |
+| `probe review --reviewer=false --ci` with a Windows binary on the two-module TS/JS fixture of [differential fuzzing](FUZZ.md#examples): six fuzz containers | 9 s end to end with Vitest (twice), 16 s and 17 s with Jest |
 | The same scenario as `TestDockerTSFuzzReviewEndToEnd` (Vitest), and `TestDockerTSFuzzObservedRun` (four containers per runner) | 9.1 s to 10.1 s over four runs; 6.7 s (Vitest) and 11.6 s (Jest) per runner |
 
 A package or module costs two containers, plus two more when its first pair shows a difference. Every Go container starts with an empty build cache, so each one compiles the package's tests again; a TS/JS container starts the test runner and transforms the harness and the module, which costs seconds rather than tens of seconds. The host-side numbers come from `go test ./internal/fuzz -run '^$' -bench . -benchtime 20x -benchmem` in a container limited to 2 CPUs, and the `Finalize` numbers from `go test ./internal/report -run '^$' -bench FinalizeFuzzLargestPackage -benchtime 10x -benchmem` there; the container numbers come from `TestDockerFuzzCalcFixture`, `TestDockerFuzzObservedRun`, `TestDockerFuzzReviewEndToEnd` and the end-to-end run recorded in [validation](VALIDATION.md). The quiet-host numbers were measured before the fixes of the F2a review; the loaded-host numbers after them, with other jobs sharing the CPUs. In that loaded session the code before the fixes measured 19 to 32 ms/op and 81 to 98 ms/op, so the fixes changed the time within the noise. They raised allocation from 1.7 MB and 6.7 MB per operation: selection now builds each target's corpus to size it, and every call and display is also checked in its JSON-escaped form.
@@ -102,7 +102,7 @@ Measured on 2026-09-26 in `golang:1.26-bookworm` (Go 1.26.8, linux/amd64) on the
 | Workload | Indexed Go files | Time per analysis | Allocated per analysis | Heap in use |
 | --- | --- | --- | --- | --- |
 | `BenchmarkIndexSynthetic`: 40 packages of 25 files, each file 10 functions calling into the previous package, one changed function | 1,000 | 286–418 ms | 62 MB | not measured |
-| The SwiftProof repository (`app` and `hub` modules at `8d114b6`), `HEAD~1..HEAD` (15 changed files) | 136 | 274–541 ms | 44 MB | 12.4–13.6 MiB |
+| The Probe repository (`app` and `hub` modules at `8d114b6`), `HEAD~1..HEAD` (15 changed files) | 136 | 274–541 ms | 44 MB | 12.4–13.6 MiB |
 | `GOROOT/src` of Go 1.26.8 as a Git repository (5,609 Go files outside `testdata` and `vendor`), one changed function | 4,072 (the others excluded by the linux/amd64 build constraints, and one file over 2 MiB skipped, so `limited`) | 6.6–8.4 s | 1.9 GB | 429–431 MiB |
 
 The standard library is a stress case, not a typical repository: its module path `std` is not a prefix of its import paths, so every import is treated as outside the repository, and one skipped 2 MiB generated file leaves its large package with many unresolved names. Before imported packages were marked so that `go/types` skips building error messages for missing names, the same run took 20–39 s (three runs), spent mostly sorting that package's names once per unresolved reference; the 120 s limit, also checked on every type error, bounds such cases.
@@ -130,7 +130,7 @@ Reproduce with:
 
 ```sh
 go test ./internal/symbols -run '^$' -bench IndexSynthetic -benchmem
-SWIFTPROOF_BENCH_REPO=/path/to/git/repo go test ./internal/symbols -run '^$' -bench AnalyzeRepository -benchtime 3x -benchmem
+PROBE_BENCH_REPO=/path/to/git/repo go test ./internal/symbols -run '^$' -bench AnalyzeRepository -benchtime 3x -benchmem
 go test ./internal/symbols -run '^$' -bench ImpactSearchAdversarial -benchtime 3x -benchmem
 go test ./internal/symbols -run '^$' -bench ImplementsWideEmbedding -count 3
 go test ./internal/symbols -run '^$' -bench ImpactSearchWideEmbedding -benchtime 3x -benchmem

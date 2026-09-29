@@ -5,7 +5,7 @@ import (
 	"sort"
 	"sync"
 
-	"github.com/gvinsot/SwiftProof/app/internal/model"
+	"github.com/gvinsot/Probe/app/internal/model"
 )
 
 // memoryCache is an in-memory ExecutionCache for tests. It stores deep copies,

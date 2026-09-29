@@ -21,7 +21,7 @@ package symbols
 import (
 	"time"
 
-	"github.com/gvinsot/SwiftProof/app/internal/gitrepo"
+	"github.com/gvinsot/Probe/app/internal/gitrepo"
 )
 
 // Method names the resolution method in every tool response.

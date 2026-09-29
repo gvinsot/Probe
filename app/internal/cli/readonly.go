@@ -9,10 +9,10 @@ import (
 	"path/filepath"
 	"sort"
 
-	"github.com/gvinsot/SwiftProof/app/internal/gitrepo"
-	"github.com/gvinsot/SwiftProof/app/internal/harness"
-	"github.com/gvinsot/SwiftProof/app/internal/model"
-	"github.com/gvinsot/SwiftProof/app/internal/reviewer"
+	"github.com/gvinsot/Probe/app/internal/gitrepo"
+	"github.com/gvinsot/Probe/app/internal/harness"
+	"github.com/gvinsot/Probe/app/internal/model"
+	"github.com/gvinsot/Probe/app/internal/reviewer"
 )
 
 func validateReadOnlyFlags(mode string, explicit map[string]bool, readOnly, checks, useReviewer, network, prepareNetwork bool) error {
@@ -34,7 +34,7 @@ func validateReadOnlyFlags(mode string, explicit map[string]bool, readOnly, chec
 }
 
 func runReadOnlyReview(ctx context.Context, repo *gitrepo.Repository, r *model.Report, symbols harness.SymbolIndex, options reviewer.Options, output string, progress io.Writer) error {
-	temp, err := os.MkdirTemp("", "swiftproof-read-only-")
+	temp, err := os.MkdirTemp("", "probe-read-only-")
 	if err != nil {
 		return err
 	}

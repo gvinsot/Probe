@@ -1,7 +1,7 @@
 // Package forge talks to the code hosts the hub supports.
 //
 // Both providers expose the same small surface: authenticate a user, list the
-// repositories they can administer, read and create the `.swiftproof.json`
+// repositories they can administer, read and create the `.probe.json`
 // policy on the default branch, install a push webhook, and publish a commit
 // status. Everything else the hub does is local.
 package forge
@@ -19,10 +19,10 @@ import (
 )
 
 // PolicyPath is the file the hub creates and watches for.
-const PolicyPath = ".swiftproof.json"
+const PolicyPath = ".probe.json"
 
 // StatusContext labels the commit status the hub publishes.
-const StatusContext = "swiftproof"
+const StatusContext = "probe"
 
 // Commit status states, mapped per provider.
 const (
@@ -179,7 +179,7 @@ func (c *client) do(ctx context.Context, r request, out any) (int, error) {
 	if err != nil {
 		return 0, fmt.Errorf("%s %s: %w", r.method, redact(r.url), err)
 	}
-	req.Header.Set("User-Agent", "swiftproof-hub")
+	req.Header.Set("User-Agent", "probe-hub")
 	if r.accept != "" {
 		req.Header.Set("Accept", r.accept)
 	}
@@ -245,7 +245,7 @@ func jsonBody(value any) (io.Reader, error) {
 	return strings.NewReader(string(data)), nil
 }
 
-// DetectLanguage maps a repository root listing onto a SwiftProof language.
+// DetectLanguage maps a repository root listing onto a Probe language.
 // The CLI does the same from a working tree; here only the forge listing is
 // available, so the markers are matched by name.
 func DetectLanguage(entries []string) string {

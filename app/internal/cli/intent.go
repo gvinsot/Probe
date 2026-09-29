@@ -1,16 +1,16 @@
 package cli
 
 // Intent parsing (F5). The intent is untrusted caller input: it must be UTF-8
-// text without NUL, SwiftProof's own PR-comment output is removed from it, and
+// text without NUL, Probe's own PR-comment output is removed from it, and
 // acceptance criteria are extracted from its Markdown list items (criteria
 // grammar v1). Nothing is executed and no provider is called.
 
 import (
 	"fmt"
 
-	"github.com/gvinsot/SwiftProof/app/internal/acceptance"
-	"github.com/gvinsot/SwiftProof/app/internal/model"
-	"github.com/gvinsot/SwiftProof/app/internal/redact"
+	"github.com/gvinsot/Probe/app/internal/acceptance"
+	"github.com/gvinsot/Probe/app/internal/model"
+	"github.com/gvinsot/Probe/app/internal/redact"
 )
 
 // intentDoc is the parsed --intent / --intent-file text.
@@ -24,7 +24,7 @@ type intentDoc struct {
 // parseIntent parses the intent text. An error exits 3 ("intent: ..."): the
 // text must be valid UTF-8 without NUL bytes. Every block from
 // model.PRCommentBegin to model.PRCommentEnd is removed first (an unterminated
-// begin marker removes the rest), with a fixed note, so that a SwiftProof PR
+// begin marker removes the rest), with a fixed note, so that a Probe PR
 // comment copied into the intent never feeds criteria. The stripped text is
 // then redacted, as report sanitizing would redact it: Text is exactly the
 // intent the report records, SHA256 hashes it, and Criteria are its acceptance

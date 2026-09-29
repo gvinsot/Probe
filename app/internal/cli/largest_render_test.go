@@ -16,14 +16,14 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gvinsot/SwiftProof/app/internal/harness"
-	"github.com/gvinsot/SwiftProof/app/internal/model"
-	"github.com/gvinsot/SwiftProof/app/internal/report"
+	"github.com/gvinsot/Probe/app/internal/harness"
+	"github.com/gvinsot/Probe/app/internal/model"
+	"github.com/gvinsot/Probe/app/internal/report"
 )
 
 // Integration agent I (contract §2 "Agent I"): a report at the largest
 // configuration of the contract (16 fuzz functions, 200 mutants, the default
-// max_output_bytes) must still be re-rendered by `swiftproof report`, whose
+// max_output_bytes) must still be re-rendered by `probe report`, whose
 // input limit is 64 MiB, and the re-render must be idempotent. It is not the
 // largest report the default limits allow: a policy allows up to 32 fuzz
 // functions, and reviewer experiments add checks with logs of their own
@@ -109,16 +109,16 @@ func largestReport() model.Report {
 		pkg := fmt.Sprintf("f%d", p)
 		ids := make([]string, 4)
 		for k, kind := range []string{model.CheckFuzzBase, model.CheckFuzzCandidate, model.CheckFuzzBaseConfirm, model.CheckFuzzCandidateConfirm} {
-			c := check(kind, "PASS", 0, pkg, "TestSwiftProofFuzz_0123456789abcdef_1")
+			c := check(kind, "PASS", 0, pkg, "TestProbeFuzz_0123456789abcdef_1")
 			c.Results = largestStream(p*4+k, perCheck-4096)
 			ids[k] = c.ID
 			r.Checks = append(r.Checks, c)
 		}
 		for f := 0; f < 4; f++ {
 			n := len(r.Evidence) + 1
-			name := fmt.Sprintf("TestSwiftProofFuzz_0123456789abcdef_%d", f+1)
+			name := fmt.Sprintf("TestProbeFuzz_0123456789abcdef_%d", f+1)
 			r.Evidence = append(r.Evidence, model.Evidence{ID: fmt.Sprintf("evidence-%d", n), Kind: model.EvidenceDifferentialFuzz, Description: "d",
-				Path: pkg + "/swiftproof_fuzz_0123456789abcdef_test.go", CheckID: ids[1], BaseCheckID: ids[0], Status: model.StatusNotDiverged, Runner: "go_test_json", TestNames: []string{name}})
+				Path: pkg + "/probe_fuzz_0123456789abcdef_test.go", CheckID: ids[1], BaseCheckID: ids[0], Status: model.StatusNotDiverged, Runner: "go_test_json", TestNames: []string{name}})
 			fuzzReport.Functions = append(fuzzReport.Functions, model.FuzzFunction{Path: pkg + "/f.go", Line: 3 + f, EndLine: 5 + f, Symbol: fmt.Sprintf("F%d", f), Signature: "func(int) int",
 				TestName: name, Outcome: model.FuzzNotDiverged, EvidenceID: fmt.Sprintf("evidence-%d", n), Inputs: 64, Compared: 64,
 				Checks: &model.FuzzChecks{Base: ids[0], Candidate: ids[1], BaseConfirm: ids[2], CandidateConfirm: ids[3]}})
@@ -155,7 +155,7 @@ func TestLargestReportReRendersWithinTheInputLimit(t *testing.T) {
 	}
 	// Keep the heap near what the test holds, so that it also runs inside a
 	// 1 GiB sandbox next to other test binaries (the repository's own
-	// SwiftProof policy runs go test there). Without a limit the process
+	// Probe policy runs go test there). Without a limit the process
 	// peaked at about 680 MB.
 	defer debug.SetMemoryLimit(debug.SetMemoryLimit(256 << 20))
 	dir := t.TempDir()
@@ -179,7 +179,7 @@ func TestLargestReportReRendersWithinTheInputLimit(t *testing.T) {
 	}
 	t.Logf("review report: %d bytes (%.1f MiB)", info.Size(), float64(info.Size())/(1<<20))
 	if info.Size() > 64<<20 {
-		t.Fatalf("the report is %d bytes, over the 64 MiB input limit of swiftproof report", info.Size())
+		t.Fatalf("the report is %d bytes, over the 64 MiB input limit of probe report", info.Size())
 	}
 	render := func(from, to string) {
 		t.Helper()

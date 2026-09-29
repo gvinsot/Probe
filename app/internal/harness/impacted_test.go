@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gvinsot/SwiftProof/app/internal/model"
+	"github.com/gvinsot/Probe/app/internal/model"
 )
 
 // Unit tests of the impacted-test stage (F6b) against a fake executor.

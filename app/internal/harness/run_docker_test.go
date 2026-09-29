@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gvinsot/SwiftProof/app/internal/model"
+	"github.com/gvinsot/Probe/app/internal/model"
 )
 
 // dockerRunFixture builds a harness on a small Go module whose baseline and
@@ -87,9 +87,9 @@ func assertNoContainers(t *testing.T, names []string) {
 const brokenTotal = "package cart\n\nfunc Total(prices []int) int {\n\tsum := 0\n\tfor i := 1; i < len(prices); i++ {\n\t\tsum += prices[i]\n\t}\n\treturn sum\n}\n\nfunc Count(prices []int) int { return len(prices) }\n"
 
 func TestDockerRunOptionsTimeoutTeeLedgerAndCache(t *testing.T) {
-	image := os.Getenv("SWIFTPROOF_TEST_DOCKER_IMAGE")
+	image := os.Getenv("PROBE_TEST_DOCKER_IMAGE")
 	if image == "" {
-		t.Skip("set SWIFTPROOF_TEST_DOCKER_IMAGE to a preloaded golang Linux image")
+		t.Skip("set PROBE_TEST_DOCKER_IMAGE to a preloaded golang Linux image")
 	}
 	h, names := dockerRunFixture(t, image, brokenTotal)
 	ctx := context.Background()
@@ -154,9 +154,9 @@ func TestDockerRunOptionsTimeoutTeeLedgerAndCache(t *testing.T) {
 }
 
 func TestDockerExistingTestOutcomesFromRealGoTest(t *testing.T) {
-	image := os.Getenv("SWIFTPROOF_TEST_DOCKER_IMAGE")
+	image := os.Getenv("PROBE_TEST_DOCKER_IMAGE")
 	if image == "" {
-		t.Skip("set SWIFTPROOF_TEST_DOCKER_IMAGE to a preloaded golang Linux image")
+		t.Skip("set PROBE_TEST_DOCKER_IMAGE to a preloaded golang Linux image")
 	}
 	h, names := dockerRunFixture(t, image, brokenTotal)
 	ctx := context.Background()

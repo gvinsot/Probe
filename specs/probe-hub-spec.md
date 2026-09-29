@@ -1,14 +1,14 @@
-# SwiftProof Hub, website and deployment
+# Probe Hub, website and deployment
 
 **Status:** implemented source contract, checked against `23a1d2e` on
-2026-09-27. The [CLI specification](swiftproof-v0.4-spec.md) defines analysis
+2026-09-27. The [CLI specification](probe-v0.4-spec.md) defines analysis
 and evidence; this document covers the other application surfaces. It describes
 repository configuration, not an inspection of the live deployment.
 
 ## 1. Architecture and responsibility
 
 The Hub is a Go module with an embedded HTML/CSS/JavaScript UI, filesystem
-state and an in-process worker queue. It runs the trusted SwiftProof binary
+state and an in-process worker queue. It runs the trusted Probe binary
 shipped in its image; it does not recompute evidence statuses or approve code.
 The promotional website is a separate static nginx service. Neither requires
 a frontend build toolchain or a database.
@@ -27,7 +27,7 @@ claim. Operational run state (`queued`, `running`, `done`, `failed`) is separate
    state binds the forge and permitted return path. Tokens stay server-side.
    Logout removes the browser session. With `ALLOW_NO_FORGE`, the application
    serves before OAuth is configured and explains that sign-in is unavailable.
-2. **Synchronize.** List the account's repositories and probe `.swiftproof.json`
+2. **Synchronize.** List the account's repositories and probe `.probe.json`
    on each default branch, with bounded concurrency (8 policy probes) and a
    configurable repository limit. Preserve monitoring state and history across
    synchronization. Progress reaches the account over server-sent events.
@@ -85,7 +85,7 @@ and supported hypotheses/checks/signals may still appear in the alert list.
 - Forge credentials are scoped to the clone URL through `GIT_CONFIG_*`, not
   command arguments or the CLI's environment. CLI environment is restricted
   to execution essentials, selected Docker variables, reviewer endpoint/model
-  and `SWIFTPROOF_API_KEY`. If the deployment endpoint variable is absent, review
+  and `PROBE_API_KEY`. If the deployment endpoint variable is absent, review
   explicitly passes `--reviewer=false`. The Hub does not forward the CLI's
   optional F-stage flags, cache directory, intent or network opt-ins.
 - Default workers: 2; shared pending queue: 256; per-account queued/running
@@ -103,7 +103,7 @@ and supported hypotheses/checks/signals may still appear in the alert list.
 
 Sessions are signed, expiring cookies without forge credentials: HttpOnly,
 SameSite=Lax, Secure when the configured base URL is HTTPS. State-changing
-browser calls require the session-bound `X-SwiftProof-CSRF` token and same-origin
+browser calls require the session-bound `X-Probe-CSRF` token and same-origin
 validation. Repository reads/writes, reports and SSE are scoped to the owner;
 a key belonging to another account resolves to 404.
 
@@ -179,7 +179,7 @@ week; security headers/WAF/rate limiting depend on the configured edge.
 
 `hub/Dockerfile` builds both Go binaries with the same version and embeds the
 UI. The runtime is Debian slim with Git and CA certificates, UID 10001,
-a persistent `/var/lib/swiftproof-hub` volume, port 8080 and a binary healthcheck.
+a persistent `/var/lib/probe-hub` volume, port 8080 and a binary healthcheck.
 The shipped runtime contains neither the Docker client nor a Docker socket;
 private review needs an operator-provided execution environment, Docker access
 and preloaded trusted test images. Mounting a socket alone does not add the
@@ -187,7 +187,7 @@ Docker executable.
 
 | Deployment file | Shipped behavior |
 | --- | --- |
-| [Combined Swarm stack](../devops/docker-compose.swarm.yml) | nginx website and `swiftproof-app` Hub, Traefik HTTPS routes, external `proxy` network; defaults `swiftproof.net` and `app.swiftproof.net`. Public/auto are fixed; no-forge startup defaults on. Hub has one replica and stop-first updates on its state volume. |
+| [Combined Swarm stack](../devops/docker-compose.swarm.yml) | nginx website and `probe-app` Hub, Traefik HTTPS routes, external `proxy` network; defaults `probe.technology` and `app.probe.technology`. Public/auto are fixed; no-forge startup defaults on. Hub has one replica and stop-first updates on its state volume. |
 | [Standalone Hub stack](../devops/docker-compose.hub.yml) | Configurable domain/instance/mode, one replica, persistent volume, explicit external Docker secrets for the session key and GitHub client secret. Review still needs additional Docker setup. |
 
 The combined stack supplies secrets as environment variables unless deployment

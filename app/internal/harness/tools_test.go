@@ -14,8 +14,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gvinsot/SwiftProof/app/internal/model"
-	"github.com/gvinsot/SwiftProof/app/internal/redact"
+	"github.com/gvinsot/Probe/app/internal/model"
+	"github.com/gvinsot/Probe/app/internal/redact"
 )
 
 type fakeIndex struct {
@@ -230,7 +230,7 @@ func TestRetainedTestsRefusalAndIntentGuard(t *testing.T) {
 		t.Fatalf("refusal %v", err)
 	}
 	// An intent test never runs through the differential tool.
-	h.tests["generated-test-9"] = &generatedTest{ID: "generated-test-9", Path: "pkg/intent_test.go", Content: generatedSource, Criterion: "AC-1", GoTests: []string{"TestSwiftProof"}}
+	h.tests["generated-test-9"] = &generatedTest{ID: "generated-test-9", Path: "pkg/intent_test.go", Content: generatedSource, Criterion: "AC-1", GoTests: []string{"TestProbe"}}
 	before := calls
 	if _, err := h.Call(context.Background(), "run_generated_test", json.RawMessage(`{"test_id":"generated-test-9"}`)); err == nil || !strings.Contains(err.Error(), "use run_intent_test") || calls != before {
 		t.Fatalf("intent test ran differentially: %v", err)

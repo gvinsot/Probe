@@ -12,8 +12,8 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/gvinsot/SwiftProof/app/internal/config"
-	"github.com/gvinsot/SwiftProof/app/internal/model"
+	"github.com/gvinsot/Probe/app/internal/config"
+	"github.com/gvinsot/Probe/app/internal/model"
 )
 
 // shopFixture is the F6 shop repository: price.Total is called by
@@ -169,7 +169,7 @@ func TestReviewerFindCallersUsesIndex(t *testing.T) {
 	cfg := config.Default("go")
 	cfg.Reviewer.Model = "test-model"
 	cfg.Reviewer.Endpoint = server.URL + "/v1"
-	cfg.Reviewer.APIKeyEnv = "SWIFTPROOF_TEST_REVIEWER_KEY"
+	cfg.Reviewer.APIKeyEnv = "PROBE_TEST_REVIEWER_KEY"
 	t.Setenv(cfg.Reviewer.APIKeyEnv, "test-reviewer-key")
 	policy := filepath.Join(t.TempDir(), "policy.json")
 	writeReviewerPolicy(t, policy, cfg)

@@ -12,7 +12,7 @@ import (
 	"testing"
 	"unicode/utf8"
 
-	"github.com/gvinsot/SwiftProof/app/internal/redact"
+	"github.com/gvinsot/Probe/app/internal/redact"
 )
 
 func TestSplitMix64GoldenVectors(t *testing.T) {
@@ -34,8 +34,8 @@ func TestSplitMix64GoldenVectors(t *testing.T) {
 var discountTarget = Target{Dir: "calc", Name: "Discount", Signature: "func(Cents) Cents", Params: []Param{{Kind: ParamScalar, Basic: "int64", Named: "Cents"}}}
 
 func TestSeedDependsOnIdentityOnly(t *testing.T) {
-	// sha256("swiftproof-fuzz/v1\x00calc\x00Discount\x00func(Cents) Cents")[:8], computed independently.
-	if got := Seed(discountTarget); got != 5057238714988770771 {
+	// sha256("probe-fuzz/v1\x00calc\x00Discount\x00func(Cents) Cents")[:8], computed independently.
+	if got := Seed(discountTarget); got != 14535095871764194211 {
 		t.Fatalf("seed %d", got)
 	}
 	moved := discountTarget
@@ -76,13 +76,13 @@ func TestCorpusGolden(t *testing.T) {
 	// A change in the generator changes the inputs of every pull request;
 	// it must be deliberate (bump the seed scheme).
 	sum := sha256.Sum256([]byte(strings.Join(calls, "\n")))
-	if got := hex.EncodeToString(sum[:]); got != "95fba0974317cbbac03a6719c0190c3ed233980defff74593352c0f5518b2eec" || len(calls) != 64 {
+	if got := hex.EncodeToString(sum[:]); got != "4b325f866a90e2aa0bae533b343c2e0901ad93c4bcfc438f9251359fd2524320" || len(calls) != 64 {
 		t.Fatalf("corpus digest %s (%d inputs)", got, len(calls))
 	}
 	join := Target{Dir: "calc", Name: "Join", Signature: "func([]string) string", Params: []Param{{Kind: ParamSlice, Basic: "string"}}}
 	calls = corpusCalls(Corpus(join, 64))
 	sum = sha256.Sum256([]byte(strings.Join(calls, "\n")))
-	if got := hex.EncodeToString(sum[:]); got != "476d96d8c359ba14929f4de8938bd1a93250da0070291162513d45a3dc7e1451" {
+	if got := hex.EncodeToString(sum[:]); got != "9cb5efbd264fc75cf9650479e2d438c6d58b3d1ed1986cdfa42872e4da12390e" {
 		t.Fatalf("Join corpus digest %s", got)
 	}
 	if calls[0] != "Join([]string(nil))" || calls[1] != "Join([]string{})" || calls[2] != `Join([]string{""})` || calls[3] != `Join([]string{"a", ""})` {
@@ -218,7 +218,7 @@ func TestCorpusRendersValidGo(t *testing.T) {
 			if _, ok := expr.(*ast.CallExpr); !ok {
 				t.Fatalf("call %q is not a call", in.Call)
 			}
-			code := argCode(p, in.Args[0], "swiftproofFuzzabcdef12_math")
+			code := argCode(p, in.Args[0], "probeFuzzabcdef12_math")
 			if _, err := parser.ParseExpr(code); err != nil {
 				t.Fatalf("case expression %q does not parse: %v", code, err)
 			}

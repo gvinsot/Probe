@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/gvinsot/SwiftProof/app/internal/model"
+	"github.com/gvinsot/Probe/app/internal/model"
 )
 
 // selectTrees writes the two revisions and runs Select on change.
@@ -296,10 +296,10 @@ import (
 var _ = json.ToUpper
 var _ = time.Now
 
-var swiftproofFuzz_run = 1
-var swiftproofFuzz0123abcd_run = 2
+var probeFuzz_run = 1
+var probeFuzz0123abcd_run = 2
 
-func TestSwiftProofFuzz_x() {}
+func TestProbeFuzz_x() {}
 `
 	base := map[string]string{"go.mod": gomod, "q/q.go": "package q\n" + decls + "\nfunc F(x int) int { return x }\n"}
 	candidate := map[string]string{"go.mod": gomod, "q/q.go": "package q\n" + decls + "\nfunc F(x int) int { return x + 1 }\n"}
@@ -308,7 +308,7 @@ func TestSwiftProofFuzz_x() {}
 		t.Fatalf("plan %+v", plan)
 	}
 	idents := plan.Packages[0].Idents
-	for _, name := range []string{"json", "time", "swiftproofFuzz_run", "swiftproofFuzz0123abcd_run", "TestSwiftProofFuzz_x", "F"} {
+	for _, name := range []string{"json", "time", "probeFuzz_run", "probeFuzz0123abcd_run", "TestProbeFuzz_x", "F"} {
 		if !idents[name] {
 			t.Errorf("identifier %s missing from %v", name, idents)
 		}

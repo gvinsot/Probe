@@ -8,8 +8,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/gvinsot/SwiftProof/app/internal/config"
-	"github.com/gvinsot/SwiftProof/app/internal/model"
+	"github.com/gvinsot/Probe/app/internal/config"
+	"github.com/gvinsot/Probe/app/internal/model"
 )
 
 const e2eHighExitBase = `export function run(args: string[]): number {
@@ -31,9 +31,9 @@ const e2eHighExitCandidate = `export function run(args: string[]): number {
 // 124, so the check is FAIL, the function inconclusive, and the review exits
 // 2 with --ci.
 func TestDockerTSFuzzCandidateHighExitCodeIsNotError(t *testing.T) {
-	image := os.Getenv("SWIFTPROOF_TEST_TS_IMAGE")
+	image := os.Getenv("PROBE_TEST_TS_IMAGE")
 	if image == "" {
-		t.Skip("set SWIFTPROOF_TEST_TS_IMAGE to a preloaded image with node, jest and ts-jest (for example swiftproof-ts-test:local)")
+		t.Skip("set PROBE_TEST_TS_IMAGE to a preloaded image with node, jest and ts-jest (for example probe-ts-test:local)")
 	}
 	dir := t.TempDir()
 	git(t, dir, "init", "-b", "main")

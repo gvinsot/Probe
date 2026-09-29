@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gvinsot/SwiftProof/app/internal/config"
+	"github.com/gvinsot/Probe/app/internal/config"
 )
 
 // forbidExecution makes any step that could start a container fail the test:
@@ -62,7 +62,7 @@ func TestValidateExecutionFlags(t *testing.T) {
 		{name: "deadline 24h1s", mode: "review", mutate: func(v *execFlags) { v.deadline = 24*time.Hour + time.Second }, want: "--deadline must be"},
 		{name: "deadline negative", mode: "review", mutate: func(v *execFlags) { v.deadline = -time.Minute }, want: "--deadline must be"},
 		{name: "explicit deadline 0", mode: "review", explicit: []string{"deadline"}, want: "--deadline must be"},
-		{name: "cache dir", mode: "review", mutate: func(v *execFlags) { v.cacheDir = "/var/cache/swiftproof" }},
+		{name: "cache dir", mode: "review", mutate: func(v *execFlags) { v.cacheDir = "/var/cache/probe" }},
 		{name: "explicit empty cache dir", mode: "review", explicit: []string{"cache-dir"}, want: "--cache-dir must name a directory"},
 		{name: "blank cache dir", mode: "review", mutate: func(v *execFlags) { v.cacheDir = "  " }, want: "--cache-dir must name a directory"},
 		{name: "cache dir with NUL", mode: "review", mutate: func(v *execFlags) { v.cacheDir = "a\x00b" }, want: "without NUL"},
@@ -131,7 +131,7 @@ func v04Policy(t *testing.T, image string, edit func(map[string]any)) string {
 // any report is written, and names the problem.
 func TestExitThreeBeforeAnyContainer(t *testing.T) {
 	dir := fixture(t)
-	absent := "swiftproof.invalid/absent:test-only"
+	absent := "probe.invalid/absent:test-only"
 	valid := v04Policy(t, absent, nil)
 	badFuzz := v04Policy(t, absent, func(p map[string]any) { p["fuzz"] = map[string]any{"max_inputs": 257} })
 	badMutation := v04Policy(t, absent, func(p map[string]any) {

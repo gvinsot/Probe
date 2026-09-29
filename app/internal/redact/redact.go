@@ -1,4 +1,4 @@
-// Package redact holds SwiftProof's best-effort credential redaction and
+// Package redact holds Probe's best-effort credential redaction and
 // UTF-8-safe truncation. It is a leaf package: it imports only the standard
 // library, so that every layer (including packages below harness) can redact
 // what it keeps without an import cycle. harness keeps thin wrappers

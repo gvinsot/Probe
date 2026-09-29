@@ -18,7 +18,7 @@ func TestPublicReadOnlyModes(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			env := baseEnv(t.TempDir())
-			env["SWIFTPROOF_HUB_MODE"], env[EndpointEnvName], env[ModelEnvName] = tc.mode, tc.endpoint, tc.model
+			env["PROBE_HUB_MODE"], env[EndpointEnvName], env[ModelEnvName] = tc.mode, tc.endpoint, tc.model
 			c, err := Load(envOf(env))
 			if (err != nil) != tc.invalid {
 				t.Fatalf("Load error=%v, want invalid=%v", err, tc.invalid)

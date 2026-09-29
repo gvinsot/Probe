@@ -4,8 +4,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/gvinsot/SwiftProof/app/internal/harness"
-	"github.com/gvinsot/SwiftProof/app/internal/model"
+	"github.com/gvinsot/Probe/app/internal/harness"
+	"github.com/gvinsot/Probe/app/internal/model"
 )
 
 // scriptStreamHarness renders a two-test TS/JS harness: a(number) with 3
@@ -194,7 +194,7 @@ func TestNormalizeScriptRejectsMalformedStreams(t *testing.T) {
 		"record after done":     append(append([]string(nil), good[:7]...), obsLine(1, 0, "0", false)),
 		"goexit stop":           {headOf(h, 1), beginLine(1, 3), stopLine(1, 0, StopGoexit), doneOf(h, 1, 0)},
 		"poisoned first":        {headOf(h, 1), beginLine(1, 3), stopLine(1, 0, StopPoisoned), doneOf(h, 1, 0)},
-		"extra function":        append(append([]string(nil), good...), scriptHeadLine(3, h.Suffix, "TestSwiftProofFuzz_abcdef0123456789_3")),
+		"extra function":        append(append([]string(nil), good...), scriptHeadLine(3, h.Suffix, "TestProbeFuzz_abcdef0123456789_3")),
 		"too many lines":        append(append([]string(nil), good...), make([]string, 20)...),
 	} {
 		if _, err := h.Normalize(rawStream(lines...)); err == nil {

@@ -10,9 +10,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/gvinsot/SwiftProof/app/internal/config"
-	"github.com/gvinsot/SwiftProof/app/internal/coverage"
-	"github.com/gvinsot/SwiftProof/app/internal/model"
+	"github.com/gvinsot/Probe/app/internal/config"
+	"github.com/gvinsot/Probe/app/internal/coverage"
+	"github.com/gvinsot/Probe/app/internal/model"
 )
 
 func TestValidateOutputRejectsUserSymlink(t *testing.T) {
@@ -31,7 +31,7 @@ func TestValidateOutputRejectsUserSymlink(t *testing.T) {
 
 func git(t *testing.T, dir string, args ...string) string {
 	t.Helper()
-	cmd := exec.Command("git", append([]string{"-c", "user.name=SwiftProof Test", "-c", "user.email=test@example.invalid", "-c", "commit.gpgsign=false"}, args...)...)
+	cmd := exec.Command("git", append([]string{"-c", "user.name=Probe Test", "-c", "user.email=test@example.invalid", "-c", "commit.gpgsign=false"}, args...)...)
 	cmd.Dir = dir
 	out, err := cmd.CombinedOutput()
 	if err != nil {
@@ -272,7 +272,7 @@ const (
 func coveragePolicy(t *testing.T) string {
 	t.Helper()
 	cfg := config.Default("go")
-	cfg.Sandbox.Image = "swiftproof.invalid/absent:test-only"
+	cfg.Sandbox.Image = "probe.invalid/absent:test-only"
 	cfg.Commands = map[string][]string{
 		"test":              {"go", "test", "./..."},
 		coverage.CommandKey: {"go", "test", "-covermode=count", "-coverprofile=" + coverage.Placeholder, "./..."},

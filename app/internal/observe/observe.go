@@ -22,17 +22,17 @@ import (
 	"unicode"
 	"unicode/utf8"
 
-	"github.com/gvinsot/SwiftProof/app/internal/model"
-	"github.com/gvinsot/SwiftProof/app/internal/redact"
+	"github.com/gvinsot/Probe/app/internal/model"
+	"github.com/gvinsot/Probe/app/internal/redact"
 )
 
 // Recording conventions and limits.
 const (
 	// GoKeyPrefix starts every Go attribute key (t.Attr) that records an
 	// observation; the key recorded is what follows it.
-	GoKeyPrefix = "swiftproof."
+	GoKeyPrefix = "probe."
 	// MetaField is the field of a Vitest task.meta that holds observations.
-	MetaField = "swiftproof"
+	MetaField = "probe"
 	// MaxKeys bounds the distinct keys one run may record; more is a channel
 	// error, which makes the whole outcome UNVERIFIED.
 	MaxKeys = 32
@@ -46,7 +46,7 @@ const (
 	// Vitest key or value too long to be compared. It contains whitespace, so
 	// a stand-in is never a valid key, and a value containing it is never
 	// compared.
-	OversizedPrefix = "swiftproof: not kept: "
+	OversizedPrefix = "probe: not kept: "
 )
 
 // Oversized returns the fixed stand-in for a recorded key or value that is too

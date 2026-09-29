@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/gvinsot/SwiftProof/hub/internal/store"
+	"github.com/gvinsot/Probe/hub/internal/store"
 )
 
 // CommitNode preserves Git's parent links, including both sides of merges.
@@ -59,7 +59,7 @@ func (r *Runner) Graph(ctx context.Context, userKey, repoKey string) (graph *Com
 	if err != nil {
 		return nil, err
 	}
-	work, err := os.MkdirTemp("", "swiftproof-graph-")
+	work, err := os.MkdirTemp("", "probe-graph-")
 	if err != nil {
 		return nil, err
 	}

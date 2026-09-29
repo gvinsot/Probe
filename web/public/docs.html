@@ -3,18 +3,18 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Reference — SwiftProof</title>
-  <meta name="description" content="SwiftProof command-line reference: every command, flag, exit code, environment variable, policy key, output file and risk signal.">
-  <link rel="icon" href="favicon.svg" type="image/svg+xml">
+  <title>Reference — Probe</title>
+  <meta name="description" content="Probe command-line reference: every command, flag, exit code, environment variable, policy key, output file and risk signal.">
+  <link rel="icon" href="logo.jpeg" type="image/jpeg">
+  <link rel="apple-touch-icon" href="logo.jpeg">
   <link rel="stylesheet" href="styles.css">
   <script src="site.js" defer></script>
 </head>
 <body>
   <header class="nav">
     <div class="wrap nav-inner">
-      <a class="brand" href="./" aria-label="SwiftProof home">
-        <img src="favicon.svg" alt="" width="28" height="28">
-        <span>SwiftProof</span>
+      <a class="brand" href="./" aria-label="Probe home">
+        <img class="brand-title" src="title.jpeg" alt="Probe" width="87" height="32">
       </a>
       <nav aria-label="Main">
         <a href="index.html#process">Process</a>
@@ -22,8 +22,8 @@
         <a href="index.html#hub">Docker</a>
         <a href="download.html">Download</a>
         <a href="docs.html" aria-current="page">Docs</a>
-        <a class="btn btn-small" href="https://github.com/gvinsot/SwiftProof">GitHub</a>
-        <a class="btn btn-small" href="https://app.swiftproof.net">Login</a>
+        <a class="btn btn-small" href="https://github.com/gvinsot/Probe">GitHub</a>
+        <a class="btn btn-small" href="https://app.probe.technology">Login</a>
       </nav>
     </div>
   </header>
@@ -33,7 +33,7 @@
       <div class="wrap">
         <p class="eyebrow">Reference</p>
         <h1>Command-line reference</h1>
-        <p class="lead">Every command, flag, exit code, environment variable, policy key and risk signal of the current SwiftProof (latest release: <span data-version>v0.3.9</span>). Entries marked <span class="tag">v0.4</span> make a binary older than v0.4.0 exit <code>3</code>; see <a href="https://github.com/gvinsot/SwiftProof/blob/main/app/docs/CI.md#release-ordering-for-v04">release ordering</a> before pinning one in CI. Press <kbd>/</kbd> to search.</p>
+        <p class="lead">Every command, flag, exit code, environment variable, policy key and risk signal of the current Probe (latest release: <span data-version>v0.3.9</span>). Entries marked <span class="tag">v0.4</span> make a binary older than v0.4.0 exit <code>3</code>; see <a href="https://github.com/gvinsot/Probe/blob/main/app/docs/CI.md#release-ordering-for-v04">release ordering</a> before pinning one in CI. Press <kbd>/</kbd> to search.</p>
       </div>
     </section>
 
@@ -61,7 +61,7 @@
           <li><a href="#impact">Impact analysis</a></li>
           <li><a href="#languages">Languages</a></li>
           <li class="group">Policy</li>
-          <li><a href="#policy">.swiftproof.json</a></li>
+          <li><a href="#policy">.probe.json</a></li>
           <li><a href="#policy-commands">commands</a></li>
           <li><a href="#policy-sandbox">sandbox</a></li>
           <li><a href="#policy-reviewer">reviewer</a></li>
@@ -78,23 +78,23 @@
         <section id="synopsis">
           <h2>Synopsis</h2>
           <div class="code">
-<pre><code>swiftproof init [--repo PATH] [--language go|typescript|javascript|python|rust]
-swiftproof lint [--base main] [--head HEAD] [--ci] [flags]
-swiftproof review [--base main] [--reviewer=false] [--ci] [flags]
-swiftproof review [flags] BASE..HEAD
-swiftproof plan --intent-file FILE [--base main] [--ci]
-swiftproof review --plan .swiftproof/PLAN.json [flags]
-swiftproof report [--input .swiftproof/confidence-report.json] [--out DIR] [--format LIST] [--report-url URL]
-swiftproof version</code></pre>
+<pre><code>probe init [--repo PATH] [--language go|typescript|javascript|python|rust]
+probe lint [--base main] [--head HEAD] [--ci] [flags]
+probe review [--base main] [--reviewer=false] [--ci] [flags]
+probe review [flags] BASE..HEAD
+probe plan --intent-file FILE [--base main] [--ci]
+probe review --plan .probe/PLAN.json [flags]
+probe report [--input .probe/confidence-report.json] [--out DIR] [--format LIST] [--report-url URL]
+probe version</code></pre>
           </div>
           <ul>
             <li><strong>lint</strong> analyzes a change statically. It never executes repository code and never calls an AI provider.</li>
             <li><strong>review</strong> adds sandboxed checks in Docker, the opt-in evidence stages (changed baseline tests, impacted tests, differential fuzzing, mutation, dependency preparation) and, when a model is configured, an AI investigation.</li>
             <li><strong>plan</strong> asks the configured provider for an implementation plan before any code is written, evaluates it with fixed rules, and turns it into a contract that <code>lint --plan</code> and <code>review --plan</code> check the diff against.</li>
             <li>Only <strong>committed</strong> files are analyzed; uncommitted edits and untracked files are ignored.</li>
-            <li>Reports are written to <code>.swiftproof/</code> in the repository by default. Console output stays short.</li>
+            <li>Reports are written to <code>.probe/</code> in the repository by default. Console output stays short.</li>
             <li>Flags accept one or two dashes (<code>-ci</code> or <code>--ci</code>). Booleans are set with <code>--ci</code> or <code>--ci=true</code> and cleared with <code>--checks=false</code>. A value is given as <code>--base main</code> or <code>--base=main</code>.</li>
-            <li>Run <code>swiftproof &lt;command&gt; --help</code> for the flags of a command.</li>
+            <li>Run <code>probe &lt;command&gt; --help</code> for the flags of a command.</li>
           </ul>
         </section>
 
@@ -112,12 +112,12 @@ swiftproof version</code></pre>
               </tbody>
             </table>
           </div>
-          <p>A range may appear before or after the flags: <code>swiftproof review main..HEAD --ci</code> and <code>swiftproof review --ci main..HEAD</code> are equivalent. At most one range is accepted. Any revision Git understands works: branches, tags, <code>origin/main</code>, <code>HEAD~3</code> or a commit ID. CI jobs need enough history to resolve the base (for example <code>fetch-depth: 0</code>).</p>
+          <p>A range may appear before or after the flags: <code>probe review main..HEAD --ci</code> and <code>probe review --ci main..HEAD</code> are equivalent. At most one range is accepted. Any revision Git understands works: branches, tags, <code>origin/main</code>, <code>HEAD~3</code> or a commit ID. CI jobs need enough history to resolve the base (for example <code>fetch-depth: 0</code>).</p>
           <p>The <a href="#policy">trusted policy</a> is always read from the base branch, never from the change under review, so a pull request cannot loosen its own rules.</p>
         </section>
 
         <section id="lint">
-          <h2><code>swiftproof lint</code></h2>
+          <h2><code>probe lint</code></h2>
           <p class="synopsis">Static analysis of a change: Git comparison, risk signals and a report. No Docker, no provider call, no execution of repository code. Safe to run on untrusted branches.</p>
           <div class="table-wrap">
             <table>
@@ -128,12 +128,12 @@ swiftproof version</code></pre>
                 <tr id="lint-exact"><td><code>--exact</code></td><td><code>false</code></td><td class="desc">Compare the base revision itself instead of the merge base.</td></tr>
                 <tr id="lint-range"><td><code>BASE..HEAD</code></td><td>—</td><td class="desc">Positional range; see <a href="#revisions">Choosing revisions</a>.</td></tr>
                 <tr id="lint-repo"><td><code>--repo PATH</code></td><td><code>.</code></td><td class="desc">Repository directory. Any directory inside the work tree works.</td></tr>
-                <tr id="lint-config"><td><code>--config PATH</code></td><td>policy of the base</td><td class="desc">Use this local policy file instead of <code>.swiftproof.json</code> from the base branch. Only pass a file you trust.</td></tr>
-                <tr id="lint-out"><td><code>--out DIR</code></td><td><code>.swiftproof</code></td><td class="desc">Report directory, relative to the repository root. The path may not contain symbolic links.</td></tr>
+                <tr id="lint-config"><td><code>--config PATH</code></td><td>policy of the base</td><td class="desc">Use this local policy file instead of <code>.probe.json</code> from the base branch. Only pass a file you trust.</td></tr>
+                <tr id="lint-out"><td><code>--out DIR</code></td><td><code>.probe</code></td><td class="desc">Report directory, relative to the repository root. The path may not contain symbolic links.</td></tr>
                 <tr id="lint-format"><td><code>--format LIST</code></td><td><code>markdown,json</code></td><td class="desc">Comma-separated report formats to write: <code>markdown</code>, <code>json</code>, <code>sarif</code> <span class="tag">v0.4</span>, <code>pr-comment</code> <span class="tag">v0.4</span>. See <a href="#outputs">Output files</a>.</td></tr>
                 <tr id="lint-report-url"><td><code>--report-url URL</code> <span class="tag">v0.4</span></td><td>—</td><td class="desc">An <code>https</code> link to the full report, cited in <code>PR_COMMENT.md</code>. Requires the <code>pr-comment</code> format; a URL that looks like it carries a credential is refused with exit <code>3</code>.</td></tr>
                 <tr id="lint-impact"><td><code>--impact</code></td><td><code>true</code></td><td class="desc">Build the static <a href="#impact">impact index</a> of changed functions. <code>--impact=false</code> skips it.</td></tr>
-                <tr id="lint-plan"><td><code>--plan PATH</code></td><td>—</td><td class="desc">A <code>PLAN.json</code> written by <a href="#plan"><code>swiftproof plan</code></a>: check the diff against its contract and add a <code>plan_drift</code> section and signals.</td></tr>
+                <tr id="lint-plan"><td><code>--plan PATH</code></td><td>—</td><td class="desc">A <code>PLAN.json</code> written by <a href="#plan"><code>probe plan</code></a>: check the diff against its contract and add a <code>plan_drift</code> section and signals.</td></tr>
                 <tr id="lint-ci"><td><code>--ci</code></td><td><code>false</code></td><td class="desc">Exit with code <code>2</code> when human review is required. See <a href="#exit-codes">Exit codes</a>.</td></tr>
                 <tr id="lint-intent"><td><code>--intent TEXT</code></td><td>—</td><td class="desc">Pull request intent or acceptance criteria, recorded in the report (at most 64 KiB).</td></tr>
                 <tr id="lint-intent-file"><td><code>--intent-file PATH</code></td><td>—</td><td class="desc">Read the intent from a UTF-8 file. Cannot be combined with <code>--intent</code>.</td></tr>
@@ -142,15 +142,15 @@ swiftproof version</code></pre>
             </table>
           </div>
           <div class="code">
-<pre><code>swiftproof lint HEAD~1..HEAD                 <span class="c"># the last commit</span>
-swiftproof lint --base origin/main --ci      <span class="c"># this branch as a pull request, for CI</span>
-swiftproof lint --base main --format json    <span class="c"># JSON report only</span>
-swiftproof lint --base main --plan .swiftproof/PLAN.json   <span class="c"># scope drift against an approved plan</span></code></pre>
+<pre><code>probe lint HEAD~1..HEAD                 <span class="c"># the last commit</span>
+probe lint --base origin/main --ci      <span class="c"># this branch as a pull request, for CI</span>
+probe lint --base main --format json    <span class="c"># JSON report only</span>
+probe lint --base main --plan .probe/PLAN.json   <span class="c"># scope drift against an approved plan</span></code></pre>
           </div>
         </section>
 
         <section id="review">
-          <h2><code>swiftproof review</code></h2>
+          <h2><code>probe review</code></h2>
           <p class="synopsis">Everything <code>lint</code> does, plus the policy's <code>test</code>, <code>typecheck</code>, <code>build</code> and <code>coverage</code> commands in disposable Docker containers, plus an AI investigation when a model is configured. Requires Docker with Linux containers and a preloaded <code>sandbox.image</code>.</p>
           <div class="table-wrap">
             <table>
@@ -161,13 +161,13 @@ swiftproof lint --base main --plan .swiftproof/PLAN.json   <span class="c"># sco
                 <tr id="review-exact"><td><code>--exact</code></td><td><code>false</code></td><td class="desc">Compare the base revision itself instead of the merge base.</td></tr>
                 <tr id="review-range"><td><code>BASE..HEAD</code></td><td>—</td><td class="desc">Positional range; see <a href="#revisions">Choosing revisions</a>.</td></tr>
                 <tr id="review-repo"><td><code>--repo PATH</code></td><td><code>.</code></td><td class="desc">Repository directory.</td></tr>
-                <tr id="review-config"><td><code>--config PATH</code></td><td>policy of the base</td><td class="desc">Use this local policy file instead of <code>.swiftproof.json</code> from the base branch, for example to try a policy before committing it. Only pass a file you trust: it decides what runs and where source is sent.</td></tr>
-                <tr id="review-out"><td><code>--out DIR</code></td><td><code>.swiftproof</code></td><td class="desc">Report directory, relative to the repository root. Artifacts go to <code>DIR/artifacts/</code>.</td></tr>
+                <tr id="review-config"><td><code>--config PATH</code></td><td>policy of the base</td><td class="desc">Use this local policy file instead of <code>.probe.json</code> from the base branch, for example to try a policy before committing it. Only pass a file you trust: it decides what runs and where source is sent.</td></tr>
+                <tr id="review-out"><td><code>--out DIR</code></td><td><code>.probe</code></td><td class="desc">Report directory, relative to the repository root. Artifacts go to <code>DIR/artifacts/</code>.</td></tr>
                 <tr id="review-format"><td><code>--format LIST</code></td><td><code>markdown,json</code></td><td class="desc">Comma-separated report formats to write: <code>markdown</code>, <code>json</code>, <code>sarif</code> <span class="tag">v0.4</span>, <code>pr-comment</code> <span class="tag">v0.4</span>.</td></tr>
                 <tr id="review-report-url"><td><code>--report-url URL</code> <span class="tag">v0.4</span></td><td>—</td><td class="desc">An <code>https</code> link to the full report, cited in <code>PR_COMMENT.md</code>. Requires the <code>pr-comment</code> format.</td></tr>
                 <tr id="review-ci"><td><code>--ci</code></td><td><code>false</code></td><td class="desc">Exit with code <code>2</code> when human review is required, including high-risk signals, unverified areas or incomplete checks.</td></tr>
                 <tr id="review-checks"><td><code>--checks</code></td><td><code>true</code></td><td class="desc">Run the configured checks in the sandbox. <code>--checks=false</code> skips them; a configured reviewer may still run sandbox experiments.</td></tr>
-                <tr id="review-reviewer"><td><code>--reviewer</code></td><td>auto</td><td class="desc">AI investigation. Enabled automatically when a model is set in the trusted policy or <code>SWIFTPROOF_REVIEWER_MODEL</code>. <code>--reviewer=false</code> disables every provider call; <code>--reviewer</code> fails with exit <code>3</code> if no model is configured.</td></tr>
+                <tr id="review-reviewer"><td><code>--reviewer</code></td><td>auto</td><td class="desc">AI investigation. Enabled automatically when a model is set in the trusted policy or <code>PROBE_REVIEWER_MODEL</code>. <code>--reviewer=false</code> disables every provider call; <code>--reviewer</code> fails with exit <code>3</code> if no model is configured.</td></tr>
                 <tr id="review-max-iterations"><td><code>--max-iterations N</code></td><td>policy (<code>20</code>)</td><td class="desc">Override <code>reviewer.max_iterations</code> for this run, 1 to 100.</td></tr>
                 <tr id="review-intent"><td><code>--intent TEXT</code></td><td>—</td><td class="desc">Pull request intent or acceptance criteria (at most 64 KiB). Recorded in the report and given to the reviewer.</td></tr>
                 <tr id="review-intent-file"><td><code>--intent-file PATH</code></td><td>—</td><td class="desc">Read the intent from a UTF-8 file. Cannot be combined with <code>--intent</code>.</td></tr>
@@ -186,19 +186,19 @@ swiftproof lint --base main --plan .swiftproof/PLAN.json   <span class="c"># sco
             </table>
           </div>
           <div class="code">
-<pre><code>swiftproof review --base main --ci                        <span class="c"># typical pull request run</span>
-swiftproof review HEAD~1..HEAD --reviewer=false           <span class="c"># checks only, no provider</span>
-swiftproof review --base main --checks=false --reviewer=false   <span class="c"># static only, like lint</span>
-swiftproof review --base main --intent-file PR.md         <span class="c"># give acceptance criteria</span>
-swiftproof review --base main --impacted-tests --base-tests --ci   <span class="c"># run tests on both revisions</span>
-swiftproof review --base main --format markdown,json,sarif,pr-comment --report-url "$RUN_URL"</code></pre>
+<pre><code>probe review --base main --ci                        <span class="c"># typical pull request run</span>
+probe review HEAD~1..HEAD --reviewer=false           <span class="c"># checks only, no provider</span>
+probe review --base main --checks=false --reviewer=false   <span class="c"># static only, like lint</span>
+probe review --base main --intent-file PR.md         <span class="c"># give acceptance criteria</span>
+probe review --base main --impacted-tests --base-tests --ci   <span class="c"># run tests on both revisions</span>
+probe review --base main --format markdown,json,sarif,pr-comment --report-url "$RUN_URL"</code></pre>
           </div>
           <p>Dependency preparation runs first, when the policy has a <code>prepare</code> object. Checks then run in the order test, typecheck, build, then coverage, followed by the evidence stages and the reviewer. Each container is non-root, has a read-only root and source mount, no added capabilities, no network by default, and the CPU, memory, PID and time limits of the <a href="#policy-sandbox">sandbox policy</a>. The Docker socket, your working checkout and API keys are never mounted. If Docker or the image is missing, the run ends with exit <code>4</code>; nothing ever falls back to your host.</p>
         </section>
 
         <section id="plan">
-          <h2><code>swiftproof plan</code></h2>
-          <p class="synopsis">Before the change is written: the configured provider simulates, read-only, how it would implement an intent at the base commit and submits a structured plan (files, symbols, dependencies, steps). SwiftProof evaluates it with fixed rules and writes <code>PLAN.json</code> and <code>PLAN.md</code>. The model produces the plan; it never judges its risk. Nothing is modified or executed.</p>
+          <h2><code>probe plan</code></h2>
+          <p class="synopsis">Before the change is written: the configured provider simulates, read-only, how it would implement an intent at the base commit and submits a structured plan (files, symbols, dependencies, steps). Probe evaluates it with fixed rules and writes <code>PLAN.json</code> and <code>PLAN.md</code>. The model produces the plan; it never judges its risk. Nothing is modified or executed.</p>
           <div class="table-wrap">
             <table>
               <thead><tr><th>Flag</th><th>Default</th><th>Description</th></tr></thead>
@@ -206,7 +206,7 @@ swiftproof review --base main --format markdown,json,sarif,pr-comment --report-u
                 <tr id="plan-intent"><td><code>--intent-file PATH</code>, <code>--intent TEXT</code></td><td>—</td><td class="desc">The change to plan. Required; at most 64 KiB of UTF-8, read like the review intent.</td></tr>
                 <tr id="plan-base"><td><code>--base REV</code></td><td><code>main</code></td><td class="desc">The revision the plan starts from. Its tip supplies the trusted policy.</td></tr>
                 <tr id="plan-config"><td><code>--config PATH</code></td><td>policy of the base</td><td class="desc">Explicit trusted local policy.</td></tr>
-                <tr id="plan-out"><td><code>--out DIR</code></td><td><code>.swiftproof</code></td><td class="desc">Output directory, relative to the repository.</td></tr>
+                <tr id="plan-out"><td><code>--out DIR</code></td><td><code>.probe</code></td><td class="desc">Output directory, relative to the repository.</td></tr>
                 <tr id="plan-ci"><td><code>--ci</code></td><td><code>false</code></td><td class="desc">Exit <code>2</code> when a category is flagged or something was left unverified.</td></tr>
                 <tr id="plan-max-iterations"><td><code>--max-iterations N</code></td><td>policy</td><td class="desc">Override the provider iteration budget, 1 to 100.</td></tr>
                 <tr id="plan-reviewer"><td><code>--reviewer</code></td><td><code>true</code></td><td class="desc">A provider is mandatory: without a configured model, or with <code>--reviewer=false</code>, <code>plan</code> exits <code>3</code> and writes nothing.</td></tr>
@@ -241,9 +241,9 @@ swiftproof review --base main --format markdown,json,sarif,pr-comment --report-u
             </table>
           </div>
           <div class="code">
-<pre><code>swiftproof plan --intent-file task.md --ci                     <span class="c"># 1. plan; exit 2: a human validates it</span>
+<pre><code>probe plan --intent-file task.md --ci                     <span class="c"># 1. plan; exit 2: a human validates it</span>
 <span class="c"># 2. an agent implements the plan</span>
-swiftproof review --base origin/main --plan .swiftproof/PLAN.json --ci   <span class="c"># 3-4. exit 0: merge; exit 2: review</span></code></pre>
+probe review --base origin/main --plan .probe/PLAN.json --ci   <span class="c"># 3-4. exit 0: merge; exit 2: review</span></code></pre>
           </div>
           <h3 id="plan-gate">The plan gate</h3>
           <p><code>review --plan</code> ends with a decision, <code>plan_drift.decision</code>, printed on stdout and at the top of the Plan Conformance section. With <code>--ci</code>, it is the exit code.</p>
@@ -256,17 +256,17 @@ swiftproof review --base origin/main --plan .swiftproof/PLAN.json --ci   <span c
               </tbody>
             </table>
           </div>
-          <p>The flags and contract stored in <code>PLAN.json</code> are never trusted: the contract is re-derived from the proposal, so an edited plan cannot widen the scope unassessed, and <code>swiftproof report</code> recomputes the decision from the recorded report. The gate is a process decision, not a verdict on correctness. A plan that raises nothing is not proof that the change is safe, and drift does not check that the change implements the intent. See <a href="https://github.com/gvinsot/SwiftProof/blob/main/app/docs/PLAN.md">pre-change plans</a> and the <a href="https://github.com/gvinsot/SwiftProof/blob/main/app/docs/CI.md#merging-without-review-behind-the-plan-gate">CI recipe</a>.</p>
+          <p>The flags and contract stored in <code>PLAN.json</code> are never trusted: the contract is re-derived from the proposal, so an edited plan cannot widen the scope unassessed, and <code>probe report</code> recomputes the decision from the recorded report. The gate is a process decision, not a verdict on correctness. A plan that raises nothing is not proof that the change is safe, and drift does not check that the change implements the intent. See <a href="https://github.com/gvinsot/Probe/blob/main/app/docs/PLAN.md">pre-change plans</a> and the <a href="https://github.com/gvinsot/Probe/blob/main/app/docs/CI.md#merging-without-review-behind-the-plan-gate">CI recipe</a>.</p>
         </section>
 
         <section id="init">
-          <h2><code>swiftproof init</code></h2>
-          <p class="synopsis">Write a starter <code>.swiftproof.json</code> for the project. It refuses to overwrite an existing file. Review the commands and image, then commit the file to your base branch.</p>
+          <h2><code>probe init</code></h2>
+          <p class="synopsis">Write a starter <code>.probe.json</code> for the project. It refuses to overwrite an existing file. Review the commands and image, then commit the file to your base branch.</p>
           <div class="table-wrap">
             <table>
               <thead><tr><th>Flag</th><th>Default</th><th>Description</th></tr></thead>
               <tbody>
-                <tr id="init-repo"><td><code>--repo PATH</code></td><td><code>.</code></td><td class="desc">Directory in which to create <code>.swiftproof.json</code>.</td></tr>
+                <tr id="init-repo"><td><code>--repo PATH</code></td><td><code>.</code></td><td class="desc">Directory in which to create <code>.probe.json</code>.</td></tr>
                 <tr id="init-language"><td><code>--language NAME</code></td><td>detected</td><td class="desc"><code>go</code>, <code>typescript</code>, <code>javascript</code>, <code>python</code>, <code>rust</code> or <code>unknown</code>. Detected from <code>go.mod</code>/<code>go.work</code>, <code>Cargo.toml</code>, <code>tsconfig.json</code>, <code>package.json</code>, then <code>pyproject.toml</code>/<code>setup.py</code>/<code>requirements.txt</code>. Selects the <a href="#defaults">defaults</a>.</td></tr>
               </tbody>
             </table>
@@ -274,14 +274,14 @@ swiftproof review --base origin/main --plan .swiftproof/PLAN.json --ci   <span c
         </section>
 
         <section id="report">
-          <h2><code>swiftproof report</code></h2>
+          <h2><code>probe report</code></h2>
           <p class="synopsis">Re-render a saved JSON report, for example to regenerate Markdown or produce SARIF in CI. Nothing is re-run, and re-rendering does not authenticate the evidence it contains; every status is re-derived from the recorded checks, so an edited report is corrected rather than trusted.</p>
           <div class="table-wrap">
             <table>
               <thead><tr><th>Flag</th><th>Default</th><th>Description</th></tr></thead>
               <tbody>
-                <tr id="report-input"><td><code>--input PATH</code></td><td><code>.swiftproof/confidence-report.json</code></td><td class="desc">Saved JSON report (version 1, at most 64 MiB).</td></tr>
-                <tr id="report-out"><td><code>--out DIR</code></td><td><code>.swiftproof</code></td><td class="desc">Output directory, relative to the current directory.</td></tr>
+                <tr id="report-input"><td><code>--input PATH</code></td><td><code>.probe/confidence-report.json</code></td><td class="desc">Saved JSON report (version 1, at most 64 MiB).</td></tr>
+                <tr id="report-out"><td><code>--out DIR</code></td><td><code>.probe</code></td><td class="desc">Output directory, relative to the current directory.</td></tr>
                 <tr id="report-format"><td><code>--format LIST</code></td><td><code>markdown,json</code></td><td class="desc">Comma-separated formats to write: <code>markdown</code>, <code>json</code>, <code>sarif</code> <span class="tag">v0.4</span>, <code>pr-comment</code> <span class="tag">v0.4</span>.</td></tr>
                 <tr id="report-report-url"><td><code>--report-url URL</code> <span class="tag">v0.4</span></td><td>—</td><td class="desc">An <code>https</code> link to the full report, cited in <code>PR_COMMENT.md</code>.</td></tr>
               </tbody>
@@ -290,14 +290,14 @@ swiftproof review --base origin/main --plan .swiftproof/PLAN.json --ci   <span c
         </section>
 
         <section id="version">
-          <h2><code>swiftproof version</code> and help</h2>
+          <h2><code>probe version</code> and help</h2>
           <div class="table-wrap">
             <table>
               <thead><tr><th>Command</th><th>Prints</th></tr></thead>
               <tbody>
-                <tr id="cmd-version"><td><code>swiftproof version</code>, <code>--version</code></td><td class="desc">The version, for example <code>swiftproof <span data-version>v0.3.9</span></code>, and the license notice.</td></tr>
-                <tr id="cmd-help"><td><code>swiftproof help</code>, <code>-h</code>, <code>--help</code></td><td class="desc">The synopsis. With no argument, SwiftProof prints the same text.</td></tr>
-                <tr id="cmd-help-command"><td><code>swiftproof &lt;command&gt; --help</code></td><td class="desc">The flags of a command, with their defaults.</td></tr>
+                <tr id="cmd-version"><td><code>probe version</code>, <code>--version</code></td><td class="desc">The version, for example <code>probe <span data-version>v0.3.9</span></code>, and the license notice.</td></tr>
+                <tr id="cmd-help"><td><code>probe help</code>, <code>-h</code>, <code>--help</code></td><td class="desc">The synopsis. With no argument, Probe prints the same text.</td></tr>
+                <tr id="cmd-help-command"><td><code>probe &lt;command&gt; --help</code></td><td class="desc">The flags of a command, with their defaults.</td></tr>
               </tbody>
             </table>
           </div>
@@ -327,11 +327,11 @@ swiftproof review --base origin/main --plan .swiftproof/PLAN.json --ci   <span c
             <table>
               <thead><tr><th>Variable</th><th>Effect</th></tr></thead>
               <tbody>
-                <tr id="env-endpoint"><td><code>SWIFTPROOF_REVIEWER_ENDPOINT</code></td><td class="desc">Overrides <code>reviewer.endpoint</code>. Same URL rules as the policy.</td></tr>
-                <tr id="env-model"><td><code>SWIFTPROOF_REVIEWER_MODEL</code></td><td class="desc">Overrides <code>reviewer.model</code>, and on its own enables the reviewer during <code>review</code>.</td></tr>
-                <tr id="env-api-key"><td><code>SWIFTPROOF_API_KEY</code></td><td class="desc">API key. The name is set by <code>reviewer.api_key_env</code>; this is the default.</td></tr>
-                <tr id="env-api-key-file"><td><code>SWIFTPROOF_API_KEY_FILE</code></td><td class="desc">Path of a file containing the key, used when the variable above is unset. The file must be readable, or the run fails with exit <code>3</code>.</td></tr>
-                <tr id="env-secret"><td><code>/run/secrets/SWIFTPROOF_API_KEY</code></td><td class="desc">Docker secret read last, when neither variable is set. Absence is not an error.</td></tr>
+                <tr id="env-endpoint"><td><code>PROBE_REVIEWER_ENDPOINT</code></td><td class="desc">Overrides <code>reviewer.endpoint</code>. Same URL rules as the policy.</td></tr>
+                <tr id="env-model"><td><code>PROBE_REVIEWER_MODEL</code></td><td class="desc">Overrides <code>reviewer.model</code>, and on its own enables the reviewer during <code>review</code>.</td></tr>
+                <tr id="env-api-key"><td><code>PROBE_API_KEY</code></td><td class="desc">API key. The name is set by <code>reviewer.api_key_env</code>; this is the default.</td></tr>
+                <tr id="env-api-key-file"><td><code>PROBE_API_KEY_FILE</code></td><td class="desc">Path of a file containing the key, used when the variable above is unset. The file must be readable, or the run fails with exit <code>3</code>.</td></tr>
+                <tr id="env-secret"><td><code>/run/secrets/PROBE_API_KEY</code></td><td class="desc">Docker secret read last, when neither variable is set. Absence is not an error.</td></tr>
               </tbody>
             </table>
           </div>
@@ -344,16 +344,16 @@ swiftproof review --base origin/main --plan .swiftproof/PLAN.json --ci   <span c
             <table>
               <thead><tr><th>Path</th><th>Contents</th></tr></thead>
               <tbody>
-                <tr id="out-md"><td><code>.swiftproof/CONFIDENCE_REPORT.md</code></td><td class="desc">The report to read: change summary, automated checks, investigation summary, reproduced issues, unverified areas, suggested human review, review surface, changed-line execution, recorded evidence and artifacts.</td></tr>
-                <tr id="out-json"><td><code>.swiftproof/confidence-report.json</code></td><td class="desc">The same data for tools: commit IDs, changed lines, signals, checks, hypotheses, evidence, audit events and artifact hashes. See the <a href="https://github.com/gvinsot/SwiftProof/blob/main/app/schema/confidence-report.schema.json">JSON schema</a>.</td></tr>
-                <tr id="out-sarif"><td><code>.swiftproof/confidence-report.sarif</code> <span class="tag">v0.4</span></td><td class="desc">With <code>--format sarif</code>: a SARIF 2.1.0 log for code-scanning tools, holding only findings backed by recorded sandbox evidence. No finding is not approval.</td></tr>
-                <tr id="out-pr-comment"><td><code>.swiftproof/PR_COMMENT.md</code> <span class="tag">v0.4</span></td><td class="desc">With <code>--format pr-comment</code>: a pull-request comment with a status block and every evidence-backed finding.</td></tr>
-                <tr id="out-plan"><td><code>.swiftproof/PLAN.json</code>, <code>PLAN.md</code></td><td class="desc">Written by <a href="#plan"><code>swiftproof plan</code></a>: the model-written proposal, the deterministic assessment and the contract (<a href="https://github.com/gvinsot/SwiftProof/blob/main/app/schema/plan.schema.json">schema</a>).</td></tr>
-                <tr id="out-artifacts"><td><code>.swiftproof/artifacts/</code></td><td class="desc">Check logs, coverage profiles, generated test sources, test results, mutant patches and fuzzing records, each referenced by its SHA-256 hash in the report.</td></tr>
+                <tr id="out-md"><td><code>.probe/CONFIDENCE_REPORT.md</code></td><td class="desc">The report to read: change summary, automated checks, investigation summary, reproduced issues, unverified areas, suggested human review, review surface, changed-line execution, recorded evidence and artifacts.</td></tr>
+                <tr id="out-json"><td><code>.probe/confidence-report.json</code></td><td class="desc">The same data for tools: commit IDs, changed lines, signals, checks, hypotheses, evidence, audit events and artifact hashes. See the <a href="https://github.com/gvinsot/Probe/blob/main/app/schema/confidence-report.schema.json">JSON schema</a>.</td></tr>
+                <tr id="out-sarif"><td><code>.probe/confidence-report.sarif</code> <span class="tag">v0.4</span></td><td class="desc">With <code>--format sarif</code>: a SARIF 2.1.0 log for code-scanning tools, holding only findings backed by recorded sandbox evidence. No finding is not approval.</td></tr>
+                <tr id="out-pr-comment"><td><code>.probe/PR_COMMENT.md</code> <span class="tag">v0.4</span></td><td class="desc">With <code>--format pr-comment</code>: a pull-request comment with a status block and every evidence-backed finding.</td></tr>
+                <tr id="out-plan"><td><code>.probe/PLAN.json</code>, <code>PLAN.md</code></td><td class="desc">Written by <a href="#plan"><code>probe plan</code></a>: the model-written proposal, the deterministic assessment and the contract (<a href="https://github.com/gvinsot/Probe/blob/main/app/schema/plan.schema.json">schema</a>).</td></tr>
+                <tr id="out-artifacts"><td><code>.probe/artifacts/</code></td><td class="desc">Check logs, coverage profiles, generated test sources, test results, mutant patches and fuzzing records, each referenced by its SHA-256 hash in the report.</td></tr>
               </tbody>
             </table>
           </div>
-          <p>Add <code>.swiftproof/</code> to <code>.gitignore</code>. The console prints one summary: files and lines changed, number of signals and reproduced issues, the focused review surface and changed-line execution.</p>
+          <p>Add <code>.probe/</code> to <code>.gitignore</code>. The console prints one summary: files and lines changed, number of signals and reproduced issues, the focused review surface and changed-line execution.</p>
         </section>
 
         <section id="signals">
@@ -417,7 +417,7 @@ swiftproof review --base origin/main --plan .swiftproof/PLAN.json --ci   <span c
               </tbody>
             </table>
           </div>
-          <p>Every answer is approximate: a listed caller is a place to review, and an absent caller is not proof that none exists. <code>--impacted-tests</code> runs reaching Go tests only. See <a href="https://github.com/gvinsot/SwiftProof/blob/main/app/docs/IMPACT.md">impact analysis</a>.</p>
+          <p>Every answer is approximate: a listed caller is a place to review, and an absent caller is not proof that none exists. <code>--impacted-tests</code> runs reaching Go tests only. See <a href="https://github.com/gvinsot/Probe/blob/main/app/docs/IMPACT.md">impact analysis</a>.</p>
         </section>
 
         <section id="languages">
@@ -438,8 +438,8 @@ swiftproof review --base origin/main --plan .swiftproof/PLAN.json --ci   <span c
         </section>
 
         <section id="policy">
-          <h2>Policy file: <code>.swiftproof.json</code></h2>
-          <p>The policy decides which commands run, in which image, with which limits, and whether an AI provider is used. It is read from <code>.swiftproof.json</code> on the base branch, or from <code>--config PATH</code>. When there is none, built-in <a href="#defaults">defaults</a> for the detected language apply. Keys you omit take the default values shown below.</p>
+          <h2>Policy file: <code>.probe.json</code></h2>
+          <p>The policy decides which commands run, in which image, with which limits, and whether an AI provider is used. It is read from <code>.probe.json</code> on the base branch, or from <code>--config PATH</code>. When there is none, built-in <a href="#defaults">defaults</a> for the detected language apply. Keys you omit take the default values shown below.</p>
           <p>The file must be a single JSON object of at most 1 MiB. Unknown keys, unknown command names and duplicate keys are rejected with exit <code>3</code>, so an older binary rejects a key it does not know.</p>
           <div class="table-wrap">
             <table>
@@ -465,9 +465,9 @@ swiftproof review --base origin/main --plan .swiftproof/PLAN.json --ci   <span c
   "sandbox": { "image": "golang:1.26-bookworm", "network": false, "timeout_seconds": 120,
                "max_runtime_seconds": 600, "max_output_bytes": 65536, "memory_mb": 1024, "cpus": 2 },
   "reviewer": { "endpoint": "https://api.openai.com/v1/chat/completions", "model": "",
-                "api_key_env": "SWIFTPROOF_API_KEY", "max_iterations": 20, "max_generated_tests": 10,
+                "api_key_env": "PROBE_API_KEY", "max_iterations": 20, "max_generated_tests": 10,
                 "timeout_seconds": 600, "max_input_bytes": 131072 },
-  "sensitive_paths": ["**/auth/**", "**/payment*/**", "**/migrations/**", ".github/workflows/**", ".swiftproof.json"]
+  "sensitive_paths": ["**/auth/**", "**/payment*/**", "**/migrations/**", ".github/workflows/**", ".probe.json"]
 }</code></pre>
           </div>
         </section>
@@ -495,7 +495,7 @@ swiftproof review --base origin/main --plan .swiftproof/PLAN.json --ci   <span c
             <table>
               <thead><tr><th>Key</th><th>Default</th><th>Allowed</th><th>Description</th></tr></thead>
               <tbody>
-                <tr id="policy-sandbox-image"><td><code>sandbox.image</code></td><td><code>golang:1.26-bookworm</code></td><td>image name</td><td class="desc">Preloaded image with the toolchain and dependencies. Never pulled by SwiftProof; pin it by digest if you can.</td></tr>
+                <tr id="policy-sandbox-image"><td><code>sandbox.image</code></td><td><code>golang:1.26-bookworm</code></td><td>image name</td><td class="desc">Preloaded image with the toolchain and dependencies. Never pulled by Probe; pin it by digest if you can.</td></tr>
                 <tr id="policy-sandbox-network"><td><code>sandbox.network</code></td><td><code>false</code></td><td>boolean</td><td class="desc">Allow container networking. Also requires <code>--allow-network</code> on the command line.</td></tr>
                 <tr id="policy-sandbox-timeout_seconds"><td><code>sandbox.timeout_seconds</code></td><td><code>120</code></td><td>1–3600</td><td class="desc">Time limit of each command.</td></tr>
                 <tr id="policy-sandbox-max_runtime_seconds"><td><code>sandbox.max_runtime_seconds</code></td><td><code>600</code></td><td>1–7200</td><td class="desc">Total sandbox time for the run, shared by checks and experiments.</td></tr>
@@ -513,9 +513,9 @@ swiftproof review --base origin/main --plan .swiftproof/PLAN.json --ci   <span c
             <table>
               <thead><tr><th>Key</th><th>Default</th><th>Allowed</th><th>Description</th></tr></thead>
               <tbody>
-                <tr id="policy-reviewer-model"><td><code>reviewer.model</code></td><td><code>""</code></td><td>model ID</td><td class="desc">Tool-capable model. Empty disables the reviewer. Overridden by <code>SWIFTPROOF_REVIEWER_MODEL</code>.</td></tr>
+                <tr id="policy-reviewer-model"><td><code>reviewer.model</code></td><td><code>""</code></td><td>model ID</td><td class="desc">Tool-capable model. Empty disables the reviewer. Overridden by <code>PROBE_REVIEWER_MODEL</code>.</td></tr>
                 <tr id="policy-reviewer-endpoint"><td><code>reviewer.endpoint</code></td><td><code>https://api.openai.com/v1/chat/completions</code></td><td>URL</td><td class="desc">Chat Completions endpoint with function calling; a <code>/v1</code> base URL also works. HTTPS, or HTTP on loopback only. No credentials, query or fragment; redirects are refused.</td></tr>
-                <tr id="policy-reviewer-api_key_env"><td><code>reviewer.api_key_env</code></td><td><code>SWIFTPROOF_API_KEY</code></td><td>variable name</td><td class="desc">Environment variable holding the key; <code>&lt;NAME&gt;_FILE</code> and <code>/run/secrets/&lt;NAME&gt;</code> follow it. Empty for a provider that needs no key.</td></tr>
+                <tr id="policy-reviewer-api_key_env"><td><code>reviewer.api_key_env</code></td><td><code>PROBE_API_KEY</code></td><td>variable name</td><td class="desc">Environment variable holding the key; <code>&lt;NAME&gt;_FILE</code> and <code>/run/secrets/&lt;NAME&gt;</code> follow it. Empty for a provider that needs no key.</td></tr>
                 <tr id="policy-reviewer-max_iterations"><td><code>reviewer.max_iterations</code></td><td><code>20</code></td><td>1–100</td><td class="desc">Model turns per investigation. <code>--max-iterations</code> overrides it.</td></tr>
                 <tr id="policy-reviewer-max_generated_tests"><td><code>reviewer.max_generated_tests</code></td><td><code>10</code></td><td>0–100</td><td class="desc">Temporary tests the reviewer may create.</td></tr>
                 <tr id="policy-reviewer-timeout_seconds"><td><code>reviewer.timeout_seconds</code></td><td><code>600</code></td><td>1–1800</td><td class="desc">Total time for the investigation.</td></tr>
@@ -536,7 +536,7 @@ swiftproof review --base origin/main --plan .swiftproof/PLAN.json --ci   <span c
                 <tr id="sensitive-payment"><td><code>**/payment*/**</code></td><td class="desc"><code>payment</code>, <code>payments</code> and similar directories.</td></tr>
                 <tr id="sensitive-migrations"><td><code>**/migrations/**</code></td><td class="desc">Database migrations.</td></tr>
                 <tr id="sensitive-workflows"><td><code>.github/workflows/**</code></td><td class="desc">CI workflows.</td></tr>
-                <tr id="sensitive-policy"><td><code>.swiftproof.json</code></td><td class="desc">The policy itself.</td></tr>
+                <tr id="sensitive-policy"><td><code>.probe.json</code></td><td class="desc">The policy itself.</td></tr>
               </tbody>
             </table>
           </div>
@@ -596,7 +596,7 @@ swiftproof review --base origin/main --plan .swiftproof/PLAN.json --ci   <span c
                 <tr id="policy-prepare-network"><td><code>prepare.network</code></td><td><code>false</code></td><td class="desc">Network for the build container, only with <code>--allow-prepare-network</code> and without <code>--no-network</code>.</td></tr>
                 <tr id="policy-prepare-user"><td><code>prepare.user</code></td><td><code>"sandbox"</code></td><td class="desc"><code>"sandbox"</code> (the identity of checks) or <code>"root"</code>.</td></tr>
                 <tr id="policy-prepare-timeout_seconds"><td><code>prepare.timeout_seconds</code></td><td><code>600</code></td><td class="desc">1–3600.</td></tr>
-                <tr id="policy-prepare-env"><td><code>prepare.env</code></td><td>none</td><td class="desc">Up to 32 variables baked into the derived image; names that would change what checks execute (<code>GOFLAGS</code>, <code>NODE_OPTIONS</code>, <code>LD_PRELOAD</code>, <code>SWIFTPROOF_*</code>…) are refused.</td></tr>
+                <tr id="policy-prepare-env"><td><code>prepare.env</code></td><td>none</td><td class="desc">Up to 32 variables baked into the derived image; names that would change what checks execute (<code>GOFLAGS</code>, <code>NODE_OPTIONS</code>, <code>LD_PRELOAD</code>, <code>PROBE_*</code>…) are refused.</td></tr>
                 <tr id="policy-prepare-max_added_mb"><td><code>prepare.max_added_mb</code></td><td><code>4096</code></td><td class="desc">1–65536 MiB the derived image may add.</td></tr>
               </tbody>
             </table>
@@ -605,7 +605,7 @@ swiftproof review --base origin/main --plan .swiftproof/PLAN.json --ci   <span c
 
         <section id="defaults">
           <h2>Language defaults</h2>
-          <p>Written by <code>swiftproof init</code>, and used when the base branch has no policy. Stock Node.js, Python and Rust images do not contain your dependencies: build an image that does, or add a <a href="#policy-prepare"><code>prepare</code></a> object, and adapt the commands.</p>
+          <p>Written by <code>probe init</code>, and used when the base branch has no policy. Stock Node.js, Python and Rust images do not contain your dependencies: build an image that does, or add a <a href="#policy-prepare"><code>prepare</code></a> object, and adapt the commands.</p>
           <div class="table-wrap">
             <table>
               <thead><tr><th>Language</th><th>Image</th><th>Commands</th></tr></thead>
@@ -628,14 +628,14 @@ swiftproof review --base origin/main --plan .swiftproof/PLAN.json --ci   <span c
   "reviewer": {
     "endpoint": "https://your-provider.example/v1",
     "model": "your-tool-capable-model",
-    "api_key_env": "SWIFTPROOF_API_KEY"
+    "api_key_env": "PROBE_API_KEY"
   }
 }</code></pre>
           </div>
           <div class="code">
-<pre><code>export SWIFTPROOF_API_KEY=…                       <span class="c"># from your shell or CI secret store</span>
-swiftproof review --base main --config .swiftproof.json   <span class="c"># try it before committing</span>
-swiftproof review --base main --reviewer=false            <span class="c"># turn it off for one run</span></code></pre>
+<pre><code>export PROBE_API_KEY=…                       <span class="c"># from your shell or CI secret store</span>
+probe review --base main --config .probe.json   <span class="c"># try it before committing</span>
+probe review --base main --reviewer=false            <span class="c"># turn it off for one run</span></code></pre>
           </div>
           <ul>
             <li>Only the trusted policy, <code>--config</code> or the deployment environment can enable the reviewer; a pull request cannot.</li>
@@ -652,8 +652,8 @@ swiftproof review --base main --reviewer=false            <span class="c"># turn
 
   <footer class="footer">
     <div class="wrap footer-inner">
-      <span>© SwiftProof contributors · AGPL-3.0 License</span>
-      <span><a href="getting-started.html">Getting started</a> · <a href="index.html#hub">Docker</a> · <a href="https://app.swiftproof.net">Web app</a> · <a href="download.html">Download</a> · <a href="docs.html">Docs</a> · <a href="https://github.com/gvinsot/SwiftProof">GitHub</a></span>
+      <span>© Probe contributors · AGPL-3.0 License</span>
+      <span><a href="getting-started.html">Getting started</a> · <a href="index.html#hub">Docker</a> · <a href="https://app.probe.technology">Web app</a> · <a href="download.html">Download</a> · <a href="docs.html">Docs</a> · <a href="https://github.com/gvinsot/Probe">GitHub</a></span>
     </div>
   </footer>
 </body>

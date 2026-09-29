@@ -27,12 +27,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/gvinsot/SwiftProof/app/internal/config"
-	"github.com/gvinsot/SwiftProof/app/internal/dockerutil"
-	"github.com/gvinsot/SwiftProof/app/internal/gitrepo"
-	"github.com/gvinsot/SwiftProof/app/internal/harness"
-	"github.com/gvinsot/SwiftProof/app/internal/model"
-	"github.com/gvinsot/SwiftProof/app/internal/redact"
+	"github.com/gvinsot/Probe/app/internal/config"
+	"github.com/gvinsot/Probe/app/internal/dockerutil"
+	"github.com/gvinsot/Probe/app/internal/gitrepo"
+	"github.com/gvinsot/Probe/app/internal/harness"
+	"github.com/gvinsot/Probe/app/internal/model"
+	"github.com/gvinsot/Probe/app/internal/redact"
 )
 
 // ExportLimits bound the exported inputs: at most 256 files, 32 MiB per file
@@ -197,12 +197,12 @@ func (s *stage) run(ctx context.Context) {
 		return
 	}
 	if !found {
-		s.fail(fmt.Sprintf("the sandbox image %s is not available locally; SwiftProof never pulls images", o.BaseImage))
+		s.fail(fmt.Sprintf("the sandbox image %s is not available locally; Probe never pulls images", o.BaseImage))
 		return
 	}
 	s.base = base
 	s.res.Record.BaseImageID = base.ID
-	tmp, err := os.MkdirTemp("", "swiftproof-prepare-")
+	tmp, err := os.MkdirTemp("", "probe-prepare-")
 	if err != nil {
 		s.fail("the inputs directory could not be created: " + err.Error())
 		return
@@ -372,7 +372,7 @@ func (s *stage) buildIn(ctx context.Context, name string) {
 		return
 	}
 	if changes.persistent == 0 && changes.shadowed == 0 {
-		s.fail("the prepare command exited 0 but changed no file outside the directories SwiftProof creates; install dependencies into a persistent image location such as GOMODCACHE, /opt or " + WorkDir)
+		s.fail("the prepare command exited 0 but changed no file outside the directories Probe creates; install dependencies into a persistent image location such as GOMODCACHE, /opt or " + WorkDir)
 		return
 	}
 	outputs := OutputsPersistent
@@ -489,7 +489,7 @@ func (s *stage) verify(img dockerutil.Image) string {
 func (s *stage) saveLog(data []byte, cut bool, limit int) (string, error) {
 	text := strings.ToValidUTF8(string(data), "�")
 	if cut {
-		text += fmt.Sprintf("\n[swiftproof: prepare output truncated at %d bytes]\n", limit)
+		text += fmt.Sprintf("\n[probe: prepare output truncated at %d bytes]\n", limit)
 	}
 	text = redact.Redact(text)
 	if err := os.MkdirAll(s.o.ArtifactDir, 0700); err != nil {
@@ -527,7 +527,7 @@ func (s *stage) auditArguments() string {
 	return redact.TruncateUTF8(redact.Redact(string(b)), 1024)
 }
 
-// classifier counts what `docker diff` shows beyond what SwiftProof itself
+// classifier counts what `docker diff` shows beyond what Probe itself
 // created (the scaffold directories, the inputs mount point and the copied
 // inputs). It sees the listing one line at a time, so a listing of any length
 // is classified completely, in bounded memory.
@@ -539,7 +539,7 @@ type classifier struct {
 }
 
 func newClassifier(inputs []gitrepo.ExportedFile) *classifier {
-	own := map[string]bool{"/swiftproof": true, WorkDir: true, HomeDir: true}
+	own := map[string]bool{"/probe": true, WorkDir: true, HomeDir: true}
 	for _, f := range inputs {
 		for p := WorkDir + "/" + f.Path; p != WorkDir && p != "/"; p = parentPath(p) {
 			own[p] = true
@@ -550,7 +550,7 @@ func newClassifier(inputs []gitrepo.ExportedFile) *classifier {
 
 // add classifies one `docker diff` line ("A /path", "C /path", "D /path"). A
 // line cut for length counts as persistent: a change that was not read
-// completely is never assumed to be shadowed or SwiftProof's own.
+// completely is never assumed to be shadowed or Probe's own.
 func (c *classifier) add(line string, long bool) {
 	if long {
 		c.persistent++

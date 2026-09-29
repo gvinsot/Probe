@@ -1,5 +1,5 @@
 // Package suites selects the Go test functions whose baseline version runs on
-// candidate code (swiftproof review --base-tests). Selection is static: it
+// candidate code (probe review --base-tests). Selection is static: it
 // parses committed blobs with go/parser and never executes repository code.
 package suites
 
@@ -11,7 +11,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/gvinsot/SwiftProof/app/internal/model"
+	"github.com/gvinsot/Probe/app/internal/model"
 )
 
 // Reader reads one committed file. (*gitrepo.Repository).ReadFile satisfies

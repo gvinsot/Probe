@@ -9,8 +9,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/gvinsot/SwiftProof/app/internal/config"
-	"github.com/gvinsot/SwiftProof/app/internal/model"
+	"github.com/gvinsot/Probe/app/internal/config"
+	"github.com/gvinsot/Probe/app/internal/model"
 )
 
 const (
@@ -93,9 +93,9 @@ func impactedRetryCutUnderLoad(reason string) bool {
 // TestDockerImpactedTestsEndToEnd runs the unchanged tests that reach changed
 // functions in real sandboxes (design scenarios (e) and (f) of F6).
 func TestDockerImpactedTestsEndToEnd(t *testing.T) {
-	image := os.Getenv("SWIFTPROOF_TEST_DOCKER_IMAGE")
+	image := os.Getenv("PROBE_TEST_DOCKER_IMAGE")
 	if image == "" {
-		t.Skip("set SWIFTPROOF_TEST_DOCKER_IMAGE to a preloaded Go image")
+		t.Skip("set PROBE_TEST_DOCKER_IMAGE to a preloaded Go image")
 	}
 	cfg := config.Default("go")
 	cfg.Sandbox.Image = image

@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gvinsot/SwiftProof/app/internal/model"
+	"github.com/gvinsot/Probe/app/internal/model"
 )
 
 // changedFile returns a modified file whose diff adds the given candidate
@@ -247,13 +247,13 @@ func fuzzFixture() (*model.Report, exportVerification) {
 			{ID: "check-1", Kind: model.CheckFuzzBase, Status: "PASS"}, {ID: "check-2", Kind: model.CheckFuzzCandidate, Status: "PASS"},
 			{ID: "check-3", Kind: model.CheckFuzzBaseConfirm, Status: "PASS"}, {ID: "check-4", Kind: model.CheckFuzzCandidateConfirm, Status: "PASS"},
 		},
-		Evidence: []model.Evidence{{ID: "evidence-1", Kind: model.EvidenceDifferentialFuzz, Status: model.StatusDiverged, Path: "calc/swiftproof_fuzz_x_test.go", CheckID: "check-2", BaseCheckID: "check-1", Runner: "go_test_json", TestNames: []string{"TestSwiftProofFuzzPercent_x"}}},
+		Evidence: []model.Evidence{{ID: "evidence-1", Kind: model.EvidenceDifferentialFuzz, Status: model.StatusDiverged, Path: "calc/probe_fuzz_x_test.go", CheckID: "check-2", BaseCheckID: "check-1", Runner: "go_test_json", TestNames: []string{"TestProbeFuzzPercent_x"}}},
 		Divergences: []model.Divergence{{EvidenceID: "evidence-1", Kind: model.EvidenceDifferentialFuzz, Path: "calc/calc.go", Line: 10, Symbol: "Percent", AnchorSource: anchorChangedFunction,
-			TestPath: "calc/swiftproof_fuzz_x_test.go", TestNames: []string{"TestSwiftProofFuzzPercent_x"}, CheckIDs: []string{"check-1", "check-2", "check-3", "check-4"}, HypothesisIDs: []string{},
+			TestPath: "calc/probe_fuzz_x_test.go", TestNames: []string{"TestProbeFuzzPercent_x"}, CheckIDs: []string{"check-1", "check-2", "check-3", "check-4"}, HypothesisIDs: []string{},
 			Observations: []model.Observation{
-				{Test: "TestSwiftProofFuzzPercent_x", Key: "Percent(1, 3)", Status: model.ObservationDiverged, Base: "33", Candidate: "34", BaseRecorded: true, CandidateRecorded: true},
-				{Test: "TestSwiftProofFuzzPercent_x", Key: "Percent(2, 3)", Status: model.ObservationDiverged, Base: "66", Candidate: "67", BaseRecorded: true, CandidateRecorded: true},
-				{Test: "TestSwiftProofFuzzPercent_x", Key: "Percent(5, 3)", Status: model.ObservationDiverged, Base: "166", Candidate: "167", BaseRecorded: true, CandidateRecorded: true},
+				{Test: "TestProbeFuzzPercent_x", Key: "Percent(1, 3)", Status: model.ObservationDiverged, Base: "33", Candidate: "34", BaseRecorded: true, CandidateRecorded: true},
+				{Test: "TestProbeFuzzPercent_x", Key: "Percent(2, 3)", Status: model.ObservationDiverged, Base: "66", Candidate: "67", BaseRecorded: true, CandidateRecorded: true},
+				{Test: "TestProbeFuzzPercent_x", Key: "Percent(5, 3)", Status: model.ObservationDiverged, Base: "166", Candidate: "167", BaseRecorded: true, CandidateRecorded: true},
 			}, Note: model.DivergenceNote}},
 	}
 	return r, exportVerification{evidence: map[string]string{"evidence-1": model.StatusDiverged}}
@@ -327,7 +327,7 @@ var classFixtures = map[string]classFixture{
 func TestClassTableIsComplete(t *testing.T) {
 	rules, ranks := map[string]bool{}, map[int]bool{}
 	want := []string{ClassReproduced, ClassBaseTestFailsOnCandidate, ClassImpactedTestFailsOnCandidate, ClassFuzzDivergence, ClassObservedDivergence, ClassIntentTestFailed, ClassSurvivingMutant}
-	wantRules := []string{"swiftproof/reproduced", "swiftproof/base-test-fails-on-candidate", "swiftproof/impacted-test-fails-on-candidate", "swiftproof/fuzz-divergence", "swiftproof/observed-divergence", "swiftproof/intent-test-failed", "swiftproof/surviving-mutant"}
+	wantRules := []string{"probe/reproduced", "probe/base-test-fails-on-candidate", "probe/impacted-test-fails-on-candidate", "probe/fuzz-divergence", "probe/observed-divergence", "probe/intent-test-failed", "probe/surviving-mutant"}
 	if len(findingClasses) != len(want) {
 		t.Fatalf("%d classes", len(findingClasses))
 	}

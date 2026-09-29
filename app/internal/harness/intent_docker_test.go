@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gvinsot/SwiftProof/app/internal/model"
+	"github.com/gvinsot/Probe/app/internal/model"
 )
 
 // intentDockerFixture builds a harness whose candidate adds the lines of
@@ -107,9 +107,9 @@ const (
 // compile error, and a failure or a pass of a test that references no changed
 // symbol are not.
 func TestDockerIntentGoRunner(t *testing.T) {
-	image := os.Getenv("SWIFTPROOF_TEST_DOCKER_IMAGE")
+	image := os.Getenv("PROBE_TEST_DOCKER_IMAGE")
 	if image == "" {
-		t.Skip("set SWIFTPROOF_TEST_DOCKER_IMAGE to a preloaded golang Linux image")
+		t.Skip("set PROBE_TEST_DOCKER_IMAGE to a preloaded golang Linux image")
 	}
 	files := map[string]string{"go.mod": "module example.test/shop\n\ngo 1.23.0\n", "shop.go": goShopBase}
 	h, names := intentDockerFixture(t, image, files, map[string]string{"shop.go": goShopCandidate}, []string{"go", "test", "{package}"})
@@ -120,12 +120,12 @@ func TestDockerIntentGoRunner(t *testing.T) {
 		name, path, content, status, check, reason string
 		symbols                                    []string
 	}{
-		{"assertion", "swiftproof_intent_ac1_test.go", test("TestIntentAC1", "\tif got := Discount(100); got != 90 {\n\t\tt.Errorf(\"Discount(100) = %d, want 90\", got)\n\t}\n"), model.StatusIntentTestFailed, "FAIL", "", []string{"Discount"}},
-		{"pass", "swiftproof_intent_ac1b_test.go", test("TestIntentAC1Above", "\tif got := Discount(200); got != 190 {\n\t\tt.Fatalf(\"Discount(200) = %d\", got)\n\t}\n"), model.StatusIntentTestPassed, "PASS", notePassed, []string{"Discount"}},
-		{"panic", "swiftproof_intent_panic_test.go", test("TestIntentPanic", "\tvar xs []int\n\t_ = Discount(xs[3])\n"), model.StatusUnverified, "FAIL", reasonNotAssertion, []string{"Discount"}},
-		{"compile error", "swiftproof_intent_build_test.go", test("TestIntentBuild", "\t_ = Discount(100, 2)\n"), model.StatusUnverified, "ERROR", reasonInconclusive, []string{"Discount"}},
-		{"no changed symbol", "swiftproof_intent_noref_test.go", test("TestIntentNoRef", "\tif got := Total([]int{1}); got != 2 {\n\t\tt.Fatalf(\"Total = %d\", got)\n\t}\n"), model.StatusUnverified, "FAIL", reasonNoReference, nil},
-		{"pass without a changed symbol", "swiftproof_intent_norefpass_test.go", test("TestIntentNoRefPass", "\tif got := Total([]int{1}); got != 1 {\n\t\tt.Fatalf(\"Total = %d\", got)\n\t}\n"), model.StatusUnverified, "PASS", reasonNoReference, nil},
+		{"assertion", "probe_intent_ac1_test.go", test("TestIntentAC1", "\tif got := Discount(100); got != 90 {\n\t\tt.Errorf(\"Discount(100) = %d, want 90\", got)\n\t}\n"), model.StatusIntentTestFailed, "FAIL", "", []string{"Discount"}},
+		{"pass", "probe_intent_ac1b_test.go", test("TestIntentAC1Above", "\tif got := Discount(200); got != 190 {\n\t\tt.Fatalf(\"Discount(200) = %d\", got)\n\t}\n"), model.StatusIntentTestPassed, "PASS", notePassed, []string{"Discount"}},
+		{"panic", "probe_intent_panic_test.go", test("TestIntentPanic", "\tvar xs []int\n\t_ = Discount(xs[3])\n"), model.StatusUnverified, "FAIL", reasonNotAssertion, []string{"Discount"}},
+		{"compile error", "probe_intent_build_test.go", test("TestIntentBuild", "\t_ = Discount(100, 2)\n"), model.StatusUnverified, "ERROR", reasonInconclusive, []string{"Discount"}},
+		{"no changed symbol", "probe_intent_noref_test.go", test("TestIntentNoRef", "\tif got := Total([]int{1}); got != 2 {\n\t\tt.Fatalf(\"Total = %d\", got)\n\t}\n"), model.StatusUnverified, "FAIL", reasonNoReference, nil},
+		{"pass without a changed symbol", "probe_intent_norefpass_test.go", test("TestIntentNoRefPass", "\tif got := Total([]int{1}); got != 1 {\n\t\tt.Fatalf(\"Total = %d\", got)\n\t}\n"), model.StatusUnverified, "PASS", reasonNoReference, nil},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			result := createAndRunIntent(t, h, "AC-1", tc.path, tc.content)
@@ -152,7 +152,7 @@ func TestDockerIntentGoRunner(t *testing.T) {
 		t.Fatal("the failing intent test was not retained")
 	}
 	for _, root := range []string{h.candidate, h.base} {
-		matches, _ := filepath.Glob(filepath.Join(root, "swiftproof_intent*"))
+		matches, _ := filepath.Glob(filepath.Join(root, "probe_intent*"))
 		if len(matches) != 0 {
 			t.Fatalf("intent tests left in %s: %q", root, matches)
 		}
@@ -168,13 +168,13 @@ const (
 	tsShopCandidate = tsShopBase + "\nexport function discount(total: number): number {\n  return total > 100 ? total - 10 : total;\n}\n"
 )
 
-// A real Vitest run (image SWIFTPROOF_TEST_TS_IMAGE): an expect() failure is
+// A real Vitest run (image PROBE_TEST_TS_IMAGE): an expect() failure is
 // INTENT_TEST_FAILED through the Jest-compatible report; a runtime error and a
 // thrown Error are not.
 func TestDockerTSIntentVitestRunner(t *testing.T) {
-	image := os.Getenv("SWIFTPROOF_TEST_TS_IMAGE")
+	image := os.Getenv("PROBE_TEST_TS_IMAGE")
 	if image == "" {
-		t.Skip("set SWIFTPROOF_TEST_TS_IMAGE to a preloaded image with vitest on PATH (for example swiftproof-ts-test:local)")
+		t.Skip("set PROBE_TEST_TS_IMAGE to a preloaded image with vitest on PATH (for example probe-ts-test:local)")
 	}
 	h, names := intentDockerFixture(t, image, map[string]string{"src/shop.ts": tsShopBase}, map[string]string{"src/shop.ts": tsShopCandidate}, []string{"vitest", "run", "{file}", "--reporter=json", "--outputFile={results_out}"})
 	assertion := "import { expect, test } from \"vitest\";\nimport { discount } from \"./shop\";\n\ntest(\"orders of 100 get 10 off\", () => {\n  expect(discount(100)).toBe(90);\n});\n"

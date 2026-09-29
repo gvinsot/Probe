@@ -324,7 +324,7 @@ func populatedReport() Report {
 			}},
 			Additions: 1, Deletions: 1,
 		},
-		Policy: Policy{Source: PolicyBaseRef, Commit: base, Path: ".swiftproof.json"},
+		Policy: Policy{Source: PolicyBaseRef, Commit: base, Path: ".probe.json"},
 		Prepare: &Prepare{
 			Status: PrepareBuilt, Reason: "built from the base commit", SourceCommit: base, Command: []string{"go", "mod", "download"},
 			User: "sandbox", Network: false, Key: sha, BaseImage: "golang:1.26-bookworm", BaseImageID: img, ImageID: "sha256:" + strings.Repeat("f", 64),
@@ -367,13 +367,13 @@ func populatedReport() Report {
 		AIImpactsCriticality: true,
 		Evidence: []Evidence{
 			{ID: "evidence-1", Kind: EvidenceSourceObservation, Description: "d", Path: "calc/calc.go", Output: "3: return (p*d + 99) / 100", Status: StatusObserved, TestNames: []string{}},
-			{ID: "evidence-2", Kind: EvidenceDifferentialTest, Description: "d", Path: "calc/discount_swiftproof_test.go", CheckID: "check-3", BaseCheckID: "check-2", Status: StatusReproduced, Runner: "go_test_json", TestNames: []string{"TestDiscountRounding"}},
-			{ID: "evidence-3", Kind: EvidenceDifferentialObservation, Description: "d", Path: "calc/discount_swiftproof_test.go", CheckID: "check-3", BaseCheckID: "check-2", RepeatCheckID: "check-4", Status: StatusDiverged, Runner: "go_test_json", TestNames: []string{"TestDiscountRounding"}},
-			{ID: "evidence-4", Kind: EvidenceDifferentialFuzz, Description: "d", Path: "calc/swiftproof_fuzz_x1_test.go", CheckID: "check-6", BaseCheckID: "check-5", Status: StatusNotDiverged, Runner: "go_test_json", TestNames: []string{"TestSwiftProofFuzzX1"}},
+			{ID: "evidence-2", Kind: EvidenceDifferentialTest, Description: "d", Path: "calc/discount_probe_test.go", CheckID: "check-3", BaseCheckID: "check-2", Status: StatusReproduced, Runner: "go_test_json", TestNames: []string{"TestDiscountRounding"}},
+			{ID: "evidence-3", Kind: EvidenceDifferentialObservation, Description: "d", Path: "calc/discount_probe_test.go", CheckID: "check-3", BaseCheckID: "check-2", RepeatCheckID: "check-4", Status: StatusDiverged, Runner: "go_test_json", TestNames: []string{"TestDiscountRounding"}},
+			{ID: "evidence-4", Kind: EvidenceDifferentialFuzz, Description: "d", Path: "calc/probe_fuzz_x1_test.go", CheckID: "check-6", BaseCheckID: "check-5", Status: StatusNotDiverged, Runner: "go_test_json", TestNames: []string{"TestProbeFuzzX1"}},
 			{ID: "evidence-5", Kind: EvidenceBaseTestDifferential, Description: "d", Path: "calc/calc_test.go", CheckID: "check-10", BaseCheckID: "check-9", Status: StatusFailsOnCandidate, Runner: "go_test_json", TestNames: []string{"TestDiscount"}},
 			{ID: "evidence-6", Kind: EvidenceImpactedTestDifferential, Description: "d", Path: "shop/cart_test.go", CheckID: "check-12", BaseCheckID: "check-11", Status: StatusPassesOnCandidate, Runner: "go_test_json", TestNames: []string{"TestTotal"}},
 			{ID: "evidence-7", Kind: EvidenceIntentTest, Description: "d", Path: "calc/intent_ac1_test.go", CheckID: "check-13", CriterionID: "AC-1", ReferencedSymbols: []string{"Discount", "$helper"}, Status: StatusIntentTestFailed, Runner: "go_test_json", TestNames: []string{"TestAC1"}},
-			{ID: "evidence-8", Kind: EvidenceDifferentialFuzz, Description: "d", Path: "calc/swiftproof_fuzz_x1_test.go", CheckID: "check-6", BaseCheckID: "check-5", Status: StatusDiverged, Runner: "go_test_json", TestNames: []string{"TestSwiftProofFuzzX1"}},
+			{ID: "evidence-8", Kind: EvidenceDifferentialFuzz, Description: "d", Path: "calc/probe_fuzz_x1_test.go", CheckID: "check-6", BaseCheckID: "check-5", Status: StatusDiverged, Runner: "go_test_json", TestNames: []string{"TestProbeFuzzX1"}},
 		},
 		ReproducedIssues: []Hypothesis{reproduced},
 		BaseTests: &BaseTests{Status: BaseTestsRan, Reason: "r", Note: BaseTestsNote, Tests: []BaseTest{{
@@ -383,15 +383,15 @@ func populatedReport() Report {
 		Divergences: []Divergence{
 			{
 				EvidenceID: "evidence-3", Kind: EvidenceDifferentialObservation, Path: "calc/calc.go", Line: 3, Symbol: "Discount", AnchorSource: "hypothesis",
-				TestPath: "calc/discount_swiftproof_test.go", TestNames: []string{"TestDiscountRounding"}, CheckIDs: []string{"check-2", "check-3", "check-4"},
+				TestPath: "calc/discount_probe_test.go", TestNames: []string{"TestDiscountRounding"}, CheckIDs: []string{"check-2", "check-3", "check-4"},
 				HypothesisIDs: []string{"hypothesis-2"}, Note: DivergenceNote,
 				Observations: []Observation{{Test: "TestDiscountRounding", Key: "Discount(5,33)", Status: ObservationDiverged, Base: "3", Candidate: "4", BaseRecorded: true, CandidateRecorded: true, Truncated: true, Reason: "r"}},
 			},
 			{
 				EvidenceID: "evidence-8", Kind: EvidenceDifferentialFuzz, Path: "calc/calc.go", Line: 3, Symbol: "Percent", AnchorSource: "changed_function",
-				TestPath: "calc/swiftproof_fuzz_x1_test.go", TestNames: []string{"TestSwiftProofFuzzX1"}, CheckIDs: []string{"check-5", "check-6", "check-7", "check-8"},
+				TestPath: "calc/probe_fuzz_x1_test.go", TestNames: []string{"TestProbeFuzzX1"}, CheckIDs: []string{"check-5", "check-6", "check-7", "check-8"},
 				HypothesisIDs: []string{}, Note: DivergenceNote,
-				Observations: []Observation{{Test: "TestSwiftProofFuzzX1", Key: "Percent(7, 3)", Status: ObservationDiverged, Base: "0", Candidate: "1", BaseRecorded: true, CandidateRecorded: true}},
+				Observations: []Observation{{Test: "TestProbeFuzzX1", Key: "Percent(7, 3)", Status: ObservationDiverged, Base: "0", Candidate: "1", BaseRecorded: true, CandidateRecorded: true}},
 			},
 		},
 		IntentTestFailures: []Hypothesis{intentFailure},
@@ -424,7 +424,7 @@ func populatedReport() Report {
 			Status: FuzzRan, Reason: "r", SeedScheme: FuzzSeedScheme,
 			Limits: FuzzLimits{MaxFunctions: 8, MaxPackages: 4, MaxInputs: 64, CallTimeoutMS: 1000, MaxRuntimeSeconds: 240},
 			Functions: []FuzzFunction{{
-				Path: "calc/calc.go", Line: 3, EndLine: 5, Symbol: "Percent", Signature: "func(int, int) int", TestName: "TestSwiftProofFuzzX1",
+				Path: "calc/calc.go", Line: 3, EndLine: 5, Symbol: "Percent", Signature: "func(int, int) int", TestName: "TestProbeFuzzX1",
 				Outcome: FuzzDiverged, Reason: "r", EvidenceID: "evidence-8",
 				Checks:         &FuzzChecks{Base: "check-5", Candidate: "check-6", BaseConfirm: "check-7", CandidateConfirm: "check-8"},
 				Counterexample: &FuzzCounterexample{Index: 7, Input: "Percent(7, 3)", Base: "0", Candidate: "1"},
@@ -558,7 +558,7 @@ func schemaCases(t *testing.T) (valid, invalid map[string][]edit) {
 		"unanchored divergence":                 {{"divergences/0/path", d}, {"divergences/0/line", d}, {"divergences/0/symbol", d}, {"divergences/0/anchor_source", d}},
 		"sha-256 object format commit":          {{"prepare/source_commit", strings.Repeat("0", 64)}},
 		// F2c: a TS/JS fuzz harness run by Vitest or Jest (human decision Q2).
-		"TS/JS fuzz evidence": {{"evidence/3/runner", "jest_json"}, {"evidence/3/path", "web/swiftproof_fuzz_x1.test.ts"}, {"evidence/7/runner", "jest_json"}},
+		"TS/JS fuzz evidence": {{"evidence/3/runner", "jest_json"}, {"evidence/3/path", "web/probe_fuzz_x1.test.ts"}, {"evidence/7/runner", "jest_json"}},
 		"legacy v0.2 report": {
 			{"intent_sha256", d}, {"intent_criteria", d}, {"policy", d}, {"prepare", d}, {"base_tests", d}, {"divergences", d},
 			{"intent_test_failures", d}, {"coverage", d}, {"mutation", d}, {"fuzz", d}, {"impact", d}, {"execution", d},
@@ -616,7 +616,7 @@ func schemaCases(t *testing.T) (valid, invalid map[string][]edit) {
 		"fuzz function diverged without evidence":       {{"fuzz/functions/0/evidence_id", d}},
 		"fuzz function unknown outcome":                 {{"fuzz/functions/0/outcome", "equivalent"}},
 		"fuzz limit zero":                               {{"fuzz/limits/max_inputs", 0}},
-		"fuzz seed scheme":                              {{"fuzz/seed_scheme", "swiftproof-fuzz/v2"}},
+		"fuzz seed scheme":                              {{"fuzz/seed_scheme", "probe-fuzz/v2"}},
 		"fuzz skipped over 200":                         {{"fuzz/skipped", manySkips}},
 		"fuzz unknown status":                           {{"fuzz/status", "complete"}},
 		"fuzz unknown property":                         {{"fuzz/score", 1}},
@@ -694,12 +694,12 @@ func TestSchemaRejectsInconsistentRecords(t *testing.T) {
 }
 
 // TestSchemaFixturesDump writes the valid and invalid fixtures to
-// SWIFTPROOF_TEST_SCHEMA_DUMP so that an independent Draft 2020-12 validator
+// PROBE_TEST_SCHEMA_DUMP so that an independent Draft 2020-12 validator
 // can confirm the stdlib validator's verdicts. It is skipped when unset.
 func TestSchemaFixturesDump(t *testing.T) {
-	dir := os.Getenv("SWIFTPROOF_TEST_SCHEMA_DUMP")
+	dir := os.Getenv("PROBE_TEST_SCHEMA_DUMP")
 	if dir == "" {
-		t.Skip("SWIFTPROOF_TEST_SCHEMA_DUMP is not set")
+		t.Skip("PROBE_TEST_SCHEMA_DUMP is not set")
 	}
 	valid, invalid := schemaCases(t)
 	write := func(prefix string, cases map[string][]edit) {
@@ -720,11 +720,11 @@ func TestSchemaFixturesDump(t *testing.T) {
 
 // TestSchemaValidatesReportFiles validates real report files, for example the
 // confidence-report.json of an end-to-end run, listed in
-// SWIFTPROOF_TEST_SCHEMA_REPORTS (separated by the OS path-list separator).
+// PROBE_TEST_SCHEMA_REPORTS (separated by the OS path-list separator).
 func TestSchemaValidatesReportFiles(t *testing.T) {
-	list := os.Getenv("SWIFTPROOF_TEST_SCHEMA_REPORTS")
+	list := os.Getenv("PROBE_TEST_SCHEMA_REPORTS")
 	if list == "" {
-		t.Skip("SWIFTPROOF_TEST_SCHEMA_REPORTS is not set")
+		t.Skip("PROBE_TEST_SCHEMA_REPORTS is not set")
 	}
 	v := newValidator(loadSchema(t))
 	for _, file := range filepath.SplitList(list) {

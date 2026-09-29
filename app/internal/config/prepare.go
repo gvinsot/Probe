@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/gvinsot/SwiftProof/app/internal/coverage"
+	"github.com/gvinsot/Probe/app/internal/coverage"
 )
 
 // Prepare users, defaults and limits.
@@ -94,7 +94,7 @@ func (p *Prepare) validate(s Sandbox) error {
 		if !prepareEnvName.MatchString(name) {
 			return fmt.Errorf("prepare.env name %q must match %s", name, prepareEnvName.String())
 		}
-		if prepareReservedEnv[name] || strings.HasPrefix(name, "SWIFTPROOF_") {
+		if prepareReservedEnv[name] || strings.HasPrefix(name, "PROBE_") {
 			return fmt.Errorf("prepare.env must not set %s: checks set or override it", name)
 		}
 		if prepareCommandEnv[name] {

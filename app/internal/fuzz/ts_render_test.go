@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gvinsot/SwiftProof/app/internal/harness"
+	"github.com/gvinsot/Probe/app/internal/harness"
 )
 
 // jsTestDeclaration is the rule verifiable generated JS/TS tests follow
@@ -26,7 +26,7 @@ func scriptPlan(path string, targets ...Target) PackagePlan {
 }
 
 func scriptOptions(family string) RenderOptions {
-	return RenderOptions{Suffix: "abcdef0123456789", ObservationsPath: "/tmp/swiftproof-observations.jsonl", PayloadLimit: harness.PayloadLimit(32 * 1024), CallTimeout: 250 * time.Millisecond, Family: family}
+	return RenderOptions{Suffix: "abcdef0123456789", ObservationsPath: "/tmp/probe-observations.jsonl", PayloadLimit: harness.PayloadLimit(32 * 1024), CallTimeout: 250 * time.Millisecond, Family: family}
 }
 
 func TestRenderScriptHarness(t *testing.T) {
@@ -38,24 +38,24 @@ func TestRenderScriptHarness(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if h.Path != "web/swiftproof-fuzz-abcdef0123456789.test.ts" || h.Runner != harness.RunnerJest || h.EvidenceRunner() != harness.RunnerJest || h.Display != MaxDisplayBytes {
+	if h.Path != "web/probe-fuzz-abcdef0123456789.test.ts" || h.Runner != harness.RunnerJest || h.EvidenceRunner() != harness.RunnerJest || h.Display != MaxDisplayBytes {
 		t.Fatalf("harness %s %s %d", h.Path, h.Runner, h.Display)
 	}
 	var titles []string
 	for _, m := range jsTestDeclaration.FindAllStringSubmatch(h.Content, -1) {
 		titles = append(titles, m[1]+m[2]+m[3])
 	}
-	if strings.Join(titles, ",") != strings.Join(h.TestNames(), ",") || strings.Join(titles, ",") != "TestSwiftProofFuzz_abcdef0123456789_1,TestSwiftProofFuzz_abcdef0123456789_2" {
+	if strings.Join(titles, ",") != strings.Join(h.TestNames(), ",") || strings.Join(titles, ",") != "TestProbeFuzz_abcdef0123456789_1,TestProbeFuzz_abcdef0123456789_2" {
 		t.Fatalf("test declarations %q, names %q", titles, h.TestNames())
 	}
 	for _, want := range []string{
 		"// @ts-nocheck\n",
 		"import { test } from \"vitest\";\n",
-		"import * as swiftproofFuzzabcdef0123456789_vm from \"node:vm\";\n",
-		"import { discount as swiftproofFuzzabcdef0123456789_f1, default as swiftproofFuzzabcdef0123456789_f2 } from \"./cart\";\n",
-		"const swiftproofFuzzabcdef0123456789_path = \"/tmp/swiftproof-observations.jsonl\";\n",
-		"const swiftproofFuzzabcdef0123456789_suffix = \"abcdef0123456789\";\n",
-		"const swiftproofFuzzabcdef0123456789_timeout = 250;\n",
+		"import * as probeFuzzabcdef0123456789_vm from \"node:vm\";\n",
+		"import { discount as probeFuzzabcdef0123456789_f1, default as probeFuzzabcdef0123456789_f2 } from \"./cart\";\n",
+		"const probeFuzzabcdef0123456789_path = \"/tmp/probe-observations.jsonl\";\n",
+		"const probeFuzzabcdef0123456789_suffix = \"abcdef0123456789\";\n",
+		"const probeFuzzabcdef0123456789_timeout = 250;\n",
 		"    function () { return [0, 0]; },\n",
 		"  ], [false, false]);\n}, 62500);\n",
 		// The array parameter is encoded after the call; the rest parameter is not.
@@ -82,10 +82,10 @@ func TestRenderScriptHarness(t *testing.T) {
 		t.Fatalf("jest harness: %v", err)
 	}
 	for path, want := range map[string][2]string{
-		"cart.js":      {"swiftproof-fuzz-abcdef0123456789.test.js", `from "./cart";`},
-		"web/cart.mjs": {"web/swiftproof-fuzz-abcdef0123456789.test.js", `from "./cart.mjs";`},
-		"web/cart.mts": {"web/swiftproof-fuzz-abcdef0123456789.test.ts", `from "./cart.mts";`},
-		"web/Cart.jsx": {"web/swiftproof-fuzz-abcdef0123456789.test.js", `from "./Cart";`},
+		"cart.js":      {"probe-fuzz-abcdef0123456789.test.js", `from "./cart";`},
+		"web/cart.mjs": {"web/probe-fuzz-abcdef0123456789.test.js", `from "./cart.mjs";`},
+		"web/cart.mts": {"web/probe-fuzz-abcdef0123456789.test.ts", `from "./cart.mts";`},
+		"web/Cart.jsx": {"web/probe-fuzz-abcdef0123456789.test.js", `from "./Cart";`},
 	} {
 		h, err := RenderScript(scriptPlan(path, a), scriptOptions(FamilyJest))
 		if err != nil || h.Path != want[0] || !strings.Contains(h.Content, want[1]) {

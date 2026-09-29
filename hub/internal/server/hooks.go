@@ -7,8 +7,8 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/gvinsot/SwiftProof/hub/internal/analysis"
-	"github.com/gvinsot/SwiftProof/hub/internal/store"
+	"github.com/gvinsot/Probe/hub/internal/analysis"
+	"github.com/gvinsot/Probe/hub/internal/store"
 )
 
 // maxHookBytes bounds a webhook delivery. A push payload lists the pushed

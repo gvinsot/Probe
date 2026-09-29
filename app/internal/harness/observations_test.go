@@ -12,9 +12,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gvinsot/SwiftProof/app/internal/model"
-	"github.com/gvinsot/SwiftProof/app/internal/observe"
-	"github.com/gvinsot/SwiftProof/app/internal/redact"
+	"github.com/gvinsot/Probe/app/internal/model"
+	"github.com/gvinsot/Probe/app/internal/observe"
+	"github.com/gvinsot/Probe/app/internal/redact"
 )
 
 // realAttrLog is go test -json output captured from golang:1.26-bookworm
@@ -27,26 +27,26 @@ import (
 const realAttrLog = `{"Time":"2026-09-25T22:15:27.364236596Z","Action":"start","Package":"example.com/m/pkg"}
 {"Time":"2026-09-25T22:15:27.366116976Z","Action":"run","Package":"example.com/m/pkg","Test":"TestObserve"}
 {"Time":"2026-09-25T22:15:27.366125097Z","Action":"output","Package":"example.com/m/pkg","Test":"TestObserve","Output":"=== RUN   TestObserve\n"}
-{"Time":"2026-09-25T22:15:27.366140325Z","Action":"attr","Package":"example.com/m/pkg","Test":"TestObserve","Key":"swiftproof.v","Value":"1"}
-{"Time":"2026-09-25T22:15:27.366142516Z","Action":"output","Package":"example.com/m/pkg","Test":"TestObserve","Output":"=== ATTR  TestObserve swiftproof.v 1\n"}
-{"Time":"2026-09-25T22:15:27.366143993Z","Action":"output","Package":"example.com/m/pkg","Test":"TestObserve","Output":"=== ATTR  TestObserve swiftproof.fake 9\n"}
-{"Time":"2026-09-25T22:15:27.366147984Z","Action":"attr","Package":"example.com/m/pkg","Test":"TestObserve","Key":"swiftproof.forged","Value":"7"}
-{"Time":"2026-09-25T22:15:27.366148989Z","Action":"output","Package":"example.com/m/pkg","Test":"TestObserve","Output":"=== ATTR  TestObserve swiftproof.forged 7\n"}
-{"Time":"2026-09-25T22:15:27.366153813Z","Action":"output","Package":"example.com/m/pkg","Test":"TestObserve","Output":"\u0016=== ATTR  TestObserve swiftproof.long xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"}
+{"Time":"2026-09-25T22:15:27.366140325Z","Action":"attr","Package":"example.com/m/pkg","Test":"TestObserve","Key":"probe.v","Value":"1"}
+{"Time":"2026-09-25T22:15:27.366142516Z","Action":"output","Package":"example.com/m/pkg","Test":"TestObserve","Output":"=== ATTR  TestObserve probe.v 1\n"}
+{"Time":"2026-09-25T22:15:27.366143993Z","Action":"output","Package":"example.com/m/pkg","Test":"TestObserve","Output":"=== ATTR  TestObserve probe.fake 9\n"}
+{"Time":"2026-09-25T22:15:27.366147984Z","Action":"attr","Package":"example.com/m/pkg","Test":"TestObserve","Key":"probe.forged","Value":"7"}
+{"Time":"2026-09-25T22:15:27.366148989Z","Action":"output","Package":"example.com/m/pkg","Test":"TestObserve","Output":"=== ATTR  TestObserve probe.forged 7\n"}
+{"Time":"2026-09-25T22:15:27.366153813Z","Action":"output","Package":"example.com/m/pkg","Test":"TestObserve","Output":"\u0016=== ATTR  TestObserve probe.long xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"}
 {"Time":"2026-09-25T22:15:27.366156065Z","Action":"output","Package":"example.com/m/pkg","Test":"TestObserve","Output":"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"}
-{"Time":"2026-09-25T22:15:27.36616495Z","Action":"attr","Package":"example.com/m/pkg","Test":"TestObserve","Key":"swiftproof.q","Value":"a\"b\\c"}
-{"Time":"2026-09-25T22:15:27.366165965Z","Action":"output","Package":"example.com/m/pkg","Test":"TestObserve","Output":"=== ATTR  TestObserve swiftproof.q a\"b\\c\n"}
-{"Time":"2026-09-25T22:15:27.366167131Z","Action":"attr","Package":"example.com/m/pkg","Test":"TestObserve","Key":"swiftproof.after","Value":"ok"}
+{"Time":"2026-09-25T22:15:27.36616495Z","Action":"attr","Package":"example.com/m/pkg","Test":"TestObserve","Key":"probe.q","Value":"a\"b\\c"}
+{"Time":"2026-09-25T22:15:27.366165965Z","Action":"output","Package":"example.com/m/pkg","Test":"TestObserve","Output":"=== ATTR  TestObserve probe.q a\"b\\c\n"}
+{"Time":"2026-09-25T22:15:27.366167131Z","Action":"attr","Package":"example.com/m/pkg","Test":"TestObserve","Key":"probe.after","Value":"ok"}
 {"Time":"2026-09-25T22:15:27.366169272Z","Action":"attr","Package":"example.com/m/pkg","Test":"TestObserve","Key":"other","Value":"z"}
 {"Time":"2026-09-25T22:15:27.366420427Z","Action":"run","Package":"example.com/m/pkg","Test":"TestObserve/sub"}
-{"Time":"2026-09-25T22:15:27.366505177Z","Action":"attr","Package":"example.com/m/pkg","Test":"TestObserve/sub","Key":"swiftproof.sub","Value":"s"}
+{"Time":"2026-09-25T22:15:27.366505177Z","Action":"attr","Package":"example.com/m/pkg","Test":"TestObserve/sub","Key":"probe.sub","Value":"s"}
 {"Time":"2026-09-25T22:15:27.366610713Z","Action":"pass","Package":"example.com/m/pkg","Test":"TestObserve/sub","Elapsed":0}
 {"Time":"2026-09-25T22:15:27.366652988Z","Action":"pass","Package":"example.com/m/pkg","Test":"TestObserve","Elapsed":0}
 {"Time":"2026-09-25T22:15:27.366706469Z","Action":"run","Package":"example.com/m/pkg","Test":"TestWS"}
-{"Time":"2026-09-25T22:15:27.366742422Z","Action":"output","Package":"example.com/m/pkg","Test":"TestWS","Output":"    testing.go:1606: disallowed whitespace in attribute key \"swiftproof.ws key\"\n"}
+{"Time":"2026-09-25T22:15:27.366742422Z","Action":"output","Package":"example.com/m/pkg","Test":"TestWS","Output":"    testing.go:1606: disallowed whitespace in attribute key \"probe.ws key\"\n"}
 {"Time":"2026-09-25T22:15:27.366768876Z","Action":"fail","Package":"example.com/m/pkg","Test":"TestWS","Elapsed":0}
 {"Time":"2026-09-25T22:15:27.366929723Z","Action":"run","Package":"example.com/m/pkg","Test":"TestEmpty"}
-{"Time":"2026-09-25T22:15:27.366965274Z","Action":"attr","Package":"example.com/m/pkg","Test":"TestEmpty","Key":"swiftproof.e"}
+{"Time":"2026-09-25T22:15:27.366965274Z","Action":"attr","Package":"example.com/m/pkg","Test":"TestEmpty","Key":"probe.e"}
 {"Time":"2026-09-25T22:15:27.367074448Z","Action":"pass","Package":"example.com/m/pkg","Test":"TestEmpty","Elapsed":0}
 `
 
@@ -94,7 +94,7 @@ func TestExtractGoObservationsFromRealEvents(t *testing.T) {
 	// An attr line that no longer parses, for example after redaction, fails
 	// the whole set; so does an attr event without a key.
 	for _, line := range []string{
-		`{"Action":"attr","Test":"TestObserve","Key":"swiftproof.x","Value":"[REDACTED]`,
+		`{"Action":"attr","Test":"TestObserve","Key":"probe.x","Value":"[REDACTED]`,
 		`{"Action":"attr","Test":"TestObserve","Value":"1"}`,
 	} {
 		broken := extractGoObservations(realAttrLog+line+"\n", []string{"TestObserve"})
@@ -127,7 +127,7 @@ func goLog(name, action string, pairs ...string) string {
 }
 
 func TestForgedFramingDuplicateNeverYieldsNotDiverged(t *testing.T) {
-	names := []string{"TestSwiftProofObserve"}
+	names := []string{"TestProbeObserve"}
 	base := extractGoObservations(goLog(names[0], "pass", "Discount(5,33)", "4", "Discount(0,50)", "0"), names)
 	forged := extractGoObservations(goLog(names[0], "pass", "Discount(5,33)", "4", "Discount(5,33)", "4", "Discount(0,50)", "0"), names)
 	o := observe.Compare(base, forged, nil)
@@ -219,11 +219,11 @@ func TestJestMetaNeverBreaksValidation(t *testing.T) {
 		{`null`, nil, false},
 		{`5`, nil, true},
 		{`"x"`, nil, true},
-		{`[{"swiftproof":{}}]`, nil, true},
+		{`[{"probe":{}}]`, nil, true},
 		{`{"other":1}`, nil, false},
-		{`{"swiftproof":[1]}`, nil, true},
-		{`{"swiftproof":"forged"}`, nil, true},
-		{`{"swiftproof":{"total([10],0.5)":5,"obj":{"b":2,"a":1},"nan":null,"label":"<b>5</b>"}}`, map[string]string{"total([10],0.5)": "5", "obj": `{"a":1,"b":2}`, "nan": "null", "label": `"<b>5</b>"`}, false},
+		{`{"probe":[1]}`, nil, true},
+		{`{"probe":"forged"}`, nil, true},
+		{`{"probe":{"total([10],0.5)":5,"obj":{"b":2,"a":1},"nan":null,"label":"<b>5</b>"}}`, map[string]string{"total([10],0.5)": "5", "obj": `{"a":1,"b":2}`, "nan": "null", "label": `"<b>5</b>"`}, false},
 	} {
 		results, err := normalizeJestReport([]byte(jestReportWithMeta(path, title, "passed", tc.meta)))
 		if err != nil || !redact.IsFixedPoint(results) {
@@ -255,7 +255,7 @@ func TestJestMetaNeverBreaksValidation(t *testing.T) {
 		}
 	}
 	// Only the named top-level test of the generated file is read.
-	results, _ := normalizeJestReport([]byte(jestReportWithMeta(path, title, "passed", `{"swiftproof":{"k":"1"}}`)))
+	results, _ := normalizeJestReport([]byte(jestReportWithMeta(path, title, "passed", `{"probe":{"k":"1"}}`)))
 	for _, s := range []observe.Set{
 		extractJestObservations(results, path, []string{"another title"}),
 		extractJestObservations(results, "src/other.test.ts", []string{title}),
@@ -278,7 +278,7 @@ func TestJestMetaDroppedWhenTheReportWouldBeAltered(t *testing.T) {
 	const path = "src/cart.test.ts"
 	// Neither string matches a redaction rule alone, but the encoded report
 	// does: "://a" in the title, then ':' and '@' further on.
-	raw := jestReportWithMeta(path, "x://a", "passed", `{"swiftproof":{"k":"v@w"}}`)
+	raw := jestReportWithMeta(path, "x://a", "passed", `{"probe":{"k":"v@w"}}`)
 	results, err := normalizeJestReport([]byte(raw))
 	if err != nil || !redact.IsFixedPoint(results) {
 		t.Fatalf("report not readable: %v", err)
@@ -301,13 +301,13 @@ import (
 	"testing"
 )
 
-func TestSwiftProofObserve(t *testing.T) {
-	t.Attr("swiftproof.Value()", fmt.Sprintf("%#v", Value()))
-	t.Attr("swiftproof.Twice()", fmt.Sprintf("%#v", 2*Value()))
+func TestProbeObserve(t *testing.T) {
+	t.Attr("probe.Value()", fmt.Sprintf("%#v", Value()))
+	t.Attr("probe.Twice()", fmt.Sprintf("%#v", 2*Value()))
 }
 `
 
-var observationNames = []string{"TestSwiftProofObserve"}
+var observationNames = []string{"TestProbeObserve"}
 
 // sideOf names the snapshot a docker invocation mounts.
 func sideOf(h *Harness, args []string) string {
@@ -432,7 +432,7 @@ func TestObservationDivergenceRunsOneLiveRepeat(t *testing.T) {
 func TestObservationOutcomesWithoutDivergence(t *testing.T) {
 	plain := `package pkg
 import "testing"
-func TestSwiftProofObserve(t *testing.T) { if Value() != 42 { t.Fatal("changed") } }
+func TestProbeObserve(t *testing.T) { if Value() != 42 { t.Fatal("changed") } }
 `
 	for _, tc := range []struct {
 		name         string
@@ -592,7 +592,7 @@ const observationTSSource = `import { test } from "vitest";
 import { total } from "./cart";
 
 test("observe total", ({ task }) => {
-  (task.meta as any).swiftproof = { "total([10],0.5)": total([10], 0.5) };
+  (task.meta as any).probe = { "total([10],0.5)": total([10], 0.5) };
 });
 `
 
@@ -605,7 +605,7 @@ func TestVitestObservationDivergence(t *testing.T) {
 		if !contains(args, "--outputFile="+ResultsPath) || !contains(args, path) {
 			t.Errorf("unexpected argv %q", args)
 		}
-		meta := `{"swiftproof":{"total([10],0.5)":` + values[run] + `,"shape":{"b":2,"a":1}}}`
+		meta := `{"probe":{"total([10],0.5)":` + values[run] + `,"shape":{"b":2,"a":1}}}`
 		run++
 		fmt.Fprint(payload, coverageFrame(jestReportWithMeta(path, title, "passed", meta)))
 		return execution{ExitCode: 0}
@@ -706,7 +706,7 @@ func TestObservationToolDescriptions(t *testing.T) {
 		descriptions[f["name"].(string)] = f["description"].(string)
 	}
 	for tool, fragments := range map[string][]string{
-		"create_test":        {`t.Attr("swiftproof.<key>"`, "(task.meta as any).swiftproof", "Jest cannot record observations", "at most 32"},
+		"create_test":        {`t.Attr("probe.<key>"`, "(task.meta as any).probe", "Jest cannot record observations", "at most 32"},
 		"run_generated_test": {"differential_observation", "DIVERGED", "NOT_DIVERGED", "not which one is correct"},
 	} {
 		for _, fragment := range fragments {
@@ -800,7 +800,7 @@ func TestVitestValueTypesStayDistinct(t *testing.T) {
 	values := []string{`4`, `"4"`, `4`}
 	run := 0
 	h.executeCapture = func(_ context.Context, _ string, _ []string, _, payload io.Writer) execution {
-		fmt.Fprint(payload, coverageFrame(jestReportWithMeta(path, title, "passed", `{"swiftproof":{"total([10],0.5)":`+values[run]+`}}`)))
+		fmt.Fprint(payload, coverageFrame(jestReportWithMeta(path, title, "passed", `{"probe":{"total([10],0.5)":`+values[run]+`}}`)))
 		run++
 		return execution{ExitCode: 0}
 	}
@@ -825,20 +825,20 @@ func TestLargeVitestMetaNeverMakesACheckUnreadable(t *testing.T) {
 	const path, title = "src/obs.test.ts", "observe total"
 	// 174 KiB of '<' in one value: HTML escaping would make it about 1 MiB,
 	// twice the 512 KiB payload limit of the fixture, while the raw report fits.
-	huge := `{"swiftproof":{"total([10],0.5)":"` + strings.Repeat("<", 174*1024) + `"}}`
-	small := `{"swiftproof":{"total([10],0.5)":"5"}}`
+	huge := `{"probe":{"total([10],0.5)":"` + strings.Repeat("<", 174*1024) + `"}}`
+	small := `{"probe":{"total([10],0.5)":"5"}}`
 	// Three tests with 32 values of 1000 '<' each: every value fits the
 	// compared bound, and the escaped report (about 580 KB) exceeds the limit.
 	titles := []string{"observe a", "observe b", "observe c"}
 	var sources, bigMetas, smallMetas []string
 	for _, name := range titles {
-		sources = append(sources, "test(\""+name+"\", ({ task }) => {\n  (task.meta as any).swiftproof = values();\n});\n")
+		sources = append(sources, "test(\""+name+"\", ({ task }) => {\n  (task.meta as any).probe = values();\n});\n")
 		var pairs []string
 		for k := 0; k < observe.MaxKeys; k++ {
 			pairs = append(pairs, fmt.Sprintf(`"k%02d":"%s"`, k, strings.Repeat("<", 1000)))
 		}
-		bigMetas = append(bigMetas, `{"swiftproof":{`+strings.Join(pairs, ",")+`}}`)
-		smallMetas = append(smallMetas, `{"swiftproof":{"k00":"1"}}`)
+		bigMetas = append(bigMetas, `{"probe":{`+strings.Join(pairs, ",")+`}}`)
+		smallMetas = append(smallMetas, `{"probe":{"k00":"1"}}`)
 	}
 	manySource := "import { test } from \"vitest\";\nimport { values } from \"./values\";\n\n" + strings.Join(sources, "\n")
 	one := []string{title}
@@ -855,7 +855,7 @@ func TestLargeVitestMetaNeverMakesACheckUnreadable(t *testing.T) {
 		{"one huge value", observationTSSource, one, jestReportWithMeta(path, title, "passed", small), jestReportWithMeta(path, title, "passed", huge), 0, model.StatusNotReproduced, true, false, 0},
 		{"one huge value on a failing candidate", observationTSSource, one, jestReportWithMeta(path, title, "passed", small), jestReportWithMeta(path, title, "failed", huge), 1, model.StatusReproduced, true, false, 0},
 		{"many values over the payload limit", manySource, titles, jestReportWithMetas(path, titles, smallMetas), jestReportWithMetas(path, titles, bigMetas), 0, model.StatusNotReproduced, false, true, 0},
-		{"values over the candidate results share", observationTSSource, one, jestReportWithMeta(path, title, "passed", small), jestReportWithMeta(path, title, "passed", `{"swiftproof":{"k":"`+strings.Repeat("<", 1000)+`"}}`), 0, model.StatusNotReproduced, false, true, ResultsBudget/2 - 2000},
+		{"values over the candidate results share", observationTSSource, one, jestReportWithMeta(path, title, "passed", small), jestReportWithMeta(path, title, "passed", `{"probe":{"k":"`+strings.Repeat("<", 1000)+`"}}`), 0, model.StatusNotReproduced, false, true, ResultsBudget/2 - 2000},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			h := tsFixture(t)

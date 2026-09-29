@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/gvinsot/SwiftProof/app/internal/harness"
-	"github.com/gvinsot/SwiftProof/app/internal/model"
+	"github.com/gvinsot/Probe/app/internal/harness"
+	"github.com/gvinsot/Probe/app/internal/model"
 )
 
 // scriptFakeRunner simulates Vitest or Jest runs of a TS/JS harness: it
@@ -73,7 +73,7 @@ func (f *scriptFakeRunner) scriptSide(name, kind string, req Request) Side {
 	}
 	c := model.Check{
 		ID: "check-" + strconv.Itoa(len(f.checks)+1), Kind: kind, Status: "PASS",
-		Command: []string{"vitest", "run", h.Path, "--reporter=json", "--outputFile=/tmp/swiftproof-test-results.json"},
+		Command: []string{"vitest", "run", h.Path, "--reporter=json", "--outputFile=/tmp/probe-test-results.json"},
 		Output:  "vitest log", Results: results,
 	}
 	if exited {
@@ -118,7 +118,7 @@ func TestRunScriptModule(t *testing.T) {
 		t.Fatalf("evidence %+v", r.evidence)
 	}
 	for _, e := range r.evidence {
-		if e.Runner != harness.RunnerJest || e.Path != "web/swiftproof-fuzz-abcdef0123456789.test.ts" || len(e.TestNames) != 1 {
+		if e.Runner != harness.RunnerJest || e.Path != "web/probe-fuzz-abcdef0123456789.test.ts" || len(e.TestNames) != 1 {
 			t.Fatalf("evidence %+v", e)
 		}
 	}
@@ -183,7 +183,7 @@ func TestRunScriptModuleWithoutDifference(t *testing.T) {
 	if len(r.requests) != 1 || len(rep.Functions) != 1 || rep.Functions[0].Outcome != model.FuzzNotDiverged || rep.Status != model.FuzzRan {
 		t.Fatalf("report %+v", rep)
 	}
-	if !strings.Contains(r.requests[0].Harness.Content, `import { test } from "vitest";`) || r.requests[0].Harness.Path != "swiftproof-fuzz-abcdef12.test.js" {
+	if !strings.Contains(r.requests[0].Harness.Content, `import { test } from "vitest";`) || r.requests[0].Harness.Path != "probe-fuzz-abcdef12.test.js" {
 		t.Fatalf("harness %s", r.requests[0].Harness.Path)
 	}
 	// Without a runner family the module is not rendered: inconclusive.

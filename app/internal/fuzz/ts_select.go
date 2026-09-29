@@ -13,7 +13,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/gvinsot/SwiftProof/app/internal/model"
+	"github.com/gvinsot/Probe/app/internal/model"
 )
 
 // LanguageScript is the Target.Language of a TS/JS function.

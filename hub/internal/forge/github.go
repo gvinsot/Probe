@@ -14,7 +14,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/gvinsot/SwiftProof/hub/internal/config"
+	"github.com/gvinsot/Probe/hub/internal/config"
 )
 
 // GitHub speaks the REST API of github.com and of a GitHub Enterprise Server

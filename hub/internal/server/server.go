@@ -23,18 +23,18 @@ import (
 	"sync"
 	"time"
 
-	"github.com/gvinsot/SwiftProof/hub/internal/accounts"
-	"github.com/gvinsot/SwiftProof/hub/internal/analysis"
-	"github.com/gvinsot/SwiftProof/hub/internal/config"
-	"github.com/gvinsot/SwiftProof/hub/internal/events"
-	"github.com/gvinsot/SwiftProof/hub/internal/secrets"
-	"github.com/gvinsot/SwiftProof/hub/internal/store"
-	hubweb "github.com/gvinsot/SwiftProof/hub/web"
+	"github.com/gvinsot/Probe/hub/internal/accounts"
+	"github.com/gvinsot/Probe/hub/internal/analysis"
+	"github.com/gvinsot/Probe/hub/internal/config"
+	"github.com/gvinsot/Probe/hub/internal/events"
+	"github.com/gvinsot/Probe/hub/internal/secrets"
+	"github.com/gvinsot/Probe/hub/internal/store"
+	hubweb "github.com/gvinsot/Probe/hub/web"
 )
 
 const (
-	sessionCookie = "swiftproof_hub_session"
-	csrfHeader    = "X-SwiftProof-CSRF"
+	sessionCookie = "probe_hub_session"
+	csrfHeader    = "X-Probe-CSRF"
 	// maxRequestBytes bounds any request body the hub parses.
 	maxRequestBytes = 1 << 20
 )

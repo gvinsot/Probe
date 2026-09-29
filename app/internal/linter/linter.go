@@ -19,8 +19,8 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/gvinsot/SwiftProof/app/internal/gitrepo"
-	"github.com/gvinsot/SwiftProof/app/internal/model"
+	"github.com/gvinsot/Probe/app/internal/gitrepo"
+	"github.com/gvinsot/Probe/app/internal/model"
 )
 
 // rule is a line heuristic. subject names what its pattern matches; the summary

@@ -11,8 +11,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/gvinsot/SwiftProof/app/internal/config"
-	"github.com/gvinsot/SwiftProof/app/internal/model"
+	"github.com/gvinsot/Probe/app/internal/config"
+	"github.com/gvinsot/Probe/app/internal/model"
 )
 
 // The CLI runs every check of a review in the prepared image: a Go test that
@@ -20,15 +20,15 @@ import (
 // second review reuses the image without running the command, and the same
 // review without prepare fails that test on the plain sandbox image.
 func TestDockerReviewUsesPreparedImage(t *testing.T) {
-	image := os.Getenv("SWIFTPROOF_TEST_DOCKER_IMAGE")
+	image := os.Getenv("PROBE_TEST_DOCKER_IMAGE")
 	if image == "" {
-		t.Skip("set SWIFTPROOF_TEST_DOCKER_IMAGE to a preloaded Go image")
+		t.Skip("set PROBE_TEST_DOCKER_IMAGE to a preloaded Go image")
 	}
 	suffix := make([]byte, 4)
 	if _, err := rand.Read(suffix); err != nil {
 		t.Fatal(err)
 	}
-	prepared := "/go/pkg/swiftproof-cli-prepare-" + hex.EncodeToString(suffix)
+	prepared := "/go/pkg/probe-cli-prepare-" + hex.EncodeToString(suffix)
 	dir := t.TempDir()
 	git(t, dir, "init", "-b", "main")
 	write(t, dir, "go.mod", "module example.test/prepared\n\ngo 1.23\n")

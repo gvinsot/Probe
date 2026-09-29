@@ -5,7 +5,7 @@ import (
 	"os"
 	"os/signal"
 
-	"github.com/gvinsot/SwiftProof/app/internal/cli"
+	"github.com/gvinsot/Probe/app/internal/cli"
 )
 
 var version = "dev"

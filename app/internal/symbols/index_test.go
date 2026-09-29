@@ -12,8 +12,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gvinsot/SwiftProof/app/internal/gitrepo"
-	"github.com/gvinsot/SwiftProof/app/internal/model"
+	"github.com/gvinsot/Probe/app/internal/gitrepo"
+	"github.com/gvinsot/Probe/app/internal/model"
 )
 
 // An import cycle between repository packages is broken: both packages are
@@ -163,12 +163,12 @@ func mustRead(b *testing.B, p string) string {
 }
 
 // BenchmarkAnalyzeRepository measures Analyze on a real repository named by
-// SWIFTPROOF_BENCH_REPO, comparing HEAD~1 with HEAD, and reports the heap in
+// PROBE_BENCH_REPO, comparing HEAD~1 with HEAD, and reports the heap in
 // use while the index is retained. It is skipped otherwise.
 func BenchmarkAnalyzeRepository(b *testing.B) {
-	dir := os.Getenv("SWIFTPROOF_BENCH_REPO")
+	dir := os.Getenv("PROBE_BENCH_REPO")
 	if dir == "" {
-		b.Skip("SWIFTPROOF_BENCH_REPO is not set")
+		b.Skip("PROBE_BENCH_REPO is not set")
 	}
 	repo, err := gitrepo.Open(context.Background(), dir)
 	if err != nil {

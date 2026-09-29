@@ -3,7 +3,7 @@ package store
 import (
 	"time"
 
-	"github.com/gvinsot/SwiftProof/hub/internal/report"
+	"github.com/gvinsot/Probe/hub/internal/report"
 )
 
 // RecentRun is the minimum browser projection needed to aggregate statuses.

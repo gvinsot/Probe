@@ -24,14 +24,14 @@ jobs:
           cache: false
       - run: go test ./...
       - run: go vet ./...
-      - run: go build ./cmd/swiftproof
+      - run: go build ./cmd/probe
       - if: runner.os == 'Linux'
         run: go test -race ./...
       - if: runner.os == 'Linux'
         run: docker pull golang:1.26-bookworm
       - if: runner.os == 'Linux'
         env:
-          SWIFTPROOF_TEST_DOCKER_IMAGE: golang:1.26-bookworm
+          PROBE_TEST_DOCKER_IMAGE: golang:1.26-bookworm
         run: go test ./... -run Docker -count=1 -timeout 30m -v
 
   build:
@@ -51,7 +51,7 @@ jobs:
       - name: Upload Windows and Linux archives
         uses: actions/upload-artifact@v4
         with:
-          name: swiftproof-build
+          name: probe-build
           path: |
             app/dist/*.tar.gz
             app/dist/*.zip
@@ -69,4 +69,4 @@ jobs:
         with:
           persist-credentials: false
       - name: Build the website image
-        run: docker build -t swiftproof-web:ci .
+        run: docker build -t probe-web:ci .

@@ -1,7 +1,7 @@
 package report
 
 import (
-	"github.com/gvinsot/SwiftProof/app/internal/model"
+	"github.com/gvinsot/Probe/app/internal/model"
 )
 
 // baseTestFindings returns one finding per base_tests item whose Finalize

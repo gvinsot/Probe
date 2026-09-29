@@ -27,8 +27,8 @@ import (
 	"strings"
 	"unicode"
 
-	"github.com/gvinsot/SwiftProof/app/internal/model"
-	"github.com/gvinsot/SwiftProof/app/internal/redact"
+	"github.com/gvinsot/Probe/app/internal/model"
+	"github.com/gvinsot/Probe/app/internal/redact"
 )
 
 // Finding classes (§1.16). The order of findingClasses is the export order.
@@ -86,9 +86,9 @@ func fixedLevel(level string) func(finding) string {
 
 var findingClasses = []findingClass{
 	{
-		Class: ClassReproduced, Status: model.StatusReproduced, RuleID: "swiftproof/reproduced", RuleName: "Reproduced", Rank: 1,
+		Class: ClassReproduced, Status: model.StatusReproduced, RuleID: "probe/reproduced", RuleName: "Reproduced", Rank: 1,
 		Short:        "A generated test passed on the baseline and failed on the candidate.",
-		Full:         "A model-written generated test passed on a live baseline run and failed on the candidate under the same command, and SwiftProof re-derived both outcomes from the recorded named-test execution. The severity is the reviewer model's classification.",
+		Full:         "A model-written generated test passed on a live baseline run and failed on the candidate under the same command, and Probe re-derived both outcomes from the recorded named-test execution. The severity is the reviewer model's classification.",
 		Help:         "Reproduced means only that this recorded experiment passed on the baseline and failed on the candidate. It does not confirm a defect and does not show that the test's assertion encodes the intended behavior; a human judges the assertion. Only a high or critical reproduced hypothesis produces exit code 1, which is also the only case this rule reports at level error.",
 		Heading:      "Reproduced hypotheses",
 		Caveat:       "A generated test passed on the baseline and failed on the candidate. This does not confirm a defect: a human judges whether the test's assertion is the intended behavior.",
@@ -101,7 +101,7 @@ var findingClasses = []findingClass{
 		},
 	},
 	{
-		Class: ClassBaseTestFailsOnCandidate, Status: model.StatusFailsOnCandidate, RuleID: "swiftproof/base-test-fails-on-candidate", RuleName: "BaseTestFailsOnCandidate", Rank: 2,
+		Class: ClassBaseTestFailsOnCandidate, Status: model.StatusFailsOnCandidate, RuleID: "probe/base-test-fails-on-candidate", RuleName: "BaseTestFailsOnCandidate", Rank: 2,
 		Short:        "The baseline version of a test that the change edited passed on the baseline and failed on candidate code.",
 		Full:         "The baseline version of a Go test function that the change modified or removed passed on a live baseline run and failed on the candidate tree with that package's test files reverted to the baseline, under the same command.",
 		Help:         "The baseline version of a test the change edited failed on candidate code after passing on the baseline; a human judges why. It is not a reproduced issue: the change may intend a different outcome, the baseline assertion may not be the intended behavior, a flaky test can produce it, and it does not show that the test edit is wrong or deliberate. It never produces exit code 1.",
@@ -110,7 +110,7 @@ var findingClasses = []findingClass{
 		DefaultLevel: levelWarning, NeedsEvidence: true, level: fixedLevel(levelWarning),
 	},
 	{
-		Class: ClassImpactedTestFailsOnCandidate, Status: model.StatusFailsOnCandidate, RuleID: "swiftproof/impacted-test-fails-on-candidate", RuleName: "ImpactedTestFailsOnCandidate", Rank: 3,
+		Class: ClassImpactedTestFailsOnCandidate, Status: model.StatusFailsOnCandidate, RuleID: "probe/impacted-test-fails-on-candidate", RuleName: "ImpactedTestFailsOnCandidate", Rank: 3,
 		Short:        "An existing test that the change did not edit, statically linked to a changed function, passed on the baseline and failed on the candidate.",
 		Full:         "An existing Go test that the change did not modify, and that the approximate static index links to a changed function, passed on a live baseline run and failed on the candidate under the same command.",
 		Help:         "The static link is approximate: the failure may come from any part of the change or from flakiness, and it does not show that the linked function caused it. It is not a reproduced issue and never produces exit code 1.",
@@ -119,7 +119,7 @@ var findingClasses = []findingClass{
 		DefaultLevel: levelWarning, NeedsEvidence: true, level: fixedLevel(levelWarning),
 	},
 	{
-		Class: ClassFuzzDivergence, Status: model.StatusDiverged, RuleID: "swiftproof/fuzz-divergence", RuleName: "FuzzDivergence", Rank: 4,
+		Class: ClassFuzzDivergence, Status: model.StatusDiverged, RuleID: "probe/fuzz-divergence", RuleName: "FuzzDivergence", Rank: 4,
 		Short:        "Identical seeded inputs gave different recorded values on the baseline and the candidate.",
 		Full:         "Differential fuzzing ran a changed function on identical seeded inputs on both revisions, and a confirmation pair, whose baseline run was live, recorded the same difference. No model chose the inputs.",
 		Help:         "A divergence records a difference between recorded values for recorded inputs. It does not establish which revision is correct and is not a defect report; the values are bounded, redacted serializations. It never produces exit code 1.",
@@ -128,7 +128,7 @@ var findingClasses = []findingClass{
 		DefaultLevel: levelWarning, NeedsEvidence: true, level: fixedLevel(levelWarning),
 	},
 	{
-		Class: ClassObservedDivergence, Status: model.StatusDiverged, RuleID: "swiftproof/observed-divergence", RuleName: "ObservedDivergence", Rank: 5,
+		Class: ClassObservedDivergence, Status: model.StatusDiverged, RuleID: "probe/observed-divergence", RuleName: "ObservedDivergence", Rank: 5,
 		Short:        "A generated test recorded different values on the baseline and the candidate for the same inputs.",
 		Full:         "A model-written generated test recorded values instead of asserting them, and a recorded key differed between the candidate and two baseline runs that agreed with each other, the second of them live.",
 		Help:         "The reviewer model chose the inputs. A divergence records a difference, not which revision is correct, and is not a defect report; the values are bounded, redacted serializations. It never produces exit code 1.",
@@ -137,7 +137,7 @@ var findingClasses = []findingClass{
 		DefaultLevel: levelWarning, NeedsEvidence: true, level: fixedLevel(levelWarning),
 	},
 	{
-		Class: ClassIntentTestFailed, Status: model.StatusIntentTestFailed, RuleID: "swiftproof/intent-test-failed", RuleName: "IntentTestFailed", Rank: 6,
+		Class: ClassIntentTestFailed, Status: model.StatusIntentTestFailed, RuleID: "probe/intent-test-failed", RuleName: "IntentTestFailed", Rank: 6,
 		Short:        "A model-written test for an acceptance criterion failed on the candidate.",
 		Full:         "A model-written test for one quoted acceptance criterion, which references symbols the change added or modified, failed on an assertion when it ran on the candidate only.",
 		Help:         "There is no baseline control, and the test or its reading of the criterion may be wrong. It is not a reproduction and does not show that the change departs from the intent. It never produces exit code 1.",
@@ -146,7 +146,7 @@ var findingClasses = []findingClass{
 		DefaultLevel: levelNote, NeedsEvidence: true, level: fixedLevel(levelNote),
 	},
 	{
-		Class: ClassSurvivingMutant, Status: model.MutantSurvived, RuleID: "swiftproof/surviving-mutant", RuleName: "SurvivingMutant", Rank: 7,
+		Class: ClassSurvivingMutant, Status: model.MutantSurvived, RuleID: "probe/surviving-mutant", RuleName: "SurvivingMutant", Rank: 7,
 		Short:        "A single mutation of an added line left the package's tests passing.",
 		Full:         "A deterministic single change to an added Go line was applied in a private copy of the candidate, and the configured package test command passed on it, as it did on the unmodified control run.",
 		Help:         "The mutant may be semantically equivalent to the original code, and the tests of other packages were not run. It is not a defect, dead code or a missing test by itself, and no mutation score is computed. It does not request review on its own.",
@@ -596,7 +596,7 @@ func assignFingerprints(list []finding) {
 		key := f.Class + "\x00" + p + "\x00" + f.Identity
 		n := seen[key]
 		seen[key] = n + 1
-		input := "swiftproof-finding/v1\x00" + key
+		input := "probe-finding/v1\x00" + key
 		if n > 0 {
 			input += fmt.Sprintf("\x00#%d", n)
 		}

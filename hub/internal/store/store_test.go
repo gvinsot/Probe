@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gvinsot/SwiftProof/hub/internal/report"
+	"github.com/gvinsot/Probe/hub/internal/report"
 )
 
 func open(t *testing.T) *Store {

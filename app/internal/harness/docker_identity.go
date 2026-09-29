@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/gvinsot/SwiftProof/app/internal/dockerutil"
+	"github.com/gvinsot/Probe/app/internal/dockerutil"
 )
 
 // dockerIdentity is what the execution cache records about the sandbox it

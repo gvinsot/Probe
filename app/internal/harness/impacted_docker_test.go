@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/gvinsot/SwiftProof/app/internal/model"
+	"github.com/gvinsot/Probe/app/internal/model"
 )
 
 // Real sandboxes: the unchanged cart tests run on the baseline and on the
@@ -14,9 +14,9 @@ import (
 // candidate; TestCount passed inside that failed run and gets a run pair of
 // its own. No container survives.
 func TestDockerImpactedTestsRealGo(t *testing.T) {
-	image := os.Getenv("SWIFTPROOF_TEST_DOCKER_IMAGE")
+	image := os.Getenv("PROBE_TEST_DOCKER_IMAGE")
 	if image == "" {
-		t.Skip("set SWIFTPROOF_TEST_DOCKER_IMAGE to a preloaded golang Linux image")
+		t.Skip("set PROBE_TEST_DOCKER_IMAGE to a preloaded golang Linux image")
 	}
 	h, names := dockerRunFixture(t, image, brokenTotal)
 	h.opts.Commands["generated_test"] = []string{"go", "test", "{package}"}

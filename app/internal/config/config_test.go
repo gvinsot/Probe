@@ -54,7 +54,7 @@ func TestRejectInvalidPolicy(t *testing.T) {
 	}
 }
 
-// The coverage command is the only command whose argv SwiftProof rewrites, so
+// The coverage command is the only command whose argv Probe rewrites, so
 // its profile destination must be unambiguous: the token the operator wrote is
 // expanded in place, exactly once, and no flag is ever appended behind it.
 func TestRejectInvalidCoverageCommand(t *testing.T) {
@@ -155,7 +155,7 @@ func TestDecodeWithoutCoverageStaysValid(t *testing.T) {
 // model arrive as variables and the credential as a mounted Docker secret,
 // while the trusted policy keeps deciding everything else.
 func TestResolveReviewerFromDeployment(t *testing.T) {
-	const secret = "/run/secrets/SWIFTPROOF_API_KEY"
+	const secret = "/run/secrets/PROBE_API_KEY"
 	files := map[string]string{
 		secret:             "secret-key\n",
 		"/run/secrets/alt": "alt-key",
@@ -189,21 +189,21 @@ func TestResolveReviewerFromDeployment(t *testing.T) {
 			wantEndpoint: "https://api.openai.com/v1/chat/completions",
 			wantKey:      "secret-key", wantSource: "API key from " + secret},
 		"variable wins over the mounted secret": {
-			env:          map[string]string{"SWIFTPROOF_API_KEY": "environment-key"},
+			env:          map[string]string{"PROBE_API_KEY": "environment-key"},
 			wantEndpoint: "https://api.openai.com/v1/chat/completions",
-			wantKey:      "environment-key", wantSource: "API key from SWIFTPROOF_API_KEY"},
+			wantKey:      "environment-key", wantSource: "API key from PROBE_API_KEY"},
 		"secret mounted under another target": {
-			env:          map[string]string{"SWIFTPROOF_API_KEY_FILE": "/run/secrets/alt"},
+			env:          map[string]string{"PROBE_API_KEY_FILE": "/run/secrets/alt"},
 			wantEndpoint: "https://api.openai.com/v1/chat/completions",
 			wantKey:      "alt-key", wantSource: "API key from /run/secrets/alt"},
 		"explicitly named secret must exist": {
-			env:     map[string]string{"SWIFTPROOF_API_KEY_FILE": "/run/secrets/absent"},
+			env:     map[string]string{"PROBE_API_KEY_FILE": "/run/secrets/absent"},
 			wantErr: "reviewer API key secret /run/secrets/absent"},
 		"unusable secret is reported": {
-			env:     map[string]string{"SWIFTPROOF_API_KEY_FILE": "/run/secrets/bad"},
+			env:     map[string]string{"PROBE_API_KEY_FILE": "/run/secrets/bad"},
 			wantErr: "secret must be a single line"},
 		"empty secret is reported": {
-			env:     map[string]string{"SWIFTPROOF_API_KEY_FILE": "/run/secrets/nil"},
+			env:     map[string]string{"PROBE_API_KEY_FILE": "/run/secrets/nil"},
 			wantErr: "secret is empty"},
 	} {
 		t.Run(name, func(t *testing.T) {
