@@ -1485,6 +1485,11 @@ function statusClass(status) {
 }
 
 function alertLocation(alert) {
+  if (alert.members && alert.members.length) {
+    const paths = [...new Set(alert.members.map((member) => member.path))];
+    return (paths.length === 1 ? paths[0] + ' · whole file' : paths.length + ' files')
+      + ' · ' + alert.members.length + ' signals grouped';
+  }
   if (!alert.path) return alert.reasons ? alert.reasons.join(', ') : '';
   if (alert.scope === 'file') return alert.path + ' · whole file';
   let where = alert.path;
@@ -1498,9 +1503,38 @@ function alertLocation(alert) {
 
 // alertBody shows the rationale, the recorded evidence and, above all, the
 // modifications the alert concerns.
-function alertBody(alert) {
+function alertBody(alert, showDiff = true) {
   const body = document.createElement('div');
   body.className = 'alert-body';
+
+  if (alert.members && alert.members.length) {
+    const files = new Map();
+    for (const member of alert.members) {
+      if (!files.has(member.path)) files.set(member.path, []);
+      files.get(member.path).push(member);
+    }
+    for (const [path, members] of files) {
+      const section = document.createElement('div');
+      section.className = 'alert-group-file';
+      const label = document.createElement('h4');
+      label.textContent = path;
+      section.appendChild(label);
+      const shown = new Set();
+      for (const member of members) {
+        const { id, ...content } = member;
+        const key = JSON.stringify(content);
+        if (shown.has(key)) continue;
+        shown.add(key);
+        const title = document.createElement('b');
+        title.textContent = member.title;
+        section.appendChild(title);
+        section.appendChild(alertBody(member, false));
+      }
+      appendAlertDiff(section, members[0]);
+      body.appendChild(section);
+    }
+    return body;
+  }
 
   if (alert.explanation || alert.rationale && alert.judgment) {
     const reading = document.createElement('div');
@@ -1566,6 +1600,11 @@ function alertBody(alert) {
     body.appendChild(box);
   }
 
+  if (showDiff) appendAlertDiff(body, alert);
+  return body;
+}
+
+function appendAlertDiff(body, alert) {
   const file = alert.path ? findFile(alert.path) : null;
   if (file) {
     body.appendChild(renderDiff(file, alert));
@@ -1577,7 +1616,6 @@ function alertBody(alert) {
       : 'The analyzed range carries no diff for ' + alert.path + '.';
     body.appendChild(missing);
   }
-  return body;
 }
 
 // alertLines names the lines an alert points at, as the subject of a sentence.

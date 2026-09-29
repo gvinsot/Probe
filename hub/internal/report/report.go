@@ -296,6 +296,9 @@ type Alert struct {
 	Rationale        string `json:"rationale,omitempty"`
 	OriginalSeverity string `json:"original_severity,omitempty"`
 	SetAside         bool   `json:"set_aside,omitempty"`
+	// Members preserves each source signal when equivalent file changes are
+	// presented together. The group is a display convenience, not a verdict.
+	Members []Alert `json:"members,omitempty"`
 }
 
 // Counts holds how many alerts each severity carries.
@@ -457,7 +460,8 @@ func (r *Report) Dismissed() []Alert {
 }
 
 // alertLists builds the active and the dismissed alerts, both ranked. Only
-// the active list is deduplicated per line: a dismissed alert hides nothing.
+// the active list is deduplicated per line and grouped by file change: a
+// dismissed alert hides nothing.
 func (r *Report) alertLists() (active, dismissed []Alert) {
 	all := r.allAlerts()
 	active = make([]Alert, 0, len(all))
@@ -468,7 +472,7 @@ func (r *Report) alertLists() (active, dismissed []Alert) {
 		}
 		active = append(active, a)
 	}
-	return dedupeLines(active), dismissed
+	return r.groupFileSignals(dedupeLines(active)), dismissed
 }
 
 // allAlerts builds every alert, ranked and not deduplicated.

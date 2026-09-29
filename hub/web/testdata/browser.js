@@ -433,6 +433,32 @@ window.addEventListener('DOMContentLoaded', async () => {
     assert(lineDiff.querySelectorAll('tr.focus').length === 1 && !lineDiff.querySelector('.diff-note'), 'a line alert highlights its line');
     const outside = renderDiff(diffFile, { ...lineAlert, line: 40, end_line: 40 });
     assert(!outside.querySelector('tr.focus') && outside.querySelector('.diff-note').textContent.startsWith('Line 40 is outside the recorded diff'), 'a line outside the diff is named');
+    // Related file signals share a card, with all reasons and one diff per file.
+    const savedView = state.view;
+    const grouped = { id: 'group:cache-bust', kind: 'signal', severity: 'high', status: 'OBSERVED', title: 'Configuration value changed: KEY', members: [
+      { ...wholeFile, id: 's1', detail: 'Configured sensitive path', reasons: ['sensitive_path'] },
+      { ...wholeFile, id: 's2', title: 'Deployment configuration changed', detail: 'Inspect permissions', reasons: ['infrastructure_change'], explanation: 'A shared build default changed', judgment: 'uncertain' },
+      { ...wholeFile, id: 's3', path: 'docker-compose.yml', detail: 'Compose pattern', reasons: ['sensitive_path'] },
+      { ...wholeFile, id: 's4', path: 'devops/docker-compose.swarm.yml', detail: 'Swarm pattern', reasons: ['sensitive_path'] },
+    ] };
+    state.view = { alerts: [grouped], files: [diffFile, { ...diffFile, path: 'docker-compose.yml' }, { ...diffFile, path: 'devops/docker-compose.swarm.yml' }] };
+    state.kind = 'all'; state.minSeverity = 0;
+    renderKindFilter(); renderAlerts();
+    assert(el('alert-count').textContent === '1 of 1 alerts shown' && el('kinds').textContent.includes('Signals (1)'), 'filters count groups');
+    assert(el('alerts').querySelectorAll('.alert').length === 1 && el('alerts').textContent.includes('3 files · 4 signals grouped'), 'one card names the group size');
+    el('alerts').querySelector('.alert-head').click();
+    assert(el('alerts').querySelector('.alert-head').getAttribute('aria-expanded') === 'true', 'group expands accessibly');
+    assert(el('alerts').querySelectorAll('.diff').length === 3 && !el('alerts').querySelector('tr.focus'), 'one complete diff per file with no invented line focus');
+    for (const text of ['Configured sensitive path', 'Inspect permissions', 'sensitive_path', 'infrastructure_change', 'Compose pattern', 'Swarm pattern', 'A shared build default changed']) {
+      assert(el('alerts').textContent.includes(text), 'group preserves ' + text);
+    }
+    state.minSeverity = 3; renderAlerts();
+    assert(el('alert-count').textContent === '0 of 1 alerts shown', 'group obeys severity filter');
+    state.view.files = [diffFile];
+    assert(alertBody(grouped).textContent.includes('no diff for docker-compose.yml'), 'missing group diffs are explicit');
+    const duplicate = { ...grouped, members: [grouped.members[0], { ...grouped.members[0], id: 'duplicate' }] };
+    assert(alertBody(duplicate).querySelectorAll('.alert-detail').length === 1, 'identical explanations are displayed once');
+    state.view = savedView; state.minSeverity = 0; state.expanded.delete(grouped.id);
     // A partial SSE payload must not erase the known queue date or verdict.
     const liveCommit = fixtureSHA('f');
     const queued = fixtureAgo(0.1);
