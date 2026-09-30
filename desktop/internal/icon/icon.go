@@ -51,7 +51,7 @@ func ICO(alert bool) []byte {
 	return buf.Bytes()
 }
 
-// draw renders the 32-unit design of favicon.svg, supersampled 4x per pixel.
+// draw renders the 32-unit design of the logo, supersampled 4x per pixel.
 func draw(size int, alert bool) *image.RGBA {
 	img := image.NewRGBA(image.Rect(0, 0, size, size))
 	const ss = 4

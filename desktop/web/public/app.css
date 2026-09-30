@@ -4,16 +4,16 @@
    Content-Security-Policy. */
 
 :root {
-  --bg: #f7f8fa;
+  --bg: #f5f7fa;
   --surface: #ffffff;
-  --surface-alt: #f2f5f9;
+  --surface-alt: #eaeef4;
   --text: #16202c;
   --muted: #566273;
-  --line: #d9dee6;
-  --accent: #0f7b6c;
-  --accent-strong: #0a5c51;
-  --accent-soft: #d9f0ec;
-  --ok: #0f7b6c;
+  --line: #d6dce6;
+  --accent: #1f5fd6;
+  --accent-strong: #174aa8;
+  --accent-soft: #dce8fb;
+  --ok: #1f8f6a;
   --low: #7a8699;
   --medium: #b7791f;
   --high: #d9603b;
@@ -29,16 +29,16 @@
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --bg: #0d1117;
-    --surface: #161d27;
-    --surface-alt: #1b2330;
-    --text: #e6ebf1;
-    --muted: #9aa6b5;
-    --line: #273140;
-    --accent: #3cc2ab;
-    --accent-strong: #62d6c2;
-    --accent-soft: #123a35;
-    --ok: #3cc2ab;
+    --bg: #08090d;
+    --surface: #12151d;
+    --surface-alt: #0d1017;
+    --text: #e9edf3;
+    --muted: #9ba3b1;
+    --line: #232935;
+    --accent: #4a90ff;
+    --accent-strong: #7fb0ff;
+    --accent-soft: #10213f;
+    --ok: #3fbf8f;
     --low: #8b97a6;
     --medium: #e0b252;
     --high: #ff8f70;
@@ -83,6 +83,9 @@ h1, h2, h3 { line-height: 1.25; }
   border-bottom: 1px solid var(--line);
 }
 .brand { display: flex; align-items: center; gap: 10px; font-weight: 700; }
+/* The wordmark is black on white: multiply drops the white on light pages; inverted and screened it reads white on dark (same as the website). */
+.brand-title { display: block; height: 32px; width: auto; mix-blend-mode: multiply; }
+@media (prefers-color-scheme: dark) { .brand-title { filter: invert(1); mix-blend-mode: screen; } }
 .brand small { font-weight: 500; color: var(--muted); }
 .status { color: var(--muted); font-size: 0.84rem; }
 .status.busy { color: var(--accent); }
@@ -97,12 +100,14 @@ h1, h2, h3 { line-height: 1.25; }
   background: var(--accent);
   color: #fff;
   padding: 7px 14px;
-  border-radius: 8px;
+  border-radius: 999px;
   font: inherit;
   font-size: 0.88rem;
+  font-weight: 600;
   cursor: pointer;
 }
 .btn:hover { background: var(--accent-strong); border-color: var(--accent-strong); }
+@media (prefers-color-scheme: dark) { .btn:not(.ghost):not(.quiet) { color: #04122b; } }
 .btn:disabled { opacity: 0.5; cursor: not-allowed; }
 .btn.ghost { background: transparent; color: var(--accent); }
 .btn.ghost:hover { background: var(--accent-soft); }
