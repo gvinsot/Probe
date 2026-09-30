@@ -1,6 +1,9 @@
 name: CI
 on:
   push:
+    # A release tag points at a commit CI already tested on its branch, and
+    # release.yml verifies it again before publishing.
+    tags-ignore: ['v*']
   pull_request:
 permissions:
   contents: read

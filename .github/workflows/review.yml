@@ -52,7 +52,7 @@ jobs:
             https://github.com/gvinsot/Probe/releases/download/v0.5.0/probe-v0.5.0-linux-amd64.tar.gz
           echo '27f7fdf8fceccae0f8fd2b7df2e6d67ebecb094afe12d26a923977f38290099d  probe.tar.gz' | sha256sum --check
           tar -xzf probe.tar.gz
-          echo "$RUNNER_TEMP/probe-v0.1.0-linux-amd64" >> "$GITHUB_PATH"
+          echo "$RUNNER_TEMP/probe-v0.5.0-linux-amd64" >> "$GITHUB_PATH"
       - name: Preload the trusted test image
         env:
           IMAGE: ${{ inputs.sandbox-image }}
