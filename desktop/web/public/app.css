@@ -201,6 +201,7 @@ h1, h2, h3 { line-height: 1.25; }
 .message { margin: 14px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px; font-size: 0.88rem; }
 .message.warn { border-color: color-mix(in srgb, var(--medium) 45%, var(--line)); color: var(--medium); }
 .message.error { border-color: color-mix(in srgb, var(--critical) 45%, var(--line)); color: var(--critical); }
+.message.tone { border-color: color-mix(in srgb, var(--tone) 45%, var(--line)); color: var(--tone); }
 .section-title { margin: 0; padding: 12px 14px 6px; font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); }
 
 .explanation { margin: 12px 14px; border: 1px solid var(--line); border-left: 3px solid var(--accent); border-radius: 8px; padding: 10px 12px; font-size: 0.88rem; background: var(--accent-soft); display: grid; gap: 6px; }

@@ -74,6 +74,30 @@ func TestParseAnswerRaisesBoundedAIFindings(t *testing.T) {
 	}
 }
 
+func TestParseAnswerRaisesSeverityOnLegalAndFinancialImpact(t *testing.T) {
+	for _, c := range []struct {
+		raw     string
+		impacts string
+		sev     string
+	}{
+		{`{"explanation":"Le taux de pénalité passe de 1 % à 10 %. Cette modification peut avoir une incidence juridique et financière."}`, "legal,financial", office.Critical},
+		{`Cette modification peut avoir une incidence juridique et financière.`, "legal,financial", office.Critical},
+		{`{"explanation":"The liability cap was removed; this has legal and financial implications."}`, "legal,financial", office.Critical},
+		{`{"explanation":"The payment term changed.","impacts":["Financial","legal"]}`, "legal,financial", office.Critical},
+		{`{"explanation":"The total changed: check the financial impact.","impacts":[]}`, "financial", office.High},
+		{`{"explanation":"A title was reworded.","impacts":["cosmetic"]}`, "", ""},
+		{`{"explanation":"Cette modification n'a aucune incidence juridique ni financière."}`, "", ""},
+		{`{"explanation":"The wording changed but has no legal or financial impact."}`, "", ""},
+		{`{"explanation":"Check the legal meaning and the amounts."}`, "", ""},
+		{`{"explanation":"The rate changed.","findings":[{"severity":"medium","title":"Incidence juridique et financière possible sur la clause 4"}]}`, "legal,financial", office.Critical},
+	} {
+		res := parseAnswer(c.raw)
+		if got := strings.Join(res.Impacts, ","); got != c.impacts || res.Severity != c.sev {
+			t.Errorf("%s\n  impacts %q severity %q, want %q %q", c.raw, got, res.Severity, c.impacts, c.sev)
+		}
+	}
+}
+
 func TestParseAnswerFallsBackToPlainText(t *testing.T) {
 	for _, raw := range []string{"Just check C1.", `{"findings":[{"title":"x"}]}`, "{broken"} {
 		res := parseAnswer(raw)

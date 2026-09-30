@@ -118,6 +118,14 @@ function statusChip(doc) {
   return el("span", { class: "chip" }, STATUS_LABEL[doc.status] || doc.status);
 }
 
+// detailSeverity mirrors the watcher: the AI explanation can raise the
+// report severity, never lower it.
+function detailSeverity(d) {
+  const sev = d.report ? d.report.severity : "none";
+  const raised = d.explanation && d.explanation.severity;
+  return raised && RANK[raised] > RANK[sev] ? raised : sev;
+}
+
 function needsReview(doc) {
   if (doc.status === "removed") return true;
   return doc.status === "changed" && RANK[doc.severity] >= ui.threshold;
@@ -279,7 +287,7 @@ function renderDetail() {
   const panel = $("detail");
   const name = d.path.split(/[\\/]/).pop();
   const head = el("div", { class: "detail-head" },
-    el("div", { class: "detail-title" }, kindBadge(d.kind), el("h2", { text: name }), statusChip({ ...d, severity: d.report ? d.report.severity : "none" })),
+    el("div", { class: "detail-title" }, kindBadge(d.kind), el("h2", { text: name }), statusChip({ ...d, severity: detailSeverity(d) })),
     el("p", { class: "detail-sub mono", text: d.path }),
     el("p", { class: "detail-sub", text: metaLine(d) }),
     actions(d),
@@ -296,6 +304,10 @@ function renderDetail() {
   }
 
   if (d.explanation) {
+    if (d.report && RANK[d.explanation.severity] > RANK[d.report.severity]) {
+      const impacts = (d.explanation.impacts || []).join(" and ");
+      parts.push(el("p", { class: `message tone tone-${d.explanation.severity}`, text: `Severity raised from ${d.report.severity} to ${d.explanation.severity}: the model states this modification may have ${impacts} consequences.` }));
+    }
     parts.push(el("div", { class: "explanation" },
       el("p", { text: d.explanation.text }),
       el("span", { class: "note", text: `Explanation by ${d.explanation.model} · ${ago(d.explanation.at)} · the findings below remain the reference` }),
@@ -304,7 +316,7 @@ function renderDetail() {
     if (extra.length) {
       parts.push(el("h3", { class: "section-title", text: `Raised by AI (${extra.length})` }));
       parts.push(el("ul", { class: "findings ai-findings" }, ...extra.map(findingItem)));
-      parts.push(el("p", { class: "note", text: "Suggestions from the model, not rule results: check them in the document. They do not change the severity above." }));
+      parts.push(el("p", { class: "note", text: "Suggestions from the model, not rule results: check them in the document." }));
     }
   }
 

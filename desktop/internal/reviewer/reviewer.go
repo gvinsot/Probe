@@ -4,7 +4,11 @@
 // comparison already produced, never the whole document. It answers with a
 // plain-language explanation and may point out additional risky changes the
 // rules missed. Those are kept apart as AI findings: they never remove or
-// downgrade a rule finding and never change the verdict of the rules.
+// downgrade a rule finding.
+//
+// When the model states that the modifications may have a legal or financial
+// impact, the severity of the document is raised: to high for one of them, to
+// critical for both. The model can only raise the severity, never lower it.
 package reviewer
 
 import (
@@ -13,6 +17,7 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 
@@ -36,7 +41,19 @@ var ErrNotConfigured = errors.New("no AI provider is configured: choose one and 
 type Result struct {
 	Text     string
 	Findings []office.Finding
+	// Impacts are the consequences the model states the modifications may
+	// have (ImpactLegal, ImpactFinancial), declared or written in its answer.
+	Impacts []string
+	// Severity is the level the impacts raise the document to, empty when
+	// they raise nothing.
+	Severity string
 }
+
+// Impacts the model can state.
+const (
+	ImpactLegal     = "legal"
+	ImpactFinancial = "financial"
+)
 
 // maxAIFindings bounds what the model can add to a report.
 const maxAIFindings = 10
@@ -75,17 +92,30 @@ func Explain(ctx context.Context, s config.Settings, apiKey, path string, report
 	return parseAnswer(raw), nil
 }
 
-// parseAnswer reads the JSON answer asked by the prompt. A model that ignores
-// the format (small local models) still gives a usable explanation: the raw
-// text is then shown as is, without extra findings.
+// parseAnswer reads the JSON answer asked by the prompt and the impacts it
+// states. A model that ignores the format (small local models) still gives a
+// usable explanation: the raw text is then shown as is, without extra
+// findings, and still read for impacts.
 func parseAnswer(raw string) Result {
+	res, declared := decodeAnswer(raw)
+	texts := []string{res.Text}
+	for _, f := range res.Findings {
+		texts = append(texts, f.Title)
+	}
+	res.Impacts = impacts(declared, texts)
+	res.Severity = escalation(res.Impacts)
+	return res
+}
+
+func decodeAnswer(raw string) (Result, []string) {
 	raw = strings.TrimSpace(raw)
 	start, end := strings.Index(raw, "{"), strings.LastIndex(raw, "}")
 	if start < 0 || end <= start {
-		return Result{Text: raw}
+		return Result{Text: raw}, nil
 	}
 	var a struct {
-		Explanation string `json:"explanation"`
+		Explanation string   `json:"explanation"`
+		Impacts     []string `json:"impacts"`
 		Findings    []struct {
 			Severity string `json:"severity"`
 			Title    string `json:"title"`
@@ -95,7 +125,7 @@ func parseAnswer(raw string) Result {
 		} `json:"findings"`
 	}
 	if err := json.Unmarshal([]byte(raw[start:end+1]), &a); err != nil || strings.TrimSpace(a.Explanation) == "" {
-		return Result{Text: raw}
+		return Result{Text: raw}, nil
 	}
 	res := Result{Text: strings.TrimSpace(a.Explanation)}
 	for _, f := range a.Findings {
@@ -112,7 +142,62 @@ func parseAnswer(raw string) Result {
 			Location: clip(f.Location, 200), Before: clip(f.Before, 600), After: clip(f.After, 600),
 		})
 	}
-	return res
+	return res, a.Impacts
+}
+
+// A sentence states an impact when it names a consequence and its domain,
+// like "Cette modification peut avoir une incidence juridique et financière"
+// or "this change has legal and financial implications", and is not negated.
+var (
+	sentenceEnd    = regexp.MustCompile(`[.!?;\n]+`)
+	consequenceRe  = regexp.MustCompile(`(?i)incidence|impact|cons[ée]quence|implication|effet|effect|port[ée]e|enjeu|risque|risk|exposure|exposition`)
+	legalRe        = regexp.MustCompile(`(?i)juridique|l[ée]gal|contractuel|contractual|r[ée]glementaire|regulatory`)
+	financialRe    = regexp.MustCompile(`(?i)financi|fiscal`)
+	negationRe     = regexp.MustCompile(`(?i)\b(aucune?|sans|pas|ni|no|not|without|none|neither|nor)\b`)
+	notNegationsRe = regexp.MustCompile(`(?i)\bno longer\b|\bnot only\b|\bpas seulement\b`)
+)
+
+// impacts merges the impacts the model declared with the ones its text
+// states, in a fixed order.
+func impacts(declared, texts []string) []string {
+	legal, financial := false, false
+	for _, d := range declared {
+		switch strings.ToLower(strings.TrimSpace(d)) {
+		case ImpactLegal:
+			legal = true
+		case ImpactFinancial:
+			financial = true
+		}
+	}
+	for _, t := range texts {
+		for _, s := range sentenceEnd.Split(t, -1) {
+			if !consequenceRe.MatchString(s) || negationRe.MatchString(notNegationsRe.ReplaceAllString(s, "")) {
+				continue
+			}
+			legal = legal || legalRe.MatchString(s)
+			financial = financial || financialRe.MatchString(s)
+		}
+	}
+	var out []string
+	if legal {
+		out = append(out, ImpactLegal)
+	}
+	if financial {
+		out = append(out, ImpactFinancial)
+	}
+	return out
+}
+
+// escalation is the severity the impacts raise the document to: a change
+// that may have both legal and financial consequences is critical.
+func escalation(impacts []string) string {
+	switch len(impacts) {
+	case 0:
+		return ""
+	case 1:
+		return office.High
+	}
+	return office.Critical
 }
 
 func clip(s string, n int) string {
@@ -140,8 +225,10 @@ Write a short explanation for a non-technical reader:
 
 You may also raise additional findings: risky changes visible in the excerpts that the rules did not flag (a figure that no longer matches its context, a meaning reversed by rewording, a suspicious removal...). Only raise a finding you can point to in the excerpts, with its location; do not repeat a finding already listed. Use severity "high", "medium" or "low". Raise none when nothing was missed.
 
+List in "impacts" the consequences the modifications may have: "legal" (meaning of a contract or commitment, obligations, liability, compliance) and "financial" (amounts, prices, payments, totals, budget). List one only when the excerpts support it and say it in the explanation; leave the list empty otherwise.
+
 Answer with a single JSON object and nothing else:
-{"explanation": "...", "findings": [{"severity": "medium", "title": "...", "location": "...", "before": "...", "after": "..."}]}
+{"explanation": "...", "impacts": ["legal", "financial"], "findings": [{"severity": "medium", "title": "...", "location": "...", "before": "...", "after": "..."}]}
 The explanation is written in ` + lang + `, in plain text with short paragraphs or "- " bullet lines, no tables, no headings, at most 250 words. The titles of the findings are in ` + lang + ` too.`
 }
 

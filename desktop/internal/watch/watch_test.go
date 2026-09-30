@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/gvinsot/Probe/desktop/internal/config"
+	"github.com/gvinsot/Probe/desktop/internal/office"
 )
 
 func writeDocx(t *testing.T, path, text string, when time.Time) {
@@ -135,5 +136,21 @@ func TestUnwatchedFolderIsForgotten(t *testing.T) {
 	w.Scan()
 	if st := w.State(); st.Total != 0 {
 		t.Fatalf("documents of an unwatched folder kept: %d", st.Total)
+	}
+}
+
+func TestExplanationRaisesSeverityNeverLowers(t *testing.T) {
+	d := Document{Status: StatusChanged, Report: &office.Report{Severity: office.Medium}}
+	d.Explanation = &Explanation{Severity: office.Critical}
+	if got := d.Severity(); got != office.Critical {
+		t.Errorf("raised severity = %s, want critical", got)
+	}
+	d.Report.Severity, d.Explanation.Severity = office.High, office.Low
+	if got := d.Severity(); got != office.High {
+		t.Errorf("lowered severity = %s, want high", got)
+	}
+	d.Explanation.Severity = ""
+	if got := d.Severity(); got != office.High {
+		t.Errorf("no escalation = %s, want high", got)
 	}
 }

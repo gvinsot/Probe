@@ -324,7 +324,10 @@ func (s *Server) explain(w http.ResponseWriter, r *http.Request) {
 		writeError(w, status, err.Error())
 		return
 	}
-	e := watch.Explanation{Provider: st.Provider, Model: st.EffectiveModel(), Text: res.Text, Findings: res.Findings, At: time.Now()}
+	e := watch.Explanation{
+		Provider: st.Provider, Model: st.EffectiveModel(), Text: res.Text, Findings: res.Findings,
+		Impacts: res.Impacts, Severity: res.Severity, At: time.Now(),
+	}
 	if err := s.deps.Watcher.SetExplanation(id, d.CurrentHash, e); err != nil {
 		writeError(w, http.StatusConflict, err.Error())
 		return

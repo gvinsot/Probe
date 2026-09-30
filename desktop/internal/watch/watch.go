@@ -56,7 +56,12 @@ type Explanation struct {
 	// Findings are the extra risks the model raised. They are shown apart
 	// from the report and do not change its severity.
 	Findings []office.Finding `json:"findings,omitempty"`
-	At       time.Time        `json:"at"`
+	// Impacts are the legal or financial consequences the model stated, and
+	// Severity the level they raise the document to: the model can raise the
+	// severity of the report, never lower it.
+	Impacts  []string  `json:"impacts,omitempty"`
+	Severity string    `json:"severity,omitempty"`
+	At       time.Time `json:"at"`
 }
 
 // Document is the state of one watched file.
@@ -82,12 +87,16 @@ func (d *Document) NeedsReview() bool {
 	return d.Status == StatusChanged || d.Status == StatusRemoved
 }
 
-// Severity is the report severity, or "high" for a removed document.
+// Severity is the report severity, raised by the impacts the AI explanation
+// stated, or "high" for a removed document.
 func (d *Document) Severity() string {
 	switch {
 	case d.Status == StatusRemoved:
 		return office.High
 	case d.Report != nil:
+		if d.Explanation != nil && office.Rank(d.Explanation.Severity) > office.Rank(d.Report.Severity) {
+			return d.Explanation.Severity
+		}
 		return d.Report.Severity
 	}
 	return office.None

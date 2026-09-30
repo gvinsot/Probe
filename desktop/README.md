@@ -9,7 +9,11 @@ The findings are computed on the computer by fixed rules. An AI provider
 (Anthropic or OpenAI, or a local OpenAI-compatible model) can be configured to
 explain a report in plain language and to raise extra findings the rules
 missed. Those are listed apart as "Raised by AI"; they never remove a rule
-finding and never change the severity of the report.
+finding and never change the severity of the report. When the model states
+that the modifications may have a legal or financial impact ("Cette
+modification peut avoir une incidence juridique et financière"), the severity
+of the document is raised to high for one of them and to critical for both;
+the model can raise a severity, never lower it.
 
 ## What it flags
 
