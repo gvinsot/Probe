@@ -31,6 +31,8 @@ type Options struct {
 	MaxIterations int
 	Timeout       time.Duration
 	MaxInputBytes int
+	// Context reads the cross-repository context; nil when there is none.
+	Context ContextReader
 }
 
 type toolHarness interface {
@@ -145,10 +147,15 @@ func Run(ctx context.Context, o Options, r *model.Report, h toolHarness) error {
 		Evidence       []model.Evidence        `json:"evidence"`
 		// Knowledge holds the knowledge base entries relevant to the change.
 		Knowledge []model.KnowledgeEntry `json:"knowledge,omitempty"`
+		// ContextRepos are the other repositories the reviewer can read.
+		ContextRepos []model.ContextRepo `json:"context_repos,omitempty"`
 		// HunksOmitted tells the model to read the diff with get_diff: the
 		// whole diff would leave no room for the investigation.
 		HunksOmitted bool `json:"hunks_omitted,omitempty"`
-	}{safe.Intent, safe.IntentCriteria, safe.Change, safe.Signals, safe.Checks, safe.Evidence, nil, false}
+	}{safe.Intent, safe.IntentCriteria, safe.Change, safe.Signals, safe.Checks, safe.Evidence, nil, nil, false}
+	if o.Context != nil {
+		input.ContextRepos = o.Context.Repos()
+	}
 	if safe.Knowledge != nil {
 		input.Knowledge = safe.Knowledge.Entries
 	}
@@ -179,6 +186,10 @@ func Run(ctx context.Context, o Options, r *model.Report, h toolHarness) error {
 	// Appended after the read-only swap so that both review modes apply them.
 	prompt += clean(rulesPrompt(redact.TruncateUTF8(safe.CodingRules, MaxCodingRulesBytes)))
 	prompt += clean(feedbackPrompt(safe.TeamFeedback))
+	if len(input.ContextRepos) > 0 {
+		prompt += contextPrompt
+		definitions = append(definitions, contextTools()...)
+	}
 	if r.Knowledge != nil {
 		prompt += knowledgePromptFor(len(input.Knowledge) > 0)
 		definitions = append(definitions, knowledgeTool())
@@ -268,6 +279,9 @@ func Run(ctx context.Context, o Options, r *model.Report, h toolHarness) error {
 			} else if call.Function.Name == AssessTool {
 				localCall = true
 				result, err = assess(r, []byte(clean(call.Function.Arguments)))
+			} else if isContextTool(call.Function.Name) {
+				localCall = true
+				result, err = callContext(ctx, o.Context, call.Function.Name, []byte(call.Function.Arguments))
 			} else if call.Function.Name == KnowledgeTool {
 				localCall = true
 				result, err = recordKnowledge(&r.Knowledge.Updates, []byte(clean(call.Function.Arguments)))

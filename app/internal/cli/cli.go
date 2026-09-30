@@ -42,6 +42,7 @@ Usage:
   probe knowledge build [--base main] [--focus TEXT]
   probe knowledge apply [--from .probe/knowledge-updates.json]
   probe knowledge check [--knowledge PROBE_KNOWLEDGE.md]
+  probe context check [--context-dir DIR] [--context-repo NAME=PATH] [--clusters FILE]
   probe report [--input .probe/confidence-report.json] [--out DIR] [--format LIST] [--report-url URL]
   probe version
 
@@ -62,6 +63,9 @@ The codebase knowledge base (PROBE_KNOWLEDGE.md, editable Markdown) is read at
 the tip of the base branch and given to the reviewer, which proposes updates in
 .probe/knowledge-updates.json; knowledge build proposes entries from a
 read-only exploration, apply merges proposals for you to review and commit.
+Policy "context" names other repositories, directly or through repository
+clusters, that the reviewer reads to check cross-repository contracts; point
+review at their checkouts with --context-dir or --context-repo NAME=PATH.
 
 Evidence stages (review only unless noted; policy keys fuzz, mutation and prepare
 are opt-in and need a v0.4 binary):
@@ -97,6 +101,8 @@ func Run(ctx context.Context, args []string, stdout, stderr io.Writer, version s
 		return planCommand(ctx, args[1:], stdout, stderr, version)
 	case "knowledge":
 		return knowledgeCommand(ctx, args[1:], stdout, stderr, version)
+	case "context":
+		return contextCommand(ctx, args[1:], stdout, stderr)
 	default:
 		fmt.Fprintf(stderr, "unknown command %q\n%s", args[0], usage)
 		return 3
@@ -166,6 +172,7 @@ func analyze(ctx context.Context, mode string, args []string, out, errOut io.Wri
 	intentFile := f.String("intent-file", "", "UTF-8 file containing PR intent")
 	rules := f.String("rules", "", "review: team coding rules the reviewer checks the changed code against")
 	rulesFile := f.String("rules-file", "", "review: UTF-8 file containing team coding rules")
+	contextOptions := addContextFlags(f)
 	knowledgePath := f.String("knowledge", knowledge.DefaultPath, "review: codebase knowledge base, read at the tip of --base and given to the reviewer, which proposes updates; \"none\" disables it")
 	feedbackFile := f.String("feedback-file", "", "review: JSON file of team feedback on earlier findings (Probe Hub writes it), used to adapt the reviewer to the team")
 	allowNetwork := f.Bool("allow-network", false, "permit sandbox network only if trusted policy also enables it")
@@ -365,6 +372,30 @@ func analyze(ctx context.Context, mode string, args []string, out, errOut io.Wri
 			r.CodingRulesSHA256 = fmt.Sprintf("%x", sha256.Sum256([]byte(codingRules)))
 		} else {
 			fmt.Fprintln(errOut, "Coding rules not applied: no reviewer runs in this analysis.")
+		}
+	}
+	// Cross-repository context comes from the trusted policy, like the rest.
+	if *useReviewer {
+		temp, err := os.MkdirTemp("", "probe-context-")
+		if err != nil {
+			return fail(errOut, 4, "%v", err)
+		}
+		defer os.RemoveAll(temp)
+		set, records, err := openContext(ctx, cfg, repo, contextOptions, temp)
+		if err != nil {
+			return fail(errOut, 3, "context: %v", err)
+		}
+		if len(records) > 0 {
+			r.ContextRepos = records
+			fmt.Fprintln(errOut, contextSummary(records))
+			for _, c := range records {
+				if c.Status != model.ContextAvailable {
+					fmt.Fprintf(errOut, "  %s unavailable: %s\n", c.Name, c.Reason)
+				}
+			}
+			if len(set.Repos()) > 0 {
+				reviewerOptions.Context = set
+			}
 		}
 	}
 	// The knowledge base comes from the tip of the base ref, like the policy:

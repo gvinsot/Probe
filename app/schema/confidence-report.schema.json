@@ -18,6 +18,7 @@
     "coding_rules_sha256": {"$ref": "#/$defs/sha256", "description": "SHA-256 of coding_rules as recorded."},
     "team_feedback": {"$ref": "#/$defs/teamFeedback"},
     "knowledge": {"$ref": "#/$defs/knowledge"},
+    "context_repos": {"type": "array", "maxItems": 20, "items": {"$ref": "#/$defs/contextRepo"}, "description": "Other repositories the reviewer could read as cross-repository context (policy \"context\", directly or through repository clusters), each at one commit. Reading them is inspection, never evidence. Present only when a reviewer ran."},
     "team_feedback_sha256": {"$ref": "#/$defs/sha256", "description": "SHA-256 of the --feedback-file content as read."},
     "change": {"$ref": "#/$defs/change"},
     "policy": {"$ref": "#/$defs/policy"},
@@ -294,6 +295,22 @@
         "entries_total": {"type": "integer", "minimum": 0},
         "entries": {"type": "array", "items": {"$ref": "#/$defs/knowledgeEntry"}, "description": "The entries relevant to the change: path matches first, then repository-wide entries, within a bounded budget."},
         "updates": {"type": "array", "maxItems": 20, "items": {"$ref": "#/$defs/knowledgeUpdate"}, "description": "Additions, replacements (same title) and removals (obsolete) the reviewer proposed, written to knowledge-updates.json for a person to apply and commit."}
+      }
+    },
+    "contextRepo": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "clusters", "ref", "files", "status"],
+      "properties": {
+        "name": {"type": "string"},
+        "role": {"type": "string"},
+        "clusters": {"type": "array", "items": {"type": "string"}, "description": "The repository clusters it came from; empty when declared directly."},
+        "ref": {"type": "string"},
+        "commit": {"type": "string"},
+        "source": {"enum": ["local", "fetched"]},
+        "files": {"type": "integer", "minimum": 0},
+        "status": {"enum": ["available", "unavailable"]},
+        "reason": {"type": "string"}
       }
     },
     "knowledgeEntry": {

@@ -406,6 +406,21 @@ func renderMarkdown(r *model.Report) []byte {
 		}
 		line(&b, "")
 	}
+	if len(r.ContextRepos) > 0 {
+		line(&b, "Cross-repository context read by the reviewer (inspection, not evidence):\n")
+		for _, c := range r.ContextRepos {
+			via := "declared directly"
+			if len(c.Clusters) > 0 {
+				via = "cluster " + strings.Join(c.Clusters, ", ")
+			}
+			if c.Status == model.ContextAvailable {
+				fmt.Fprintf(&b, "- %s (%s): %s at %s, %s, %d files\n", inline(c.Name), inline(via), inline(c.Ref), inline(shortHash(c.Commit)), inline(c.Source), c.Files)
+			} else {
+				fmt.Fprintf(&b, "- %s (%s): unavailable, %s\n", inline(c.Name), inline(via), inline(c.Reason))
+			}
+		}
+		line(&b, "")
+	}
 	if k := r.Knowledge; k != nil {
 		fmt.Fprintf(&b, "Knowledge base: %d of %d entries of %s given to the reviewer (context, not evidence).", len(k.Entries), k.EntriesTotal, inline(k.Path))
 		if len(k.Updates) > 0 {

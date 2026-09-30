@@ -11,7 +11,7 @@ import (
 func TestDefaultsWriteNoReleaseOrderedKeys(t *testing.T) {
 	for _, lang := range []string{"go", "typescript", "javascript", "python", "unknown"} {
 		c := Default(lang)
-		if c.Fuzz != nil || c.Mutation != nil || c.Prepare != nil {
+		if c.Fuzz != nil || c.Mutation != nil || c.Prepare != nil || c.Context != nil {
 			t.Fatalf("Default(%q) sets a v0.4 key: %+v %+v %+v", lang, c.Fuzz, c.Mutation, c.Prepare)
 		}
 		b, err := json.Marshal(c)
@@ -22,7 +22,7 @@ func TestDefaultsWriteNoReleaseOrderedKeys(t *testing.T) {
 		if err := json.Unmarshal(b, &keys); err != nil {
 			t.Fatal(err)
 		}
-		for _, key := range []string{"fuzz", "mutation", "prepare"} {
+		for _, key := range []string{"fuzz", "mutation", "prepare", "context"} {
 			if _, ok := keys[key]; ok {
 				t.Errorf("Default(%q) marshals %q", lang, key)
 			}

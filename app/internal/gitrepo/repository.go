@@ -485,3 +485,8 @@ func (r *blobReader) separator() error {
 	}
 	return nil
 }
+
+// ResolveCommit resolves a revision of this repository to a commit identifier.
+func (r *Repository) ResolveCommit(ctx context.Context, ref string) (string, error) {
+	return r.resolve(ctx, ref)
+}

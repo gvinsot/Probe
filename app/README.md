@@ -335,6 +335,73 @@ concrete defect, and a `no_risk` reading still needs its source observation.
 The report records it in `team_feedback` and `team_feedback_sha256` when a
 reviewer ran.
 
+### Cross-repository context and repository clusters
+
+A change often depends on contracts that live in another repository: shared
+types, an SDK, an API client, a sibling microservice. The trusted policy can
+name those repositories so that the reviewer reads them while reviewing a
+change, and reports an incompatibility, for example a changed endpoint that
+the SDK still calls the old way:
+
+```json
+{
+  "context": {
+    "repos": [
+      "company/shared-types",
+      {"name": "company/payment-sdk", "ref": "main", "paths": ["src/**"], "role": "payment SDK",
+       "url": "https://github.com/company/payment-sdk.git"}
+    ],
+    "clusters": ["payments"],
+    "cluster_definitions": {
+      "payments": {"description": "Payment service, its SDK and shared types",
+                   "repos": ["company/payment-service", "company/payment-sdk", "company/shared-types"]}
+    }
+  }
+}
+```
+
+- **Repositories.** Each entry is a name (`owner/repo`) or an object: `ref`
+  (branch, tag or commit; `HEAD` by default), `paths` (globs that restrict what
+  is read), `role` (what it is, for the reviewer) and `url`.
+- **Clusters.** A cluster is a named group of related repositories: a service
+  and its clients, a backend and its SDK, the members of a distributed system.
+  `clusters` lists the clusters this repository belongs to; every other member
+  becomes context, and the repository itself is left out (Probe recognizes it
+  from its `origin` remote). Clusters are defined in `cluster_definitions`, or
+  once for a whole organization in an operator file given with
+  `--clusters FILE` (`{"clusters": {"payments": {...}}}`). A cluster defined
+  in both places is refused.
+- **Where the code comes from.** Probe reads a local checkout, given with
+  `--context-repo NAME=PATH` (repeatable) or found under `--context-dir DIR`
+  as `DIR/owner/repo` or `DIR/repo`. It never uses the working tree: it reads
+  the committed files at `ref`, from Git objects. With `--fetch-context`, a
+  repository without a checkout is shallow-fetched from its `url` (https or
+  ssh, no credentials in the URL; Git uses your credential helper). A
+  repository that cannot be found is recorded as unavailable with the reason;
+  it never fails the review.
+- **What the reviewer can do.** With read-only tools it lists, reads and
+  searches the context repositories. Sensitive files (`.env`, keys,
+  credentials) and files over 1 MiB are never listed or read, and nothing is
+  executed. It reports an incompatibility as an `UNVERIFIED` hypothesis
+  anchored to the changed line in the reviewed repository. The report lists
+  the repositories, commits and statuses in `context_repos`, and every read in
+  the audit.
+- **Checking the setup.** `probe context check [--context-dir DIR]
+  [--context-repo NAME=PATH] [--clusters FILE]` shows how each repository
+  resolves and exits 1 while one is unavailable. `--context=false` disables
+  the context for one review.
+
+Like `fuzz`, `mutation` and `prepare`, `context` is an optional,
+release-ordered policy key: `probe init` never writes it, and an older binary
+refuses a policy that contains it. In CI, check out the context repositories
+next to the reviewed one and pass `--context-dir`:
+
+```yaml
+- uses: actions/checkout@v4
+  with: {repository: company/payment-sdk, path: context/company/payment-sdk}
+- run: probe review --base "origin/$GITHUB_BASE_REF" --context-dir context --ci
+```
+
 ### Codebase knowledge base
 
 When a reviewer runs, Probe keeps a persistent, editable knowledge base of

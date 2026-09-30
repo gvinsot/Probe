@@ -223,7 +223,10 @@ type Report struct {
 	TeamFeedbackSHA256 string        `json:"team_feedback_sha256,omitempty"`
 	// Knowledge records the codebase knowledge base given to the reviewer
 	// and the updates it proposed; present only when a reviewer ran.
-	Knowledge          *Knowledge         `json:"knowledge,omitempty"`
+	Knowledge *Knowledge `json:"knowledge,omitempty"`
+	// ContextRepos lists the other repositories the reviewer could read as
+	// cross-repository context (policy "context"); present when a reviewer ran.
+	ContextRepos       []ContextRepo      `json:"context_repos,omitempty"`
 	Change             Change             `json:"change"`
 	Policy             Policy             `json:"policy"`
 	Prepare            *Prepare           `json:"prepare,omitempty"` // F8

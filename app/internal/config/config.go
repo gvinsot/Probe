@@ -76,6 +76,8 @@ type Config struct {
 	Fuzz     *Fuzz     `json:"fuzz,omitempty"`
 	Mutation *Mutation `json:"mutation,omitempty"`
 	Prepare  *Prepare  `json:"prepare,omitempty"`
+	// Context declares the cross-repository context (release-ordered too).
+	Context *Context `json:"context,omitempty"`
 }
 
 func Default(language string) Config {
@@ -257,6 +259,9 @@ func (c Config) Validate() error {
 		return err
 	}
 	if err := c.Prepare.validate(c.Sandbox); err != nil {
+		return err
+	}
+	if err := c.Context.validate(); err != nil {
 		return err
 	}
 	for _, p := range c.SensitivePaths {
