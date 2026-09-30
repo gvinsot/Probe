@@ -176,6 +176,12 @@ installation tabs and copy buttons, and filters reference tables. This is a
 promotional/documentation site, not an analysis API. nginx serves existing
 files or 404, compresses text assets, caches CSS/JS for an hour and images for a
 week; security headers/WAF/rate limiting depend on the configured edge.
+The site is published in English (the source, `web/public/`) and in French,
+Spanish, German, Portuguese and Italian under `/fr/`, `/es/`, `/de/`, `/pt/` and
+`/it/`, generated at image build from the catalogs of `web/i18n/` by
+`web/scripts/i18n.py` ([translations](../web/i18n/README.md)). Every page links
+its versions with `hreflang` (English is `x-default`) and offers a language
+menu; an untranslated segment is published in English.
 Every indexable page carries a title (at most 60 characters), a meta
 description (at most 160), a canonical link, Open Graph and Twitter cards with
 the 1200×630 `og-image.png`, JSON-LD structured data and a single `<h1>`;

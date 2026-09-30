@@ -9,6 +9,10 @@
 # og:url, the Open Graph and Twitter card tags with an existing image, a
 # JSON-LD block, exactly one <h1>, and images with alt text and dimensions.
 # A page marked noindex (404.html) only needs its title and noindex.
+#
+# The translated pages web/scripts/i18n.py writes to <lang>/ are checked too,
+# and on a translated site every page must link its versions (hreflang) and
+# each of those versions must exist.
 set -eu
 
 DIR=${1:-web/public}
@@ -29,8 +33,17 @@ meta() {
 # continuation bytes are dropped, so the count does not depend on the locale.
 chars() { printf '%s' "$1" | sed 's/&[a-z#0-9]*;/_/g' | LC_ALL=C tr -d '\200-\277' | wc -c | tr -d ' '; }
 
-for page in "$DIR"/*.html; do
-  name=${page##*/}
+# The pages of the site and of its language directories (two letters).
+pages() {
+  ls "$DIR"/*.html
+  for d in "$DIR"/??/; do
+    [ -d "$d" ] && ls "$d"*.html 2>/dev/null
+  done
+  return 0
+}
+
+for page in $(pages); do
+  name=${page#"$DIR"/}
   flat=$(tr '\n' ' ' < "$page")
   title=$(printf '%s' "$flat" | grep -o '<title>[^<]*</title>' | sed 's/<[^>]*>//g' || true)
   [ -n "$title" ] || fail "$name" "no <title>"
@@ -70,6 +83,18 @@ for page in "$DIR"/*.html; do
   esac
 
   printf '%s' "$flat" | grep -q '<script type="application/ld+json">{' || fail "$name" "no JSON-LD structured data"
+
+  alternates=$(printf '%s' "$flat" | grep -o '<link rel="alternate" hreflang="[^"]*" href="[^"]*"' || true)
+  if [ -n "$(pages | grep '/[a-z][a-z]/' | head -n 1)" ]; then
+    printf '%s' "$alternates" | grep -q 'hreflang="x-default"' || fail "$name" "no hreflang alternates (x-default)"
+    printf '%s' "$alternates" | grep -q "href=\"$canonical\"" || fail "$name" "hreflang alternates do not list the page itself"
+    for href in $(printf '%s\n' "$alternates" | sed 's/.*href="\([^"]*\)"/\1/'); do
+      rel=${href#"$SITE_URL"/}
+      [ -z "$rel" ] && rel=index.html
+      case "$rel" in */) rel="${rel}index.html" ;; esac
+      [ -f "$DIR/$rel" ] || fail "$name" "hreflang target $href does not exist"
+    done
+  fi
 
   h1=$(printf '%s' "$flat" | grep -o '<h1[ >]' | wc -l)
   [ "$h1" -eq 1 ] || fail "$name" "$h1 <h1> headings, want exactly one"

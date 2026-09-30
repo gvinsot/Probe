@@ -34,10 +34,20 @@ RUN --mount=type=cache,target=/root/.cache/go-build --mount=type=cache,target=/g
     /out/manifest write -version "$VERSION" -dir /out/download > /out/download/latest.json; \
     cat /out/download/latest.json
 
+# The translated site: web/public/ (English, the source) and one directory per
+# language, generated from the catalogs of web/i18n/. A segment without
+# translation is published in English and listed in the build log.
+FROM python:3.12-alpine AS site
+WORKDIR /src/web
+COPY web/public public
+COPY web/i18n i18n
+COPY web/scripts/i18n.py scripts/i18n.py
+RUN python3 scripts/i18n.py build --out /out/site
+
 FROM nginx:1.27-alpine-slim
 
 COPY web/nginx.conf /etc/nginx/conf.d/default.conf
-COPY web/public /usr/share/nginx/html
+COPY --from=site /out/site /usr/share/nginx/html
 # sitemap.xml is generated from the pages the image really serves, so it never
 # goes stale when a page is added or removed.
 ARG SITE_URL=https://probe.technology

@@ -249,6 +249,22 @@ h3 { font-size: 1.1rem; margin: 0 0 8px; }
 
 .nav nav a[aria-current="page"]:not(.btn) { color: var(--text); font-weight: 600; }
 
+/* Language menu, added next to the navigation by web/scripts/i18n.py. */
+.lang-menu { position: relative; flex: none; }
+.lang-menu summary { list-style: none; cursor: pointer; padding: 5px 10px; border: 1px solid var(--line); border-radius: 999px; color: var(--muted); font-size: 0.82rem; font-weight: 600; letter-spacing: 0.04em; }
+.lang-menu summary::-webkit-details-marker { display: none; }
+.lang-menu summary::after { content: ""; display: inline-block; width: 5px; height: 5px; margin: 0 1px 2px 7px; border: solid currentColor; border-width: 0 1.5px 1.5px 0; transform: rotate(45deg); }
+.lang-menu summary:hover, .lang-menu[open] summary { color: var(--text); border-color: var(--muted); }
+.lang-menu ul { position: absolute; right: 0; top: calc(100% + 6px); z-index: 20; margin: 0; padding: 6px; list-style: none; min-width: 150px; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; box-shadow: var(--shadow); }
+.lang-menu a { display: block; padding: 6px 10px; border-radius: 6px; color: var(--text); text-decoration: none; font-size: 0.92rem; }
+.lang-menu a:hover { background: var(--bg-alt); }
+.lang-menu a[aria-current] { font-weight: 700; color: var(--accent); }
+@media (max-width: 640px) {
+  /* The menu stays on the logo row, at the right; the navigation wraps below. */
+  .lang-menu { order: 1; margin-left: auto; }
+  .nav nav { order: 2; width: 100%; }
+}
+
 .page-head { padding: 64px 0 32px; border-bottom: 1px solid var(--line); }
 .page-head h1 { font-size: clamp(1.9rem, 4vw, 2.7rem); margin-bottom: 12px; }
 .page-head .lead { margin-bottom: 0; max-width: 760px; }

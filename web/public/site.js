@@ -38,6 +38,16 @@
     { tag: "v0.5.1", date: "2026-09-29T14:41:38Z", desktop: false }
   ];
 
+  // t translates a user-facing string. The pages of another language load
+  // /<lang>/i18n.js first, generated from web/i18n/<lang>.json, which maps
+  // each English string to its translation; {0}, {1}… are the arguments.
+  var STRINGS = window.PROBE_I18N || {};
+  var LANG = document.documentElement.lang || "en";
+  function t(english) {
+    var args = arguments;
+    return (STRINGS[english] || english).replace(/\{(\d)\}/g, function (m, i) { return args[+i + 1]; });
+  }
+
   function $(sel, root) { return (root || document).querySelector(sel); }
   function $$(sel, root) { return Array.prototype.slice.call((root || document).querySelectorAll(sel)); }
 
@@ -61,8 +71,7 @@
     box.id = "site-error";
     box.className = "site-error";
     box.setAttribute("role", "alert");
-    box.innerHTML = "Part of this page could not be displayed. Reload the page; if this persists, " +
-      'every release stays available on <a href="' + RELEASES_PAGE + '">GitHub Releases</a>.';
+    box.innerHTML = t("Part of this page could not be displayed. Reload the page; if this persists, every release stays available on <a href=\"{0}\">GitHub Releases</a>.", RELEASES_PAGE);
     var host = $("main") || document.body;
     if (host) host.insertBefore(box, host.firstChild);
   }
@@ -84,7 +93,7 @@
   function escapeHtml(s) { return String(s).replace(/[&<>"']/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]; }); }
   function formatDate(iso) {
     var d = new Date(iso);
-    return isNaN(d) ? "" : d.toLocaleDateString("en", { year: "numeric", month: "long", day: "numeric" });
+    return isNaN(d) ? "" : d.toLocaleDateString(LANG, { year: "numeric", month: "long", day: "numeric" });
   }
   function formatSize(bytes) { return bytes ? (bytes / 1048576).toFixed(1) + " MB" : ""; }
   function storage(action, value) {
@@ -232,7 +241,7 @@
     var p = platform(detected.id);
     $$("[data-download-latest]").forEach(function (a) {
       a.href = link(release, p).url;
-      a.textContent = "Download for " + p.label + (detected.exact || p.os !== "darwin" ? " " + p.arch : "");
+      a.textContent = t("Download for {0}", p.label + (detected.exact || p.os !== "darwin" ? " " + p.arch : ""));
       a.setAttribute("download", "");
     });
     $$("[data-download-href]").forEach(function (a) { a.href = link(release, p).url; });
@@ -244,7 +253,7 @@
     if (!d || !q) return;
     $$("[data-download-desktop]").forEach(function (a) {
       a.href = desktopLink(d, q).url;
-      a.textContent = "Download for " + desktopLabel(q);
+      a.textContent = t("Download for {0}", desktopLabel(q));
       a.setAttribute("download", "");
     });
   }
@@ -258,20 +267,20 @@
     var offline = latest.offline;
 
     setText("#dl-version", "Probe CLI " + latest.tag);
-    setHtml("#dl-meta", "Released " + escapeHtml(formatDate(latest.date)) +
-      ' · <a href="' + escapeHtml(latest.url) + '">release notes</a>' +
+    setHtml("#dl-meta", escapeHtml(t("Released {0}", formatDate(latest.date))) +
+      ' · <a href="' + escapeHtml(latest.url) + '">' + escapeHtml(t("release notes")) + "</a>" +
       ' · <a href="' + escapeHtml(RELEASES_PAGE + "/download/" + latest.tag + "/SHA256SUMS") + '">SHA256SUMS</a>');
     var btn = need("#dl-main");
     if (btn) {
       btn.href = main.url;
-      btn.textContent = "Download for " + p.label + " " + p.arch;
+      btn.textContent = t("Download for {0}", p.label + " " + p.arch);
     }
     setText("#dl-file", archiveName(latest.tag, p) + (main.size ? " · " + formatSize(main.size) : ""));
     setText("#dl-detect", detected.mobile
-      ? "The CLI is a command-line tool for desktop and server systems. Pick the platform of the machine you will run it on."
+      ? t("The CLI is a command-line tool for desktop and server systems. Pick the platform of the machine you will run it on.")
       : !detected.exact
-        ? "Detected " + p.label + ". On an Intel Mac, choose macOS Intel below."
-        : "Detected from your browser: " + p.label + " " + p.arch + ". Other platforms are listed alongside.");
+        ? t("Detected {0}. On an Intel Mac, choose macOS Intel below.", p.label)
+        : t("Detected from your browser: {0}. Other platforms are listed alongside.", p.label + " " + p.arch));
 
     setHtml("#dl-platforms", PLATFORMS.map(function (q) {
       var l = link(latest, q);
@@ -282,21 +291,21 @@
     renderDesktopCard(releases, detected);
 
     setText("#releases-status", offline
-      ? "GitHub could not be reached, so this list may be incomplete and has no notes. The complete history is on GitHub Releases."
-      : releases.length + " releases, newest first.");
+      ? t("GitHub could not be reached, so this list may be incomplete and has no notes. The complete history is on GitHub Releases.")
+      : t("{0} releases, newest first.", releases.length));
 
     var dp = desktopPlatform(detected);
     setHtml("#releases", releases.map(function (r, i) {
       var rows = '<tr><th class="group" colspan="3">Probe CLI</th></tr>' + PLATFORMS.map(function (q) {
         var l = link(r, q);
-        return "<tr" + (q.id === p.id ? ' class="mine"' : "") + "><td>" + q.label + " " + q.arch + (q.id === p.id ? ' <span class="badge">yours</span>' : "") + "</td>" +
+        return "<tr" + (q.id === p.id ? ' class="mine"' : "") + "><td>" + q.label + " " + q.arch + (q.id === p.id ? ' <span class="badge">' + escapeHtml(t("yours")) + "</span>" : "") + "</td>" +
           '<td><a href="' + escapeHtml(l.url) + '"><code>' + escapeHtml(archiveName(r.tag, q)) + "</code></a></td>" +
           "<td>" + (l.size ? formatSize(l.size) : "—") + "</td></tr>";
       }).join("");
       if (hasDesktop(r)) {
         rows += '<tr><th class="group" colspan="3">Probe Desktop</th></tr>' + DESKTOP_PLATFORMS.map(function (q) {
           var l = desktopLink(r, q), mine = dp && q.id === dp.id;
-          return "<tr" + (mine ? ' class="mine"' : "") + "><td>" + q.label + " " + q.arch + (mine ? ' <span class="badge">yours</span>' : "") + "</td>" +
+          return "<tr" + (mine ? ' class="mine"' : "") + "><td>" + q.label + " " + q.arch + (mine ? ' <span class="badge">' + escapeHtml(t("yours")) + "</span>" : "") + "</td>" +
             '<td><a href="' + escapeHtml(l.url) + '"><code>' + escapeHtml(desktopName(r.tag, q)) + "</code></a></td>" +
             "<td>" + (l.size ? formatSize(l.size) : "—") + "</td></tr>";
         }).join("");
@@ -304,12 +313,12 @@
       var notesBase = "https://github.com/" + REPO + "/blob/main/app/docs/releases/";
       return '<details class="release"' + (i === 0 ? " open" : "") + ' id="' + escapeHtml(r.tag) + '">' +
         "<summary><h3>" + escapeHtml(r.tag) + "</h3><time datetime=\"" + escapeHtml(r.date) + "\">" + escapeHtml(formatDate(r.date)) + "</time>" +
-        (r === latest ? '<span class="badge">latest</span>' : "") + (r.prerelease ? '<span class="badge pre">pre-release</span>' : "") + "</summary>" +
+        (r === latest ? '<span class="badge">' + escapeHtml(t("latest")) + "</span>" : "") + (r.prerelease ? '<span class="badge pre">' + escapeHtml(t("pre-release")) + "</span>" : "") + "</summary>" +
         '<div class="release-body">' +
-        '<div class="table-wrap"><table><thead><tr><th>Platform</th><th>Archive</th><th>Size</th></tr></thead><tbody>' + rows +
-        '<tr><td>Checksums</td><td><a href="' + escapeHtml(RELEASES_PAGE + "/download/" + r.tag + "/SHA256SUMS") + '"><code>SHA256SUMS</code></a></td><td>—</td></tr>' +
+        '<div class="table-wrap"><table><thead><tr><th>' + escapeHtml(t("Platform")) + "</th><th>" + escapeHtml(t("Archive")) + "</th><th>" + escapeHtml(t("Size")) + "</th></tr></thead><tbody>" + rows +
+        "<tr><td>" + escapeHtml(t("Checksums")) + '</td><td><a href="' + escapeHtml(RELEASES_PAGE + "/download/" + r.tag + "/SHA256SUMS") + '"><code>SHA256SUMS</code></a></td><td>—</td></tr>' +
         "</tbody></table></div>" +
-        (r.notes ? '<div class="release-notes">' + markdown(r.notes, notesBase) + "</div>" : '<p class="status"><a href="' + escapeHtml(r.url) + '">Read the release notes on GitHub</a>.</p>') +
+        (r.notes ? '<div class="release-notes">' + markdown(r.notes, notesBase) + "</div>" : '<p class="status">' + t("<a href=\"{0}\">Read the release notes on GitHub</a>.", escapeHtml(r.url)) + "</p>") +
         "</div></details>";
     }).join(""));
 
@@ -329,29 +338,29 @@
       // Until a release carries Probe Desktop, say so rather than linking
       // to files that do not exist.
       setText("#dl-desktop-version", "Probe Desktop");
-      setText("#dl-desktop-meta", "Published from the release that follows " + latestStable(releases).tag + ".");
-      if (btn) { btn.href = "#verify"; btn.textContent = "Build it from source"; }
+      setText("#dl-desktop-meta", t("Published from the release that follows {0}.", latestStable(releases).tag));
+      if (btn) { btn.href = "#verify"; btn.textContent = t("Build it from source"); }
       setText("#dl-desktop-file", "");
-      setText("#dl-desktop-detect", "Until then, the instructions below build the Windows executable or the macOS application.");
-      setHtml("#dl-desktop-platforms", '<a href="' + escapeHtml(RELEASES_PAGE) + '"><span>Releases on GitHub</span><small>.exe · .zip</small></a>');
+      setText("#dl-desktop-detect", t("Until then, the instructions below build the Windows executable or the macOS application."));
+      setHtml("#dl-desktop-platforms", '<a href="' + escapeHtml(RELEASES_PAGE) + '"><span>' + escapeHtml(t("Releases on GitHub")) + "</span><small>.exe · .zip</small></a>");
       return;
     }
     setText("#dl-desktop-version", "Probe Desktop " + d.tag);
-    setHtml("#dl-desktop-meta", "Released " + escapeHtml(formatDate(d.date)) +
-      ' · <a href="' + escapeHtml(d.url) + '">release notes</a>');
+    setHtml("#dl-desktop-meta", escapeHtml(t("Released {0}", formatDate(d.date))) +
+      ' · <a href="' + escapeHtml(d.url) + '">' + escapeHtml(t("release notes")) + "</a>");
     var main = q ? desktopLink(d, q) : null;
     if (btn) {
-      if (main) { btn.href = main.url; btn.textContent = "Download for " + desktopLabel(q); }
-      else { btn.href = "#dl-desktop-platforms"; btn.textContent = "Windows and macOS downloads"; }
+      if (main) { btn.href = main.url; btn.textContent = t("Download for {0}", desktopLabel(q)); }
+      else { btn.href = "#dl-desktop-platforms"; btn.textContent = t("Windows and macOS downloads"); }
     }
     setText("#dl-desktop-file", main ? desktopName(d.tag, q) + (main.size ? " · " + formatSize(main.size) : "") : "");
     setText("#dl-desktop-detect", detected.mobile
-      ? "Probe Desktop runs on Windows and macOS computers."
+      ? t("Probe Desktop runs on Windows and macOS computers.")
       : !q
-        ? "Probe Desktop is available for Windows and macOS. On Linux, use the CLI."
+        ? t("Probe Desktop is available for Windows and macOS. On Linux, use the CLI.")
         : q.os === "darwin"
-          ? "Detected macOS. One application for Apple silicon and Intel Macs."
-          : "Detected from your browser: " + desktopLabel(q) + ". Other platforms are listed below.");
+          ? t("Detected macOS. One application for Apple silicon and Intel Macs.")
+          : t("Detected from your browser: {0}. Other platforms are listed below.", desktopLabel(q)));
     setHtml("#dl-desktop-platforms", DESKTOP_PLATFORMS.map(function (x) {
       var l = desktopLink(d, x);
       return '<a href="' + escapeHtml(l.url) + '"' + (q && x.id === q.id ? ' class="current" aria-current="true"' : "") + ">" +
@@ -392,15 +401,15 @@
       var button = document.createElement("button");
       button.type = "button";
       button.className = "copy";
-      button.textContent = "Copy";
+      button.textContent = t("Copy");
       button.addEventListener("click", function () {
         var clone = pre.cloneNode(true);
         $$(".p, .o", clone).forEach(function (el) { el.remove(); });
         var text = clone.textContent.replace(/\n{2,}/g, "\n").trim();
         var done = function () {
-          button.textContent = "Copied";
+          button.textContent = t("Copied");
           button.classList.add("done");
-          setTimeout(function () { button.textContent = "Copy"; button.classList.remove("done"); }, 1600);
+          setTimeout(function () { button.textContent = t("Copy"); button.classList.remove("done"); }, 1600);
         };
         if (navigator.clipboard) navigator.clipboard.writeText(text).then(done, function () {});
       });
@@ -458,7 +467,7 @@
         var navLink = $(".ref-side a[href='#" + section.id + "']");
         if (navLink) navLink.parentNode.hidden = !keep;
       });
-      if (count) count.textContent = term ? (matches ? matches + " match" + (matches > 1 ? "es" : "") : "No match. Try a flag such as --base or a key such as memory_mb.") : "";
+      if (count) count.textContent = term ? (matches ? (matches > 1 ? t("{0} matches", matches) : t("1 match")) : t("No match. Try a flag such as --base or a key such as memory_mb.")) : "";
       try { history.replaceState(null, "", term ? "?q=" + encodeURIComponent(term) + location.hash : location.pathname + location.hash); } catch (e) { /* file:// */ }
     }
     input.addEventListener("input", apply);
