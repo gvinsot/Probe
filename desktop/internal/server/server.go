@@ -84,6 +84,8 @@ type Server struct {
 
 	mu    sync.Mutex
 	codes map[string]time.Time
+
+	auto *autoExplainer
 }
 
 // New listens on a random loopback port.
@@ -112,6 +114,7 @@ func New(deps Deps) (*Server, error) {
 		control: randomToken(),
 		codes:   map[string]time.Time{},
 	}
+	s.auto = newAutoExplainer(s)
 	s.srv = &http.Server{
 		Handler:           s.Handler(),
 		ReadHeaderTimeout: 10 * time.Second,
@@ -152,7 +155,10 @@ func (s *Server) Serve() error {
 }
 
 // Shutdown stops the server.
-func (s *Server) Shutdown(ctx context.Context) error { return s.srv.Shutdown(ctx) }
+func (s *Server) Shutdown(ctx context.Context) error {
+	s.auto.stop()
+	return s.srv.Shutdown(ctx)
+}
 
 // Handler returns the full HTTP handler, security checks included.
 func (s *Server) Handler() http.Handler {
@@ -258,6 +264,8 @@ type stateResponse struct {
 	Version    string `json:"version"`
 	Folders    int    `json:"folders"`
 	Configured bool   `json:"ai_configured"`
+	// Explaining lists the documents an AI explanation is being written for.
+	Explaining []string `json:"explaining"`
 }
 
 func (s *Server) state(w http.ResponseWriter, r *http.Request) {
@@ -267,6 +275,7 @@ func (s *Server) state(w http.ResponseWriter, r *http.Request) {
 		Version:    s.deps.Version,
 		Folders:    len(st.Folders),
 		Configured: s.aiConfigured(st),
+		Explaining: s.auto.running(),
 	})
 }
 
@@ -308,31 +317,21 @@ func (s *Server) explain(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "no report to explain")
 		return
 	}
-	st := s.deps.Settings.Get()
-	key, err := s.deps.Keys.Get(st.Provider)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "cannot read the API key from the keychain: "+err.Error())
-		return
-	}
-	res, err := reviewer.Explain(r.Context(), st, key, d.Path, d.Report)
-	if err != nil {
-		s.deps.Log.Warn("explanation failed", "provider", st.Provider, "model", st.EffectiveModel(), "err", err)
-		status := http.StatusBadGateway
-		if errors.Is(err, reviewer.ErrNotConfigured) {
-			status = http.StatusBadRequest
-		}
-		writeError(w, status, err.Error())
-		return
-	}
-	e := watch.Explanation{
-		Provider: st.Provider, Model: st.EffectiveModel(), Text: res.Text, Findings: res.Findings,
-		Impacts: res.Impacts, Severity: res.Severity, At: time.Now(),
-	}
-	if err := s.deps.Watcher.SetExplanation(id, d.CurrentHash, e); err != nil {
+	s.auto.begin(id)
+	e, err := s.explainDocument(r.Context(), d)
+	s.auto.end(id)
+	switch {
+	case errors.Is(err, errKeychain):
+		writeError(w, http.StatusInternalServerError, err.Error())
+	case errors.Is(err, reviewer.ErrNotConfigured):
+		writeError(w, http.StatusBadRequest, err.Error())
+	case errors.Is(err, watch.ErrStale), errors.Is(err, watch.ErrNotFound):
 		writeError(w, http.StatusConflict, err.Error())
-		return
+	case err != nil:
+		writeError(w, http.StatusBadGateway, err.Error())
+	default:
+		writeJSON(w, e)
 	}
-	writeJSON(w, e)
 }
 
 func (s *Server) open(w http.ResponseWriter, r *http.Request) {
@@ -418,6 +417,9 @@ func (s *Server) putSettings(w http.ResponseWriter, r *http.Request) {
 	}
 	s.deps.Log.Info("settings saved", "folders", len(req.Folders), "provider", provider)
 	s.deps.OnSettings()
+	// A new provider, model or key deserves a new attempt on the documents
+	// whose explanation failed.
+	s.auto.retry()
 	s.getSettings(w, r)
 }
 

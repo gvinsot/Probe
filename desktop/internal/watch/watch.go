@@ -120,7 +120,9 @@ type Summary struct {
 	ModTime    time.Time   `json:"mod_time"`
 	ChangedAt  time.Time   `json:"changed_at,omitempty"`
 	BaselineAt time.Time   `json:"baseline_at,omitempty"`
-	Error      string      `json:"error,omitempty"`
+	// ExplainedAt is the time of the AI explanation, if any.
+	ExplainedAt time.Time `json:"explained_at,omitempty"`
+	Error       string    `json:"error,omitempty"`
 }
 
 // State is what the interface shows about the watcher.
@@ -139,6 +141,8 @@ type Watcher struct {
 	settings func() config.Settings
 	log      *slog.Logger
 	onUpdate func(total, toReview int)
+	// onScanned runs after each scan, for the automatic AI explanations.
+	onScanned func()
 
 	mu        sync.Mutex
 	docs      map[string]*Document
@@ -153,12 +157,13 @@ type Watcher struct {
 // New loads the saved state of a data directory.
 func New(dir string, settings func() config.Settings, log *slog.Logger) (*Watcher, error) {
 	w := &Watcher{
-		dir:      dir,
-		settings: settings,
-		log:      log,
-		docs:     map[string]*Document{},
-		trigger:  make(chan struct{}, 1),
-		onUpdate: func(int, int) {},
+		dir:       dir,
+		settings:  settings,
+		log:       log,
+		docs:      map[string]*Document{},
+		trigger:   make(chan struct{}, 1),
+		onUpdate:  func(int, int) {},
+		onScanned: func() {},
 	}
 	if err := os.MkdirAll(w.baselineDir(), 0o700); err != nil {
 		return nil, err
@@ -185,6 +190,10 @@ func New(dir string, settings func() config.Settings, log *slog.Logger) (*Watche
 // OnUpdate registers a callback run after each scan and review, used by the
 // tray icon to show the number of documents to review.
 func (w *Watcher) OnUpdate(fn func(total, toReview int)) { w.onUpdate = fn }
+
+// OnScanned sets the function run after each scan. Set it before the first
+// scan starts.
+func (w *Watcher) OnScanned(fn func()) { w.onScanned = fn }
 
 func (w *Watcher) statePath() string   { return filepath.Join(w.dir, "state.json") }
 func (w *Watcher) baselineDir() string { return filepath.Join(w.dir, "baselines") }
@@ -304,6 +313,7 @@ func (w *Watcher) Scan() {
 	total, toReview := w.counts()
 	w.log.Info("scan done", "documents", total, "to_review", toReview, "duration", time.Since(started).Round(time.Millisecond))
 	w.onUpdate(total, toReview)
+	w.onScanned()
 }
 
 func (w *Watcher) counts() (total, toReview int) {
@@ -555,6 +565,37 @@ func (w *Watcher) SetExplanation(id, forHash string, e Explanation) error {
 	return nil
 }
 
+// Pending is a changed document waiting for its AI explanation.
+type Pending struct {
+	ID   string
+	Hash string
+}
+
+// NeedingExplanation lists the changed documents without an explanation of
+// their current version, most severe first: never explained, or explained
+// for an earlier version of the modifications.
+func (w *Watcher) NeedingExplanation() []Pending {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	var docs []*Document
+	for _, d := range w.docs {
+		if d.Status == StatusChanged && d.Report != nil && (d.Explanation == nil || d.Explanation.Outdated) {
+			docs = append(docs, d)
+		}
+	}
+	sort.Slice(docs, func(i, j int) bool {
+		if ri, rj := office.Rank(docs[i].Severity()), office.Rank(docs[j].Severity()); ri != rj {
+			return ri > rj
+		}
+		return docs[i].ChangedAt.Before(docs[j].ChangedAt)
+	})
+	out := make([]Pending, len(docs))
+	for i, d := range docs {
+		out[i] = Pending{ID: d.ID, Hash: d.CurrentHash}
+	}
+	return out
+}
+
 // Document returns a copy of a document with its report.
 func (w *Watcher) Document(id string) (Document, bool) {
 	w.mu.Lock()
@@ -584,6 +625,9 @@ func (w *Watcher) State() State {
 		}
 		if d.Report != nil {
 			sum.Findings = len(d.Report.Findings)
+		}
+		if d.Explanation != nil {
+			sum.ExplainedAt = d.Explanation.At
 		}
 		st.Documents = append(st.Documents, sum)
 	}

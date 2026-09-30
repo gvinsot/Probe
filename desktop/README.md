@@ -73,7 +73,11 @@ the window the engine launched:
   `settings.json`, the logs or the pages.
 
 Only the file name, the findings and the changed excerpts are sent to the AI
-provider, and only when the user asks for an explanation. The OpenAI provider
+provider, and only once a provider is configured: each changed document is
+then explained automatically when the change is detected, one at a time and
+most severe first, and again when it changes once more. A failed explanation
+is not retried until the document or the settings change; the user can still
+ask for one from the document. The OpenAI provider
 accepts a custom endpoint, so a compatible server run on premises (vLLM,
 Ollama…) keeps everything inside the company.
 

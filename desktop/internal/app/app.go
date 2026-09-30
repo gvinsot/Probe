@@ -110,6 +110,9 @@ func Run(opts Options) error {
 			logger.Error("interface server stopped", "err", err)
 		}
 	}()
+	// With an AI provider configured, each detected change is explained
+	// without waiting for the user to ask.
+	watcher.OnScanned(srv.Kick)
 	stop := make(chan struct{})
 	go watcher.Run(stop)
 	if a.updater = update.New(opts.Version, a.exe, dir, logger); a.updater != nil {

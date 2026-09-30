@@ -129,6 +129,12 @@ function detailSeverity(d) {
   return raised && RANK[raised] > RANK[sev] ? raised : sev;
 }
 
+// isExplaining reports an explanation in progress, asked from this window or
+// started automatically by the engine when it detected the change.
+function isExplaining(id) {
+  return ui.busy[id] === "explain" || Boolean(ui.state && (ui.state.explaining || []).includes(id));
+}
+
 function needsReview(doc) {
   if (doc.status === "removed") return true;
   return doc.status === "changed" && RANK[doc.severity] >= ui.threshold;
@@ -147,7 +153,7 @@ async function refresh() {
   renderStatus();
   renderList();
   const doc = ui.state.documents.find((d) => d.id === ui.selected);
-  const key = doc ? `${doc.id}|${doc.status}|${doc.changed_at}|${doc.mod_time}` : "";
+  const key = doc ? `${doc.id}|${doc.status}|${doc.changed_at}|${doc.mod_time}|${doc.explained_at}|${isExplaining(doc.id)}` : "";
   if (!doc) {
     if (ui.selected || !ui.detail) renderWelcome();
     ui.selected = null;
@@ -400,12 +406,13 @@ function actions(d) {
   }
   if (d.report) {
     const configured = ui.state && ui.state.ai_configured;
+    const explaining = isExplaining(d.id);
     box.append(el("button", {
       class: "btn ghost small",
-      disabled: ui.busy[d.id] === "explain",
+      disabled: explaining,
       title: configured ? "Send the findings and changed excerpts to the AI provider" : "Configure an AI provider in Settings",
       onclick: () => (configured ? explain(d.id) : openSettings()),
-    }, ui.busy[d.id] === "explain" ? "Explaining…" : d.explanation ? "Explain again" : "Explain with AI"));
+    }, explaining ? "Explaining…" : d.explanation ? "Explain again" : "Explain with AI"));
   }
   if (d.status === "changed" || d.status === "removed") {
     box.append(el("button", {
