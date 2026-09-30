@@ -24,8 +24,9 @@ func TestReviewerActivation(t *testing.T) {
 		wantCalls         int32
 		wantCode          int
 	}{
-		{name: "configured review", mode: "review", model: "test-model", wantCalls: 2, wantCode: 2},
-		{name: "explicit enable remains supported", mode: "review", model: "test-model", flags: []string{"--reviewer"}, wantCalls: 2, wantCode: 2},
+		// A model that never assesses the fixture's linter signals is reminded of them twice.
+		{name: "configured review", mode: "review", model: "test-model", wantCalls: 4, wantCode: 2},
+		{name: "explicit enable remains supported", mode: "review", model: "test-model", flags: []string{"--reviewer"}, wantCalls: 4, wantCode: 2},
 		{name: "explicit disable", mode: "review", model: "test-model", flags: []string{"--reviewer=false"}, wantCode: 2},
 		{name: "no configured model", mode: "review", wantCode: 2},
 		{name: "explicit enable requires model", mode: "review", flags: []string{"--reviewer"}, wantCode: 3},
@@ -216,8 +217,9 @@ func TestReviewerTakesProviderFromDeployment(t *testing.T) {
 	t.Setenv(config.ModelEnv, "deployed-model")
 	args := []string{"review", "--repo", dir, "--config", policy, "--checks=false", "--ci", "--out", "report"}
 	var out, errOut bytes.Buffer
-	if code := Run(context.Background(), args, &out, &errOut, "test"); code != 2 || calls.Load() != 1 {
-		t.Fatalf("exit %d with %d provider calls, want 2 and 1: %s", code, calls.Load(), errOut.String())
+	// The model never assesses the fixture's linter signals: two reminders follow its answer.
+	if code := Run(context.Background(), args, &out, &errOut, "test"); code != 2 || calls.Load() != 3 {
+		t.Fatalf("exit %d with %d provider calls, want 2 and 3: %s", code, calls.Load(), errOut.String())
 	}
 	if !strings.Contains(errOut.String(), "model from "+config.ModelEnv) || strings.Contains(errOut.String(), "secret-key") {
 		t.Fatalf("the run log must name the deployed sources without the credential: %s", errOut.String())
@@ -225,7 +227,7 @@ func TestReviewerTakesProviderFromDeployment(t *testing.T) {
 	// A named secret that cannot be read stops the run instead of quietly
 	// downgrading it to an unauthenticated request.
 	t.Setenv(cfg.Reviewer.APIKeyEnv+config.FileEnvSuffix, secret+".absent")
-	if code := Run(context.Background(), args, &out, &errOut, "test"); code != 3 || calls.Load() != 1 {
-		t.Fatalf("missing secret: exit %d with %d provider calls, want 3 and 1", code, calls.Load())
+	if code := Run(context.Background(), args, &out, &errOut, "test"); code != 3 || calls.Load() != 3 {
+		t.Fatalf("missing secret: exit %d with %d provider calls, want 3 and 3", code, calls.Load())
 	}
 }

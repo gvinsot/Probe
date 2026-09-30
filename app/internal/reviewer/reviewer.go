@@ -58,6 +58,10 @@ Submit every investigated hypothesis using submit_hypothesis. Use REPRODUCED onl
 // maxSummaryBytes bounds the model's closing text recorded in the report.
 const maxSummaryBytes = 4000
 
+// maxAssessReminders bounds how often a finished model is asked to assess the
+// signals it skipped.
+const maxAssessReminders = 2
+
 // Validate checks provider settings without network access. Endpoint may be a /v1
 // base URL or the full /chat/completions URL. Non-loopback HTTP requires an
 // explicit deployment exception.
@@ -183,7 +187,7 @@ func Run(ctx context.Context, o Options, r *model.Report, h toolHarness) error {
 			}
 		}
 	}
-	totalCalls := 0
+	totalCalls, reminders := 0, 0
 	usedIDs := map[string]bool{}
 	for iteration := 0; iteration < o.MaxIterations; iteration++ {
 		if err := ctx.Err(); err != nil {
@@ -206,6 +210,14 @@ func Run(ctx context.Context, o Options, r *model.Report, h toolHarness) error {
 		if len(m.ToolCalls) == 0 {
 			if summary := strings.TrimSpace(m.Content); summary != "" {
 				r.ReviewerSummary = redact.TruncateUTF8(summary, maxSummaryBytes)
+			}
+			// Signals left unassessed keep their generic linter summary as
+			// alert title: remind the model of them, a bounded number of times.
+			if missing := unassessed(r); len(missing) > 0 && reminders < maxAssessReminders && iteration+1 < o.MaxIterations {
+				reminders++
+				m.Role = "assistant"
+				messages = append(messages, m, message{Role: "user", Content: assessReminder(missing)})
+				continue
 			}
 			return nil
 		}

@@ -184,7 +184,7 @@ func TestReviewerFindCallersUsesIndex(t *testing.T) {
 	if code := Run(context.Background(), []string{"review", "--repo", dir, "--config", policy, "--checks=false", "--out", "report"}, &out, &errOut, "test"); code != 0 {
 		t.Fatalf("review exit %d: %s", code, errOut.String())
 	}
-	if len(requests) != 2 {
+	if len(requests) != 4 { // two reminders of the unassessed signals follow the answer
 		t.Fatalf("%d provider requests", len(requests))
 	}
 	tools := map[string]string{}

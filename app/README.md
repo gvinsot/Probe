@@ -244,7 +244,11 @@ requests human review (exit 2 with `--ci`), and exit 0 is no correctness guarant
 
 In both review modes, when the linter raised signals, the reviewer also reads
 them with the `assess_signals` tool: for each one, a plain-language title, a
-short explanation and a judgment (`risk`, `no_risk` or `uncertain`). They are
+short explanation and a judgment (`risk`, `no_risk` or `uncertain`). The title
+states the intent of the modification (for example "Admin tokens now skip the
+expiry check" instead of "Lines added to a sensitive file"); a title that only
+restates the linter summary is rejected, and a model that finishes with
+signals left unassessed is reminded of them, at most twice. They are
 recorded in `signal_assessments`, and the model's closing text in
 `reviewer_summary`; Markdown shows both. They are model judgment, never
 evidence, and change no hypothesis status. A `no_risk` reading is kept only

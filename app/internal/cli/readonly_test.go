@@ -50,7 +50,7 @@ func TestReadOnlyReviewUsesDeploymentProviderWithoutExecution(t *testing.T) {
 	writeReviewerPolicy(t, policy, cfg)
 	var output bytes.Buffer
 	code := Run(context.Background(), []string{"review", "--read-only", "--repo", dir, "--config", policy, "--out", "report", "--ci"}, &output, &output, "test")
-	if code != 2 || calls.Load() != 2 {
+	if code != 2 || calls.Load() != 4 { // two reminders of the unassessed signal follow the answer
 		t.Fatalf("exit=%d calls=%d: %s", code, calls.Load(), output.String())
 	}
 	r := readReviewerReport(t, dir)
@@ -71,7 +71,7 @@ func TestReadOnlyReviewUsesDeploymentProviderWithoutExecution(t *testing.T) {
 	t.Setenv(config.ModelEnv, "")
 	output.Reset()
 	code = Run(context.Background(), []string{"review", "--read-only", "--repo", dir, "--config", policy}, &output, &output, "test")
-	if code != 3 || calls.Load() != 2 {
+	if code != 3 || calls.Load() != 4 {
 		t.Fatalf("policy enabled the provider: exit=%d calls=%d %s", code, calls.Load(), output.String())
 	}
 }

@@ -139,3 +139,44 @@ func TestLargeDiffSentWithoutHunks(t *testing.T) {
 		}
 	}
 }
+
+// A title that only restates the linter summary is rejected, so that the
+// alert gets the intent of the modification instead.
+func TestAssessRejectsTitleRestatingSummary(t *testing.T) {
+	r := signalReport()
+	out, err := assess(r, []byte(`{"assessments":[
+		{"signal_id":"signal-1","title":"control flow  changed.","explanation":"x","judgment":"risk"},
+		{"signal_id":"signal-2","title":"Refund path is left untested","explanation":"No test covers refunds.","judgment":"risk"}
+	]}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(out), "restates the linter summary") || len(r.SignalAssessments) != 1 || r.SignalAssessments[0].SignalID != "signal-2" {
+		t.Fatalf("out = %s, assessments = %+v", out, r.SignalAssessments)
+	}
+}
+
+// A model that finishes with unassessed signals is reminded of them, a bounded
+// number of times, and its closing summary is kept.
+func TestRunRemindsOfUnassessedSignals(t *testing.T) {
+	server, bodies := scripted(t, nil, []toolCall{call("a", AssessTool, `{"assessments":[{"signal_id":"signal-2","title":"Refund path is left untested","explanation":"No test covers refunds.","judgment":"risk"}]}`)})
+	r := signalReport()
+	if err := Run(context.Background(), Options{Endpoint: server.URL, Model: "test"}, r, &fakeHarness{}); err != nil {
+		t.Fatal(err)
+	}
+	if len(*bodies) != 1+maxAssessReminders+1 {
+		t.Fatalf("%d requests, want %d", len(*bodies), 2+maxAssessReminders)
+	}
+	messages := (*bodies)[1]["messages"].([]any)
+	reminder := messages[len(messages)-1].(map[string]any)
+	if reminder["role"] != "user" || !strings.Contains(reminder["content"].(string), "signal-1, signal-2") {
+		t.Fatalf("reminder = %v", reminder)
+	}
+	last := (*bodies)[len(*bodies)-1]["messages"].([]any)
+	if content := last[len(last)-1].(map[string]any)["content"].(string); !strings.Contains(content, "signal-1") || strings.Contains(content, "signal-2") {
+		t.Fatalf("second reminder = %q", content)
+	}
+	if len(r.SignalAssessments) != 1 {
+		t.Fatalf("assessments = %+v", r.SignalAssessments)
+	}
+}
