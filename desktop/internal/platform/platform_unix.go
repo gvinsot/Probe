@@ -22,4 +22,7 @@ func Open(target string) error {
 	return nil
 }
 
+// EnableHighDPI does nothing: macOS and Linux scale the windows themselves.
+func EnableHighDPI() {}
+
 func hideConsole(*exec.Cmd) {}

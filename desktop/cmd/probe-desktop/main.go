@@ -24,6 +24,7 @@ import (
 	"github.com/gvinsot/Probe/desktop/internal/app"
 	"github.com/gvinsot/Probe/desktop/internal/autostart"
 	"github.com/gvinsot/Probe/desktop/internal/config"
+	"github.com/gvinsot/Probe/desktop/internal/platform"
 	"github.com/gvinsot/Probe/desktop/internal/window"
 )
 
@@ -32,6 +33,8 @@ var version = "dev"
 
 func main() {
 	defer crashReport()
+	// Both the window and the tray menu must be sharp on a scaled display.
+	platform.EnableHighDPI()
 	if len(os.Args) > 1 {
 		switch os.Args[1] {
 		case app.WindowFlag:
