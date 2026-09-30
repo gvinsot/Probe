@@ -176,6 +176,11 @@ installation tabs and copy buttons, and filters reference tables. This is a
 promotional/documentation site, not an analysis API. nginx serves existing
 files or 404, compresses text assets, caches CSS/JS for an hour and images for a
 week; security headers/WAF/rate limiting depend on the configured edge.
+Every indexable page carries a title (at most 60 characters), a meta
+description (at most 160), a canonical link, Open Graph and Twitter cards with
+the 1200×630 `og-image.png`, JSON-LD structured data and a single `<h1>`;
+`web/scripts/check-seo.sh` enforces this when the image is built. Missing paths
+get `404.html` (noindex) with a 404 status.
 `/badge/verified-by-probe.svg` and its shields.io endpoint
 `/badge/verified-by-probe.json` are the static "verified by Probe" README badge
 other repositories embed ([BADGE.md](../app/docs/BADGE.md)); their URLs are

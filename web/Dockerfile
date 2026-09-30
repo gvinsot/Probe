@@ -44,6 +44,10 @@ ARG SITE_URL=https://probe.technology
 RUN --mount=type=bind,source=web/scripts/generate-sitemap.sh,target=/tmp/generate-sitemap.sh \
     sh /tmp/generate-sitemap.sh /usr/share/nginx/html "$SITE_URL" > /usr/share/nginx/html/sitemap.xml \
     && cat /usr/share/nginx/html/sitemap.xml
+# Every indexable page keeps its title, description, canonical link, sharing
+# card, structured data and single <h1>: a page that loses one fails the build.
+RUN --mount=type=bind,source=web/scripts/check-seo.sh,target=/tmp/check-seo.sh \
+    sh /tmp/check-seo.sh /usr/share/nginx/html "$SITE_URL"
 COPY --from=build /out/download /usr/share/nginx/html/download
 COPY --from=build /out/manifest /usr/local/bin/probe-manifest
 COPY --chmod=0755 web/docker-entrypoint.d/40-sign-update-manifest.sh /docker-entrypoint.d/
