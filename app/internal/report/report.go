@@ -406,6 +406,9 @@ func renderMarkdown(r *model.Report) []byte {
 		}
 		line(&b, "")
 	}
+	if f := r.TeamFeedback; f != nil {
+		fmt.Fprintf(&b, "Team feedback given to the reviewer: %d kinds of findings, %d comments (guidance for the model, not evidence).\n\n", len(f.Topics), len(f.Comments))
+	}
 	fmt.Fprintf(&b, "Exit code: %d. No confidence percentage is assigned.\n\n", r.ExitCode)
 	if r.Prepare != nil {
 		writePrepare(&b, r) // F8: "## Dependency Preparation"

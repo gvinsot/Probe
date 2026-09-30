@@ -53,6 +53,9 @@ const state = {
   settled: new Map(),
   loadID: 0,
   reportID: 0,
+  // Team feedback on the findings of the open report: { commit, learning, entries }.
+  feedback: null,
+  replyTo: null,
   minSeverity: loadMinSeverity(),
   period: loadPeriod(),
   // Recent normal runs per repository key, keyed by commit, kept up to date
@@ -412,11 +415,11 @@ function repoActions(repo) {
   const actions = document.createElement('div');
   actions.className = 'repo-actions';
   const noAdmin = 'Your account cannot manage webhooks on this repository';
-  const rules = button(repo.coding_rules ? 'Coding rules ✓' : 'Coding rules', 'btn quiet small', (event) => {
+  const rules = button(repo.coding_rules ? 'Review settings ✓' : 'Review settings', 'btn quiet small', (event) => {
     event.stopPropagation();
     openRulesDialog(repo);
   });
-  rules.title = repo.coding_rules ? 'Edit the coding rules the AI reviewer checks' : 'Add coding rules for the AI reviewer to check';
+  rules.title = 'Coding rules and learning from team feedback, for the AI reviewer';
   if (!repo.has_policy) {
     const addPolicy = button('Add policy', 'btn setup small', (event) => {
       event.stopPropagation();
@@ -589,7 +592,7 @@ function openRulesDialog(repo) {
   closeModal();
   const body = el('modal-body');
   const footer = el('modal-footer');
-  el('modal-title').textContent = 'Coding rules · ' + repo.full_name;
+  el('modal-title').textContent = 'Review settings · ' + repo.full_name;
   body.textContent = '';
   footer.textContent = '';
 
@@ -607,18 +610,87 @@ function openRulesDialog(repo) {
   text.placeholder = '- Never log credentials or tokens.\n- Wrap returned errors with context.\n- Every public function has a test.';
   text.value = repo.coding_rules || '';
   text.setAttribute('aria-label', 'Coding rules');
+  const rulesTitle = document.createElement('h3');
+  rulesTitle.textContent = 'Coding rules';
+  body.insertBefore(rulesTitle, intro);
   body.appendChild(text);
+
+  // Learning from team feedback: on unless the owner switched it off.
+  const learningTitle = document.createElement('h3');
+  learningTitle.textContent = 'Learning from team feedback';
+  body.appendChild(learningTitle);
+  const learningNote = document.createElement('p');
+  learningNote.className = 'note';
+  learningNote.textContent = 'Votes, comments and replies on findings, and whether the next analyzed commit changed the file a finding was about, '
+    + 'adapt how the AI reviewer investigates and words later reviews. They never change a verdict by themselves.';
+  body.appendChild(learningNote);
+  const toggle = document.createElement('label');
+  toggle.className = 'row';
+  const enabled = document.createElement('input');
+  enabled.type = 'checkbox';
+  enabled.id = 'learning-enabled';
+  enabled.checked = repo.learning !== false;
+  toggle.appendChild(enabled);
+  toggle.appendChild(document.createTextNode(' Learn from team feedback'));
+  body.appendChild(toggle);
+  const learned = document.createElement('div');
+  learned.id = 'learned-summary';
+  learned.className = 'note';
+  learned.textContent = 'Loading what was learned…';
+  body.appendChild(learned);
+  const showLearned = (feedback) => {
+    learned.textContent = '';
+    const topics = feedback?.topics || [];
+    if (topics.length === 0 && (feedback?.comments || []).length === 0) {
+      learned.textContent = 'Nothing learned yet: vote or comment on findings in a report.';
+      return;
+    }
+    const list = document.createElement('ul');
+    for (const t of topics) {
+      const item = document.createElement('li');
+      item.textContent = t.topic + ': useful ' + t.useful + ', not useful ' + t.not_useful
+        + '; code changed after it ' + t.changed + ', left unchanged ' + t.unchanged;
+      list.appendChild(item);
+    }
+    learned.appendChild(list);
+    const comments = document.createElement('div');
+    comments.textContent = (feedback.comments || []).length + ' recent comments are quoted to the reviewer.';
+    learned.appendChild(comments);
+  };
+  api('/api/repos/' + encodeURIComponent(repo.key) + '/learning')
+    .then((payload) => showLearned(payload.feedback))
+    .catch((err) => { learned.textContent = err.message; });
+  const reset = button('Forget feedback', 'btn quiet small', async () => {
+    if (!window.confirm('Forget every vote, comment and outcome learned for ' + repo.full_name + '?')) return;
+    try {
+      const payload = await api('/api/repos/' + encodeURIComponent(repo.key) + '/feedback', { method: 'DELETE' });
+      upsertRepo(payload.repo);
+      showLearned(payload.feedback);
+      toast('Feedback forgotten.');
+    } catch (err) {
+      toast(err.message, true);
+    }
+  });
+  reset.id = 'learning-reset';
+  body.appendChild(reset);
 
   const save = button('Save', 'btn', async () => {
     save.disabled = true;
     try {
-      const payload = await api('/api/repos/' + encodeURIComponent(repo.key) + '/rules', {
+      const saved = await api('/api/repos/' + encodeURIComponent(repo.key) + '/rules', {
         method: 'PUT',
         body: { rules: text.value },
       });
-      upsertRepo(payload.repo);
+      upsertRepo(saved.repo);
+      if (enabled.checked !== (repo.learning !== false)) {
+        const switched = await api('/api/repos/' + encodeURIComponent(repo.key) + '/learning', {
+          method: 'PUT',
+          body: { enabled: enabled.checked },
+        });
+        upsertRepo(switched.repo);
+      }
       closeModal();
-      toast(payload.repo.coding_rules ? 'Coding rules saved.' : 'Coding rules removed.');
+      toast('Review settings saved.');
     } catch (err) {
       toast(err.message, true);
       save.disabled = false;
@@ -1170,7 +1242,7 @@ function renderReportCommit(repo, run) {
 }
 
 function clearReport(repo) {
-  state.view = null; state.run = null; state.plan = null;
+  state.view = null; state.run = null; state.plan = null; state.feedback = null; state.replyTo = null;
   el('report-head').textContent = '';
   const title = document.createElement('h2'); title.id = 'report-repo'; title.textContent = repo?.full_name || 'Select a repository';
   el('report-head').appendChild(title);
@@ -1221,6 +1293,7 @@ async function loadReport() {
     state.view = payload.view;
     state.run = payload.run;
     renderReport();
+    loadFeedback(repo.key, commit, reportID);
   } catch (err) {
     if (reportID !== state.reportID || repo.key !== state.repoKey || commit !== state.commit || variant !== state.variant) return;
     el('report-empty').textContent = run.error || err.message;
@@ -1521,8 +1594,145 @@ function alertItem(alert, rerender) {
 
   if (state.expanded.has(alert.id)) {
     item.appendChild(alertBody(alert));
+    if (state.feedback && alert.kind !== 'focus') item.appendChild(feedbackBlock(alert, rerender));
   }
   return item;
+}
+
+/* ------------------------------------------------------- team feedback -- */
+
+function feedbackPath(repoKey, commit) {
+  return '/api/repos/' + encodeURIComponent(repoKey) + '/reports/' + encodeURIComponent(commit) + '/feedback';
+}
+
+// loadFeedback fetches the votes, comments and replies on the open report.
+// Feedback is optional: the report stays usable when it cannot be loaded.
+async function loadFeedback(repoKey, commit, reportID) {
+  try {
+    const payload = await api(feedbackPath(repoKey, commit));
+    if (reportID !== state.reportID) return;
+    state.feedback = { commit, learning: payload.learning, entries: payload.entries || [] };
+    renderAlerts();
+    renderExtras();
+  } catch (err) {
+    // Nothing to show: feedback controls stay hidden.
+  }
+}
+
+async function sendFeedback(alert, body, rerender) {
+  const feedback = state.feedback;
+  if (!feedback) return;
+  try {
+    const payload = await api(feedbackPath(state.repoKey, feedback.commit), {
+      method: 'POST',
+      body: Object.assign({ alert_id: alert.id }, body),
+    });
+    if (state.feedback !== feedback) return;
+    feedback.entries = payload.feedback.entries || [];
+    feedback.learning = payload.feedback.learning;
+    state.replyTo = null;
+    rerender();
+    toast(body.comment ? 'Comment saved.' : 'Thanks, your vote was saved.');
+  } catch (err) {
+    toast(err.message, true);
+  }
+}
+
+// feedbackBlock lets the team vote on a finding, comment on it and reply to
+// comments. The hub turns these reactions, with what developers did after
+// each finding, into guidance for the AI reviewer of later reviews.
+function feedbackBlock(alert, rerender) {
+  const entries = state.feedback.entries.filter((e) => e.alert_id === alert.id);
+  const me = state.me?.user?.login || '';
+  const votes = new Map();
+  for (const e of entries) if (e.vote) votes.set(e.author, e.vote);
+  let up = 0, down = 0;
+  for (const vote of votes.values()) vote === 'up' ? up++ : down++;
+  const mine = votes.get(me) || '';
+
+  const box = document.createElement('div');
+  box.className = 'feedback';
+  const row = document.createElement('div');
+  row.className = 'row';
+  const question = document.createElement('span');
+  question.className = 'note';
+  question.textContent = 'Was this finding useful?';
+  row.appendChild(question);
+  for (const [vote, label, count] of [['up', '👍 Useful', up], ['down', '👎 Not useful', down]]) {
+    const b = button(label + (count ? ' · ' + count : ''), 'btn quiet small' + (mine === vote ? ' active' : ''), (event) => {
+      event.stopPropagation();
+      sendFeedback(alert, { vote }, rerender);
+    });
+    b.setAttribute('aria-pressed', mine === vote ? 'true' : 'false');
+    b.dataset.vote = vote;
+    row.appendChild(b);
+  }
+  box.appendChild(row);
+
+  const comments = entries.filter((e) => e.comment);
+  const list = document.createElement('ul');
+  list.className = 'feedback-comments';
+  const appendComment = (e, depth) => {
+    const item = document.createElement('li');
+    item.className = 'feedback-comment';
+    item.style.marginLeft = (depth * 16) + 'px';
+    const head = document.createElement('div');
+    head.className = 'note';
+    head.textContent = e.author + (e.vote === 'up' ? ' · useful' : e.vote === 'down' ? ' · not useful' : '')
+      + ' · ' + new Date(e.at).toLocaleString();
+    item.appendChild(head);
+    const text = document.createElement('div');
+    text.textContent = e.comment;
+    item.appendChild(text);
+    const reply = button('Reply', 'btn quiet small', (event) => {
+      event.stopPropagation();
+      state.replyTo = { alert: alert.id, id: e.id, author: e.author };
+      rerender();
+    });
+    reply.dataset.reply = e.id;
+    item.appendChild(reply);
+    list.appendChild(item);
+    for (const child of comments.filter((c) => c.reply_to === e.id)) appendComment(child, Math.min(depth + 1, 4));
+  };
+  const known = new Set(comments.map((e) => e.id));
+  for (const e of comments.filter((c) => !c.reply_to || !known.has(c.reply_to))) appendComment(e, 0);
+  if (comments.length) box.appendChild(list);
+
+  const replying = state.replyTo && state.replyTo.alert === alert.id ? state.replyTo : null;
+  if (replying) {
+    const note = document.createElement('div');
+    note.className = 'row note';
+    note.textContent = 'Replying to ' + replying.author + ' ';
+    note.appendChild(button('Cancel', 'btn quiet small', (event) => {
+      event.stopPropagation();
+      state.replyTo = null;
+      rerender();
+    }));
+    box.appendChild(note);
+  }
+  const text = document.createElement('textarea');
+  text.className = 'search feedback-text';
+  text.rows = 2;
+  text.maxLength = 2000;
+  text.placeholder = replying ? 'Your reply' : 'Tell the reviewer what your team expects here (optional)';
+  text.setAttribute('aria-label', replying ? 'Reply' : 'Comment on this finding');
+  text.addEventListener('click', (event) => event.stopPropagation());
+  box.appendChild(text);
+  const send = button(replying ? 'Send reply' : 'Comment', 'btn small', (event) => {
+    event.stopPropagation();
+    const comment = text.value.trim();
+    if (!comment) { toast('Write a comment first.', true); return; }
+    sendFeedback(alert, replying ? { comment, reply_to: replying.id } : { comment }, rerender);
+  });
+  send.dataset.feedbackSend = 'true';
+  box.appendChild(send);
+  if (!state.feedback.learning) {
+    const off = document.createElement('p');
+    off.className = 'note';
+    off.textContent = 'Learning is off for this repository: feedback is kept but future reviews do not use it.';
+    box.appendChild(off);
+  }
+  return box;
 }
 
 // The reviewer model's reading of a linter signal: model judgment, never a verdict.

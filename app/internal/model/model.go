@@ -214,8 +214,12 @@ type Report struct {
 	IntentCriteria []IntentCriterion `json:"intent_criteria"`         // F5, always an array
 	// CodingRules are the team coding rules given to the reviewer with
 	// --rules or --rules-file; recorded only when a reviewer ran.
-	CodingRules        string             `json:"coding_rules,omitempty"`
-	CodingRulesSHA256  string             `json:"coding_rules_sha256,omitempty"`
+	CodingRules       string `json:"coding_rules,omitempty"`
+	CodingRulesSHA256 string `json:"coding_rules_sha256,omitempty"`
+	// TeamFeedback is the team's feedback given to the reviewer with
+	// --feedback-file; recorded only when a reviewer ran.
+	TeamFeedback       *TeamFeedback      `json:"team_feedback,omitempty"`
+	TeamFeedbackSHA256 string             `json:"team_feedback_sha256,omitempty"`
 	Change             Change             `json:"change"`
 	Policy             Policy             `json:"policy"`
 	Prepare            *Prepare           `json:"prepare,omitempty"` // F8

@@ -16,6 +16,8 @@
     "intent_criteria": {"type": "array", "maxItems": 100, "items": {"$ref": "#/$defs/intentCriterion"}, "description": "Acceptance criteria copied verbatim from the intent. Extraction is not understanding of the intent, and an empty list does not mean the change has no requirements."},
     "coding_rules": {"type": "string", "maxLength": 32768, "description": "Team coding rules the operator gave the reviewer with --rules or --rules-file. The reviewer checks the changed code against them; a violation it finds is a hypothesis like any other. Recorded only when a reviewer ran."},
     "coding_rules_sha256": {"$ref": "#/$defs/sha256", "description": "SHA-256 of coding_rules as recorded."},
+    "team_feedback": {"$ref": "#/$defs/teamFeedback"},
+    "team_feedback_sha256": {"$ref": "#/$defs/sha256", "description": "SHA-256 of the --feedback-file content as read."},
     "change": {"$ref": "#/$defs/change"},
     "policy": {"$ref": "#/$defs/policy"},
     "prepare": {"$ref": "#/$defs/prepare"},
@@ -278,6 +280,41 @@
         {"if": {"properties": {"status": {"const": "INTENT_TEST_FAILED"}}}, "then": {"required": ["criterion_id"]}},
         {"if": {"required": ["intent_judgment"]}, "then": {"properties": {"status": {"const": "DIVERGED"}}, "required": ["criterion_id"]}}
       ]
+    },
+    "teamFeedback": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["topics", "comments"],
+      "description": "Team feedback on earlier findings given to the reviewer with --feedback-file. Guidance for the model, never evidence: it changes no status, severity or exit code by itself. Recorded only when a reviewer ran.",
+      "properties": {
+        "topics": {"type": "array", "maxItems": 100, "items": {"$ref": "#/$defs/feedbackTopic"}},
+        "comments": {"type": "array", "maxItems": 50, "items": {"$ref": "#/$defs/feedbackComment"}}
+      }
+    },
+    "feedbackTopic": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["topic", "useful", "not_useful", "changed", "unchanged"],
+      "properties": {
+        "topic": {"type": "string", "description": "signal:<linter kind>, issue or check."},
+        "useful": {"type": "integer", "minimum": 0},
+        "not_useful": {"type": "integer", "minimum": 0},
+        "changed": {"type": "integer", "minimum": 0, "description": "The next analyzed commit changed the file of the finding (a heuristic, not proof of a fix)."},
+        "unchanged": {"type": "integer", "minimum": 0, "description": "The next analyzed commit left the file of the finding unchanged."}
+      }
+    },
+    "feedbackComment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["topic", "comment"],
+      "properties": {
+        "topic": {"type": "string"},
+        "path": {"type": "string"},
+        "title": {"type": "string"},
+        "vote": {"enum": ["up", "down"]},
+        "comment": {"type": "string"},
+        "reply_to": {"type": "string", "description": "The comment this one answers."}
+      }
     },
     "signalAssessment": {
       "type": "object",

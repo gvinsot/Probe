@@ -69,6 +69,22 @@ reports each violation it finds as an unverified issue. Lint-only analyses
 ignore them. The report records the rules it was given. Saving the rules does
 not re-run earlier analyses.
 
+**Learning from team feedback** is on by default and takes effect whenever
+the AI reviewer runs. Under an expanded finding, anyone signed in to the
+account can vote (useful or not useful), comment, and reply to comments.
+When an analysis starts from a commit the hub already analyzed, the hub also
+records, per kind of finding, whether that analysis changed the file each
+earlier finding was about. Each base commit is counted once. From these
+reactions the hub builds a summary (each person's latest vote per finding,
+the outcomes, and the 30 latest comments with the comments they reply to)
+and gives it to the CLI with `--feedback-file`. The reviewer then adapts how
+much effort it spends and how it words findings. The summary never changes
+a verdict: the hub still only renders the report the CLI produced. "Review
+settings" shows what was learned, switches learning off (the feedback is kept
+but neither collected nor used), and forgets it. The hub keeps the latest 300
+reactions per repository. Comments and replies posted on the forge's pull
+requests are not collected.
+
 ## Commit tree and cached results
 
 Click a repository to fetch its branch topology from GitHub or GitLab. The tree
@@ -384,6 +400,9 @@ report view does not display a badge or its URL.
 | `GET` | `/api/me` | Session, configured forges, CSRF token; build, CLI version and mode once signed in. |
 | `GET` `POST` | `/api/repos` · `/api/repos/sync` | List and refresh repositories. |
 | `POST` | `/api/repos/{repo}/policy` | Preview (`{"preview":true}`) or commit `.probe.json`. |
+| `GET` `PUT` | `/api/repos/{repo}/learning` | What the reviewer receives from team feedback; switch learning on or off (`{"enabled":bool}`). |
+| `DELETE` | `/api/repos/{repo}/feedback` | Forget every vote, comment and outcome of the repository. |
+| `GET` `POST` | `/api/repos/{repo}/reports/{commit}/feedback` | List, or record, a vote, comment or reply on a finding (`{"alert_id","vote","comment","reply_to"}`). |
 | `PUT` | `/api/repos/{repo}/rules` | Save the repository's coding rules (`{"rules":"…"}`); an empty text removes them. |
 | `POST` `DELETE` | `/api/repos/{repo}/monitor` | Install or remove the push webhook. |
 | `POST` | `/api/repos/{repo}/analyze` | Analyze a commit, or the tip of the default branch. |

@@ -285,6 +285,40 @@ line, never from the reviewed change. A run without a reviewer (`lint`,
 `--reviewer=false`) does not record them, because nothing checked them.
 Probe Hub keeps the rules of each repository and passes them to every review.
 
+### Learning from team feedback
+
+`--feedback-file FILE` (JSON, at most 64 KiB) gives the reviewer what the team
+thought of earlier findings, so that reviews gradually fit the team. Probe
+Hub builds this file from the votes, comments and replies on findings and
+from what developers did after them, and passes it by default whenever the
+AI reviewer runs:
+
+```json
+{
+  "topics": [
+    {"topic": "signal:no_test_change", "useful": 1, "not_useful": 7, "changed": 2, "unchanged": 9}
+  ],
+  "comments": [
+    {"topic": "issue", "path": "pay/refund.go", "title": "Refund guard removed", "vote": "down",
+     "comment": "The guard moved to the gateway.", "reply_to": ""}
+  ]
+}
+```
+
+A topic is `signal:<linter kind>`, `issue` (reviewer hypotheses) or `check`.
+`useful` and `not_useful` count votes. `changed` and `unchanged` count
+whether the next analyzed commit changed the file a finding was about, which
+is a heuristic and not proof of a fix. With at least three reactions and a
+two-to-one majority, the prompt states the trend: for example, that the team
+usually finds a topic not useful, or usually leaves the code unchanged after
+it. The reviewer then spends less effort on those topics, investigates the
+ones the team values more deeply, and follows the preferences the comments
+express. The feedback is guidance for the model, never evidence. It changes
+no status, severity or exit code by itself, it never justifies dismissing a
+concrete defect, and a `no_risk` reading still needs its source observation.
+The report records it in `team_feedback` and `team_feedback_sha256` when a
+reviewer ran.
+
 ### Provider settings from the deployment
 
 The provider belongs to the deployment rather than to the reviewed repository, so the same binary and the same committed policy can be pointed at an operator's endpoint without a policy change:

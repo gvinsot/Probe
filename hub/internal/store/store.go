@@ -118,9 +118,54 @@ type Repo struct {
 	BadgeKey string `json:"badge_key,omitempty"`
 	// CodingRules are the owner's team coding rules, given to the reviewer
 	// of every review of this repository.
-	CodingRules string    `json:"coding_rules,omitempty"`
-	Latest      *Run      `json:"latest,omitempty"`
-	UpdatedAt   time.Time `json:"updated_at"`
+	CodingRules string `json:"coding_rules,omitempty"`
+	// Learning from team feedback is on unless the owner switched it off.
+	// Feedback holds the latest human reactions to findings (bounded by
+	// MaxFeedback); Outcomes counts, per kind of finding, whether the next
+	// analyzed commit changed the file a finding was about, and
+	// OutcomeBases the analyzed commits already compared, so that a rerun
+	// counts nothing twice.
+	LearningOff  bool                     `json:"learning_off,omitempty"`
+	Feedback     []FeedbackEntry          `json:"feedback,omitempty"`
+	Outcomes     map[string]OutcomeCounts `json:"outcomes,omitempty"`
+	OutcomeBases []string                 `json:"outcome_bases,omitempty"`
+	Latest       *Run                     `json:"latest,omitempty"`
+	UpdatedAt    time.Time                `json:"updated_at"`
+}
+
+// Bounds of the feedback kept per repository.
+const (
+	MaxFeedback     = 300
+	MaxOutcomeBases = 200
+)
+
+// Feedback votes.
+const (
+	VoteUp   = "up"
+	VoteDown = "down"
+)
+
+// FeedbackEntry is one human reaction to a finding of a stored report: a
+// vote, a comment, or both. A reply answers another entry. Topic, Path and
+// Title are copied from the report when the reaction is recorded.
+type FeedbackEntry struct {
+	ID      string    `json:"id"`
+	Commit  string    `json:"commit"`
+	AlertID string    `json:"alert_id"`
+	Topic   string    `json:"topic"`
+	Path    string    `json:"path,omitempty"`
+	Title   string    `json:"title,omitempty"`
+	Vote    string    `json:"vote,omitempty"`
+	Comment string    `json:"comment,omitempty"`
+	ReplyTo string    `json:"reply_to,omitempty"`
+	Author  string    `json:"author"`
+	At      time.Time `json:"at"`
+}
+
+// OutcomeCounts records what developers did after findings of one kind.
+type OutcomeCounts struct {
+	Changed   int `json:"changed"`
+	Unchanged int `json:"unchanged"`
 }
 
 // PublicRepo is the repository projection sent to a browser. It deliberately
@@ -138,6 +183,10 @@ type PublicRepo struct {
 	Monitored     bool   `json:"monitored"`
 	BadgeKey      string `json:"badge_key,omitempty"`
 	CodingRules   string `json:"coding_rules,omitempty"`
+	// Learning tells whether team feedback adapts future reviews, and
+	// FeedbackCount how many reactions are kept.
+	Learning      bool `json:"learning"`
+	FeedbackCount int  `json:"feedback_count,omitempty"`
 	// HookOutdated flags a monitored repository whose webhook predates the
 	// installation token: the forge still delivers, the hub refuses, and the
 	// owner has to reinstall the hook to get pushes and a badge back.
@@ -163,7 +212,7 @@ func (r *Repo) Public() PublicRepo {
 		Key: r.Key, Provider: r.Provider, FullName: r.FullName, WebURL: r.WebURL,
 		DefaultBranch: r.DefaultBranch, Private: r.Private, Admin: r.Admin,
 		HasPolicy: r.HasPolicy, Monitored: r.Monitored, UpdatedAt: r.UpdatedAt,
-		CodingRules: r.CodingRules,
+		CodingRules: r.CodingRules, Learning: !r.LearningOff, FeedbackCount: len(r.Feedback),
 	}
 	if r.Latest != nil {
 		run := projectRecent(r.Latest)

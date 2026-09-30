@@ -2,6 +2,7 @@
 package cli
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/json"
@@ -155,6 +156,7 @@ func analyze(ctx context.Context, mode string, args []string, out, errOut io.Wri
 	intentFile := f.String("intent-file", "", "UTF-8 file containing PR intent")
 	rules := f.String("rules", "", "review: team coding rules the reviewer checks the changed code against")
 	rulesFile := f.String("rules-file", "", "review: UTF-8 file containing team coding rules")
+	feedbackFile := f.String("feedback-file", "", "review: JSON file of team feedback on earlier findings (Probe Hub writes it), used to adapt the reviewer to the team")
 	allowNetwork := f.Bool("allow-network", false, "permit sandbox network only if trusted policy also enables it")
 	noNetwork := f.Bool("no-network", false, "force sandbox networking off (use --reviewer=false to also disable the reviewer API)")
 	reportURL := f.String("report-url", "", "https link to the full report, cited by the pr-comment format")
@@ -222,6 +224,10 @@ func analyze(ctx context.Context, mode string, args []string, out, errOut io.Wri
 		return fail(errOut, 3, "intent exceeds 64 KiB")
 	}
 	codingRules, err := loadCodingRules(*rules, *rulesFile)
+	if err != nil {
+		return fail(errOut, 3, "%v", err)
+	}
+	feedback, feedbackSHA256, err := loadTeamFeedback(*feedbackFile)
 	if err != nil {
 		return fail(errOut, 3, "%v", err)
 	}
@@ -343,6 +349,13 @@ func analyze(ctx context.Context, mode string, args []string, out, errOut io.Wri
 			r.CodingRulesSHA256 = fmt.Sprintf("%x", sha256.Sum256([]byte(codingRules)))
 		} else {
 			fmt.Fprintln(errOut, "Coding rules not applied: no reviewer runs in this analysis.")
+		}
+	}
+	if feedback != nil {
+		if *useReviewer {
+			r.TeamFeedback, r.TeamFeedbackSHA256 = feedback, feedbackSHA256
+		} else {
+			fmt.Fprintln(errOut, "Team feedback not applied: no reviewer runs in this analysis.")
 		}
 	}
 	r.Unverified = append(r.Unverified, doc.Notes...)
@@ -666,6 +679,53 @@ func loadCodingRules(text, path string) (string, error) {
 		return "", errors.New("coding rules must be UTF-8 text")
 	}
 	return text, nil
+}
+
+// loadTeamFeedback reads --feedback-file: one JSON object, strictly decoded
+// and bounded. It returns nil when the flag is unset.
+func loadTeamFeedback(path string) (*model.TeamFeedback, string, error) {
+	if path == "" {
+		return nil, "", nil
+	}
+	data, err := readLimited(path, reviewer.MaxFeedbackBytes)
+	if err != nil {
+		return nil, "", fmt.Errorf("feedback: %w", err)
+	}
+	var f model.TeamFeedback
+	d := json.NewDecoder(bytes.NewReader(data))
+	d.DisallowUnknownFields()
+	if err := d.Decode(&f); err != nil {
+		return nil, "", fmt.Errorf("feedback: %w", err)
+	}
+	if d.More() {
+		return nil, "", errors.New("feedback must contain exactly one JSON object")
+	}
+	if len(f.Topics) > reviewer.MaxFeedbackTopics || len(f.Comments) > reviewer.MaxFeedbackComments {
+		return nil, "", fmt.Errorf("feedback holds at most %d topics and %d comments", reviewer.MaxFeedbackTopics, reviewer.MaxFeedbackComments)
+	}
+	for _, t := range f.Topics {
+		if strings.TrimSpace(t.Topic) == "" || t.Useful < 0 || t.NotUseful < 0 || t.Changed < 0 || t.Unchanged < 0 {
+			return nil, "", errors.New("feedback topics need a name and non-negative counts")
+		}
+	}
+	for _, c := range f.Comments {
+		if strings.TrimSpace(c.Topic) == "" || strings.TrimSpace(c.Comment) == "" {
+			return nil, "", errors.New("feedback comments need a topic and a comment")
+		}
+		if c.Vote != "" && c.Vote != model.FeedbackUp && c.Vote != model.FeedbackDown {
+			return nil, "", errors.New(`feedback votes are "up" or "down"`)
+		}
+	}
+	if len(f.Topics) == 0 && len(f.Comments) == 0 {
+		return nil, "", nil
+	}
+	if f.Topics == nil {
+		f.Topics = []model.FeedbackTopic{}
+	}
+	if f.Comments == nil {
+		f.Comments = []model.FeedbackComment{}
+	}
+	return &f, fmt.Sprintf("%x", sha256.Sum256(data)), nil
 }
 
 func readLimited(path string, limit int64) ([]byte, error) {

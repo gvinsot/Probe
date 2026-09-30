@@ -173,6 +173,7 @@ func Run(ctx context.Context, o Options, r *model.Report, h toolHarness) error {
 	}
 	// Appended after the read-only swap so that both review modes apply them.
 	prompt += clean(rulesPrompt(redact.TruncateUTF8(safe.CodingRules, MaxCodingRulesBytes)))
+	prompt += clean(feedbackPrompt(safe.TeamFeedback))
 	if len(safe.Signals) > 0 {
 		prompt += assessPrompt
 		definitions = append(definitions, assessTool())

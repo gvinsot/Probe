@@ -18,6 +18,7 @@ let fixtureActivities = [
   { repo_key: 'repo', commit: fixtureSHA('c'), variant: 'plan', status: 'running', queued_at: fixtureAgo(2), started_at: fixtureAgo(1) },
   { repo_key: 'repo', commit: fixtureSHA('a'), variant: 'normal', status: 'failed', queued_at: fixtureAgo(3), finished_at: fixtureAgo(2), error: '<img src=x onerror=alert(1)>' },
 ];
+let fixtureFeedback = [];
 let fixtureReposGate;
 let fixtureReportGate;
 let fixtureReportError = false;
@@ -57,6 +58,21 @@ window.fetch = async (path, init) => {
     { sha: fixtureSHA('b'), parents: [fixtureSHA('d')], branches: [], message: 'Main branch work', author: 'Ada' },
     { sha: fixtureSHA('d'), parents: [], branches: [], message: 'Initial commit', author: 'Ada' },
   ] };
+  else if (path.includes('/reports/') && path.endsWith('/feedback')) {
+    if (init && init.method === 'POST') {
+      const body = JSON.parse(init.body);
+      fixtureFeedback.push({ id: 'fb-' + fixtureFeedback.length, alert_id: body.alert_id, vote: body.vote || '', comment: body.comment || '', reply_to: body.reply_to || '', author: 'octocat', at: new Date().toISOString() });
+      data = { entry: fixtureFeedback.at(-1), feedback: { learning: true, entries: fixtureFeedback.slice() } };
+    } else data = { learning: true, entries: fixtureFeedback.slice() };
+  }
+  else if (path.endsWith('/feedback')) data = { repo: state.repos.get(path.split('/')[3]), feedback: { topics: [], comments: [] } };
+  else if (path.endsWith('/learning')) {
+    const key = path.split('/')[3];
+    const learned = { topics: [{ topic: 'signal:no_test_change', useful: 0, not_useful: 3, changed: 1, unchanged: 4 }], comments: [] };
+    data = init && init.method === 'PUT'
+      ? { repo: { ...state.repos.get(key), learning: JSON.parse(init.body).enabled }, feedback: learned }
+      : { learning: true, feedback: learned };
+  }
   else if (path.includes('/runs')) data = { runs: fixtureRuns };
   else if (path.includes('/reports/')) {
     if (fixtureReportGate) await fixtureReportGate;
@@ -316,7 +332,30 @@ window.addEventListener('DOMContentLoaded', async () => {
     assert(aiAlert.querySelector('.alert-title').textContent === 'Refunds are no longer checked' && aiAlert.textContent.includes('AI: risk'), 'plain title and judgment chip');
     const lowered = document.querySelectorAll('#alerts .alert')[1];
     assert(lowered.querySelector('.chip.lowered').textContent === 'was high' && lowered.textContent.includes('AI: no risk'), 'a lowered severity shows the linter one');
+    state.feedback = { commit: state.commit, learning: true, entries: [] };
     aiAlert.querySelector('.alert-head').click();
+    // Team feedback: a vote, a comment and a reply on the expanded finding.
+    const feedbackBox = () => document.querySelector('#alerts .feedback');
+    assert(feedbackBox() && feedbackBox().textContent.includes('Was this finding useful?'), 'an expanded finding takes feedback');
+    feedbackBox().querySelector('[data-vote="up"]').click();
+    await settle();
+    const voteCall = fixtureCalls.find((call) => call.path.endsWith('/feedback') && call.init?.method === 'POST');
+    assert(voteCall && JSON.parse(voteCall.init.body).alert_id === 'signal:s1' && JSON.parse(voteCall.init.body).vote === 'up' && voteCall.init.headers['X-Probe-CSRF'] === 'csrf', 'a vote posts the finding with CSRF');
+    assert(feedbackBox().querySelector('[data-vote="up"]').getAttribute('aria-pressed') === 'true' && feedbackBox().querySelector('[data-vote="up"]').textContent.includes('· 1'), 'my vote is shown');
+    feedbackBox().querySelector('textarea').value = 'The guard moved to the caller.';
+    feedbackBox().querySelector('[data-feedback-send]').click();
+    await settle();
+    assert(feedbackBox().querySelectorAll('.feedback-comment').length === 1, 'the comment is listed');
+    feedbackBox().querySelector('[data-reply]').click();
+    await settle();
+    assert(feedbackBox().querySelector('textarea').placeholder === 'Your reply', 'reply mode');
+    feedbackBox().querySelector('textarea').value = 'Agreed.';
+    feedbackBox().querySelector('[data-feedback-send]').click();
+    await settle();
+    const replyCall = fixtureCalls.filter((call) => call.path.endsWith('/feedback') && call.init?.method === 'POST').at(-1);
+    assert(JSON.parse(replyCall.init.body).reply_to === 'fb-1', 'a reply names its comment');
+    const comments = feedbackBox().querySelectorAll('.feedback-comment');
+    assert(comments.length === 2 && comments[1].style.marginLeft === '16px' && comments[1].textContent.includes('Agreed.'), 'the reply is nested under its comment');
     assert(document.querySelector('#alerts .ai-reading').textContent.includes('The guard was removed.') && document.querySelector('#alerts .alert-body').textContent.includes('Linter: validation removed'), 'AI reading and linter title in the alert body');
     const dismissedBox = document.querySelector('#extras details.dismissed');
     assert(dismissedBox && !dismissedBox.open && dismissedBox.querySelector('summary').textContent.includes('(1)'), 'set-aside items folded with their count');
@@ -569,18 +608,22 @@ window.addEventListener('DOMContentLoaded', async () => {
     closeModal();
     await settle();
     // Coding rules are edited from the repository list and saved with CSRF.
-    const rulesButton = () => Array.from(document.querySelectorAll('.repo-actions button')).find((b) => b.textContent.startsWith('Coding rules'));
-    assert(rulesButton() && rulesButton().textContent === 'Coding rules', 'a repository without rules offers to add them');
+    const rulesButton = () => Array.from(document.querySelectorAll('.repo-actions button')).find((b) => b.textContent.startsWith('Review settings'));
+    assert(rulesButton() && rulesButton().textContent === 'Review settings', 'a repository without rules offers to add them');
     rulesButton().click();
     await settle();
     assert(!el('modal').classList.contains('hidden') && el('coding-rules').value === '', 'the rules dialog opens empty');
+    assert(el('learning-enabled').checked && el('learned-summary').textContent.includes('signal:no_test_change: useful 0, not useful 3; code changed after it 1, left unchanged 4'), 'learning is on by default and shows what was learned');
     el('coding-rules').value = '- Never log credentials.';
+    el('learning-enabled').checked = false;
     el('coding-rules-save').click();
     await settle();
     const rulesCall = fixtureCalls.find((call) => call.path === '/api/repos/repo/rules');
     assert(rulesCall && rulesCall.init.method === 'PUT' && JSON.parse(rulesCall.init.body).rules === '- Never log credentials.' && rulesCall.init.headers['X-Probe-CSRF'] === 'csrf', 'saving puts the rules with CSRF');
     assert(el('modal').classList.contains('hidden') && state.repos.get('repo').coding_rules === '- Never log credentials.', 'the saved rules update the repository');
-    assert(rulesButton().textContent === 'Coding rules ✓', 'a repository with rules shows it');
+    const learningCall = fixtureCalls.find((call) => call.path === '/api/repos/repo/learning' && call.init?.method === 'PUT');
+    assert(learningCall && JSON.parse(learningCall.init.body).enabled === false && state.repos.get('repo').learning === false, 'switching learning off is saved');
+    assert(rulesButton().textContent === 'Review settings ✓', 'a repository with rules shows it');
     rulesButton().click();
     await settle();
     assert(el('coding-rules').value === '- Never log credentials.', 'the dialog shows the saved rules');

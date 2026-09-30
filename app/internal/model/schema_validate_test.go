@@ -365,6 +365,8 @@ func populatedReport() Report {
 		},
 		CodingRules:          "Never log credentials.",
 		CodingRulesSHA256:    strings.Repeat("c", 64),
+		TeamFeedback:         &TeamFeedback{Topics: []FeedbackTopic{{Topic: "signal:no_test_change", Useful: 1, NotUseful: 4, Changed: 2, Unchanged: 5}}, Comments: []FeedbackComment{{Topic: "issue", Path: "calc/calc.go", Title: "Rounding", Vote: FeedbackDown, Comment: "We round on purpose.", ReplyTo: "Why round here?"}}},
+		TeamFeedbackSHA256:   strings.Repeat("d", 64),
 		ReviewerSummary:      "Two signals read; one rounding concern remains.",
 		AIImpactsCriticality: true,
 		Evidence: []Evidence{

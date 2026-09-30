@@ -18,6 +18,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -26,6 +27,7 @@ import (
 	"github.com/gvinsot/Probe/hub/internal/config"
 	"github.com/gvinsot/Probe/hub/internal/events"
 	"github.com/gvinsot/Probe/hub/internal/forge"
+	"github.com/gvinsot/Probe/hub/internal/learning"
 	"github.com/gvinsot/Probe/hub/internal/report"
 	"github.com/gvinsot/Probe/hub/internal/store"
 )
@@ -362,6 +364,7 @@ func (r *Runner) process(ctx context.Context, j Job) {
 	if err := r.store.PutRecord(rec); err != nil {
 		r.log.Error("store report", "repo", j.RepoKey, "error", err)
 	}
+	r.learnOutcomes(j, run, rec.Raw)
 	r.publishRun(j, run)
 	r.events.Publish(j.UserKey, map[string]any{
 		"type": "report", "repo_key": j.RepoKey, "commit": j.Commit, "run": run,
@@ -428,7 +431,11 @@ func (r *Runner) analyze(ctx context.Context, j Job, run *store.Run) (record *st
 	mode := r.modeFor(ctx, g, repo, base)
 	run.Mode = mode
 
-	output, exitCode, runErr := r.runCLI(ctx, work, mode, base, j.Commit, repo.CodingRules)
+	inputs := reviewerInputs{rules: repo.CodingRules}
+	if !repo.LearningOff {
+		inputs.feedback = learning.Summarize(repo)
+	}
+	output, exitCode, runErr := r.runCLI(ctx, work, mode, base, j.Commit, inputs)
 	data, readErr := readBounded(filepath.Join(work, reportPath), maxReportBytes)
 	if readErr != nil {
 		if runErr != nil {
@@ -480,10 +487,17 @@ func (r *Runner) modeFor(ctx context.Context, g *gitRunner, repo *store.Repo, ba
 	return config.ModeReview
 }
 
+// reviewerInputs is what the repository owner and team give the reviewer:
+// coding rules, and the feedback learned from earlier findings.
+type reviewerInputs struct {
+	rules    string
+	feedback *learning.Feedback
+}
+
 // runCLI executes the trusted binary on the prepared checkout. The owner's
-// coding rules reach the CLI only when a reviewer runs, the only step that
-// reads them.
-func (r *Runner) runCLI(ctx context.Context, work, mode, base, head, rules string) (string, int, error) {
+// coding rules and the team's feedback reach the CLI only when a reviewer
+// runs, the only step that reads them.
+func (r *Runner) runCLI(ctx context.Context, work, mode, base, head string, inputs reviewerInputs) (string, int, error) {
 	readOnly := mode == config.ModeReadOnly
 	if readOnly {
 		if strings.TrimSpace(os.Getenv(config.EndpointEnvName)) == "" || strings.TrimSpace(os.Getenv(config.ModelEnvName)) == "" {
@@ -511,34 +525,95 @@ func (r *Runner) runCLI(ctx context.Context, work, mode, base, head, rules strin
 		// stays a deployment decision made through the CLI's own environment.
 		if os.Getenv(config.EndpointEnvName) == "" {
 			args = append(args, "--reviewer=false")
-		} else if strings.TrimSpace(rules) != "" {
-			// Written outside the checkout, so that it is never repository content.
-			path, err := writeRulesFile(rules)
-			if err != nil {
-				return "", 3, err
+		} else {
+			// Written outside the checkout, so that they are never repository content.
+			if strings.TrimSpace(inputs.rules) != "" {
+				path, err := writePrivateFile("probe-rules-*.md", []byte(inputs.rules))
+				if err != nil {
+					return "", 3, fmt.Errorf("coding rules: %w", err)
+				}
+				defer os.Remove(path)
+				args = append(args, "--rules-file", path)
 			}
-			defer os.Remove(path)
-			args = append(args, "--rules-file", path)
+			if !inputs.feedback.Empty() {
+				data, err := json.Marshal(inputs.feedback)
+				if err != nil {
+					return "", 3, fmt.Errorf("team feedback: %w", err)
+				}
+				path, err := writePrivateFile("probe-feedback-*.json", data)
+				if err != nil {
+					return "", 3, fmt.Errorf("team feedback: %w", err)
+				}
+				defer os.Remove(path)
+				args = append(args, "--feedback-file", path)
+			}
 		}
 	}
 	return r.executeCLI(ctx, work, args)
 }
 
-// writeRulesFile stores coding rules in a private temporary file.
-func writeRulesFile(rules string) (string, error) {
-	f, err := os.CreateTemp("", "probe-rules-*.md")
+// writePrivateFile stores data in a private temporary file.
+func writePrivateFile(pattern string, data []byte) (string, error) {
+	f, err := os.CreateTemp("", pattern)
 	if err != nil {
-		return "", fmt.Errorf("coding rules: %w", err)
+		return "", err
 	}
-	_, err = f.WriteString(rules)
+	_, err = f.Write(data)
 	if closeErr := f.Close(); err == nil {
 		err = closeErr
 	}
 	if err != nil {
 		os.Remove(f.Name())
-		return "", fmt.Errorf("coding rules: %w", err)
+		return "", err
 	}
 	return f.Name(), nil
+}
+
+// learnOutcomes compares the report of the commit this run started from with
+// the report it produced (see learning.Outcomes). A base commit is compared
+// once, and nothing is learned while the owner has switched learning off.
+func (r *Runner) learnOutcomes(j Job, run store.Run, raw []byte) {
+	if j.Variant == "plan" || run.Status != store.StatusDone || run.BaseCommit == "" || run.BaseCommit == run.Commit || len(raw) == 0 {
+		return
+	}
+	previous, err := r.store.Record(j.UserKey, j.RepoKey, run.BaseCommit)
+	if err != nil || len(previous.Raw) == 0 || previous.Run.Status != store.StatusDone {
+		return
+	}
+	before, err := report.Decode(previous.Raw)
+	if err != nil {
+		return
+	}
+	after, err := report.Decode(raw)
+	if err != nil {
+		return
+	}
+	outcomes := learning.Outcomes(before, after)
+	if len(outcomes) == 0 {
+		return
+	}
+	_, err = r.store.UpdateRepo(j.UserKey, j.RepoKey, func(repo *store.Repo) error {
+		if repo.LearningOff || slices.Contains(repo.OutcomeBases, run.BaseCommit) {
+			return nil
+		}
+		repo.OutcomeBases = append(repo.OutcomeBases, run.BaseCommit)
+		if extra := len(repo.OutcomeBases) - store.MaxOutcomeBases; extra > 0 {
+			repo.OutcomeBases = repo.OutcomeBases[extra:]
+		}
+		if repo.Outcomes == nil {
+			repo.Outcomes = map[string]store.OutcomeCounts{}
+		}
+		for topic, c := range outcomes {
+			total := repo.Outcomes[topic]
+			total.Changed += c.Changed
+			total.Unchanged += c.Unchanged
+			repo.Outcomes[topic] = total
+		}
+		return nil
+	})
+	if err != nil {
+		r.log.Error("learn outcomes", "repo", j.RepoKey, "error", err)
+	}
 }
 
 // publishStatus reports the outcome back onto the commit, when enabled.
