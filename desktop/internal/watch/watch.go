@@ -60,6 +60,9 @@ type Explanation struct {
 	// Findings are the extra risks the model raised. They are shown apart
 	// from the report and do not change its severity.
 	Findings []office.Finding `json:"findings,omitempty"`
+	// Readings qualify the rule findings of the report: a title in the
+	// words of the document and the consistency of the change.
+	Readings []Reading `json:"readings,omitempty"`
 	// Impacts are the legal or financial consequences the model stated, and
 	// Severity the level they raise the document to: the model can raise the
 	// severity of the report, never lower it.
@@ -70,6 +73,18 @@ type Explanation struct {
 	// the modifications: its findings about elements modified again were
 	// dropped, and it does not cover the newest changes.
 	Outdated bool `json:"outdated,omitempty"`
+}
+
+// Reading is the AI reading of the rule finding at index Finding of the
+// report; Rule and Location identify that finding, so a reading is never
+// shown against another one.
+type Reading struct {
+	Finding     int    `json:"finding"`
+	Rule        string `json:"rule"`
+	Location    string `json:"location,omitempty"`
+	Title       string `json:"title"`
+	Consistency string `json:"consistency,omitempty"`
+	Note        string `json:"note,omitempty"`
 }
 
 // Document is the state of one watched document.
@@ -780,6 +795,8 @@ func carryExplanation(e *Explanation, prev, cur *office.Report) *Explanation {
 	kept := *e
 	kept.Outdated = true
 	kept.Findings = nil
+	// The readings follow the order of the earlier findings.
+	kept.Readings = nil
 	for _, f := range e.Findings {
 		tied := tiedChanges(f, prev.Changes)
 		keep := allKept

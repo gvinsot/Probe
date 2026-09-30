@@ -31,6 +31,13 @@ func (s *Server) explainDocument(ctx context.Context, d watch.Document) (watch.E
 		Provider: st.Provider, Model: st.EffectiveModel(), Text: res.Text, Findings: res.Findings,
 		Impacts: res.Impacts, Severity: res.Severity, At: time.Now(),
 	}
+	for _, r := range res.Readings {
+		f := d.Report.Findings[r.Finding]
+		e.Readings = append(e.Readings, watch.Reading{
+			Finding: r.Finding, Rule: f.Rule, Location: f.Location,
+			Title: r.Title, Consistency: r.Consistency, Note: r.Note,
+		})
+	}
 	return e, s.deps.Watcher.SetExplanation(d.ID, d.CurrentHash, e)
 }
 

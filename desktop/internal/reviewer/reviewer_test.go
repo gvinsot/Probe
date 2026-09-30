@@ -62,7 +62,7 @@ func TestParseAnswerRaisesBoundedAIFindings(t *testing.T) {
 	raw := "```json\n" + `{"explanation":"Total looks off.","findings":[` +
 		`{"severity":"HIGH","title":"Total no longer matches the lines","location":"Budget!C9","before":"120","after":"90"},` +
 		`{"severity":"weird","title":"Odd label"},{"severity":"low","title":""}]}` + "\n```"
-	res := parseAnswer(raw)
+	res := parseAnswer(raw, 0)
 	if res.Text != "Total looks off." || len(res.Findings) != 2 {
 		t.Fatalf("result %+v", res)
 	}
@@ -91,7 +91,7 @@ func TestParseAnswerRaisesSeverityOnLegalAndFinancialImpact(t *testing.T) {
 		{`{"explanation":"Check the legal meaning and the amounts."}`, "", ""},
 		{`{"explanation":"The rate changed.","findings":[{"severity":"medium","title":"Incidence juridique et financière possible sur la clause 4"}]}`, "legal,financial", office.Critical},
 	} {
-		res := parseAnswer(c.raw)
+		res := parseAnswer(c.raw, 0)
 		if got := strings.Join(res.Impacts, ","); got != c.impacts || res.Severity != c.sev {
 			t.Errorf("%s\n  impacts %q severity %q, want %q %q", c.raw, got, res.Severity, c.impacts, c.sev)
 		}
@@ -100,9 +100,52 @@ func TestParseAnswerRaisesSeverityOnLegalAndFinancialImpact(t *testing.T) {
 
 func TestParseAnswerFallsBackToPlainText(t *testing.T) {
 	for _, raw := range []string{"Just check C1.", `{"findings":[{"title":"x"}]}`, "{broken"} {
-		res := parseAnswer(raw)
+		res := parseAnswer(raw, 0)
 		if res.Text != raw || len(res.Findings) != 0 {
 			t.Errorf("%q -> %+v", raw, res)
 		}
+	}
+}
+
+func TestReadingsQualifyRuleFindings(t *testing.T) {
+	raw := `{"explanation": "Le bailleur a changé.", "impacts": [],
+		"readings": [
+			{"finding": 1, "title": "Nom du bailleur remplacé au paragraphe 3 (Dupont → Martin)", "consistency": "Inconsistent", "note": "Le paragraphe 1 désigne toujours M. Dupont comme bailleur."},
+			{"finding": 1, "title": "doublon"},
+			{"finding": 7, "title": "hors limites"},
+			{"finding": 0, "title": "hors limites"}],
+		"findings": [{"severity": "medium", "title": "Clé remise par une autre personne", "location": "Paragraphe 3", "consistency": "maybe", "note": "À vérifier."}]}`
+	res := parseAnswer(raw, 2)
+	if len(res.Readings) != 1 {
+		t.Fatalf("readings = %+v", res.Readings)
+	}
+	r := res.Readings[0]
+	if r.Finding != 0 || r.Consistency != office.Inconsistent || !strings.Contains(r.Title, "bailleur") || r.Note == "" {
+		t.Fatalf("reading = %+v", r)
+	}
+	if len(res.Findings) != 1 || res.Findings[0].Consistency != "" || res.Findings[0].Note != "À vérifier." {
+		t.Fatalf("AI finding = %+v", res.Findings)
+	}
+}
+
+func TestPromptCarriesOtherPassages(t *testing.T) {
+	r := sampleReport()
+	r.Mentions = []office.Mention{{
+		Term: "Jean Dupont", Replacement: "Paul Martin", Location: "Paragraph 3", Count: 1,
+		Elsewhere: []office.Occurrence{{Location: "Paragraph 1", Excerpt: "Entre M. Jean Dupont, ci-après « le Bailleur »"}},
+	}}
+	p := userPrompt("bail.docx", r)
+	for _, want := range []string{"F1 [high]", `"Jean Dupont" replaced by "Paul Martin" at Paragraph 3`, "Paragraph 1: Entre M. Jean Dupont, ci-après « le Bailleur »"} {
+		if !strings.Contains(p, want) {
+			t.Errorf("prompt misses %q:\n%s", want, p)
+		}
+	}
+	for _, lang := range []string{"en", "fr"} {
+		if sp := systemPrompt(lang); !strings.Contains(sp, `"readings"`) || !strings.Contains(sp, "consistency") {
+			t.Errorf("%s system prompt does not ask for readings", lang)
+		}
+	}
+	if !strings.Contains(systemPrompt("fr"), "Nom du bailleur") {
+		t.Error("French prompt lacks its example")
 	}
 }

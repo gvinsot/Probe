@@ -489,7 +489,7 @@ function reportParts(d) {
     const extra = d.explanation.findings || [];
     if (extra.length) {
       parts.push(el("h3", { class: "section-title", text: `Raised by AI (${extra.length})` }));
-      parts.push(el("ul", { class: "findings ai-findings" }, ...extra.map(findingItem)));
+      parts.push(el("ul", { class: "findings ai-findings" }, ...extra.map((f) => findingItem(f))));
       parts.push(el("p", { class: "note", text: "Suggestions from the model, not rule results: check them in the document." }));
     }
     parts.push(el("details", { class: "explanation", open: !extra.length },
@@ -506,7 +506,7 @@ function reportParts(d) {
   if (r) {
     parts.push(el("h3", { class: "section-title", text: r.findings.length ? `Findings (${r.findings.length})` : "No risky modification detected" }));
     if (r.findings.length) {
-      parts.push(el("ul", { class: "findings" }, ...r.findings.map(findingItem)));
+      parts.push(el("ul", { class: "findings" }, ...r.findings.map((f, i) => findingItem(f, readingFor(d.explanation, f, i)))));
     }
     parts.push(changesTable(r));
   }
@@ -576,13 +576,39 @@ function actions(d) {
   return box;
 }
 
-function findingItem(f) {
+// readingFor returns the AI reading of the rule finding at index i, if the
+// explanation has one for that very finding.
+function readingFor(explanation, f, i) {
+  const readings = (explanation && explanation.readings) || [];
+  return readings.find((r) => r.finding === i && r.rule === f.rule && (r.location || "") === (f.location || ""));
+}
+
+const CONSISTENCY = {
+  inconsistent: "No longer consistent with the rest of the document",
+  consistent: "Consistent with the rest of the document",
+};
+
+// findingItem renders a finding; reading is the AI reading of a rule
+// finding: a title in the words of the document and its consistency.
+function findingItem(f, reading) {
   const item = el("li", { class: `finding tone-${f.severity}` },
     el("span", { class: "dot", title: f.severity }),
     el("span", { class: "finding-title", text: f.title }),
   );
+  if (reading && reading.title) {
+    item.append(el("p", { class: "finding-reading", title: "AI reading of this finding" }, el("span", { class: "ai-tag", text: "AI" }), reading.title));
+  }
   if (f.location) item.append(el("span", { class: "finding-where mono", text: `${f.location} · ${f.severity}` }));
   else item.append(el("span", { class: "finding-where", text: f.severity }));
+  // The AI note, in the reader's language, takes precedence over the rule's.
+  const verdict = (reading && reading.consistency) || f.consistency;
+  const note = (reading && reading.note) || f.note;
+  if (verdict || note) {
+    item.append(el("p", { class: `consistency ${verdict || ""}` },
+      verdict ? el("strong", { text: `${CONSISTENCY[verdict] || verdict}.` }) : null,
+      note ? ` ${note}` : null,
+    ));
+  }
   if (f.before || f.after) {
     const d = highlighted(f.before, f.after);
     item.append(el("div", { class: "compare" },

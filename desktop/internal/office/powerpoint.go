@@ -86,6 +86,8 @@ func comparePowerPoint(r *reportBuilder, before, after *pkg) error {
 	for _, s := range newSlides {
 		newIDs[s.id] = true
 		loc := fmt.Sprintf("Slide %d", s.number)
+		r.current(loc, s.paragraphs...)
+		r.current(loc+" (notes)", s.notes...)
 		old, ok := oldByID[s.id]
 		if !ok {
 			r.change(Change{Kind: "added", Location: loc, After: strings.Join(s.paragraphs, " / ")})
@@ -128,6 +130,7 @@ func compareParagraphs(r *reportBuilder, loc string, a, b []string) {
 			textRules(r, loc, "", b[d.j])
 		default:
 			r.change(Change{Kind: "modified", Location: loc, Before: a[d.i], After: b[d.j]})
+			r.edited(loc, a[d.i], b[d.j])
 			textRules(r, loc, a[d.i], b[d.j])
 		}
 	}

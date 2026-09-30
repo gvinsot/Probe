@@ -122,6 +122,9 @@ func compareWord(r *reportBuilder, before, after *pkg) error {
 	for s := range newDoc.sections {
 		label := newDoc.sections[s].label
 		a, b := oldDoc.sections[s].paragraphs, newDoc.sections[s].paragraphs
+		for j, p := range b {
+			r.current(fmt.Sprintf("%s %d", label, j+1), p)
+		}
 		for _, d := range diffSeq(a, b) {
 			textChanged = true
 			var old, cur, loc string
@@ -135,6 +138,7 @@ func compareWord(r *reportBuilder, before, after *pkg) error {
 			default:
 				old, cur, loc = a[d.i], b[d.j], fmt.Sprintf("%s %d", label, d.j+1)
 				r.change(Change{Kind: "modified", Location: loc, Before: old, After: cur})
+				r.edited(loc, old, cur)
 			}
 			textRules(r, loc, old, cur)
 		}

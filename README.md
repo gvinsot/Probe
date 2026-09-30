@@ -310,7 +310,7 @@ It can flag changes such as:
 - hidden sheets or slides
 - macros and other risky modifications
 
-Documents are compared locally; optional AI explanations receive only flagged excerpts.
+Documents are compared locally; optional AI explanations receive only flagged excerpts and the passages that still use a replaced name or term.
 
 See [`desktop/`](desktop/README.md) and [probe.technology](https://probe.technology/).
 

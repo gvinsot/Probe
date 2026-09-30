@@ -1,10 +1,14 @@
 // Package reviewer asks an AI model to review a report.
 //
 // The model reads the findings and the changed excerpts the deterministic
-// comparison already produced, never the whole document. It answers with a
-// plain-language explanation and may point out additional risky changes the
-// rules missed. Those are kept apart as AI findings: they never remove or
-// downgrade a rule finding.
+// comparison already produced, and the few unchanged passages that still use
+// a term a change replaced or removed; never the whole document. It answers
+// with a plain-language explanation and may point out additional risky
+// changes the rules missed. Those are kept apart as AI findings: they never
+// remove or downgrade a rule finding. It may also give each rule finding a
+// reading: a precise title in the words of the document ("landlord's name
+// replaced in paragraph 4") and whether the change still agrees with the rest
+// of the document.
 //
 // When the model states that the modifications may have a legal or financial
 // impact, the severity of the document is raised: to high for one of them, to
@@ -41,12 +45,25 @@ var ErrNotConfigured = errors.New("no AI provider is configured: choose one and 
 type Result struct {
 	Text     string
 	Findings []office.Finding
+	// Readings qualify the rule findings of the report.
+	Readings []Reading
 	// Impacts are the consequences the model states the modifications may
 	// have (ImpactLegal, ImpactFinancial), declared or written in its answer.
 	Impacts []string
 	// Severity is the level the impacts raise the document to, empty when
 	// they raise nothing.
 	Severity string
+}
+
+// Reading is what the model says about a rule finding: a title naming what
+// changed in the words of the document, and whether the change still agrees
+// with the rest of it.
+type Reading struct {
+	// Finding is the index of the rule finding in the report.
+	Finding     int    `json:"finding"`
+	Title       string `json:"title"`
+	Consistency string `json:"consistency,omitempty"`
+	Note        string `json:"note,omitempty"`
 }
 
 // Impacts the model can state.
@@ -89,25 +106,38 @@ func Explain(ctx context.Context, s config.Settings, apiKey, path string, report
 	if err != nil {
 		return Result{}, err
 	}
-	return parseAnswer(raw), nil
+	return parseAnswer(raw, len(report.Findings)), nil
 }
 
 // parseAnswer reads the JSON answer asked by the prompt and the impacts it
 // states. A model that ignores the format (small local models) still gives a
 // usable explanation: the raw text is then shown as is, without extra
 // findings, and still read for impacts.
-func parseAnswer(raw string) Result {
-	res, declared := decodeAnswer(raw)
+func parseAnswer(raw string, ruleFindings int) Result {
+	res, declared := decodeAnswer(raw, ruleFindings)
 	texts := []string{res.Text}
 	for _, f := range res.Findings {
-		texts = append(texts, f.Title)
+		texts = append(texts, f.Title, f.Note)
+	}
+	for _, r := range res.Readings {
+		texts = append(texts, r.Title, r.Note)
 	}
 	res.Impacts = impacts(declared, texts)
 	res.Severity = escalation(res.Impacts)
 	return res
 }
 
-func decodeAnswer(raw string) (Result, []string) {
+// consistency keeps the verdicts the interface knows; "unknown" and anything
+// else say nothing.
+func consistency(s string) string {
+	switch v := strings.ToLower(strings.TrimSpace(s)); v {
+	case office.Inconsistent, office.Consistent:
+		return v
+	}
+	return ""
+}
+
+func decodeAnswer(raw string, ruleFindings int) (Result, []string) {
 	raw = strings.TrimSpace(raw)
 	start, end := strings.Index(raw, "{"), strings.LastIndex(raw, "}")
 	if start < 0 || end <= start {
@@ -117,12 +147,20 @@ func decodeAnswer(raw string) (Result, []string) {
 		Explanation string   `json:"explanation"`
 		Impacts     []string `json:"impacts"`
 		Findings    []struct {
-			Severity string `json:"severity"`
-			Title    string `json:"title"`
-			Location string `json:"location"`
-			Before   string `json:"before"`
-			After    string `json:"after"`
+			Severity    string `json:"severity"`
+			Title       string `json:"title"`
+			Location    string `json:"location"`
+			Before      string `json:"before"`
+			After       string `json:"after"`
+			Consistency string `json:"consistency"`
+			Note        string `json:"note"`
 		} `json:"findings"`
+		Readings []struct {
+			Finding     int    `json:"finding"`
+			Title       string `json:"title"`
+			Consistency string `json:"consistency"`
+			Note        string `json:"note"`
+		} `json:"readings"`
 	}
 	if err := json.Unmarshal([]byte(raw[start:end+1]), &a); err != nil || strings.TrimSpace(a.Explanation) == "" {
 		return Result{Text: raw}, nil
@@ -140,6 +178,20 @@ func decodeAnswer(raw string) (Result, []string) {
 		res.Findings = append(res.Findings, office.Finding{
 			Severity: sev, Rule: RuleAI, Title: clip(title, 200),
 			Location: clip(f.Location, 200), Before: clip(f.Before, 600), After: clip(f.After, 600),
+			Consistency: consistency(f.Consistency), Note: clip(f.Note, 400),
+		})
+	}
+	// The prompt numbers the rule findings from 1; one reading per finding.
+	seen := map[int]bool{}
+	for _, rd := range a.Readings {
+		i := rd.Finding - 1
+		title := strings.TrimSpace(rd.Title)
+		if i < 0 || i >= ruleFindings || seen[i] || (title == "" && consistency(rd.Consistency) == "") {
+			continue
+		}
+		seen[i] = true
+		res.Readings = append(res.Readings, Reading{
+			Finding: i, Title: clip(title, 200), Consistency: consistency(rd.Consistency), Note: clip(rd.Note, 400),
 		})
 	}
 	return res, a.Impacts
@@ -210,12 +262,16 @@ func clip(s string, n int) string {
 
 func systemPrompt(language string) string {
 	lang := "English"
+	good, bad, note := `"Landlord's name replaced in paragraph 4 (Dupont → Martin)"`, `"Person substitution in paragraph 4"`,
+		`"Paragraph 1 still names Mr Dupont as the landlord: this is no longer consistent with the rest of the document."`
 	if language == "fr" {
 		lang = "French"
+		good, bad, note = `"Nom du bailleur remplacé au paragraphe 4 (Dupont → Martin)"`, `"Substitution de personne dans le paragraphe 4"`,
+			`"Le paragraphe 1 désigne toujours M. Dupont comme bailleur : ce n'est plus cohérent avec le reste du document."`
 	}
 	return `You help a person review the latest modifications of an office document (Word, Excel or PowerPoint) before they accept them.
 
-A deterministic comparison already listed the changes and flagged the risky ones with a severity. You receive those findings and excerpts of the changed content, not the full document.
+A deterministic comparison already listed the changes and flagged the risky ones with a severity. You receive those findings (numbered F1, F2…), excerpts of the changed content and, under "Other passages", the unchanged passages that still use a term a change replaced or removed. You do not receive the full document.
 
 Write a short explanation for a non-technical reader:
 - First, two or three sentences on what changed overall.
@@ -223,13 +279,17 @@ Write a short explanation for a non-technical reader:
 - Stay factual: rely only on the excerpts given. When the excerpts are not enough to conclude, say what the reader should open and verify.
 - Do not change the severities and do not declare the document safe; the person decides.
 
-You may also raise additional findings: risky changes visible in the excerpts that the rules did not flag (a figure that no longer matches its context, a meaning reversed by rewording, a suspicious removal...). Only raise a finding you can point to in the excerpts, with its location; do not repeat a finding already listed. Use severity "high", "medium" or "low". Raise none when nothing was missed.
+Qualify every title precisely, in the words of the document: say which role, party, clause, amount or date changed and where, as a reader who knows the document would. Use the passages to identify roles (a name defined as "the Landlord", "le Preneur", "the Supplier"…). Write ` + good + `, not ` + bad + `.
+
+For each rule finding, you may give a reading in "readings": its number, a qualified title, and its consistency with the rest of the document. Consistency is "inconsistent" when the passages show the rest of the document still uses the previous value or contradicts the new one, "consistent" when they show it was updated everywhere it appears, "unknown" when the excerpts do not tell. Add a one-sentence note saying why, like ` + note + `
+
+You may also raise additional findings: risky changes visible in the excerpts that the rules did not flag (a figure that no longer matches its context, a meaning reversed by rewording, a suspicious removal...). Only raise a finding you can point to in the excerpts, with its location; do not repeat a finding already listed, qualify it with a reading instead. Use severity "high", "medium" or "low", and give its consistency and note as for a reading. Raise none when nothing was missed.
 
 List in "impacts" the consequences the modifications may have: "legal" (meaning of a contract or commitment, obligations, liability, compliance) and "financial" (amounts, prices, payments, totals, budget). List one only when the excerpts support it and say it in the explanation; leave the list empty otherwise.
 
 Answer with a single JSON object and nothing else:
-{"explanation": "...", "impacts": ["legal", "financial"], "findings": [{"severity": "medium", "title": "...", "location": "...", "before": "...", "after": "..."}]}
-The explanation is written in ` + lang + `, in plain text with short paragraphs or "- " bullet lines, no tables, no headings, at most 250 words. The titles of the findings are in ` + lang + ` too.`
+{"explanation": "...", "impacts": ["legal", "financial"], "readings": [{"finding": 1, "title": "...", "consistency": "inconsistent", "note": "..."}], "findings": [{"severity": "medium", "title": "...", "location": "...", "before": "...", "after": "...", "consistency": "unknown", "note": "..."}]}
+The explanation is written in ` + lang + `, in plain text with short paragraphs or "- " bullet lines, no tables, no headings, at most 250 words. The titles and notes are in ` + lang + ` too.`
 }
 
 // maxPromptChanges bounds the excerpts sent to the provider.
@@ -247,8 +307,8 @@ func userPrompt(path string, r *office.Report) string {
 	if len(r.Findings) == 0 {
 		b.WriteString("(none)\n")
 	}
-	for _, f := range r.Findings {
-		fmt.Fprintf(&b, "- [%s] %s", f.Severity, f.Title)
+	for i, f := range r.Findings {
+		fmt.Fprintf(&b, "- F%d [%s] %s", i+1, f.Severity, f.Title)
 		if f.Location != "" {
 			fmt.Fprintf(&b, " at %s", f.Location)
 		}
@@ -274,6 +334,19 @@ func userPrompt(path string, r *office.Report) string {
 			fmt.Fprintf(&b, " | after: %s", c.After)
 		}
 		b.WriteString("\n")
+	}
+	if len(r.Mentions) > 0 {
+		b.WriteString("\nOther passages of the current version that still use a replaced or removed term:\n")
+		for _, m := range r.Mentions {
+			if m.Replacement != "" {
+				fmt.Fprintf(&b, "- %q replaced by %q at %s, still used in %d other passage(s):\n", m.Term, m.Replacement, m.Location, m.Count)
+			} else {
+				fmt.Fprintf(&b, "- %q removed at %s, still used in %d other passage(s):\n", m.Term, m.Location, m.Count)
+			}
+			for _, o := range m.Elsewhere {
+				fmt.Fprintf(&b, "  %s: %s\n", o.Location, o.Excerpt)
+			}
+		}
 	}
 	return b.String()
 }

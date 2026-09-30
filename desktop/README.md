@@ -20,6 +20,19 @@ again, the explanation is kept, marked as written for an earlier version: the
 AI findings about elements modified again are removed, the others stay, and
 the raised severity stays only if none of the earlier modifications changed.
 
+The model also qualifies each rule finding in the words of the document and
+in the chosen language: "Nom du bailleur remplacé au paragraphe 4 (Dupont →
+Martin)" rather than "Substitution de personne", with whether the change is
+still consistent with the rest of the document and why ("Le paragraphe 1
+désigne toujours M. Dupont comme bailleur : ce n'est plus cohérent avec le
+reste du document."). These readings are shown under the rule finding, marked
+AI, and dropped when the document changes again.
+
+Consistency is also checked without AI: when a modified passage replaces or
+removes a term (a name, a party, a product…) that other passages of the
+current version still use, a *still used elsewhere* finding lists them.
+Figures, dates and common words are left to the other rules.
+
 ## What it flags
 
 | Format | Examples of findings |
@@ -27,6 +40,7 @@ the raised severity stays only if none of the earlier modifications changed.
 | Excel (`.xlsx`, `.xlsm`) | formula replaced by a typed value, range reduced in a formula (`SUM(A1:A3)` → `SUM(A1:A2)`), broken reference (`#REF!`), computed result that moved by more than 10%, sheet deleted or made "very hidden", rows or columns hidden, data validation or protection removed, named range redirected |
 | Word (`.docx`, `.docm`) | amount or percentage changed, date changed, obligation softened (`shall` → `may`, `doit` → `peut`), negation added or removed, clause about payment, liability or termination removed or reworded, track changes turned off, pending tracked changes resolved without trace, comments deleted |
 | PowerPoint (`.pptx`, `.pptm`) | figures changed on a slide or in its notes, slide deleted or hidden |
+| Word, PowerPoint | a name or term replaced in one passage but still used in others (`Dupont` → `Martin` in paragraph 4, `Dupont` still in paragraph 1) |
 | All | macros added, link to an external file added, embedded object added |
 
 Macs write the same formats, so Office for Mac documents are covered, and
@@ -82,8 +96,10 @@ the window the engine launched:
 - API keys live in the system keychain (Credential Manager, Keychain), never in
   `settings.json`, the logs or the pages.
 
-Only the file name, the findings and the changed excerpts are sent to the AI
-provider, and only once a provider is configured: each changed document is
+Only the file name, the findings, the changed excerpts and the few unchanged
+passages that still use a replaced or removed term (at most 10 terms, 5
+passages each, 240 characters around the term) are sent to the AI provider,
+and only once a provider is configured: each changed document is
 then explained automatically when the change is detected, one at a time and
 most severe first, and again when it changes once more. A failed explanation
 is not retried until the document or the settings change; the user can still
@@ -171,8 +187,8 @@ A build can also carry a client, used when the settings name none:
 (the build scripts read `PROBE_GOOGLE_CLIENT_ID` and
 `PROBE_GOOGLE_CLIENT_SECRET`).
 
-Only the file name, the findings and the changed excerpts are sent to the AI
-provider, whatever the source.
+Only the file name, the findings, the changed excerpts and the passages that
+still use a replaced term are sent to the AI provider, whatever the source.
 
 ## Data directory
 

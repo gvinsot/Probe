@@ -219,6 +219,11 @@ h1, h2, h3 { line-height: 1.25; }
 .finding-title { font-weight: 600; font-size: 0.9rem; }
 .finding-where { grid-column: 2; color: var(--muted); font-size: 0.78rem; }
 .compare { grid-column: 2; display: grid; gap: 4px; margin-top: 4px; }
+.finding-reading { grid-column: 2; margin: 0; font-size: 0.88rem; }
+.ai-tag { display: inline-block; margin-right: 6px; padding: 0 5px; border-radius: 4px; background: var(--accent-soft); color: var(--accent); font-size: 0.7rem; font-weight: 700; vertical-align: 1px; }
+.consistency { grid-column: 2; margin: 2px 0 0; font-size: 0.82rem; color: var(--muted); }
+.consistency.inconsistent strong { color: var(--high); }
+.consistency.consistent strong { color: var(--ok); }
 .before, .after { margin: 0; padding: 5px 9px; border-radius: 6px; font-size: 0.83rem; white-space: pre-wrap; word-break: break-word; border-left: 3px solid; }
 .before { background: var(--del); border-color: var(--del-line); }
 .after { background: var(--add); border-color: var(--add-line); }

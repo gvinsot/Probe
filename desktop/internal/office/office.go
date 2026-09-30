@@ -63,6 +63,11 @@ type Finding struct {
 	Location string `json:"location,omitempty"`
 	Before   string `json:"before,omitempty"`
 	After    string `json:"after,omitempty"`
+	// Consistency tells whether the change still agrees with the rest of
+	// the document (Inconsistent, Consistent), empty when unknown; Note
+	// says why.
+	Consistency string `json:"consistency,omitempty"`
+	Note        string `json:"note,omitempty"`
 }
 
 // Change is one raw modification, flagged or not.
@@ -82,6 +87,9 @@ type Report struct {
 	ChangeCount    int       `json:"change_count"`
 	Truncated      bool      `json:"truncated,omitempty"`
 	LastModifiedBy string    `json:"last_modified_by,omitempty"`
+	// Mentions are the replaced or removed terms that the unchanged
+	// passages still use, with those passages.
+	Mentions []Mention `json:"mentions,omitempty"`
 }
 
 // Limits keep a report readable and bounded in size whatever the document.
@@ -129,6 +137,22 @@ type reportBuilder struct {
 	counts      map[string]int
 	changes     []Change
 	changeCount int
+	// For the consistency check: the modified passages and every passage
+	// of the current version.
+	edits    []edit
+	passages []passage
+}
+
+// edited records a modified passage for the consistency check.
+func (r *reportBuilder) edited(location, before, after string) {
+	r.edits = append(r.edits, edit{location, before, after})
+}
+
+// current records the passages of the current version.
+func (r *reportBuilder) current(location string, texts ...string) {
+	for _, t := range texts {
+		r.passages = append(r.passages, passage{location, t})
+	}
 }
 
 func (r *reportBuilder) flag(f Finding) {
@@ -150,6 +174,7 @@ func (r *reportBuilder) change(c Change) {
 }
 
 func (r *reportBuilder) build(kind Kind, modifiedBy string) *Report {
+	mentions := r.consistency()
 	// A rule that fired more often than shown gets one summary line, so the
 	// reader knows the list is partial without wading through every cell.
 	for rule, n := range r.counts {
@@ -195,6 +220,7 @@ func (r *reportBuilder) build(kind Kind, modifiedBy string) *Report {
 		ChangeCount:    r.changeCount,
 		Truncated:      r.changeCount > len(r.changes),
 		LastModifiedBy: modifiedBy,
+		Mentions:       mentions,
 	}
 }
 
