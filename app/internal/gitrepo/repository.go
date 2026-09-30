@@ -490,3 +490,36 @@ func (r *blobReader) separator() error {
 func (r *Repository) ResolveCommit(ctx context.Context, ref string) (string, error) {
 	return r.resolve(ctx, ref)
 }
+
+// maxMessageCommits bounds the commits CommitMessages reads.
+const maxMessageCommits = 200
+
+// CommitMessages returns the full messages of the commits reachable from head
+// but not from base, oldest first, at most 200 of them. Both arguments must
+// be commit identifiers (as Analyze returns them).
+func (r *Repository) CommitMessages(ctx context.Context, base, head string) ([]string, error) {
+	if !validObjectID(base) || !validObjectID(head) {
+		return nil, errors.New("commit messages need resolved commit identifiers")
+	}
+	b, err := r.git(ctx, 4<<20, "log", "--no-color", "--reverse", "--format=%B%x00", "--max-count="+strconv.Itoa(maxMessageCommits), base+".."+head, "--")
+	if err != nil {
+		return nil, err
+	}
+	var messages []string
+	for _, m := range strings.Split(string(b), "\x00") {
+		if m = strings.TrimSpace(m); m != "" {
+			messages = append(messages, m)
+		}
+	}
+	return messages, nil
+}
+
+// CurrentBranch returns the short name of the checked-out branch, or "" when
+// HEAD is detached.
+func (r *Repository) CurrentBranch(ctx context.Context) string {
+	b, err := r.git(ctx, 1024, "symbolic-ref", "--quiet", "--short", "HEAD")
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(b))
+}

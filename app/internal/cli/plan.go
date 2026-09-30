@@ -51,6 +51,7 @@ func planCommand(ctx context.Context, args []string, out, errOut io.Writer, vers
 	maxIterations := f.Int("max-iterations", 0, "override the provider iteration budget (1..100)")
 	intent := f.String("intent", "", "intent of the change to plan")
 	intentFile := f.String("intent-file", "", "UTF-8 file containing the intent of the change to plan")
+	jiraIssue := addJiraFlag(f)
 	useReviewer := f.Bool("reviewer", true, "plan needs the configured provider; --reviewer=false is refused")
 	if err := f.Parse(args); err != nil {
 		return flagCode(err)
@@ -71,19 +72,37 @@ func planCommand(ctx context.Context, args []string, out, errOut io.Writer, vers
 		}
 		*intent = string(b)
 	}
-	if len(*intent) > 65536 {
+	if len(*intent) > maxIntentBytes {
 		return fail(errOut, 3, "intent exceeds 64 KiB")
+	}
+	if err := checkJiraFlag(*jiraIssue); err != nil {
+		return fail(errOut, 3, "%v", err)
 	}
 	doc, err := parseIntent(*intent)
 	if err != nil {
 		return fail(errOut, 3, "intent: %v", err)
 	}
-	if strings.TrimSpace(doc.Text) == "" {
-		return fail(errOut, 3, "plan needs an intent: use --intent-file FILE or --intent TEXT")
+	if strings.TrimSpace(doc.Text) == "" && *jiraIssue == "" {
+		return fail(errOut, 3, "plan needs an intent: use --intent-file FILE, --intent TEXT or --jira KEY")
 	}
 	repo, err := gitrepo.Open(ctx, *repoPath)
 	if err != nil {
 		return fail(errOut, 3, "%v", err)
+	}
+	if *jiraIssue != "" {
+		// Before the change exists, only the branch names the issue.
+		text, err := jiraIntent(ctx, errOut, *jiraIssue, *intent, func() []string {
+			return jiraKeySources(ctx, repo, "HEAD", "", "")
+		})
+		if err != nil {
+			return fail(errOut, 3, "%v", err)
+		}
+		if doc, err = parseIntent(text); err != nil {
+			return fail(errOut, 3, "intent: %v", err)
+		}
+		if strings.TrimSpace(doc.Text) == "" {
+			return fail(errOut, 3, "plan needs an intent: no Jira issue key was found; use --jira KEY, --intent-file FILE or --intent TEXT")
+		}
 	}
 	// An empty comparison resolves the base ref and its commit.
 	start, err := repo.Analyze(ctx, *base, *base, false)
