@@ -222,6 +222,10 @@ h1, h2, h3 { line-height: 1.25; }
 .before, .after { margin: 0; padding: 5px 9px; border-radius: 6px; font-size: 0.83rem; white-space: pre-wrap; word-break: break-word; border-left: 3px solid; }
 .before { background: var(--del); border-color: var(--del-line); }
 .after { background: var(--add); border-color: var(--add-line); }
+/* The exact characters that changed inside a modified excerpt. */
+mark.del, mark.ins { color: inherit; border-radius: 3px; padding: 0 1px; }
+mark.del { background: rgba(180, 35, 24, 0.25); background: color-mix(in srgb, var(--del-line) 28%, transparent); text-decoration: line-through; text-decoration-color: var(--del-line); }
+mark.ins { background: rgba(26, 127, 55, 0.28); background: color-mix(in srgb, var(--add-line) 30%, transparent); font-weight: 600; }
 
 /* All changes */
 .changes { margin: 12px 14px 16px; border: 1px solid var(--line); border-radius: 8px; }

@@ -432,21 +432,38 @@ function findingItem(f) {
   if (f.location) item.append(el("span", { class: "finding-where mono", text: `${f.location} · ${f.severity}` }));
   else item.append(el("span", { class: "finding-where", text: f.severity }));
   if (f.before || f.after) {
+    const d = highlighted(f.before, f.after);
     item.append(el("div", { class: "compare" },
-      f.before ? el("p", { class: "before", text: f.before }) : null,
-      f.after ? el("p", { class: "after", text: f.after }) : null,
+      f.before ? el("p", { class: "before" }, d.before) : null,
+      f.after ? el("p", { class: "after" }, d.after) : null,
     ));
   }
   return item;
 }
 
+// highlighted returns both excerpts as nodes where the exact characters that
+// changed are marked. An excerpt without counterpart is shown as is: all of
+// it was added or removed.
+function highlighted(before, after) {
+  before = before || "";
+  after = after || "";
+  if (!before || !after) return { before: [before], after: [after] };
+  const d = inlineDiff(before, after);
+  const nodes = (segments, cls) => segments.map((s) =>
+    (s.changed ? el("mark", { class: cls, text: s.text }) : document.createTextNode(s.text)));
+  return { before: nodes(d.before, "del"), after: nodes(d.after, "ins") };
+}
+
 function changesTable(r) {
-  const rows = r.changes.map((c) => el("tr", {},
-    el("td", { class: "kind-cell", text: c.kind }),
-    el("td", { class: "mono", text: c.location }),
-    el("td", { class: c.before ? "b" : "", text: c.before || "" }),
-    el("td", { class: c.after ? "a" : "", text: c.after || "" }),
-  ));
+  const rows = r.changes.map((c) => {
+    const d = highlighted(c.before, c.after);
+    return el("tr", {},
+      el("td", { class: "kind-cell", text: c.kind }),
+      el("td", { class: "mono", text: c.location }),
+      el("td", { class: c.before ? "b" : "" }, d.before),
+      el("td", { class: c.after ? "a" : "" }, d.after),
+    );
+  });
   const label = r.truncated
     ? `All changes (${r.change_count}, first ${r.changes.length} shown)`
     : `All changes (${r.change_count})`;
