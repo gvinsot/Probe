@@ -24,7 +24,7 @@ func discardLogger() *slog.Logger {
 	return slog.New(slog.NewTextHandler(io.Discard, nil))
 }
 
-func testRunner(t *testing.T, binary string) (*Runner, *store.Store) {
+func testRunner(t *testing.T, binary string) (*Runner, store.Store) {
 	t.Helper()
 	st, err := store.Open(t.TempDir())
 	if err != nil {

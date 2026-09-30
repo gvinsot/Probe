@@ -14,7 +14,11 @@ FROM golang:1.26-bookworm
 WORKDIR /src
 
 # Dependencies first, so that they are downloaded again only when they change.
-# app/ and hub/ use the standard library only.
+# app/ uses the standard library only; hub/ needs the PostgreSQL driver.
+COPY go.work ./
+COPY app/go.mod app/
+COPY hub/go.mod hub/go.sum hub/
+RUN go mod download
 COPY desktop/go.mod desktop/go.sum desktop/
 RUN cd desktop && GOWORK=off go mod download
 

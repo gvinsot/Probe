@@ -12,7 +12,7 @@ import (
 	"github.com/gvinsot/Probe/hub/internal/report"
 )
 
-func open(t *testing.T) *Store {
+func open(t *testing.T) *Files {
 	t.Helper()
 	s, err := Open(t.TempDir())
 	if err != nil {

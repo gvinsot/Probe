@@ -38,7 +38,7 @@ func TestRecentIndexWindowAndReopen(t *testing.T) {
 	if err := s.PutRecord(&Record{UserKey: "other", RepoKey: "repo", Run: Run{Commit: "private", QueuedAt: now}}); err != nil {
 		t.Fatal(err)
 	}
-	check := func(s *Store) {
+	check := func(s *Files) {
 		t.Helper()
 		repos, err := s.ReposWithRecent("owner", now.Add(-time.Hour))
 		if err != nil || len(repos) != 1 {

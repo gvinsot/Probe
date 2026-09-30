@@ -85,7 +85,7 @@ type attempt struct {
 // Runner owns the worker pool and the analysis pipeline.
 type Runner struct {
 	cfg      config.Config
-	store    *store.Store
+	store    store.Store
 	accounts *accounts.Manager
 	events   *events.Broker
 	log      *slog.Logger
@@ -97,7 +97,7 @@ type Runner struct {
 }
 
 // New builds a runner. Start must be called to process jobs.
-func New(cfg config.Config, s *store.Store, a *accounts.Manager, b *events.Broker, log *slog.Logger) *Runner {
+func New(cfg config.Config, s store.Store, a *accounts.Manager, b *events.Broker, log *slog.Logger) *Runner {
 	return &Runner{
 		cfg: cfg, store: s, accounts: a, events: b, log: log,
 		queue:    make(chan Job, cfg.QueueSize),

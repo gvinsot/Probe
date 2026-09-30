@@ -1,8 +1,9 @@
 // Command probe-hub serves the Probe web application: forge sign-in,
 // policy bootstrap, push monitoring and the dynamic report viewer.
 //
-// It is one container with no database and no queue of its own, so a company
-// can run it next to its GitHub Enterprise or GitLab instance.
+// It is one container with no queue of its own, and needs no database, so a
+// company can run it next to its GitHub Enterprise or GitLab instance. A
+// PostgreSQL database may hold its state instead of the data directory.
 package main
 
 import (
@@ -65,7 +66,12 @@ The service is configured through the environment:
   PROBE_HUB_BASE_URL            public URL of this deployment (required)
   PROBE_HUB_ADDR                listen address (default :8080)
   PROBE_HUB_DATA_DIR            state directory (default /var/lib/probe-hub)
-  PROBE_HUB_SESSION_KEY         64 hex characters; generated and persisted when unset
+  PROBE_HUB_DATABASE_CONNECTION_STRING
+                                PostgreSQL URL; the state then lives in that
+                                     database, and a state directory found at
+                                     start-up is imported into it once
+  PROBE_HUB_SESSION_KEY         64 hex characters; generated and persisted when
+                                     unset, required with a database
   PROBE_HUB_SESSION_KEY_PREVIOUS keys retired by a rotation, still able to open
                                      stored credentials, which are resealed at start-up
   PROBE_HUB_INSTANCE            public (default) or private; a public instance
@@ -81,8 +87,8 @@ The service is configured through the environment:
   PROBE_HUB_USER_QUOTA          analyses one account may have queued or running (default 8)
   PROBE_HUB_HOOK_RATE           webhook deliveries per routing key and minute (default 30)
 
-Any *_SECRET, *_KEY, *_KEY_PREVIOUS or *_POLICIES value can be read from the
-file named by <NAME>_FILE, or from /run/secrets/<NAME>.
+Any *_SECRET, *_KEY, *_KEY_PREVIOUS, *_POLICIES or *_CONNECTION_STRING value
+can be read from the file named by <NAME>_FILE, or from /run/secrets/<NAME>.
   PROBE_HUB_DEFAULT_BRANCH_ONLY analyze only the default branch (default false)
   PROBE_HUB_COMMIT_STATUS       publish the verdict on the commit (default true)
 
@@ -113,10 +119,11 @@ func run() error {
 	if err := keys.WithPrevious(cfg.PreviousSessionKeys); err != nil {
 		return err
 	}
-	st, err := store.Open(cfg.DataDir)
+	st, closeStore, err := openStore(cfg, log)
 	if err != nil {
 		return err
 	}
+	defer closeStore()
 	if len(cfg.PreviousSessionKeys) > 0 {
 		// After a rotation, move every stored credential to the new key so
 		// the previous one can be dropped at the next restart.
@@ -188,6 +195,36 @@ func run() error {
 		defer cancel()
 		return httpServer.Shutdown(shutdownCtx)
 	}
+}
+
+// openStore opens the database when one is configured, importing the data
+// directory into it on the first start, and the data directory otherwise.
+func openStore(cfg config.Config, log *slog.Logger) (store.Store, func(), error) {
+	if cfg.Database == "" {
+		st, err := store.Open(cfg.DataDir)
+		return st, func() {}, err
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+	pg, err := store.OpenPostgres(ctx, cfg.Database)
+	if err != nil {
+		return nil, nil, err
+	}
+	// The import reads every retained report once: allow it more than a query.
+	importCtx, cancelImport := context.WithTimeout(context.Background(), 30*time.Minute)
+	defer cancelImport()
+	stats, err := pg.ImportFiles(importCtx, cfg.DataDir)
+	if err != nil {
+		pg.Close()
+		return nil, nil, fmt.Errorf("import %s into the database: %w", cfg.DataDir, err)
+	}
+	if stats.Ran {
+		log.Info("data directory imported into the database", "dir", cfg.DataDir,
+			"users", stats.Users, "repositories", stats.Repos, "routes", stats.Routes,
+			"analyses", stats.Runs, "skipped", stats.Skipped)
+	}
+	log.Info("state stored in the database")
+	return pg, pg.Close, nil
 }
 
 // healthcheck probes the local /healthz endpoint of this container.

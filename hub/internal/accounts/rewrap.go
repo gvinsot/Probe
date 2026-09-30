@@ -9,7 +9,7 @@ import (
 // only a previous key opens: forge tokens, webhook secrets and installation
 // tokens. It runs at start-up after a rotation and returns how many values
 // moved. A value no key opens is left untouched; the user signs in again.
-func Rewrap(st *store.Store, keys *secrets.Keyring) (int, error) {
+func Rewrap(st store.Store, keys *secrets.Keyring) (int, error) {
 	userKeys, err := st.UserKeys()
 	if err != nil {
 		return 0, err

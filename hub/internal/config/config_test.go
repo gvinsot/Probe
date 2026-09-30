@@ -300,3 +300,33 @@ func TestSessionKeyAndPreviousKeysCanComeFromFiles(t *testing.T) {
 		t.Error("a malformed previous key must be refused")
 	}
 }
+
+func TestDatabaseNeedsAKeyThatOutlivesTheContainer(t *testing.T) {
+	dir := t.TempDir()
+	values := baseEnv(dir)
+	connPath := filepath.Join(t.TempDir(), "conn")
+	if err := os.WriteFile(connPath, []byte("postgresql://app:pw@pg-primary:5432/probe\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	values["PROBE_HUB_DATABASE_CONNECTION_STRING_FILE"] = connPath
+	if _, err := Load(envOf(values)); err == nil || !strings.Contains(err.Error(), "PROBE_HUB_SESSION_KEY is required") {
+		t.Fatalf("a database without a session key must be refused, got %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "session.key")); !os.IsNotExist(err) {
+		t.Fatal("no key may be generated next to a database")
+	}
+	// A deployment moving to a database keeps the key its volume holds.
+	delete(values, "PROBE_HUB_DATABASE_CONNECTION_STRING_FILE")
+	generated, err := Load(envOf(values))
+	if err != nil {
+		t.Fatal(err)
+	}
+	values["PROBE_HUB_DATABASE_CONNECTION_STRING_FILE"] = connPath
+	c, err := Load(envOf(values))
+	if err != nil || string(c.SessionKey) != string(generated.SessionKey) {
+		t.Fatalf("the persisted key must be kept, got %v", err)
+	}
+	if c.Database != "postgresql://app:pw@pg-primary:5432/probe" {
+		t.Errorf("Database = %q", c.Database)
+	}
+}

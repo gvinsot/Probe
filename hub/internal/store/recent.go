@@ -52,20 +52,6 @@ func (r RecentRun) inWindow(since time.Time) bool {
 // ReposWithRecent snapshots repository metadata, then copies bounded per-repo
 // indexes. First access can rebuild from artifacts under a repository lock;
 // report work never holds the account metadata lock.
-func (s *Store) ReposWithRecent(userKey string, since time.Time) ([]PublicRepo, error) {
-	repos, err := s.Repos(userKey)
-	if err != nil {
-		return nil, err
-	}
-	out := make([]PublicRepo, 0, len(repos))
-	for _, repo := range repos {
-		public := repo.Public()
-		recent, incomplete, err := s.Recent(userKey, repo.Key, since)
-		if err != nil {
-			return nil, err
-		}
-		public.Recent, public.RecentIncomplete = recent, incomplete
-		out = append(out, public)
-	}
-	return out, nil
+func (s *Files) ReposWithRecent(userKey string, since time.Time) ([]PublicRepo, error) {
+	return reposWithRecent(s, userKey, since)
 }

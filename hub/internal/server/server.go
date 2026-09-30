@@ -42,7 +42,7 @@ const (
 // Server wires the HTTP surface onto the store, the forges and the runner.
 type Server struct {
 	cfg      config.Config
-	store    *store.Store
+	store    store.Store
 	accounts *accounts.Manager
 	runner   *analysis.Runner
 	events   *events.Broker
@@ -61,7 +61,7 @@ type Server struct {
 }
 
 // New builds the server.
-func New(cfg config.Config, s *store.Store, a *accounts.Manager, r *analysis.Runner, b *events.Broker, keys *secrets.Keyring, log *slog.Logger, version string) (*Server, error) {
+func New(cfg config.Config, s store.Store, a *accounts.Manager, r *analysis.Runner, b *events.Broker, keys *secrets.Keyring, log *slog.Logger, version string) (*Server, error) {
 	static, err := fs.Sub(hubweb.Assets, "public")
 	if err != nil {
 		return nil, err

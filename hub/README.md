@@ -83,7 +83,8 @@ Plan requires a deployment-configured `PROBE_REVIEWER_ENDPOINT` and
 `PROBE_REVIEWER_MODEL`; repository policy cannot select a provider endpoint
 for this operation. Missing provider configuration appears as an analysis error.
 
-Results are stored on the hub data volume, scoped by account, repository,
+Results are stored on the hub data volume, or in its database when one is
+configured (see [State storage](#state-storage)), scoped by account, repository,
 commit and variant. Normal reports written by earlier versions remain readable.
 The latest result of each variant replaces that variant's previous result;
 changing the plan intent requires an explicit rerun. The newest 1,000 results
@@ -166,8 +167,9 @@ webhooks there.
 | --- | --- | --- |
 | `PROBE_HUB_BASE_URL` | — | **Required.** Public URL of this deployment. |
 | `PROBE_HUB_ADDR` | `:8080` | Listen address. |
-| `PROBE_HUB_DATA_DIR` | `/var/lib/probe-hub` | State directory; back it up. |
-| `PROBE_HUB_SESSION_KEY` | generated | 64 hex characters. Seals sessions and stored tokens; back it up with the data volume; the shipped stack uses one replica. See [Session key](#session-key-backup-and-rotation). |
+| `PROBE_HUB_DATA_DIR` | `/var/lib/probe-hub` | State directory; back it up. Unused for state once a database is configured. |
+| `PROBE_HUB_DATABASE_CONNECTION_STRING` | — | PostgreSQL URL. The state then lives in that database; see [State storage](#state-storage). |
+| `PROBE_HUB_SESSION_KEY` | generated | 64 hex characters. Seals sessions and stored tokens; back it up with the data volume; the shipped stack uses one replica. Required with a database. See [Session key](#session-key-backup-and-rotation). |
 | `PROBE_HUB_SESSION_KEY_PREVIOUS` | — | Keys retired by a rotation (comma separated). They still open stored credentials, which are resealed under the current key at start-up. |
 | `PROBE_HUB_INSTANCE` | `public` | `public` or `private`. A public instance allows lint and read-only AI review; it refuses full review. |
 | `PROBE_HUB_MODE` | `auto` | `auto`, `lint`, `review-read-only`, or `review` on a private instance only. |
@@ -192,13 +194,43 @@ webhooks there.
 | `PROBE_HUB_GITLAB_URL` | gitlab.com | Self-managed GitLab base URL. |
 | `PROBE_HUB_ALLOW_NO_FORGE` | `false` | Start and serve the UI while no forge is configured, instead of refusing to start. Sign-in stays unavailable and the sign-in page says so; used so a public deployment answers on its domain before its OAuth application exists. |
 
-Every `*_SECRET`, `PROBE_HUB_SESSION_KEY`, `PROBE_HUB_SESSION_KEY_PREVIOUS`
-and `PROBE_HUB_REVIEW_POLICIES` may also be supplied as a file named by
+Every `*_SECRET`, `PROBE_HUB_SESSION_KEY`, `PROBE_HUB_SESSION_KEY_PREVIOUS`,
+`PROBE_HUB_REVIEW_POLICIES` and `PROBE_HUB_DATABASE_CONNECTION_STRING` may also be supplied as a file named by
 `<NAME>_FILE`, or as `/run/secrets/<NAME>`, following the Docker secret
 convention the CLI uses. Prefer that to a plain variable: the environment of a
 container is readable by anyone who can inspect it. The stacks in `devops/`
 differ: the standalone Hub stack declares Docker secrets; the combined public
 stack uses environment variables unless the deployment mounts secret overrides.
+
+### State storage
+
+Without further configuration the hub keeps its state — accounts with their
+sealed forge tokens, tracked repositories, webhook and badge routes, and the
+report history — as JSON files in `PROBE_HUB_DATA_DIR`. A Swarm volume is
+local to one node, so that deployment must stay on the node holding it.
+
+Set `PROBE_HUB_DATABASE_CONNECTION_STRING` to keep the state in PostgreSQL
+instead, for example
+`postgresql://probe_app:...@pg-primary:5432,pg-standby1:5432/probe?target_session_attrs=read-write`.
+The hub creates its tables at start-up and upgrades them on later versions.
+Credentials stay sealed by the session key, so a database dump alone opens
+no forge account.
+
+* **Moving an existing deployment.** On its first start with a database, the
+  hub imports the data directory it finds into it, then records the import so
+  later starts skip it. The import never overwrites a row already in the
+  database and resumes after an interruption; the files are left in place, so
+  removing the variable returns to them (without what was written meanwhile).
+  A report that cannot be read is skipped, and the dashboard marks its window
+  as incomplete, as it does for evicted results.
+* **Session key.** With a database the hub never generates a key: a key
+  written in the container would be lost with it. Set
+  `PROBE_HUB_SESSION_KEY` — for a moved deployment, to the content of
+  `session.key` from the volume. A `session.key` still present in the data
+  directory is read too, so a moved deployment starts before the variable is
+  set; it is never created there.
+* **One replica.** The analysis queue lives in the process: keep one replica
+  and stop-first updates even with a database.
 
 ### Session key: backup and rotation
 

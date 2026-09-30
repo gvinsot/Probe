@@ -136,7 +136,7 @@ type harness struct {
 	t        *testing.T
 	server   *Server
 	handler  http.Handler
-	store    *store.Store
+	store    store.Store
 	keys     *secrets.Keyring
 	provider *fakeProvider
 	cfg      config.Config

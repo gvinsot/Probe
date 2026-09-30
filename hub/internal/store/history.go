@@ -36,7 +36,7 @@ const dirtyFile = ".runs-dirty" // legacy recovery marker, never written now
 const watermarkFile = ".runs-watermark"
 const checkpointWrites = 100
 
-func (s *Store) index(userKey, repoKey string) (*recordIndex, string, error) {
+func (s *Files) index(userKey, repoKey string) (*recordIndex, string, error) {
 	if !ValidKey(userKey) || !ValidKey(repoKey) {
 		return nil, "", fmt.Errorf("invalid key")
 	}
@@ -207,15 +207,7 @@ func (idx *recordIndex) prune(dir string) error {
 	}
 	evicted := idx.Runs[MaxRecords:]
 	for _, run := range evicted {
-		if run.Variant != "plan" {
-			recent := projectRecent(&run)
-			if recent.activityAt().IsZero() || run.Status == StatusQueued || run.Status == StatusRunning {
-				idx.Incomplete = true
-			}
-			if recent.activityAt().After(idx.EvictedThrough) {
-				idx.EvictedThrough = recent.activityAt()
-			}
-		}
+		idx.EvictedThrough, idx.Incomplete = evict(run, idx.EvictedThrough, idx.Incomplete)
 	}
 	// One small watermark per eviction batch, persisted before any deletion.
 	watermark := diskIndex{Version: 1, EvictedThrough: idx.EvictedThrough, Incomplete: idx.Incomplete}
@@ -230,6 +222,30 @@ func (idx *recordIndex) prune(dir string) error {
 	idx.Runs = idx.Runs[:MaxRecords]
 	return nil
 }
+
+// evict advances the retention watermark past a run dropped from the history:
+// the recent window is complete only while it starts after every evicted
+// normal analysis, and an evicted pending or undated one leaves it incomplete.
+func evict(run Run, through time.Time, incomplete bool) (time.Time, bool) {
+	if run.Variant == "plan" {
+		return through, incomplete
+	}
+	at := projectRecent(&run).activityAt()
+	if at.IsZero() || run.Status == StatusQueued || run.Status == StatusRunning {
+		incomplete = true
+	}
+	if at.After(through) {
+		through = at
+	}
+	return through, incomplete
+}
+
+// windowIncomplete reports whether retention may have dropped analyses of the
+// window starting at since.
+func windowIncomplete(through time.Time, incomplete bool, since time.Time) bool {
+	return incomplete || (!through.IsZero() && !through.Before(since))
+}
+
 func (idx *recordIndex) save(dir string) error {
 	if err := writeJSON(filepath.Join(dir, indexFile), &idx.diskIndex); err != nil {
 		return err
@@ -244,7 +260,7 @@ func (idx *recordIndex) save(dir string) error {
 // PutRecord atomically replaces an artifact and updates its in-memory index.
 // Checkpoints are amortized over 100 writes; an absent checkpoint is rebuilt
 // lazily from artifacts after restart. A failed write never forces a hot rescan.
-func (s *Store) PutRecord(rec *Record) error {
+func (s *Files) PutRecord(rec *Record) error {
 	if !validRun(rec.Run) {
 		return fmt.Errorf("invalid commit or analysis variant")
 	}
@@ -289,7 +305,7 @@ func (s *Store) PutRecord(rec *Record) error {
 // History reads a copy of indexed metadata, rebuilding from artifacts only
 // on first access when no valid checkpoint exists.
 // Zero returns all retained metadata (at most MaxRecords); HTTP adds its own cap.
-func (s *Store) History(userKey, repoKey string, limit int) ([]Run, error) {
+func (s *Files) History(userKey, repoKey string, limit int) ([]Run, error) {
 	idx, dir, err := s.index(userKey, repoKey)
 	if err != nil {
 		return nil, err
@@ -308,7 +324,7 @@ func (s *Store) History(userKey, repoKey string, limit int) ([]Run, error) {
 
 // Recent stops at the cutoff and returns only bounded aggregation metadata.
 // The incomplete flag covers both projection limits and retention in the window.
-func (s *Store) Recent(userKey, repoKey string, since time.Time) ([]RecentRun, bool, error) {
+func (s *Files) Recent(userKey, repoKey string, since time.Time) ([]RecentRun, bool, error) {
 	idx, dir, err := s.index(userKey, repoKey)
 	if err != nil {
 		return nil, true, err
@@ -318,7 +334,7 @@ func (s *Store) Recent(userKey, repoKey string, since time.Time) ([]RecentRun, b
 	if err := idx.load(dir); err != nil {
 		return nil, true, err
 	}
-	incomplete := idx.Incomplete || (!idx.EvictedThrough.IsZero() && !idx.EvictedThrough.Before(since))
+	incomplete := windowIncomplete(idx.EvictedThrough, idx.Incomplete, since)
 	runs := make([]RecentRun, 0, MaxRecent)
 	for _, run := range idx.recent {
 		if !run.inWindow(since) {

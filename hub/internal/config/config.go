@@ -70,6 +70,9 @@ type Config struct {
 	Addr    string
 	BaseURL string
 	DataDir string
+	// Database is the PostgreSQL connection string. Empty keeps the state as
+	// files under DataDir.
+	Database string
 	// SessionKey seals session cookies and forge tokens at rest.
 	SessionKey []byte
 	// PreviousSessionKeys still open values sealed before a key rotation; the
@@ -125,6 +128,7 @@ func Load(getenv func(string) string) (Config, error) {
 	c := Config{
 		Addr:              env(getenv, "PROBE_HUB_ADDR", defaultAddr),
 		DataDir:           env(getenv, "PROBE_HUB_DATA_DIR", defaultDataDir),
+		Database:          secret(getenv, "PROBE_HUB_DATABASE_CONNECTION_STRING"),
 		Binary:            env(getenv, "PROBE_HUB_BINARY", defaultBinary),
 		Instance:          strings.ToLower(env(getenv, "PROBE_HUB_INSTANCE", InstancePublic)),
 		Mode:              strings.ToLower(env(getenv, "PROBE_HUB_MODE", ModeAuto)),
@@ -245,7 +249,7 @@ func Load(getenv func(string) string) (Config, error) {
 	if err := os.MkdirAll(c.DataDir, 0o700); err != nil {
 		return c, fmt.Errorf("data directory: %w", err)
 	}
-	c.SessionKey, err = sessionKey(getenv, c.DataDir)
+	c.SessionKey, err = sessionKey(getenv, c.DataDir, c.Database == "")
 	if err != nil {
 		return c, err
 	}
@@ -314,8 +318,11 @@ func (c Config) WebhookURL(hookKey, token string) string {
 }
 
 // sessionKey prefers an operator-provided key so that several replicas share
-// sessions; otherwise it persists a generated one next to the data.
-func sessionKey(getenv func(string) string, dir string) ([]byte, error) {
+// sessions; otherwise it persists a generated one next to the data. With a
+// database the data directory is not the state any more: a key generated
+// there would be lost with the container, so only an existing one is read,
+// to carry a deployment over to its database.
+func sessionKey(getenv func(string) string, dir string, generate bool) ([]byte, error) {
 	if raw := secret(getenv, "PROBE_HUB_SESSION_KEY"); raw != "" {
 		key, err := hex.DecodeString(raw)
 		if err != nil || len(key) != 32 {
@@ -332,6 +339,9 @@ func sessionKey(getenv func(string) string, dir string) ([]byte, error) {
 		return nil, fmt.Errorf("%s is corrupt: remove it to rotate the key", path)
 	} else if !os.IsNotExist(err) {
 		return nil, fmt.Errorf("session key: %w", err)
+	}
+	if !generate {
+		return nil, fmt.Errorf("PROBE_HUB_SESSION_KEY is required with PROBE_HUB_DATABASE_CONNECTION_STRING: it seals the stored credentials, and a generated key would not survive the container")
 	}
 	key := make([]byte, 32)
 	if _, err := rand.Read(key); err != nil {

@@ -19,14 +19,14 @@ import (
 
 // Manager resolves providers and credentials for stored accounts.
 type Manager struct {
-	store     *store.Store
+	store     store.Store
 	keys      *secrets.Keyring
 	providers map[string]forge.Provider
 	mu        sync.Mutex
 }
 
 // New builds a manager over the configured providers.
-func New(s *store.Store, keys *secrets.Keyring, providers map[string]forge.Provider) *Manager {
+func New(s store.Store, keys *secrets.Keyring, providers map[string]forge.Provider) *Manager {
 	return &Manager{store: s, keys: keys, providers: providers}
 }
 

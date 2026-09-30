@@ -55,8 +55,12 @@ services:
         - "traefik.http.routers.probe-web-http.middlewares=redirect-to-https@file"
         - "traefik.http.routers.probe-web-http.service=noop@internal"
 
-  # The web application. One replica, because its state — sealed forge tokens,
-  # tracked repositories and a bounded report history — lives in one volume.
+  # The web application. One replica: the analysis queue lives in the process.
+  # Its state — sealed forge tokens, tracked repositories and a bounded report
+  # history — lives in PostgreSQL once PROBE_HUB_DATABASE_CONNECTION_STRING is
+  # set, otherwise in one volume. That volume is local to a node: the task is
+  # pinned to the node holding it, otherwise a reschedule starts from an empty
+  # state. On the first start with a database, the hub imports the volume.
   # Back that volume up, together with the session key (generated inside it
   # when PROBE_HUB_SESSION_KEY is unset): losing either makes every user
   # sign in again and reinstall their webhooks.
@@ -73,6 +77,13 @@ services:
     environment:
       PROBE_HUB_BASE_URL: "https://${PROBE_APP_DOMAIN:-app.probe.technology}"
       PROBE_HUB_DATA_DIR: /var/lib/probe-hub
+      # postgresql://probe_app:...@pg-primary:5432,pg-standby1:5432,
+      # pg-standby2:5432/probe?target_session_attrs=read-write. The
+      # _CONNECTION_STRING suffix makes PulsarCD mount it as a Swarm secret,
+      # read from /run/secrets/. Empty: the state stays in the volume. With a
+      # database, PROBE_HUB_SESSION_KEY must be set (or session.key present
+      # in the volume, for the first start).
+      PROBE_HUB_DATABASE_CONNECTION_STRING: "${PROBE_HUB_DATABASE_CONNECTION_STRING:-}"
       # app.probe.technology is open to anybody who signs in, so it is a public
       # instance. Auto uses read-only AI review when a deployment LLM is
       # configured, otherwise lint. Neither mode executes repository code;
@@ -127,12 +138,15 @@ services:
       # Reaches the cluster LLM services for read-only AI review, e.g.
       # PROBE_REVIEWER_ENDPOINT=http://vllm-dev-service:8000/v1.
       - llm-net
+      # Reaches the PostgreSQL cluster (pg-primary, pg-standby1, pg-standby2).
+      - postgresqlcluster_internal
     deploy:
       mode: replicated
       replicas: 1
       placement:
         constraints:
           - node.labels.gpu == none
+          - node.hostname == ${PROBE_HUB_NODE:-server-b}
       update_config:
         # stop-first: the state directory belongs to the running task.
         order: stop-first
@@ -197,4 +211,6 @@ networks:
   proxy:
     external: true
   llm-net:
+    external: true
+  postgresqlcluster_internal:
     external: true

@@ -1,10 +1,13 @@
-// Package store persists hub state as JSON files under one data directory.
+// Package store persists hub state: accounts, tracked repositories, webhook
+// and badge routes, and a bounded report history.
 //
-// The hub tracks a few hundred repositories per user and a cache of
-// reports; a directory of atomically replaced files keeps the deployment free
-// of any database dependency, which matters for an on-premise install. Keys
-// are derived, never taken from user input, and every path is validated before
-// it reaches the filesystem.
+// Files keeps it as JSON files under one data directory. The hub tracks a few
+// hundred repositories per user and a cache of reports; a directory of
+// atomically replaced files keeps an on-premise install free of any database
+// dependency. Postgres keeps the same state in a database, so the hub is no
+// longer bound to the node holding its volume. Keys are derived, never taken
+// from user input, and every key is validated before it reaches the
+// filesystem or a query.
 package store
 
 import (
@@ -184,22 +187,22 @@ type HookRoute struct {
 	Provider string `json:"provider"`
 }
 
-// Store is a concurrency-safe directory of JSON records.
-type Store struct {
+// Files is a concurrency-safe directory of JSON records.
+type Files struct {
 	dir       string
 	mu        sync.RWMutex
 	indexesMu sync.Mutex
 	indexes   map[string]*recordIndex
 }
 
-// Open prepares the data directory.
-func Open(dir string) (*Store, error) {
+// Open prepares the data directory of a Files store.
+func Open(dir string) (*Files, error) {
 	for _, sub := range []string{"users", "repos", "reports", "hooks", "badges"} {
 		if err := os.MkdirAll(filepath.Join(dir, sub), 0o700); err != nil {
 			return nil, fmt.Errorf("data directory: %w", err)
 		}
 	}
-	s := &Store{dir: dir, indexes: make(map[string]*recordIndex)}
+	s := &Files{dir: dir, indexes: make(map[string]*recordIndex)}
 	// Histories migrate on first access under a per-repository lock. Startup
 	// never scans artifacts, so a legacy store cannot delay the HTTP listener.
 	return s, nil
@@ -234,7 +237,7 @@ func ValidKey(key string) bool {
 	return keyPattern.MatchString(key) && !strings.Contains(key, "..")
 }
 
-func (s *Store) path(parts ...string) (string, error) {
+func (s *Files) path(parts ...string) (string, error) {
 	for _, p := range parts[:len(parts)-1] {
 		if !ValidKey(p) {
 			return "", fmt.Errorf("invalid key %q", p)
@@ -301,7 +304,7 @@ func readJSON(path string, value any) error {
 }
 
 // PutUser stores or refreshes an account.
-func (s *Store) PutUser(u *User) error {
+func (s *Files) PutUser(u *User) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	path, err := s.path("users", u.Key+".json")
@@ -316,7 +319,7 @@ func (s *Store) PutUser(u *User) error {
 }
 
 // User loads an account.
-func (s *Store) User(key string) (*User, error) {
+func (s *Files) User(key string) (*User, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	path, err := s.path("users", key+".json")
@@ -331,13 +334,13 @@ func (s *Store) User(key string) (*User, error) {
 }
 
 // PutRepo stores a repository of a user.
-func (s *Store) PutRepo(userKey string, r *Repo) error {
+func (s *Files) PutRepo(userKey string, r *Repo) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.putRepoLocked(userKey, r)
 }
 
-func (s *Store) putRepoLocked(userKey string, r *Repo) error {
+func (s *Files) putRepoLocked(userKey string, r *Repo) error {
 	path, err := s.path("repos", userKey, r.Key+".json")
 	if err != nil {
 		return err
@@ -347,13 +350,13 @@ func (s *Store) putRepoLocked(userKey string, r *Repo) error {
 }
 
 // Repo loads one repository.
-func (s *Store) Repo(userKey, repoKey string) (*Repo, error) {
+func (s *Files) Repo(userKey, repoKey string) (*Repo, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.repoLocked(userKey, repoKey)
 }
 
-func (s *Store) repoLocked(userKey, repoKey string) (*Repo, error) {
+func (s *Files) repoLocked(userKey, repoKey string) (*Repo, error) {
 	path, err := s.path("repos", userKey, repoKey+".json")
 	if err != nil {
 		return nil, err
@@ -367,7 +370,7 @@ func (s *Store) repoLocked(userKey, repoKey string) (*Repo, error) {
 
 // UpdateRepo applies mutate to a stored repository under the store lock, so
 // that concurrent webhook deliveries cannot lose an update.
-func (s *Store) UpdateRepo(userKey, repoKey string, mutate func(*Repo) error) (*Repo, error) {
+func (s *Files) UpdateRepo(userKey, repoKey string, mutate func(*Repo) error) (*Repo, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	r, err := s.repoLocked(userKey, repoKey)
@@ -384,7 +387,7 @@ func (s *Store) UpdateRepo(userKey, repoKey string, mutate func(*Repo) error) (*
 }
 
 // Repos lists the repositories of a user, most recently updated first.
-func (s *Store) Repos(userKey string) ([]*Repo, error) {
+func (s *Files) Repos(userKey string) ([]*Repo, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	if !ValidKey(userKey) {
@@ -414,36 +417,36 @@ func (s *Store) Repos(userKey string) ([]*Repo, error) {
 }
 
 // PutHook registers the routing key of a repository webhook.
-func (s *Store) PutHook(hookKey string, route HookRoute) error {
+func (s *Files) PutHook(hookKey string, route HookRoute) error {
 	return s.putRoute("hooks", hookKey, route)
 }
 
 // Hook resolves a webhook routing key.
-func (s *Store) Hook(hookKey string) (HookRoute, error) {
+func (s *Files) Hook(hookKey string) (HookRoute, error) {
 	return s.route("hooks", hookKey)
 }
 
 // DeleteHook forgets a webhook routing key.
-func (s *Store) DeleteHook(hookKey string) error {
+func (s *Files) DeleteHook(hookKey string) error {
 	return s.deleteRoute("hooks", hookKey)
 }
 
 // PutBadge registers the public key of a repository badge.
-func (s *Store) PutBadge(badgeKey string, route HookRoute) error {
+func (s *Files) PutBadge(badgeKey string, route HookRoute) error {
 	return s.putRoute("badges", badgeKey, route)
 }
 
 // Badge resolves a badge key.
-func (s *Store) Badge(badgeKey string) (HookRoute, error) {
+func (s *Files) Badge(badgeKey string) (HookRoute, error) {
 	return s.route("badges", badgeKey)
 }
 
 // DeleteBadge forgets a badge key.
-func (s *Store) DeleteBadge(badgeKey string) error {
+func (s *Files) DeleteBadge(badgeKey string) error {
 	return s.deleteRoute("badges", badgeKey)
 }
 
-func (s *Store) putRoute(kind, key string, route HookRoute) error {
+func (s *Files) putRoute(kind, key string, route HookRoute) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	path, err := s.path(kind, key+".json")
@@ -453,7 +456,7 @@ func (s *Store) putRoute(kind, key string, route HookRoute) error {
 	return writeJSON(path, route)
 }
 
-func (s *Store) route(kind, key string) (HookRoute, error) {
+func (s *Files) route(kind, key string) (HookRoute, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	path, err := s.path(kind, key+".json")
@@ -467,7 +470,7 @@ func (s *Store) route(kind, key string) (HookRoute, error) {
 	return route, nil
 }
 
-func (s *Store) deleteRoute(kind, key string) error {
+func (s *Files) deleteRoute(kind, key string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	path, err := s.path(kind, key+".json")
@@ -482,28 +485,12 @@ func (s *Store) deleteRoute(kind, key string) error {
 
 // OutdatedHooks counts the monitored repositories, across every account,
 // whose webhook must be reinstalled (see Repo.HookOutdated).
-func (s *Store) OutdatedHooks() (int, error) {
-	userKeys, err := s.UserKeys()
-	if err != nil {
-		return 0, err
-	}
-	count := 0
-	for _, userKey := range userKeys {
-		repos, err := s.Repos(userKey)
-		if err != nil {
-			return count, err
-		}
-		for _, repo := range repos {
-			if repo.HookOutdated() {
-				count++
-			}
-		}
-	}
-	return count, nil
+func (s *Files) OutdatedHooks() (int, error) {
+	return outdatedHooks(s)
 }
 
 // UserKeys lists every stored account, for maintenance such as a key rewrap.
-func (s *Store) UserKeys() ([]string, error) {
+func (s *Files) UserKeys() ([]string, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	entries, err := os.ReadDir(filepath.Join(s.dir, "users"))
@@ -523,7 +510,7 @@ func (s *Store) UserKeys() ([]string, error) {
 }
 
 // UpdateUser applies mutate to a stored account under the store lock.
-func (s *Store) UpdateUser(key string, mutate func(*User) error) error {
+func (s *Files) UpdateUser(key string, mutate func(*User) error) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	path, err := s.path("users", key+".json")
@@ -542,12 +529,12 @@ func (s *Store) UpdateUser(key string, mutate func(*User) error) error {
 }
 
 // Record loads one stored report.
-func (s *Store) Record(userKey, repoKey, commit string) (*Record, error) {
+func (s *Files) Record(userKey, repoKey, commit string) (*Record, error) {
 	return s.RecordVariant(userKey, repoKey, commit, "normal")
 }
 
 // RecordVariant keeps plan artifacts separate from normal confidence reports.
-func (s *Store) RecordVariant(userKey, repoKey, commit, variant string) (*Record, error) {
+func (s *Files) RecordVariant(userKey, repoKey, commit, variant string) (*Record, error) {
 	if variant != "" && variant != "normal" && variant != "plan" {
 		return nil, fmt.Errorf("invalid analysis variant")
 	}
