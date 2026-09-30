@@ -38,6 +38,12 @@ FROM nginx:1.27-alpine-slim
 
 COPY web/nginx.conf /etc/nginx/conf.d/default.conf
 COPY web/public /usr/share/nginx/html
+# sitemap.xml is generated from the pages the image really serves, so it never
+# goes stale when a page is added or removed.
+ARG SITE_URL=https://probe.technology
+RUN --mount=type=bind,source=web/scripts/generate-sitemap.sh,target=/tmp/generate-sitemap.sh \
+    sh /tmp/generate-sitemap.sh /usr/share/nginx/html "$SITE_URL" > /usr/share/nginx/html/sitemap.xml \
+    && cat /usr/share/nginx/html/sitemap.xml
 COPY --from=build /out/download /usr/share/nginx/html/download
 COPY --from=build /out/manifest /usr/local/bin/probe-manifest
 COPY --chmod=0755 web/docker-entrypoint.d/40-sign-update-manifest.sh /docker-entrypoint.d/
