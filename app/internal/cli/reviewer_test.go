@@ -124,11 +124,12 @@ func TestReviewerTrustsOnlySelectedPolicy(t *testing.T) {
 	git(t, dir, "checkout", "candidate")
 	// Exact comparison selects this new trusted baseline despite branch divergence.
 	args = append(args, "--exact")
-	if code := Run(context.Background(), args, &out, &out, "test"); code != 0 || trustedCalls.Load() != 1 || candidateCalls.Load() != 0 {
+	// Each run makes 3 calls: the answer, then two reminders of the unassessed linter signals.
+	if code := Run(context.Background(), args, &out, &out, "test"); code != 0 || trustedCalls.Load() != 3 || candidateCalls.Load() != 0 {
 		t.Fatalf("wrong provider selected: exit %d, trusted %d, candidate %d, %s", code, trustedCalls.Load(), candidateCalls.Load(), out.String())
 	}
 	args = append(args, "--config", policy)
-	if code := Run(context.Background(), args, &out, &out, "test"); code != 0 || candidateCalls.Load() != 1 {
+	if code := Run(context.Background(), args, &out, &out, "test"); code != 0 || candidateCalls.Load() != 3 {
 		t.Fatalf("explicit local policy ignored: exit %d, calls %d, %s", code, candidateCalls.Load(), out.String())
 	}
 }
