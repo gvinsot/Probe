@@ -40,7 +40,7 @@ func TestLintRecordsRepositoryGraph(t *testing.T) {
 	write(t, dir, "web/app.ts", "import React from 'react';\nexport const x = 1;\n")
 	git(t, dir, "add", ".")
 	git(t, dir, "commit", "-q", "-m", "web")
-	cache := t.TempDir()
+	cache := privateDir(t)
 
 	r, text := lintReport(t, dir, "--graph-cache", cache)
 	g := r.Graph
@@ -86,7 +86,7 @@ func TestLintRecordsRepositoryGraph(t *testing.T) {
 // probe graph builds and queries the graph outside a review.
 func TestGraphCommand(t *testing.T) {
 	dir := fixture(t)
-	cache := t.TempDir()
+	cache := privateDir(t)
 	var out, errOut bytes.Buffer
 	file := filepath.Join(t.TempDir(), "graph.json")
 	if code := Run(context.Background(), []string{"graph", "build", "--repo", dir, "--commit", "candidate", "--graph-cache", cache, "--out", file}, &out, &errOut, "test"); code != 0 {
@@ -111,4 +111,15 @@ func TestGraphCommand(t *testing.T) {
 			t.Errorf("%v: code %d, want 3", bad, code)
 		}
 	}
+}
+
+// privateDir is a temporary directory only its owner can use: the graph cache
+// refuses group or other permissions, and t.TempDir follows the umask.
+func privateDir(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	if err := os.Chmod(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	return dir
 }
