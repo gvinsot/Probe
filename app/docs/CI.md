@@ -342,3 +342,6 @@ before making this check mandatory. The workflow does not change those rules.
 
 See the [agent loop](AGENT_WORKFLOW.md) and [PulsarCD integration](PULSARCD.md)
 for checks before the PR and before production deployment.
+
+Once Probe runs on a repository's pull requests, its README can show the
+["verified by Probe" badge](BADGE.md).

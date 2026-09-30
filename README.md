@@ -1,5 +1,9 @@
 # Probe
 
+[![Version](https://img.shields.io/github/v/tag/gvinsot/Probe?sort=semver&label=version)](https://probe.technology/download.html)
+[![License: AGPL-3.0](https://img.shields.io/github/license/gvinsot/Probe)](LICENSE)
+[![verified by Probe](https://probe.technology/badge/verified-by-probe.svg)](app/docs/BADGE.md)
+
 **Spend review time on the changes that need your judgment.**
 
 ![Probe demo: an agent reports a change as done, and Probe shows what still needs review](.github/assets/probe-demo.gif)
@@ -34,6 +38,18 @@ go build -o probe ./cmd/probe
 ```
 
 See [app/README.md](app/README.md) for usage, configuration and CI integration.
+
+## Badge for your project
+
+If Probe reviews your pull requests, show it in your README:
+
+```markdown
+[![verified by Probe](https://probe.technology/badge/verified-by-probe.svg)](https://probe.technology/)
+```
+
+See [app/docs/BADGE.md](app/docs/BADGE.md) for HTML, reStructuredText, the
+shields.io variants, the live Probe Hub badge, and what the badge does and does
+not claim.
 
 ## Website
 

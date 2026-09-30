@@ -176,6 +176,10 @@ installation tabs and copy buttons, and filters reference tables. This is a
 promotional/documentation site, not an analysis API. nginx serves existing
 files or 404, compresses text assets, caches CSS/JS for an hour and images for a
 week; security headers/WAF/rate limiting depend on the configured edge.
+`/badge/verified-by-probe.svg` and its shields.io endpoint
+`/badge/verified-by-probe.json` are the static "verified by Probe" README badge
+other repositories embed ([BADGE.md](../app/docs/BADGE.md)); their URLs are
+stable.
 
 `hub/Dockerfile` builds both Go binaries with the same version and embeds the
 UI. The runtime is Debian slim with Git and CA certificates, UID 10001,

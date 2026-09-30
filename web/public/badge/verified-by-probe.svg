@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="133" height="20" role="img" aria-label="verified by: Probe">
+<title>verified by: Probe</title>
+<linearGradient id="s" x2="0" y2="100%"><stop offset="0" stop-color="#bbb" stop-opacity=".1"/><stop offset="1" stop-opacity=".1"/></linearGradient>
+<clipPath id="r"><rect width="133" height="20" rx="3" fill="#fff"/></clipPath>
+<g clip-path="url(#r)">
+<rect width="87" height="20" fill="#16202c"/>
+<rect x="87" width="46" height="20" fill="#1f5fd6"/>
+<rect width="133" height="20" fill="url(#s)"/>
+</g>
+<image x="6" y="3" width="12" height="14" xlink:href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACUAAAAqCAYAAAA0yJLWAAAEyUlEQVR42t2YW4hVVRzGf/tyxhDFbkheU9OiJCMxFCoKox4iiorqJbo9iARdoJfeK+gh6V0QgnqIytB6iMIIKyorS8HsJmhqTYmXGkdt5sw5Xy/fin+Lc2bOTOMQLVicfdbea61v/S/f/9u7kNQAmsAC4GFgOdAGTgElE2u11zgG7Ad2AZ8CLd9v+H6r0+RCEsAtwEPAMuD8MKGYIKg0709gADgO/AYcAN4FvszAt/8xW9JSSW9q6trbku6XtFAS7kW4prTLFtgyLaPWJPV2sHoLGAJuA14GHgMW26qKXimBucD0zOyT0QqvH/u0cH898AywIoxVyac7gas8MBRuaoJAFOaWXisedsT3ZwB32oJPA/1pXg28AywClgIzOTstuqf27xl76F5gN7ARGASqlH2XAU8B9/h0g56cKKHd4+YtzznHG1aj0IqCdfc7+z8EGglUAVwEXJidqBdQZbZJct88H/IuuyqNl5krk+WeA14EjtUhDvrdJ6t9DRwC9gL3AVcHa1ZZDBbAGmAVsLMOg3V2Co0joOcAF/v6FPAL8Ktj5RtfPwvMz9YtwlrLgOuAISJpjaNHslsi6QVJI5JakvZKekJSIzwzU9JGSQOBRNvuqQ1Lel3SuvJfpD0uSeuBR0JQXw48CjwAzPZzJ53l+zoEefrfsMXnlmMQX2W3NoJ7qxDgK4GbgPPMcYPe4FLgbm9SAH2OsYMdwiO6cwYwq+4hXrplW2V+m+bs7Auk23Y2p6xrAifMTaO1CqjLUaw0lgvbwGGrgCKASal+2JZLz88yf+VKIrL9MHC6zixQ+VQAVwKrXRvPtTZ6H/gsPL/DY6v9v8/3BszQ+7xmwzptThemT8COAkfrYLakEFYCNwLXuCbOthsGPPYK8J7/nwA2G8wql6kjwAcGOxRUwh3AJYH1c3CDwE/AgZTetaRK0jxJmztooGa43iXpQUnTM5pYLulmSfOz8YakGyQd8vyhsFYrW3edpCswoLTo1mxSp9aW9IOkxyWVGYCqA6fdLml/FyDNwFWbLDjLJEenA2uBW536TZu4yFi3bVcvA560y3Y43X8GTjuY57jIrwGudZaS1b6Y3SeBbS7M7QRqoSfXQcxXHTKuCtp9sfv11mTHnT0FcIFJdEXIqkZGlsNB9L0GfOS1+1KgLwKW+OGqBy4hyOZFwRKdpAwhK+MB+7zGLmCDKaQEmmVg0vO6cMdokqWXA1TBOkmnJ2t/4jD4LmZiHbRTo0cR186UZLsL+ycSTtWhzkBuAl4CPs5rat2jVOl08om0fte/3cDzDuwqqwZ/g1KPoNKrknp0cTvM+xF4C3gV+DbsP9Lp9XqsFiXrVmC7C+usrFTkQOU35H4r0KPA764CeSJ0BVV0EfYl8IfBbAD2BFUwFqgRc1DeGiE+mYilSsvbN5wtKbYGe4yj0vsUAUhzrK8jvbSTNnvHGOghrobH+8mm15fJXGYU45jLREAVY2ySNJG6yNhJbSX/wfa/AFVMJagypGy3St+YaksNOO2rDkFcmQaOjOPry6SA+h74KgBqZ0XyIPB5kBxnF5x1dp+ktZK2ddDkWyz8O340PRu9DnJ1u+vZsF+7RywtNliqllPlvqTR04ZfAFv83nfGX9b2jOMT0aS0vwDxlcsA6ewoVAAAAABJRU5ErkJggg=="/>
+<g fill="#fff" text-anchor="middle" font-family="Verdana,Geneva,DejaVu Sans,sans-serif" font-size="11">
+<text x="52.0" y="14" textLength="58" lengthAdjust="spacingAndGlyphs">verified by</text>
+<text x="110.0" y="14" font-weight="bold" textLength="32" lengthAdjust="spacingAndGlyphs">Probe</text>
+</g>
+</svg>

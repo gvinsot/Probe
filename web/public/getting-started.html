@@ -156,6 +156,18 @@ probe review HEAD~1..HEAD --reviewer=false</code></pre>
               <p>Next steps: every flag, exit code and policy key is in the <a href="docs.html">reference</a>. To let an AI reviewer try to reproduce issues, configure a provider as described in <a href="docs.html#reviewer">AI reviewer</a>. For GitHub Actions, see the <a href="https://github.com/gvinsot/Probe/blob/main/app/docs/CI.md">CI integration guide</a>.</p>
             </div>
           </li>
+
+          <li>
+            <div>
+              <h2>Show it in your README</h2>
+              <p>Once Probe reviews your pull requests, add the badge to your README. It links to this site and says the project uses Probe; it is not an approval of the code.</p>
+              <p><a href="https://probe.technology/"><img src="badge/verified-by-probe.svg" alt="verified by Probe" width="133" height="20"></a></p>
+              <div class="code">
+<pre><code>[![verified by Probe](https://probe.technology/badge/verified-by-probe.svg)](https://probe.technology/)</code></pre>
+              </div>
+              <p>HTML, reStructuredText, shields.io styles and the live Probe Hub badge are in the <a href="https://github.com/gvinsot/Probe/blob/main/app/docs/BADGE.md">badge guide</a>.</p>
+            </div>
+          </li>
         </ol>
       </div>
     </section>
