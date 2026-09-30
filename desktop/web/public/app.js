@@ -27,11 +27,14 @@ const ui = {
   draftFolders: [],
   threshold: 1,
   busy: {},
+  // List filters and sort, kept between sessions.
+  list: { kind: "", status: "", sort: "risk" },
 };
 
 try {
   ui.tab = localStorage.getItem("probe.tab") || "review";
   ui.threshold = Number(localStorage.getItem("probe.threshold") || 1);
+  Object.assign(ui.list, JSON.parse(localStorage.getItem("probe.list") || "{}"));
 } catch (_) { /* storage unavailable: keep defaults */ }
 
 // A failure in an event handler must never be silent: show it in the header.
@@ -183,9 +186,10 @@ function renderList() {
   $("tab-all").setAttribute("aria-selected", ui.tab === "all");
 
   const q = $("search").value.trim().toLowerCase();
-  const shown = (ui.tab === "review" ? review : docs).filter(
-    (d) => !q || d.name.toLowerCase().includes(q) || d.folder.toLowerCase().includes(q),
-  );
+  const shown = sortDocs((ui.tab === "review" ? review : docs).filter(
+    (d) => (!q || d.name.toLowerCase().includes(q) || d.folder.toLowerCase().includes(q)) && matchesFilters(d),
+  ));
+  const filtered = Boolean(q || ui.list.kind || ui.list.status);
   const list = $("doc-list");
   list.replaceChildren(
     ...shown.slice(0, 1000).map((d) =>
@@ -206,11 +210,55 @@ function renderList() {
   );
   let empty = "";
   if (ui.state.folders === 0) empty = "Add a OneDrive or Google Drive folder in Settings to start.";
-  else if (!shown.length && q) empty = "No document matches this filter.";
+  else if (!shown.length && filtered) empty = "No document matches these filters.";
   else if (!shown.length && ui.tab === "review") empty = "Nothing to review: every watched document matches its reviewed version.";
   else if (!shown.length) empty = ui.state.scanning ? "First scan in progress…" : "No Word, Excel or PowerPoint document in the watched folders.";
   $("list-empty").textContent = empty;
   $("list-empty").classList.toggle("hidden", !empty);
+}
+
+const OTHER_STATUSES = ["cloud-only", "too-large", "error"];
+
+function matchesFilters(d) {
+  const f = ui.list;
+  if (f.kind && d.kind !== f.kind) return false;
+  if (f.status === "other") return OTHER_STATUSES.includes(d.status);
+  return !f.status || d.status === f.status;
+}
+
+const byText = (a, b) => a.localeCompare(b, undefined, { sensitivity: "base", numeric: true });
+const time = (iso) => (iso && !iso.startsWith("0001") ? new Date(iso).getTime() : 0);
+
+// sortDocs orders a copy of the list. The engine already sends it most risky
+// first, which the stable sort keeps as the tie-breaker of every other order.
+function sortDocs(docs) {
+  const cmp = {
+    recent: (a, b) => time(b.changed_at) - time(a.changed_at),
+    modified: (a, b) => time(b.mod_time) - time(a.mod_time),
+    findings: (a, b) => (b.findings || 0) - (a.findings || 0),
+    name: (a, b) => byText(a.name, b.name),
+    folder: (a, b) => byText(a.folder, b.folder) || byText(a.name, b.name),
+  }[ui.list.sort];
+  return cmp ? [...docs].sort(cmp) : docs;
+}
+
+function renderFilters() {
+  // A value saved by another version of the application falls back to the default.
+  for (const [key, id, def] of [["kind", "filter-kind", ""], ["status", "filter-status", ""], ["sort", "sort", "risk"]]) {
+    if (![...$(id).options].some((o) => o.value === ui.list[key])) ui.list[key] = def;
+  }
+  $("filter-kind").value = ui.list.kind;
+  $("filter-status").value = ui.list.status;
+  $("sort").value = ui.list.sort;
+  const f = ui.list;
+  $("reset-filters").classList.toggle("hidden", !f.kind && !f.status && f.sort === "risk");
+}
+
+function setListOption(key, value) {
+  ui.list[key] = value;
+  try { localStorage.setItem("probe.list", JSON.stringify(ui.list)); } catch (_) { /* optional */ }
+  renderFilters();
+  if (ui.state) renderList();
 }
 
 function select(id) {
@@ -534,6 +582,14 @@ function setTab(tab) {
 $("tab-review").addEventListener("click", () => setTab("review"));
 $("tab-all").addEventListener("click", () => setTab("all"));
 $("search").addEventListener("input", () => ui.state && renderList());
+$("filter-kind").addEventListener("change", (e) => setListOption("kind", e.target.value));
+$("filter-status").addEventListener("change", (e) => setListOption("status", e.target.value));
+$("sort").addEventListener("change", (e) => setListOption("sort", e.target.value));
+$("reset-filters").addEventListener("click", () => {
+  ui.list = { kind: "", status: "", sort: "risk" };
+  $("search").value = "";
+  setListOption("sort", "risk");
+});
 $("severity").addEventListener("input", (e) => { setThreshold(e.target.value); if (ui.state) renderList(); });
 $("scan").addEventListener("click", async () => { await api("POST", "/api/scan").catch((e) => alert(e.message)); setTimeout(refresh, 400); });
 $("open-settings").addEventListener("click", openSettings);
@@ -548,6 +604,7 @@ $("add-folder").addEventListener("click", () => {
 });
 
 setThreshold(Math.min(Math.max(ui.threshold - 1, 0), 3));
+renderFilters();
 refresh();
 // Poll faster while a scan runs, so the first results appear quickly.
 (function loop() {

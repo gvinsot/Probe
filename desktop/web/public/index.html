@@ -41,6 +41,30 @@
       </div>
       <div class="panel-body tight">
         <input class="search" id="search" type="search" placeholder="Filter by name or folder" autocomplete="off">
+        <div class="list-filters">
+          <select id="filter-kind" aria-label="Document type">
+            <option value="">Any type</option>
+            <option value="word">Word</option>
+            <option value="excel">Excel</option>
+            <option value="powerpoint">PowerPoint</option>
+          </select>
+          <select id="filter-status" aria-label="Status">
+            <option value="">Any status</option>
+            <option value="changed">Changed</option>
+            <option value="removed">Deleted</option>
+            <option value="clean">Reviewed</option>
+            <option value="other" title="Online only, too large or unreadable">Not analyzed</option>
+          </select>
+          <select id="sort" aria-label="Sort by" title="Sort by">
+            <option value="risk">Riskiest</option>
+            <option value="recent">Latest change</option>
+            <option value="modified">Last saved</option>
+            <option value="findings">Findings</option>
+            <option value="name">Name</option>
+            <option value="folder">Folder</option>
+          </select>
+          <button class="btn quiet small hidden" type="button" id="reset-filters">Reset</button>
+        </div>
       </div>
       <ul class="doc-list" id="doc-list"></ul>
       <p class="empty" id="list-empty"></p>
