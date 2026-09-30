@@ -120,6 +120,14 @@ func fullyPopulatedReport() Report {
 	r.Fuzz.Skipped = append(r.Fuzz.Skipped, FuzzSkip{Path: "calc/calc.go", Line: 9, Symbol: "Scale", Reason: "signature changed"})
 	r.Fuzz.SkippedTotal = 2
 	r.Impact.Languages = []string{"go", "python"}
+	r.Graph = &Graph{Status: GraphPartial, Reason: "r", Commit: "0123456789abcdef0123456789abcdef01234567", Cache: GraphCacheHit, Calls: true,
+		Nodes:      GraphNodeCounts{Components: 2, Packages: 3, Files: 5, Functions: 9, Types: 2, Dependencies: 1},
+		Edges:      GraphEdgeCounts{Contains: 19, Calls: 7, MemberOf: 2, Implements: 1, Imports: 4, DependsOn: 3, Declares: 1},
+		Components: []GraphComponent{{Name: "app", Files: 4, DependsOn: []string{"lib"}, Dependencies: 1}},
+		Delta: &GraphDelta{BaseCommit: "89abcdef0123456789abcdef0123456789abcdef", AddedTotal: 1, RemovedTotal: 1,
+			Added:   []GraphItem{{Kind: "dependency", Name: "npm:left-pad"}, {Kind: "depends_on", From: "app", To: "npm:left-pad"}},
+			Removed: []GraphItem{{Kind: "depends_on", From: "app", To: "lib"}, {Kind: "package", Name: "lib/old"}}},
+		Limitations: []string{"r"}, Note: "n"}
 	fn := &r.Impact.ChangedFunctions[0]
 	fn.Indexed, fn.Reason, fn.TestsTotal = true, "r", 2
 	fn.Tests[0].Via = []string{"shop.TestTotal", "shop.Checkout", "calc.Discount"}

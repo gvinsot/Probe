@@ -30,6 +30,7 @@ the sandbox image.
 | `/probe:fix <ID…>\|--severity high` | Works on findings: understands each one, changes the code when a change is warranted (or explains why the flagged change is intended), then checks with Probe that it is resolved. |
 | `/probe:context [show\|base REF\|intent [TEXT]\|plan\|clear]` | Manages what Probe reviews against: the base branch, the intent and acceptance criteria of the change, the pre-change plan (`probe plan`), the trusted policy and the knowledge base. |
 | `/probe:setup [check\|init\|sandbox\|provider]` | Gets Probe ready in the repository. |
+| `/probe:graph [question\|search\|neighbors\|path]` | Explores the repository graph of the commit — callers, dependents, dependencies, implementations, paths between two parts of the code — to see what a change affects beyond the diff. |
 
 The `probe-reviewer` agent runs a review and returns a short handoff, so Claude
 can check a change before handing it over without loading the full report into

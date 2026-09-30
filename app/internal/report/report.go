@@ -556,6 +556,9 @@ func renderMarkdown(r *model.Report) []byte {
 	if r.Impact != nil {
 		writeImpact(&b, r) // F6a: "## Impact Analysis"
 	}
+	if r.Graph != nil {
+		writeGraph(&b, r)
+	}
 	line(&b, "\n## Recorded Evidence\n")
 	for _, e := range r.Evidence {
 		status := inline(e.Status)

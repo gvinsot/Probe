@@ -21,6 +21,7 @@ import (
 	"github.com/gvinsot/Probe/app/internal/coverage"
 	"github.com/gvinsot/Probe/app/internal/fsutil"
 	"github.com/gvinsot/Probe/app/internal/gitrepo"
+	"github.com/gvinsot/Probe/app/internal/graph"
 	"github.com/gvinsot/Probe/app/internal/harness"
 	"github.com/gvinsot/Probe/app/internal/knowledge"
 	"github.com/gvinsot/Probe/app/internal/linter"
@@ -43,6 +44,8 @@ Usage:
   probe knowledge apply [--from .probe/knowledge-updates.json]
   probe knowledge check [--knowledge PROBE_KNOWLEDGE.md]
   probe context check [--context-dir DIR] [--context-repo NAME=PATH] [--clusters FILE]
+  probe graph build [--commit HEAD] [--out FILE]
+  probe graph query search|neighbors|path ARGS [--commit HEAD]
   probe report [--input .probe/confidence-report.json] [--out DIR] [--format LIST] [--report-url URL]
   probe version
 
@@ -63,6 +66,12 @@ The codebase knowledge base (PROBE_KNOWLEDGE.md, editable Markdown) is read at
 the tip of the base branch and given to the reviewer, which proposes updates in
 .probe/knowledge-updates.json; knowledge build proposes entries from a
 read-only exploration, apply merges proposals for you to review and commit.
+The repository graph (components, packages, files, functions, types and
+external dependencies with their calls, imports and dependencies) is built
+from the committed files of the head commit by lint and review (--graph,
+default on), cached by commit in --graph-cache (default: the user cache
+directory), recorded with its structural delta against the base, and queried
+by the reviewer; probe graph builds and queries it outside a review.
 Policy "context" names other repositories, directly or through repository
 clusters, that the reviewer reads to check cross-repository contracts; point
 review at their checkouts with --context-dir or --context-repo NAME=PATH.
@@ -103,6 +112,8 @@ func Run(ctx context.Context, args []string, stdout, stderr io.Writer, version s
 		return knowledgeCommand(ctx, args[1:], stdout, stderr, version)
 	case "context":
 		return contextCommand(ctx, args[1:], stdout, stderr)
+	case "graph":
+		return graphCommand(ctx, args[1:], stdout, stderr, version)
 	default:
 		fmt.Fprintf(stderr, "unknown command %q\n%s", args[0], usage)
 		return 3
@@ -181,6 +192,8 @@ func analyze(ctx context.Context, mode string, args []string, out, errOut io.Wri
 	baseTests := f.Bool("base-tests", false, "review: run the baseline versions of changed Go tests on candidate code")
 	fuzzFlag := f.Bool("fuzz", true, "review: run the differential fuzzing that trusted policy configures; --fuzz=false records it as disabled")
 	impactFlag := f.Bool("impact", true, "build the static impact index of changed functions: Go type-checked, TS/JS, Python and Rust lexical (lint and review)")
+	graphFlag := f.Bool("graph", true, "build the repository graph of the head commit (components, packages, files, functions, types, dependencies), record it and give it to the reviewer (lint and review)")
+	graphCache := f.String("graph-cache", "", "repository graph cache directory, outside the repository and the output directory (default: the user cache directory; \"off\" disables it)")
 	impactedTests := f.Bool("impacted-tests", false, "review: run unchanged Go tests that statically reach changed code on baseline and candidate")
 	cacheDir := f.String("cache-dir", "", "review: opt-in baseline execution cache directory, outside the repository and the output directory")
 	parallel := f.Int("parallel", 1, "review: number of initial checks run at a time (1..4)")
@@ -345,6 +358,12 @@ func analyze(ctx context.Context, mode string, args []string, out, errOut io.Wri
 	if err != nil {
 		return fail(errOut, 3, "%v", err)
 	}
+	var graphStore *graph.Store
+	if *graphFlag {
+		if graphStore, err = openGraphStore(*graphCache, explicit["graph-cache"], repo.Root, output, version, errOut); err != nil {
+			return fail(errOut, 3, "%v", err)
+		}
+	}
 	// Prepare, harness runs and the reviewer use work; static analysis,
 	// snapshots, cleanup and report writing use the parent context.
 	work, stopWork := workContext(ctx, *deadline)
@@ -359,7 +378,17 @@ func analyze(ctx context.Context, mode string, args []string, out, errOut io.Wri
 		return fail(errOut, 4, "impact analysis: %v", err)
 	}
 	signals = linter.Merge(signals, impact.signals)
-	r := model.Report{Version: 1, ToolVersion: version, GeneratedAt: time.Now().UTC(), Intent: doc.Text, IntentSHA256: doc.SHA256, IntentCriteria: doc.Criteria, Change: change, Policy: policy, Signals: signals, Impact: impact.report, Coverage: coverage.NotConfigured()}
+	graphView, graphSection, err := buildGraph(ctx, repo, change, impact, graphStore, *graphFlag)
+	if err != nil {
+		return fail(errOut, 4, "repository graph: %v", err)
+	}
+	if graphView != nil {
+		reviewerOptions.Graph = graphView
+	}
+	if line := graphSummary(graphSection); line != "" {
+		fmt.Fprintln(errOut, line)
+	}
+	r := model.Report{Version: 1, ToolVersion: version, GeneratedAt: time.Now().UTC(), Intent: doc.Text, IntentSHA256: doc.SHA256, IntentCriteria: doc.Criteria, Change: change, Policy: policy, Signals: signals, Impact: impact.report, Graph: graphSection, Coverage: coverage.NotConfigured()}
 	if *readOnly {
 		r.AnalysisMode = "review-read-only"
 	}

@@ -1,7 +1,7 @@
 {
   "name": "probe",
   "displayName": "Probe",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Review AI-assisted changes with Probe from Claude Code: request reviews, read findings, manage the review context and fix issues, with evidence instead of model confidence.",
   "author": {
     "name": "Probe contributors",

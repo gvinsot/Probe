@@ -33,6 +33,8 @@ type Options struct {
 	MaxInputBytes int
 	// Context reads the cross-repository context; nil when there is none.
 	Context ContextReader
+	// Graph is the repository graph of the head commit; nil when there is none.
+	Graph GraphReader
 }
 
 type toolHarness interface {
@@ -149,12 +151,21 @@ func Run(ctx context.Context, o Options, r *model.Report, h toolHarness) error {
 		Knowledge []model.KnowledgeEntry `json:"knowledge,omitempty"`
 		// ContextRepos are the other repositories the reviewer can read.
 		ContextRepos []model.ContextRepo `json:"context_repos,omitempty"`
+		// Graph places the change in the repository graph.
+		Graph any `json:"graph,omitempty"`
 		// HunksOmitted tells the model to read the diff with get_diff: the
 		// whole diff would leave no room for the investigation.
 		HunksOmitted bool `json:"hunks_omitted,omitempty"`
-	}{safe.Intent, safe.IntentCriteria, safe.Change, safe.Signals, safe.Checks, safe.Evidence, nil, nil, false}
+	}{safe.Intent, safe.IntentCriteria, safe.Change, safe.Signals, safe.Checks, safe.Evidence, nil, nil, nil, false}
 	if o.Context != nil {
 		input.ContextRepos = o.Context.Repos()
+	}
+	if o.Graph != nil {
+		changed := make([]string, 0, len(safe.Change.Files))
+		for _, f := range safe.Change.Files {
+			changed = append(changed, f.Path)
+		}
+		input.Graph = o.Graph.OverviewOf(changed)
 	}
 	if safe.Knowledge != nil {
 		input.Knowledge = safe.Knowledge.Entries
@@ -189,6 +200,10 @@ func Run(ctx context.Context, o Options, r *model.Report, h toolHarness) error {
 	if len(input.ContextRepos) > 0 {
 		prompt += contextPrompt
 		definitions = append(definitions, contextTools()...)
+	}
+	if o.Graph != nil {
+		prompt += graphPrompt
+		definitions = append(definitions, graphTools()...)
 	}
 	if r.Knowledge != nil {
 		prompt += knowledgePromptFor(len(input.Knowledge) > 0)
@@ -282,6 +297,9 @@ func Run(ctx context.Context, o Options, r *model.Report, h toolHarness) error {
 			} else if isContextTool(call.Function.Name) {
 				localCall = true
 				result, err = callContext(ctx, o.Context, call.Function.Name, []byte(call.Function.Arguments))
+			} else if isGraphTool(call.Function.Name) {
+				localCall = true
+				result, err = callGraph(o.Graph, call.Function.Name, []byte(call.Function.Arguments))
 			} else if call.Function.Name == KnowledgeTool {
 				localCall = true
 				result, err = recordKnowledge(&r.Knowledge.Updates, []byte(clean(call.Function.Arguments)))

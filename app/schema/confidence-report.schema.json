@@ -48,6 +48,7 @@
     "mutation": {"$ref": "#/$defs/mutation"},
     "fuzz": {"$ref": "#/$defs/fuzz"},
     "impact": {"$ref": "#/$defs/impact"},
+    "graph": {"$ref": "#/$defs/graph", "description": "Repository graph of the head commit (components, packages, files, functions, types, external dependencies and their relationships), queried by the AI reviewer, and its structural delta against the base. Static observations of committed files, never evidence. Absent with --graph=false."},
     "execution": {"$ref": "#/$defs/execution"},
     "plan_drift": {"$ref": "#/$defs/planDrift"},
     "artifacts": {"type": "array", "items": {"$ref": "#/$defs/artifact"}},
@@ -295,6 +296,86 @@
         "entries_total": {"type": "integer", "minimum": 0},
         "entries": {"type": "array", "items": {"$ref": "#/$defs/knowledgeEntry"}, "description": "The entries relevant to the change: path matches first, then repository-wide entries, within a bounded budget."},
         "updates": {"type": "array", "maxItems": 20, "items": {"$ref": "#/$defs/knowledgeUpdate"}, "description": "Additions, replacements (same title) and removals (obsolete) the reviewer proposed, written to knowledge-updates.json for a person to apply and commit."}
+      }
+    },
+    "graph": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "calls", "nodes", "edges", "components", "note"],
+      "properties": {
+        "status": {"enum": ["built", "partial", "unavailable"]},
+        "reason": {"type": "string"},
+        "commit": {"type": "string"},
+        "cache": {"enum": ["hit", "stored", "off"], "description": "hit: read from the graph cache; stored: built and stored; off: built for this run only."},
+        "calls": {"type": "boolean", "description": "Functions and calls come from the symbol index; false for a graph built without it."},
+        "nodes": {"$ref": "#/$defs/graphNodeCounts"},
+        "edges": {"$ref": "#/$defs/graphEdgeCounts"},
+        "components": {"type": "array", "items": {"$ref": "#/$defs/graphComponent"}},
+        "delta": {"$ref": "#/$defs/graphDelta"},
+        "limitations": {"type": "array", "items": {"type": "string"}},
+        "note": {"type": "string"}
+      }
+    },
+    "graphNodeCounts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["components", "packages", "files", "functions", "types", "dependencies"],
+      "properties": {
+        "components": {"type": "integer", "minimum": 0},
+        "packages": {"type": "integer", "minimum": 0},
+        "files": {"type": "integer", "minimum": 0},
+        "functions": {"type": "integer", "minimum": 0},
+        "types": {"type": "integer", "minimum": 0},
+        "dependencies": {"type": "integer", "minimum": 0}
+      }
+    },
+    "graphEdgeCounts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["contains", "calls", "member_of", "implements", "imports", "depends_on", "declares"],
+      "properties": {
+        "contains": {"type": "integer", "minimum": 0},
+        "calls": {"type": "integer", "minimum": 0},
+        "member_of": {"type": "integer", "minimum": 0},
+        "implements": {"type": "integer", "minimum": 0},
+        "imports": {"type": "integer", "minimum": 0},
+        "depends_on": {"type": "integer", "minimum": 0},
+        "declares": {"type": "integer", "minimum": 0}
+      }
+    },
+    "graphComponent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "files", "dependencies"],
+      "properties": {
+        "name": {"type": "string"},
+        "files": {"type": "integer", "minimum": 0},
+        "depends_on": {"type": "array", "items": {"type": "string"}, "description": "Components of the repository it depends on (imports)."},
+        "dependencies": {"type": "integer", "minimum": 0, "description": "External dependencies it uses or declares."}
+      }
+    },
+    "graphDelta": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["base_commit", "added", "removed", "added_total", "removed_total"],
+      "description": "Structural changes against the base commit: components, packages, types and external dependencies, and depends_on and declares edges, added or removed; each list holds at most 100 items.",
+      "properties": {
+        "base_commit": {"type": "string"},
+        "added": {"type": "array", "maxItems": 100, "items": {"$ref": "#/$defs/graphItem"}},
+        "removed": {"type": "array", "maxItems": 100, "items": {"$ref": "#/$defs/graphItem"}},
+        "added_total": {"type": "integer", "minimum": 0},
+        "removed_total": {"type": "integer", "minimum": 0}
+      }
+    },
+    "graphItem": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind"],
+      "properties": {
+        "kind": {"type": "string"},
+        "name": {"type": "string"},
+        "from": {"type": "string"},
+        "to": {"type": "string"}
       }
     },
     "contextRepo": {

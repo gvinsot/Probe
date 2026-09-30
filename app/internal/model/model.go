@@ -226,7 +226,9 @@ type Report struct {
 	Knowledge *Knowledge `json:"knowledge,omitempty"`
 	// ContextRepos lists the other repositories the reviewer could read as
 	// cross-repository context (policy "context"); present when a reviewer ran.
-	ContextRepos       []ContextRepo      `json:"context_repos,omitempty"`
+	ContextRepos []ContextRepo `json:"context_repos,omitempty"`
+	// Graph is the repository-graph section; nil with --graph=false.
+	Graph              *Graph             `json:"graph,omitempty"`
 	Change             Change             `json:"change"`
 	Policy             Policy             `json:"policy"`
 	Prepare            *Prepare           `json:"prepare,omitempty"` // F8

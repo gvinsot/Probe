@@ -79,6 +79,7 @@ Start with the flagged lines and the reason for each review target. These signal
 - An opt-in baseline execution cache (`--cache-dir`) and up to four initial checks at a time (`--parallel`); a replayed baseline run never supports a positive result ([execution cache](docs/EXECUTION_CACHE.md)).
 - Changed baseline tests (`--base-tests`): the baseline version of each Go test function (or TypeScript/JavaScript test, with a Vitest or Jest template) the change modified or removed runs on baseline and candidate code, and a baseline pass with a candidate failure is reported as `FAILS_ON_CANDIDATE` for review, not as a defect ([changed baseline tests](docs/BASE_TESTS.md)).
 - Impact analysis (`--impact`, on by default): a static index lists callers of changed functions and the existing tests that reach them, labelled approximate. Go packages are type-checked; TypeScript/JavaScript, Python and Rust sources are scanned lexically and calls are linked by name (`name` resolution). `--impacted-tests` runs the reaching Go tests on both revisions ([impact analysis](docs/IMPACT.md)).
+- Repository graph (`--graph`, on by default): a persistent graph of the whole head commit — components, packages, files, functions, types and external dependencies, linked by calls, imports, dependencies, membership and interface implementations — cached by commit and queried by the AI reviewer (`graph_search`, `graph_neighbors`, `graph_path`) to reason beyond the diff. The report records its summary and the structural delta against the base: new external dependencies, new dependencies between components or packages, added or removed types. `probe graph build` and `probe graph query` use it outside a review ([repository graph](docs/GRAPH.md)).
 - Languages: Go, TypeScript/JavaScript, Python and Rust. `probe init` detects `go.mod`, `Cargo.toml`, `tsconfig.json`/`package.json` and `pyproject.toml`/`setup.py`/`requirements.txt`, and writes matching sandbox images and commands (`--language go|typescript|javascript|python|rust`). Changed-line coverage reads a Go profile or an LCOV report (TypeScript/JavaScript through Vitest or Jest); changed baseline tests, impacted-test runs, fuzzing and mutation testing cover Go and TS/JS (TS/JS with Vitest or Jest).
 - Optional deterministic differential fuzzing (`fuzz` policy object): changed Go functions, and exported TypeScript/JavaScript functions read lexically, whose signature is unchanged run on identical seeded inputs on both revisions, without a model, and a confirmed difference is shown with both values ([differential fuzzing](docs/FUZZ.md)).
 - Optional mutation of added Go lines, or TypeScript/JavaScript lines with a Vitest or Jest command (`mutation` policy object): surviving mutants are reported for review, killed mutants are only counted, and no mutation score is computed ([mutation of added lines](docs/MUTATION.md)).
@@ -107,6 +108,7 @@ probe review --base main --format markdown,json,sarif,pr-comment
 probe plan --intent-file demande.md          # pre-change plan: PLAN.json, PLAN.md (provider required)
 probe review --base main --plan .probe/PLAN.json  # scope drift against the plan
 probe report --input .probe/confidence-report.json
+probe graph query neighbors internal/payment --kinds depends_on --direction in   # repository graph
 probe review --help
 ```
 
@@ -120,6 +122,8 @@ probe review --help
 | `--base-tests` | review | off | Runs the baseline versions of changed Go tests (or TypeScript/JavaScript tests, with a Vitest or Jest template) on candidate code. |
 | `--fuzz` | review | on | `--fuzz=false` skips differential fuzzing configured in policy. |
 | `--impact` | lint, review | on | `--impact=false` skips the static impact index. |
+| `--graph` | lint, review | on | `--graph=false` skips the repository graph ([repository graph](docs/GRAPH.md)). |
+| `--graph-cache DIR` | lint, review, graph | user cache directory | Where graphs are cached by commit, outside the repository and the report directory; `off` disables the cache. An unusable explicit directory exits 3. |
 | `--plan FILE` | lint, review | none | Checks the diff against the contract of a PLAN.json written by `probe plan` and adds the `plan_drift` section ([plans and scope drift](docs/PLAN.md)). |
 | `--impacted-tests` | review | off | Runs the existing Go tests (or TypeScript/JavaScript tests, with a Vitest or Jest template) that reach changed functions on both revisions. |
 | `--cache-dir DIR` | review | none: no cache | Enables the baseline execution cache in DIR, which must be outside the repository and the report directory. |

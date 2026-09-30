@@ -26,6 +26,8 @@ type impactResult struct {
 	report  *model.Impact       // nil with --impact=false
 	signals []model.Signal      // impacted_caller / analysis_limited signals
 	lookup  harness.SymbolIndex // nil when no index was built
+	// index is the same index, for the repository graph; nil when none.
+	index *symbols.Index
 }
 
 // analyzeImpact builds the static symbol index of the change. It returns an
@@ -46,7 +48,7 @@ func analyzeImpact(ctx context.Context, repo *gitrepo.Repository, change model.C
 	out := impactResult{report: res.Report(), signals: res.Signals()}
 	// A nil *symbols.Index must not become a non-nil interface value.
 	if index := res.Index(); index != nil {
-		out.lookup = index
+		out.lookup, out.index = index, index
 	}
 	return out, nil
 }
