@@ -406,6 +406,22 @@ func renderMarkdown(r *model.Report) []byte {
 		}
 		line(&b, "")
 	}
+	if k := r.Knowledge; k != nil {
+		fmt.Fprintf(&b, "Knowledge base: %d of %d entries of %s given to the reviewer (context, not evidence).", len(k.Entries), k.EntriesTotal, inline(k.Path))
+		if len(k.Updates) > 0 {
+			fmt.Fprintf(&b, " Updates proposed by the reviewer (model output), in knowledge-updates.json; apply with `probe knowledge apply`, then review and commit:\n\n")
+			for _, u := range k.Updates {
+				verb := "add or replace"
+				if u.Obsolete {
+					verb = "remove"
+				}
+				fmt.Fprintf(&b, "- %s **%s** (%s): %s\n", verb, inline(u.Title), inline(u.Kind), inline(orNone(u.Reason)))
+			}
+			line(&b, "")
+		} else {
+			line(&b, "\n")
+		}
+	}
 	if f := r.TeamFeedback; f != nil {
 		fmt.Fprintf(&b, "Team feedback given to the reviewer: %d kinds of findings, %d comments (guidance for the model, not evidence).\n\n", len(f.Topics), len(f.Comments))
 	}

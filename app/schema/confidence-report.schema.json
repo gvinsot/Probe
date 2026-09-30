@@ -17,6 +17,7 @@
     "coding_rules": {"type": "string", "maxLength": 32768, "description": "Team coding rules the operator gave the reviewer with --rules or --rules-file. The reviewer checks the changed code against them; a violation it finds is a hypothesis like any other. Recorded only when a reviewer ran."},
     "coding_rules_sha256": {"$ref": "#/$defs/sha256", "description": "SHA-256 of coding_rules as recorded."},
     "team_feedback": {"$ref": "#/$defs/teamFeedback"},
+    "knowledge": {"$ref": "#/$defs/knowledge"},
     "team_feedback_sha256": {"$ref": "#/$defs/sha256", "description": "SHA-256 of the --feedback-file content as read."},
     "change": {"$ref": "#/$defs/change"},
     "policy": {"$ref": "#/$defs/policy"},
@@ -281,6 +282,46 @@
         {"if": {"required": ["intent_judgment"]}, "then": {"properties": {"status": {"const": "DIVERGED"}}, "required": ["criterion_id"]}}
       ]
     },
+    "knowledge": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "entries_total", "entries", "updates"],
+      "description": "The codebase knowledge base read at the tip of the base ref and given to the reviewer, and the updates it proposed. Context and model output, never evidence. Present only when a reviewer ran.",
+      "properties": {
+        "path": {"type": "string"},
+        "commit": {"type": "string"},
+        "sha256": {"$ref": "#/$defs/sha256", "description": "SHA-256 of the file read; absent when there was none."},
+        "entries_total": {"type": "integer", "minimum": 0},
+        "entries": {"type": "array", "items": {"$ref": "#/$defs/knowledgeEntry"}, "description": "The entries relevant to the change: path matches first, then repository-wide entries, within a bounded budget."},
+        "updates": {"type": "array", "maxItems": 20, "items": {"$ref": "#/$defs/knowledgeUpdate"}, "description": "Additions, replacements (same title) and removals (obsolete) the reviewer proposed, written to knowledge-updates.json for a person to apply and commit."}
+      }
+    },
+    "knowledgeEntry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["title", "kind", "paths", "text"],
+      "properties": {
+        "title": {"type": "string"},
+        "kind": {"$ref": "#/$defs/knowledgeKind"},
+        "paths": {"type": "array", "items": {"type": "string"}},
+        "updated": {"type": "string"},
+        "text": {"type": "string"}
+      }
+    },
+    "knowledgeUpdate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["title", "kind", "paths", "text"],
+      "properties": {
+        "title": {"type": "string"},
+        "kind": {"$ref": "#/$defs/knowledgeKind"},
+        "paths": {"type": "array", "items": {"type": "string"}},
+        "text": {"type": "string"},
+        "reason": {"type": "string"},
+        "obsolete": {"type": "boolean"}
+      }
+    },
+    "knowledgeKind": {"enum": ["component", "relationship", "risk", "architecture", "convention", "review", "note"]},
     "teamFeedback": {
       "type": "object",
       "additionalProperties": false,

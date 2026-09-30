@@ -22,6 +22,7 @@ import (
 	"github.com/gvinsot/Probe/app/internal/fsutil"
 	"github.com/gvinsot/Probe/app/internal/gitrepo"
 	"github.com/gvinsot/Probe/app/internal/harness"
+	"github.com/gvinsot/Probe/app/internal/knowledge"
 	"github.com/gvinsot/Probe/app/internal/linter"
 	"github.com/gvinsot/Probe/app/internal/model"
 	"github.com/gvinsot/Probe/app/internal/report"
@@ -38,6 +39,9 @@ Usage:
   probe review [flags] BASE..HEAD
   probe plan --intent-file FILE [--base main] [--ci]
   probe review --plan .probe/PLAN.json [flags]
+  probe knowledge build [--base main] [--focus TEXT]
+  probe knowledge apply [--from .probe/knowledge-updates.json]
+  probe knowledge check [--knowledge PROBE_KNOWLEDGE.md]
   probe report [--input .probe/confidence-report.json] [--out DIR] [--format LIST] [--report-url URL]
   probe version
 
@@ -54,6 +58,10 @@ Review --read-only inspects the diff with the deployment's LLM, without Docker
 or code execution. Its suspicions stay unverified; execution flags are refused.
 Plan asks the provider for an implementation plan (read-only, nothing runs) and
 evaluates it with fixed rules; review or lint --plan check the diff against it.
+The codebase knowledge base (PROBE_KNOWLEDGE.md, editable Markdown) is read at
+the tip of the base branch and given to the reviewer, which proposes updates in
+.probe/knowledge-updates.json; knowledge build proposes entries from a
+read-only exploration, apply merges proposals for you to review and commit.
 
 Evidence stages (review only unless noted; policy keys fuzz, mutation and prepare
 are opt-in and need a v0.4 binary):
@@ -87,6 +95,8 @@ func Run(ctx context.Context, args []string, stdout, stderr io.Writer, version s
 		return render(args[1:], stdout, stderr)
 	case "plan":
 		return planCommand(ctx, args[1:], stdout, stderr, version)
+	case "knowledge":
+		return knowledgeCommand(ctx, args[1:], stdout, stderr, version)
 	default:
 		fmt.Fprintf(stderr, "unknown command %q\n%s", args[0], usage)
 		return 3
@@ -156,6 +166,7 @@ func analyze(ctx context.Context, mode string, args []string, out, errOut io.Wri
 	intentFile := f.String("intent-file", "", "UTF-8 file containing PR intent")
 	rules := f.String("rules", "", "review: team coding rules the reviewer checks the changed code against")
 	rulesFile := f.String("rules-file", "", "review: UTF-8 file containing team coding rules")
+	knowledgePath := f.String("knowledge", knowledge.DefaultPath, "review: codebase knowledge base, read at the tip of --base and given to the reviewer, which proposes updates; \"none\" disables it")
 	feedbackFile := f.String("feedback-file", "", "review: JSON file of team feedback on earlier findings (Probe Hub writes it), used to adapt the reviewer to the team")
 	allowNetwork := f.Bool("allow-network", false, "permit sandbox network only if trusted policy also enables it")
 	noNetwork := f.Bool("no-network", false, "force sandbox networking off (use --reviewer=false to also disable the reviewer API)")
@@ -226,6 +237,11 @@ func analyze(ctx context.Context, mode string, args []string, out, errOut io.Wri
 	codingRules, err := loadCodingRules(*rules, *rulesFile)
 	if err != nil {
 		return fail(errOut, 3, "%v", err)
+	}
+	if *knowledgePath != noKnowledge {
+		if err := knowledge.ValidPath(*knowledgePath); err != nil {
+			return fail(errOut, 3, "%v", err)
+		}
 	}
 	feedback, feedbackSHA256, err := loadTeamFeedback(*feedbackFile)
 	if err != nil {
@@ -349,6 +365,17 @@ func analyze(ctx context.Context, mode string, args []string, out, errOut io.Wri
 			r.CodingRulesSHA256 = fmt.Sprintf("%x", sha256.Sum256([]byte(codingRules)))
 		} else {
 			fmt.Fprintln(errOut, "Coding rules not applied: no reviewer runs in this analysis.")
+		}
+	}
+	// The knowledge base comes from the tip of the base ref, like the policy:
+	// a change never supplies the knowledge its own review receives.
+	var knowledgeBase *knowledge.Base
+	if *useReviewer && *knowledgePath != noKnowledge {
+		k, kb, err := loadReviewKnowledge(ctx, repo, change.BaseRefCommit, *knowledgePath, change)
+		if err != nil {
+			fmt.Fprintf(errOut, "Knowledge base not used: %v\n", err)
+		} else {
+			r.Knowledge, knowledgeBase = k, kb
 		}
 	}
 	if feedback != nil {
@@ -523,6 +550,13 @@ func analyze(ctx context.Context, mode string, args []string, out, errOut io.Wri
 	}
 	if err := report.Write(output, &r, formats, opts...); err != nil {
 		return fail(errOut, 4, "write report: %v", err)
+	}
+	if k := r.Knowledge; k != nil && len(k.Updates) > 0 {
+		p := model.KnowledgeProposal{ToolVersion: version, Source: "review", Path: k.Path, BaseCommit: k.Commit, HeadCommit: change.HeadCommit, Updates: k.Updates}
+		if err := writeKnowledgeProposal(output, p, knowledgeBase, knowledgeStamp("review", change.HeadCommit)); err != nil {
+			return fail(errOut, 4, "write knowledge proposal: %v", err)
+		}
+		fmt.Fprintf(out, "Knowledge: %d updates proposed for %s (model output); apply with probe knowledge apply, then review and commit.\n", len(k.Updates), k.Path)
 	}
 	fmt.Fprintf(out, "%d files, +%d/-%d lines; %d risk signals; %d reproduced issues.\nFocused review: %d / %d changed lines (a prioritization aid, not a correctness guarantee).\n", len(change.Files), change.Additions, change.Deletions, len(r.Signals), len(r.ReproducedIssues), r.ReviewSurface.FocusedLines, r.ReviewSurface.ChangedLines)
 	if r.Coverage.Status == coverage.StatusMeasured {

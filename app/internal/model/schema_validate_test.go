@@ -367,6 +367,7 @@ func populatedReport() Report {
 		CodingRulesSHA256:    strings.Repeat("c", 64),
 		TeamFeedback:         &TeamFeedback{Topics: []FeedbackTopic{{Topic: "signal:no_test_change", Useful: 1, NotUseful: 4, Changed: 2, Unchanged: 5}}, Comments: []FeedbackComment{{Topic: "issue", Path: "calc/calc.go", Title: "Rounding", Vote: FeedbackDown, Comment: "We round on purpose.", ReplyTo: "Why round here?"}}},
 		TeamFeedbackSHA256:   strings.Repeat("d", 64),
+		Knowledge:            &Knowledge{Path: "PROBE_KNOWLEDGE.md", Commit: "abc", SHA256: strings.Repeat("e", 64), EntriesTotal: 3, Entries: []KnowledgeEntry{{Title: "Rounding", Kind: KnowledgeConvention, Paths: []string{"calc/**"}, Updated: "2026-09-30", Text: "Amounts round half up."}}, Updates: []KnowledgeUpdate{{Title: "Discount", Kind: KnowledgeComponent, Paths: []string{"calc/calc.go"}, Text: "Discount caps at 50%.", Reason: "new", Obsolete: true}}},
 		ReviewerSummary:      "Two signals read; one rounding concern remains.",
 		AIImpactsCriticality: true,
 		Evidence: []Evidence{

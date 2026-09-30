@@ -219,8 +219,11 @@ type Report struct {
 	CodingRulesSHA256 string `json:"coding_rules_sha256,omitempty"`
 	// TeamFeedback is the team's feedback given to the reviewer with
 	// --feedback-file; recorded only when a reviewer ran.
-	TeamFeedback       *TeamFeedback      `json:"team_feedback,omitempty"`
-	TeamFeedbackSHA256 string             `json:"team_feedback_sha256,omitempty"`
+	TeamFeedback       *TeamFeedback `json:"team_feedback,omitempty"`
+	TeamFeedbackSHA256 string        `json:"team_feedback_sha256,omitempty"`
+	// Knowledge records the codebase knowledge base given to the reviewer
+	// and the updates it proposed; present only when a reviewer ran.
+	Knowledge          *Knowledge         `json:"knowledge,omitempty"`
 	Change             Change             `json:"change"`
 	Policy             Policy             `json:"policy"`
 	Prepare            *Prepare           `json:"prepare,omitempty"` // F8

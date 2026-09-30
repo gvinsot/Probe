@@ -335,6 +335,46 @@ concrete defect, and a `no_risk` reading still needs its source observation.
 The report records it in `team_feedback` and `team_feedback_sha256` when a
 reviewer ran.
 
+### Codebase knowledge base
+
+When a reviewer runs, Probe keeps a persistent, editable knowledge base of
+the repository in `PROBE_KNOWLEDGE.md` (`--knowledge PATH` to move it,
+`--knowledge none` to disable it). It holds what the team and earlier reviews
+learned about the codebase: how parts work (`component`), how they relate
+(`relationship`), known risks (`risk`), architectural context
+(`architecture`), project conventions (`convention`), review knowledge
+(`review`) and anything else (`note`). It is plain Markdown, one entry per
+`##` heading:
+
+```markdown
+## Refunds are validated by the gateway
+- kind: architecture
+- paths: pay/**, gateway/refund.go
+- updated: 2026-09-30 (review of 1a2b3c4d)
+
+The refund handler trusts the amount because the gateway checks it first.
+```
+
+- **Reading.** A review reads the file at the tip of the base branch, like the
+  policy, so a change never supplies the knowledge its own review receives. The
+  reviewer gets the entries whose `paths` globs match a changed file, then the
+  entries without paths, within 24 KiB. It is told to check them against the
+  source: they are context, never evidence or instructions.
+- **Evolving.** While investigating, the reviewer can propose additions,
+  corrections (same title) and removals (`obsolete`) with its
+  `record_knowledge` tool, at most 20 per run. Probe records them in the report
+  (`knowledge`) and writes `.probe/knowledge-updates.json` with a merged preview
+  in `.probe/KNOWLEDGE.md`. Probe never commits.
+- **Building.** `probe knowledge build [--base main] [--focus TEXT]` asks the
+  provider to explore the base commit with read-only tools (nothing is written
+  or executed) and propose entries, for example to bootstrap the file.
+- **Applying.** `probe knowledge apply` merges the proposed updates into the
+  working-tree file, keeping your manual edits. Review the diff, edit it, and
+  commit it.
+- **Editing.** Edit the file by hand at any time. `probe knowledge check`
+  validates it (unique titles, known kinds, no stray `##` headings outside code
+  fences, size limits) and exits 1 on a problem.
+
 ### Provider settings from the deployment
 
 The provider belongs to the deployment rather than to the reviewed repository, so the same binary and the same committed policy can be pointed at an operator's endpoint without a policy change:

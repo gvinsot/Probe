@@ -143,10 +143,15 @@ func Run(ctx context.Context, o Options, r *model.Report, h toolHarness) error {
 		Signals        []model.Signal          `json:"signals"`
 		Checks         []model.Check           `json:"checks"`
 		Evidence       []model.Evidence        `json:"evidence"`
+		// Knowledge holds the knowledge base entries relevant to the change.
+		Knowledge []model.KnowledgeEntry `json:"knowledge,omitempty"`
 		// HunksOmitted tells the model to read the diff with get_diff: the
 		// whole diff would leave no room for the investigation.
 		HunksOmitted bool `json:"hunks_omitted,omitempty"`
-	}{safe.Intent, safe.IntentCriteria, safe.Change, safe.Signals, safe.Checks, safe.Evidence, false}
+	}{safe.Intent, safe.IntentCriteria, safe.Change, safe.Signals, safe.Checks, safe.Evidence, nil, false}
+	if safe.Knowledge != nil {
+		input.Knowledge = safe.Knowledge.Entries
+	}
 	initial, err := json.Marshal(input)
 	if err != nil {
 		return err
@@ -174,6 +179,13 @@ func Run(ctx context.Context, o Options, r *model.Report, h toolHarness) error {
 	// Appended after the read-only swap so that both review modes apply them.
 	prompt += clean(rulesPrompt(redact.TruncateUTF8(safe.CodingRules, MaxCodingRulesBytes)))
 	prompt += clean(feedbackPrompt(safe.TeamFeedback))
+	if r.Knowledge != nil {
+		prompt += knowledgePromptFor(len(input.Knowledge) > 0)
+		definitions = append(definitions, knowledgeTool())
+		if r.Knowledge.Updates == nil {
+			r.Knowledge.Updates = []model.KnowledgeUpdate{}
+		}
+	}
 	if len(safe.Signals) > 0 {
 		prompt += assessPrompt
 		definitions = append(definitions, assessTool())
@@ -256,6 +268,9 @@ func Run(ctx context.Context, o Options, r *model.Report, h toolHarness) error {
 			} else if call.Function.Name == AssessTool {
 				localCall = true
 				result, err = assess(r, []byte(clean(call.Function.Arguments)))
+			} else if call.Function.Name == KnowledgeTool {
+				localCall = true
+				result, err = recordKnowledge(&r.Knowledge.Updates, []byte(clean(call.Function.Arguments)))
 			} else {
 				result, err = h.Call(ctx, call.Function.Name, json.RawMessage(call.Function.Arguments))
 			}
