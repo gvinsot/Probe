@@ -207,6 +207,7 @@ h1, h2, h3 { line-height: 1.25; }
 .explanation { margin: 12px 14px; border: 1px solid var(--line); border-left: 3px solid var(--accent); border-radius: 8px; padding: 10px 12px; font-size: 0.88rem; background: var(--accent-soft); display: grid; gap: 6px; }
 .explanation p { margin: 0; white-space: pre-wrap; word-break: break-word; }
 .explanation .note { font-size: 0.76rem; }
+.explanation > summary { cursor: pointer; font-weight: 600; font-size: 0.86rem; }
 
 /* Findings */
 .findings { list-style: none; margin: 0; padding: 0; }

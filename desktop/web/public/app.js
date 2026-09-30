@@ -308,16 +308,19 @@ function renderDetail() {
       const impacts = (d.explanation.impacts || []).join(" and ");
       parts.push(el("p", { class: `message tone tone-${d.explanation.severity}`, text: `Severity raised from ${d.report.severity} to ${d.explanation.severity}: the model states this modification may have ${impacts} consequences.` }));
     }
-    parts.push(el("div", { class: "explanation" },
-      el("p", { text: d.explanation.text }),
-      el("span", { class: "note", text: `Explanation by ${d.explanation.model} · ${ago(d.explanation.at)} · the findings below remain the reference` }),
-    ));
+    // The model's own findings come first; its prose explanation follows,
+    // collapsed when there are findings to look at.
     const extra = d.explanation.findings || [];
     if (extra.length) {
       parts.push(el("h3", { class: "section-title", text: `Raised by AI (${extra.length})` }));
       parts.push(el("ul", { class: "findings ai-findings" }, ...extra.map(findingItem)));
       parts.push(el("p", { class: "note", text: "Suggestions from the model, not rule results: check them in the document." }));
     }
+    parts.push(el("details", { class: "explanation", open: !extra.length },
+      el("summary", { text: "AI analysis" }),
+      el("p", { text: d.explanation.text }),
+      el("span", { class: "note", text: `Explanation by ${d.explanation.model} · ${ago(d.explanation.at)} · the findings below remain the reference` }),
+    ));
   }
 
   const r = d.report;
