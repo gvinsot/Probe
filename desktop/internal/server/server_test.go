@@ -188,3 +188,23 @@ func TestSettingsStoreKeyWithoutExposingIt(t *testing.T) {
 		t.Fatalf("relative folder accepted: %d", rec.Code)
 	}
 }
+
+// A fresh install has no folder: the interface spreads and maps these lists,
+// so they must be JSON arrays, never null.
+func TestSettingsListsAreArraysOnFreshInstall(t *testing.T) {
+	f := newFixture(t)
+	f.login(t)
+	rec := f.do(http.MethodGet, "/api/settings", "", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("settings: %d", rec.Code)
+	}
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(rec.Body.Bytes(), &raw); err != nil {
+		t.Fatal(err)
+	}
+	for _, k := range []string{"folders", "cloud_folders"} {
+		if !strings.HasPrefix(string(raw[k]), "[") {
+			t.Fatalf("%s = %s, want a JSON array", k, raw[k])
+		}
+	}
+}

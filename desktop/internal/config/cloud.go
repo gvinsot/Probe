@@ -17,7 +17,7 @@ type CloudFolder struct {
 // DetectCloudFolders lists the OneDrive and Google Drive folders the desktop
 // clients created, so the user can pick one instead of typing a path.
 func DetectCloudFolders() []CloudFolder {
-	var out []CloudFolder
+	out := []CloudFolder{}
 	seen := map[string]bool{}
 	add := func(label, path string) {
 		if path == "" {

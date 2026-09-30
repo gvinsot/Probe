@@ -34,6 +34,16 @@ try {
   ui.threshold = Number(localStorage.getItem("probe.threshold") || 1);
 } catch (_) { /* storage unavailable: keep defaults */ }
 
+// A failure in an event handler must never be silent: show it in the header.
+window.addEventListener("unhandledrejection", (e) => showError(e.reason));
+window.addEventListener("error", (e) => showError(e.error || e.message));
+
+function showError(err) {
+  const s = $("status");
+  s.textContent = `Error: ${(err && err.message) || err}`;
+  s.className = "status warn";
+}
+
 // ---------- HTTP ----------
 
 async function api(method, path, body) {
@@ -47,6 +57,16 @@ async function api(method, path, body) {
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.error || res.statusText);
   return data;
+}
+
+// getSettings tolerates an older engine that sends null for empty lists.
+async function getSettings() {
+  const s = await getSettings();
+  s.folders = s.folders || [];
+  s.cloud_folders = s.cloud_folders || [];
+  s.keys = s.keys || {};
+  s.default_models = s.default_models || {};
+  return s;
 }
 
 // ---------- helpers ----------
@@ -230,7 +250,7 @@ async function renderWelcome() {
   );
   panel.replaceChildren(box);
   try {
-    const s = await api("GET", "/api/settings");
+    const s = await getSettings();
     const buttons = s.cloud_folders.map((f) =>
       el("button", { class: "btn ghost small", title: f.path, onclick: () => quickAdd(f.path) }, `+ ${f.label}`));
     box.append(
@@ -244,9 +264,10 @@ async function renderWelcome() {
 
 async function quickAdd(path) {
   try {
-    const s = await api("GET", "/api/settings");
-    s.folders = [...s.folders, path];
+    const s = await getSettings();
+    if (!s.folders.some((f) => f.toLowerCase() === path.toLowerCase())) s.folders.push(path);
     await api("PUT", "/api/settings", s);
+    ui.detail = null;
     await refresh();
   } catch (err) {
     alert(err.message);
@@ -405,13 +426,14 @@ async function explain(id) {
 async function openSettings() {
   $("settings-error").textContent = "";
   try {
-    ui.settings = await api("GET", "/api/settings");
+    ui.settings = await getSettings();
   } catch (err) {
     alert(err.message);
     return;
   }
   const s = ui.settings;
   ui.draftFolders = [...s.folders];
+  $("folder-path").value = "";
   $("download-cloud").checked = !!s.download_cloud_files;
   $("scan-seconds").value = String(s.scan_seconds);
   if (!$("scan-seconds").value) $("scan-seconds").value = "60";
@@ -431,7 +453,7 @@ function renderFolders() {
     el("li", {}, el("span", { class: "mono", text: f }),
       el("button", { class: "btn quiet small", type: "button", onclick: () => { ui.draftFolders.splice(i, 1); renderFolders(); } }, "Remove"))));
   const lower = ui.draftFolders.map((f) => f.toLowerCase());
-  const candidates = (ui.settings.cloud_folders || []).filter((c) => !lower.includes(c.path.toLowerCase()));
+  const candidates = ui.settings.cloud_folders.filter((c) => !lower.includes(c.path.toLowerCase()));
   $("cloud-folders").replaceChildren(...candidates.map((c) =>
     el("button", { class: "btn ghost small", type: "button", title: c.path, onclick: () => { ui.draftFolders.push(c.path); renderFolders(); } }, `+ ${c.label}`)));
 }
@@ -441,7 +463,7 @@ function renderProvider() {
   document.querySelectorAll(".ai-only").forEach((n) => n.classList.toggle("hidden", !p));
   document.querySelectorAll(".openai-only").forEach((n) => n.classList.toggle("hidden", p !== "openai"));
   const s = ui.settings;
-  $("model").placeholder = p ? `Default: ${s.default_models[p]}` : "";
+  $("model").placeholder = p && s.default_models[p] ? `Default: ${s.default_models[p]}` : "";
   const saved = p && s.keys[p];
   $("api-key").placeholder = saved ? "A key is saved; type a new one to replace it" : p === "openai" ? "sk-… (optional for a local server)" : "sk-ant-…";
   $("clear-key-label").classList.toggle("hidden", !saved);

@@ -163,7 +163,8 @@ func (st *Store) Get() Settings {
 	st.mu.Lock()
 	defer st.mu.Unlock()
 	s := st.cur
-	s.Folders = append([]string(nil), st.cur.Folders...)
+	// Never nil: the interface reads folders as a JSON array, not null.
+	s.Folders = append([]string{}, st.cur.Folders...)
 	return s
 }
 
