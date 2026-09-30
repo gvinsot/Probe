@@ -490,8 +490,8 @@ func renderMarkdown(r *model.Report) []byte {
 	line(&b, "\n## Changed-line Execution\n")
 	switch r.Coverage.Status {
 	case coverage.StatusMeasured:
-		fmt.Fprintf(&b, "Measured from check %s: of %d added Go lines, %d were executed at least once, %d were not executed, %d are not inside any instrumented block, %d could not be measured. %d removed lines cannot be executed by a candidate-side run and are excluded.\n\n",
-			inline(r.Coverage.CheckID), r.Coverage.AddedLines, r.Coverage.ExecutedLines, r.Coverage.NotExecutedLines, r.Coverage.NoBlockLines, r.Coverage.NotMeasuredLines, r.Coverage.RemovedLines)
+		fmt.Fprintf(&b, "Measured from check %s: of %d added %s lines, %d were executed at least once, %d were not executed, %d are not inside any instrumented block, %d could not be measured. %d removed lines cannot be executed by a candidate-side run and are excluded.\n\n",
+			inline(r.Coverage.CheckID), r.Coverage.AddedLines, coverage.Languages(r.Coverage.Format), r.Coverage.ExecutedLines, r.Coverage.NotExecutedLines, r.Coverage.NoBlockLines, r.Coverage.NotMeasuredLines, r.Coverage.RemovedLines)
 		// The list is filtered, so it says what it lists: a reader must not take
 		// a short list for a complete per-file breakdown. The counters above
 		// cover every file; the coverage JSON carries the full per-file table.

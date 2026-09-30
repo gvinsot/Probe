@@ -741,7 +741,7 @@ func TestNonProfilePayloadYieldsNoProfile(t *testing.T) {
 	cases := []struct {
 		name, body, reason string
 	}{
-		{"not_a_go_profile", "PASS\nok  example.com/m/pkg\t0.01s\n", coverage.ErrNotGo.Error()},
+		{"not_a_go_profile", "PASS\nok  example.com/m/pkg\t0.01s\n", coverage.ErrFormat.Error()},
 		{"malformed_row", "mode: count\nexample.com/m/pkg/main.go:1.13,3.2 2 1\nnot a block row\n", "the coverage profile could not be parsed at line 3"},
 	}
 	for _, tc := range cases {

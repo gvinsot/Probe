@@ -40,6 +40,9 @@ type testFile struct {
 	// import set and the compiler directives (//go:, //line) of the file, in
 	// a canonical form. The token digests ignore comments; this does not.
 	header string
+	// ambiguous holds the names a TS/JS test file declares more than once
+	// (nil for a Go file, where a name is one function).
+	ambiguous map[string]bool
 }
 
 // test returns the runnable test function called name.

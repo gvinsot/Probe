@@ -546,6 +546,15 @@ func (h *Harness) evictContradicted(key string, executed model.Check) bool {
 // write-through extended that entry then loses the cache provenance it no
 // longer describes. It returns live, updated in the ledger. Caller holds h.mu.
 func (h *Harness) settleReplayedGoBaseline(replayed, live model.Check, names []string) model.Check {
+	return h.settleReplayedBaseline(replayed, live, names, func(c model.Check, n string) string {
+		action, _ := GoTestOutcome(c.Output, n)
+		return action
+	})
+}
+
+// settleReplayedBaseline is settleReplayedGoBaseline with the per-name
+// outcome read by outcome, for runners other than go test.
+func (h *Harness) settleReplayedBaseline(replayed, live model.Check, names []string, outcome func(model.Check, string) string) model.Check {
 	if replayed.Cache == nil || live.Status != "PASS" && live.Status != "FAIL" {
 		return live
 	}
@@ -554,9 +563,7 @@ func (h *Harness) settleReplayedGoBaseline(replayed, live model.Check, names []s
 		if !agrees {
 			break
 		}
-		was, _ := GoTestOutcome(replayed.Output, n)
-		now, _ := GoTestOutcome(live.Output, n)
-		agrees = was == now
+		agrees = outcome(replayed, n) == outcome(live, n)
 	}
 	if agrees {
 		return live

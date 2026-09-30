@@ -39,7 +39,7 @@
                 "text": "The baseline version of a test that the change edited passed on the baseline and failed on candidate code."
               },
               "fullDescription": {
-                "text": "The baseline version of a Go test function that the change modified or removed passed on a live baseline run and failed on the candidate tree with that package's test files reverted to the baseline, under the same command."
+                "text": "The baseline version of a test that the change modified or removed (a Go test function, or a TypeScript or JavaScript test call) passed on a live baseline run and failed on the candidate tree with its test files reverted to the baseline, under the same command."
               },
               "help": {
                 "text": "The baseline version of a test the change edited failed on candidate code after passing on the baseline; a human judges why. It is not a reproduced issue: the change may intend a different outcome, the baseline assertion may not be the intended behavior, a flaky test can produce it, and it does not show that the test edit is wrong or deliberate. It never produces exit code 1."
@@ -127,7 +127,7 @@
                 "text": "A single mutation of an added line left the package's tests passing."
               },
               "fullDescription": {
-                "text": "A deterministic single change to an added Go line was applied in a private copy of the candidate, and the configured package test command passed on it, as it did on the unmodified control run."
+                "text": "A deterministic single change to an added line was applied in a private copy of the candidate, and the configured test command of its package (or, for TypeScript and JavaScript, of its source file) passed on it, as it did on the unmodified control run."
               },
               "help": {
                 "text": "The mutant may be semantically equivalent to the original code, and the tests of other packages were not run. It is not a defect, dead code or a missing test by itself, and no mutation score is computed. It does not request review on its own."

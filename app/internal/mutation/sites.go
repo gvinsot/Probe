@@ -242,6 +242,9 @@ func binarySites(x *ast.BinaryExpr, add addFunc, symbol string) {
 // result that does not parse, so a mutant never shifts line numbers and never
 // runs on a tree the report does not describe.
 func (s Site) Apply(src []byte) ([]byte, error) {
+	if scriptPath(s.Path) {
+		return s.applyScript(src)
+	}
 	if s.Start < 0 || s.End > len(src) || s.Start >= s.End || string(src[s.Start:s.End]) != s.Original {
 		return nil, errors.New("the source no longer holds the original text at the recorded position")
 	}

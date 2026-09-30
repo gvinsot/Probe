@@ -444,7 +444,8 @@ func analyze(ctx context.Context, mode string, args []string, out, errOut io.Wri
 				if check.Status == "ERROR" {
 					operationalFailure = true
 				}
-				result := coverage.NotMeasured(reason)
+				expected := coverage.ExpectedFormat(cfg.Commands[coverage.CommandKey], cfg.Language)
+				result := coverage.NotMeasuredAs(expected, reason)
 				if reason == "" {
 					result = measure(profile, candidateDir, check, sha, change)
 				}
@@ -525,7 +526,7 @@ func analyze(ctx context.Context, mode string, args []string, out, errOut io.Wri
 	}
 	fmt.Fprintf(out, "%d files, +%d/-%d lines; %d risk signals; %d reproduced issues.\nFocused review: %d / %d changed lines (a prioritization aid, not a correctness guarantee).\n", len(change.Files), change.Additions, change.Deletions, len(r.Signals), len(r.ReproducedIssues), r.ReviewSurface.FocusedLines, r.ReviewSurface.ChangedLines)
 	if r.Coverage.Status == coverage.StatusMeasured {
-		fmt.Fprintf(out, "Changed-line execution: %d executed, %d not executed, %d outside any instrumented block, %d not measured, of %d added Go lines.\n", r.Coverage.ExecutedLines, r.Coverage.NotExecutedLines, r.Coverage.NoBlockLines, r.Coverage.NotMeasuredLines, r.Coverage.AddedLines)
+		fmt.Fprintf(out, "Changed-line execution: %d executed, %d not executed, %d outside any instrumented block, %d not measured, of %d added %s lines.\n", r.Coverage.ExecutedLines, r.Coverage.NotExecutedLines, r.Coverage.NoBlockLines, r.Coverage.NotMeasuredLines, r.Coverage.AddedLines, coverage.Languages(r.Coverage.Format))
 	} else {
 		fmt.Fprintln(out, "Changed-line execution: not measured.")
 	}
@@ -540,15 +541,19 @@ func analyze(ctx context.Context, mode string, args []string, out, errOut io.Wri
 // a complete, mapped measurement returns "not measured": there is no path from
 // missing data to a not-executed claim.
 func measure(profile []byte, candidateDir string, check model.Check, sha string, change model.Change) coverage.Result {
-	module, workspace, err := coverage.Modules(candidateDir)
+	parsed, err := coverage.Parse(profile)
 	if err != nil {
 		return coverage.NotMeasured(err.Error())
 	}
-	parsed, err := coverage.ParseGoProfile(profile)
-	if err != nil {
-		return coverage.NotMeasured(err.Error())
+	run := coverage.Run{CheckID: check.ID, Status: check.Status, Command: check.Command, SHA256: sha}
+	// Only a Go profile keys its files by module path; an LCOV report names
+	// them relative to the repository root.
+	if parsed.Format == coverage.FormatGo {
+		if run.Module, run.Workspace, err = coverage.Modules(candidateDir); err != nil {
+			return coverage.NotMeasured(err.Error())
+		}
 	}
-	return coverage.Analyze(parsed, coverage.Run{CheckID: check.ID, Status: check.Status, Command: check.Command, SHA256: sha, Module: module, Workspace: workspace}, change)
+	return coverage.Analyze(parsed, run, change)
 }
 
 // loadPolicy reads the trusted policy from commit, the resolved base ref, unless

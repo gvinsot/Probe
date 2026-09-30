@@ -28,6 +28,25 @@ const Kind = "uncovered_change"
 // into every report, including reports where nothing was measured.
 const Note = "Executed means the line ran at least once during the recorded run. The coverage profile is produced by the test suite of the candidate revision and is recorded as a report, not as proof. It is not evidence that behavior is asserted, correct or safe. Deleted lines, test files and non-Go files are outside this measurement. Verdicts are block-granular: a line inside an instrumented block carries the count of that block, including lines that hold no statement of their own. Execution is measured per instrumented package; a line executed only through the tests of another package counts as not executed unless the coverage command sets -coverpkg. If the run did not pass, a line reported as not executed may lie after the point where the run stopped."
 
+// NoteLCOV is Note for a measurement read from an LCOV report.
+const NoteLCOV = "Executed means the line ran at least once during the recorded run. The LCOV report is produced by the test suite of the candidate revision and is recorded as a report, not as proof. It is not evidence that behavior is asserted, correct or safe. Deleted lines, test files, declaration files and files other than TypeScript or JavaScript sources are outside this measurement. Verdicts are line-granular: only lines for which the report carries a line entry are classified, so a line the coverage tool does not count as a statement, such as the continuation of a multi-line statement, is not inside any instrumented block. A file absent from the report is not measured; so is every file when the report names paths relative to a directory other than the repository root. If the run did not pass, a line reported as not executed may lie after the point where the run stopped."
+
+// NoteFor returns the note of a measurement in format.
+func NoteFor(format string) string {
+	if format == FormatLCOV {
+		return NoteLCOV
+	}
+	return Note
+}
+
+// Languages names the sources a measurement in format covers, for display.
+func Languages(format string) string {
+	if format == FormatLCOV {
+		return "TypeScript/JavaScript"
+	}
+	return "Go"
+}
+
 const (
 	summaryPassed          = "Added lines were not executed by any instrumented package in the coverage run"
 	summaryStopped         = "Added lines were not executed before the coverage run stopped; the run did not pass"
@@ -37,6 +56,14 @@ const (
 	evidenceRun      = "Go coverage profile recorded in %s reports execution count 0 for every instrumented block containing new-side lines %d-%d. Measured command: %s. The profile is produced by the test suite of the candidate revision and is recorded as a report, not as proof. Executed means the line ran at least once during that run; it is not evidence that behavior is asserted, correct or safe."
 	evidenceOverflow = "Go coverage profile recorded in %s reports execution count 0 for %d further new-side lines between %d and %d in this file, beyond the %d ranges reported individually. Measured command: %s. The profile is produced by the test suite of the candidate revision and is recorded as a report, not as proof. Executed means the line ran at least once during that run; it is not evidence that behavior is asserted, correct or safe."
 	evidenceStopped  = " The run that produced this profile did not pass, so a line reported as not executed may lie after the point where the run stopped."
+
+	// LCOV wording. Its entries are lines, not blocks, and are attributed to a
+	// test run rather than to a package.
+	summaryLCOVPassed         = "Added lines were not executed during the coverage run"
+	summaryLCOVOverflowPassed = "Further added lines in this file were not executed during the coverage run"
+
+	evidenceLCOVRun      = "LCOV report recorded in %s reports execution count 0 for every line entry of new-side lines %d-%d. Measured command: %s. The report is produced by the test suite of the candidate revision and is recorded as a report, not as proof. Executed means the line ran at least once during that run; it is not evidence that behavior is asserted, correct or safe."
+	evidenceLCOVOverflow = "LCOV report recorded in %s reports execution count 0 for %d further new-side lines between %d and %d in this file, beyond the %d ranges reported individually. Measured command: %s. The report is produced by the test suite of the candidate revision and is recorded as a report, not as proof. Executed means the line ran at least once during that run; it is not evidence that behavior is asserted, correct or safe."
 
 	// Requalified evidence of an existing no_test_change signal. Its kind,
 	// severity and summary never change, and an unmeasured file keeps the
@@ -104,9 +131,13 @@ func (r Result) Signals() []model.Signal { return append([]model.Signal(nil), r.
 
 // NotMeasured records why no changed line could be resolved. It never produces
 // a signal: there is no code path from missing data to a not-executed claim.
-func NotMeasured(reason string) Result {
+func NotMeasured(reason string) Result { return NotMeasuredAs(FormatGo, reason) }
+
+// NotMeasuredAs is NotMeasured for a policy whose coverage command was
+// expected to write a profile in format, so the note describes that format.
+func NotMeasuredAs(format, reason string) Result {
 	return Result{
-		coverage: model.Coverage{Status: StatusNotMeasured, Reason: reason, Files: []model.CoverageFile{}, Note: Note},
+		coverage: model.Coverage{Status: StatusNotMeasured, Reason: reason, Files: []model.CoverageFile{}, Note: NoteFor(format)},
 		byPath:   map[string]model.CoverageFile{},
 	}
 }
@@ -117,10 +148,11 @@ func NotConfigured() model.Coverage {
 	return model.Coverage{Status: StatusNotConfigured, Files: []model.CoverageFile{}, Note: Note}
 }
 
-// Analyze resolves every added new-side line of every changed non-test Go file
-// into exactly one of four states. Files are matched by building the expected
-// profile key from the module path and the diff and asking the profile a yes/no
-// question; a container-supplied string is never mapped back onto a repository
+// Analyze resolves every added new-side line of every changed non-test source
+// file of the profile's language (Go for a Go profile, TypeScript and
+// JavaScript for an LCOV report) into exactly one of four states. Files are
+// matched by building the expected profile key from the diff (and, for Go,
+// the module path) and asking the profile a yes/no question; a container-supplied string is never mapped back onto a repository
 // path, so a mismatched or forged profile misses and yields "not measured"
 // instead of a confident claim about the wrong file.
 func Analyze(p *Profile, run Run, change model.Change) Result {
@@ -128,19 +160,19 @@ func Analyze(p *Profile, run Run, change model.Change) Result {
 	for _, b := range p.Blocks {
 		blocks[b.File] = append(blocks[b.File], b)
 	}
-	severity := "low"
-	summary, overflowSummary := summaryStopped, summaryOverflowStopped
-	if run.Status == "PASS" {
-		severity, summary, overflowSummary = "medium", summaryPassed, summaryOverflowPassed
+	format := p.Format
+	if format == "" {
+		format = FormatGo
 	}
+	w := wordingFor(format, run.Status)
 	command := strings.Join(run.Command, " ")
 	result := Result{
-		coverage: model.Coverage{Status: StatusMeasured, CheckID: run.CheckID, ProfileSHA256: run.SHA256, Command: run.Command, Files: []model.CoverageFile{}, Note: Note},
+		coverage: model.Coverage{Status: StatusMeasured, Format: format, CheckID: run.CheckID, ProfileSHA256: run.SHA256, Command: run.Command, Files: []model.CoverageFile{}, Note: NoteFor(format)},
 		byPath:   map[string]model.CoverageFile{},
 	}
 	result.notExecuted = map[string][]int{}
 	for _, f := range change.Files {
-		if !inScope(f) {
+		if !inScope(format, f) {
 			continue
 		}
 		added, removed := changedLines(f)
@@ -152,10 +184,7 @@ func Analyze(p *Profile, run Run, change model.Change) Result {
 		// The profile records the candidate revision, so the new path is the
 		// correct key even for a rename. A file with no block of its own is not
 		// measured: a sibling block proves nothing about this file.
-		var fileBlocks []Block
-		if key := run.profileKey(f.Path); key != "" {
-			fileBlocks = blocks[key]
-		}
+		fileBlocks := run.lookup(format, blocks, f.Path)
 		var notExecuted []int
 		if len(fileBlocks) == 0 {
 			file.Status = StatusNotMeasured
@@ -187,16 +216,16 @@ func Analyze(p *Profile, run Run, change model.Change) Result {
 			}
 			if r.overflow > 0 {
 				result.signals = append(result.signals, model.Signal{
-					Kind: Kind, Path: f.Path, Line: r.start, EndLine: r.end, Side: "new", Severity: severity,
-					Summary:  overflowSummary,
-					Evidence: stopped(fmt.Sprintf(evidenceOverflow, run.CheckID, r.overflow, r.start, r.end, maxRunsPerFile, command), run.Status),
+					Kind: Kind, Path: f.Path, Line: r.start, EndLine: r.end, Side: "new", Severity: w.severity,
+					Summary:  w.overflowSummary,
+					Evidence: stopped(fmt.Sprintf(w.evidenceOverflow, run.CheckID, r.overflow, r.start, r.end, maxRunsPerFile, command), run.Status),
 				})
 				continue
 			}
 			result.signals = append(result.signals, model.Signal{
-				Kind: Kind, Path: f.Path, Line: r.start, EndLine: r.end, Side: "new", Severity: severity,
-				Summary:  summary,
-				Evidence: stopped(fmt.Sprintf(evidenceRun, run.CheckID, r.start, r.end, command), run.Status),
+				Kind: Kind, Path: f.Path, Line: r.start, EndLine: r.end, Side: "new", Severity: w.severity,
+				Summary:  w.summary,
+				Evidence: stopped(fmt.Sprintf(w.evidenceRun, run.CheckID, r.start, r.end, command), run.Status),
 			})
 		}
 	}
@@ -353,8 +382,78 @@ func stopped(evidence, status string) string {
 	return evidence + evidenceStopped
 }
 
-func inScope(f model.ChangedFile) bool {
-	return f.Status != "D" && !f.Binary && strings.HasSuffix(f.Path, ".go") && !strings.HasSuffix(f.Path, "_test.go")
+// inScope selects the changed files a profile in format can speak about. A Go
+// profile measures only Go files and an LCOV report only TypeScript and
+// JavaScript files, so a repository's other sources never become "not
+// measured" lines of a measurement that could not have covered them.
+func inScope(format string, f model.ChangedFile) bool {
+	if f.Status == "D" || f.Binary {
+		return false
+	}
+	if format == FormatLCOV {
+		return ScriptSource(f.Path)
+	}
+	return strings.HasSuffix(f.Path, ".go") && !strings.HasSuffix(f.Path, "_test.go")
+}
+
+// ScriptSource reports whether a repository path is a TypeScript or
+// JavaScript source file an LCOV report can measure: not a declaration file,
+// a minified bundle or a test file (*.test.*, *.spec.*, __tests__/), and not
+// under node_modules.
+func ScriptSource(p string) bool {
+	lower := strings.ToLower(p)
+	base := path.Base(lower)
+	switch path.Ext(base) {
+	case ".ts", ".tsx", ".mts", ".cts", ".js", ".jsx", ".mjs", ".cjs":
+	default:
+		return false
+	}
+	stem := strings.TrimSuffix(base, path.Ext(base))
+	if strings.HasSuffix(stem, ".d") || strings.Contains(base, ".min.") || strings.Contains(base, ".test.") || strings.Contains(base, ".spec.") {
+		return false
+	}
+	slashed := "/" + lower
+	return !strings.Contains(slashed, "/__tests__/") && !strings.Contains(slashed, "/node_modules/")
+}
+
+// workspaceRoot is where the sandbox copies the candidate snapshot and runs
+// the coverage command.
+const workspaceRoot = "/workspace/"
+
+// lookup returns the blocks the profile holds for a repository path. The new
+// path is the correct key even for a rename, because the profile records the
+// candidate revision. An LCOV report names a file either relative to the
+// directory the command ran in (Istanbul's default) or absolutely; both are
+// asked for, under the repository root only, and nothing else is inferred.
+func (r Run) lookup(format string, blocks map[string][]Block, p string) []Block {
+	if format == FormatLCOV {
+		return append(append([]Block(nil), blocks[p]...), blocks[workspaceRoot+p]...)
+	}
+	if key := r.profileKey(p); key != "" {
+		return blocks[key]
+	}
+	return nil
+}
+
+// wording is the text of the signals of a measurement.
+type wording struct {
+	severity, summary, overflowSummary, evidenceRun, evidenceOverflow string
+}
+
+// wordingFor returns the signal text for a profile format and run status. A
+// run that did not pass lowers the severity and says the run stopped.
+func wordingFor(format, status string) wording {
+	w := wording{severity: "low", summary: summaryStopped, overflowSummary: summaryOverflowStopped, evidenceRun: evidenceRun, evidenceOverflow: evidenceOverflow}
+	if format == FormatLCOV {
+		w.evidenceRun, w.evidenceOverflow = evidenceLCOVRun, evidenceLCOVOverflow
+	}
+	if status == "PASS" {
+		w.severity, w.summary, w.overflowSummary = "medium", summaryPassed, summaryOverflowPassed
+		if format == FormatLCOV {
+			w.summary, w.overflowSummary = summaryLCOVPassed, summaryLCOVOverflowPassed
+		}
+	}
+	return w
 }
 
 func changedLines(f model.ChangedFile) ([]int, int) {

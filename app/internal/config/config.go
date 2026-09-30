@@ -202,12 +202,13 @@ func (c Config) Validate() error {
 		if len(argv) == 0 || strings.TrimSpace(argv[0]) == "" || len(argv) > 128 {
 			return fmt.Errorf("command %s must be a nonempty argv array (at most 128 arguments)", name)
 		}
-		placeholders, results := 0, 0
+		placeholders, directories, results := 0, 0, 0
 		for _, arg := range argv {
 			if strings.ContainsRune(arg, 0) || len(arg) > 16384 {
 				return fmt.Errorf("invalid argument in command %s", name)
 			}
-			placeholders += strings.Count(arg, coverage.Placeholder)
+			directories += strings.Count(arg, coverage.DirPlaceholder)
+			placeholders += strings.Count(arg, coverage.Placeholder) + strings.Count(arg, coverage.DirPlaceholder)
 			results += strings.Count(arg, ResultsPlaceholder)
 		}
 		if results > 0 && (name != "generated_test" || results != 1) {
@@ -215,8 +216,12 @@ func (c Config) Validate() error {
 		}
 		// The executed argv is the reviewed argv: Probe expands the token
 		// the operator wrote and never appends a coverage flag of its own.
+		// An LCOV tool writes lcov.info into the directory token instead.
 		if name == coverage.CommandKey && placeholders != 1 {
-			return fmt.Errorf("command %s must write its profile to %s", coverage.CommandKey, coverage.Placeholder)
+			return fmt.Errorf("command %s must write its profile to %s or its LCOV report into %s, exactly once", coverage.CommandKey, coverage.Placeholder, coverage.DirPlaceholder)
+		}
+		if name != coverage.CommandKey && directories > 0 {
+			return fmt.Errorf("%s may appear only in the %s command", coverage.DirPlaceholder, coverage.CommandKey)
 		}
 	}
 	s := c.Sandbox

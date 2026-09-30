@@ -238,7 +238,7 @@ func TestPlanLimitsAndOrder(t *testing.T) {
 		t.Fatalf("selected %d tests, want the cap %d", len(sel.Tests), MaxSelectedTests)
 	}
 	want := []string{
-		fmt.Sprintf("Baseline versions of changed tests: 3 changed Go test files beyond the limit of %d were not analyzed, so their tests were not re-run.", MaxTestFiles),
+		fmt.Sprintf("Baseline versions of changed tests: 3 changed test files beyond the limit of %d were not analyzed, so their tests were not re-run.", MaxTestFiles),
 		fmt.Sprintf("Baseline versions of changed tests: %d selected tests beyond the limit of %d were not re-run.", 3*MaxTestFiles-MaxSelectedTests, MaxSelectedTests),
 	}
 	if strings.Join(sel.Notes, "\n") != strings.Join(want, "\n") {

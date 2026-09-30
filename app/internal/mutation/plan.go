@@ -6,6 +6,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/gvinsot/Probe/app/internal/coverage"
 	"github.com/gvinsot/Probe/app/internal/model"
 )
 
@@ -48,7 +49,7 @@ type Plan struct {
 // optional coverage skip and selects at most maxMutants of them breadth-first.
 // notExecuted may be nil; otherwise it returns the added lines a passing,
 // measured coverage run reported as not executed.
-func NewPlan(src Source, change model.Change, maxMutants int, notExecuted func(string) []int) Plan {
+func NewPlan(src Source, change model.Change, maxMutants int, notExecuted func(string) []int, script bool) Plan {
 	files := append([]model.ChangedFile(nil), change.Files...)
 	sort.SliceStable(files, func(i, j int) bool { return files[i].Path < files[j].Path })
 	var p Plan
@@ -56,7 +57,7 @@ func NewPlan(src Source, change model.Change, maxMutants int, notExecuted func(s
 	sources := map[string][]byte{}
 	total := 0
 	for _, f := range files {
-		if !inScope(f) {
+		if !inScope(script, f) {
 			continue
 		}
 		added := addedLines(f)
@@ -65,9 +66,9 @@ func NewPlan(src Source, change model.Change, maxMutants int, notExecuted func(s
 		switch {
 		case len(added) == 0:
 			reason = skipNoAddedLines
-		case ignoredPath(f.Path):
+		case !script && ignoredPath(f.Path):
 			reason = skipIgnoredPath
-		case osArchConstrained(f.Path):
+		case !script && osArchConstrained(f.Path):
 			reason = skipOSArchName
 		case total >= maxSitesTotal:
 			reason = skipTotalCap
@@ -79,7 +80,9 @@ func NewPlan(src Source, change model.Change, maxMutants int, notExecuted func(s
 				reason = skipUnreadable
 			}
 		}
-		if reason == "" {
+		// A Vitest or Jest command finds the tests related to a TS/JS file
+		// itself; the control run records whether any ran.
+		if reason == "" && !script {
 			if ok, err := src.HasTestFile(path.Dir(f.Path)); err != nil || !ok {
 				reason = skipNoTestFile
 			}
@@ -92,7 +95,11 @@ func NewPlan(src Source, change model.Change, maxMutants int, notExecuted func(s
 			}
 			var capped bool
 			var skip string
-			sites, capped, skip = FileSites(f.Path, data, addedSet)
+			if script {
+				sites, capped, skip = ScriptFileSites(f.Path, data, addedSet)
+			} else {
+				sites, capped, skip = FileSites(f.Path, data, addedSet)
+			}
 			switch {
 			case skip != "":
 				reason = skip
@@ -234,6 +241,11 @@ func executionOrder(sites []Site) []Site {
 // Planning only admits paths without "." or "_" components, so the argument
 // always starts with "./" or is "." and can never be read as a flag.
 func PackageArg(file string) string {
+	if scriptPath(file) {
+		// A TS/JS unit is the mutated source file: the runner selects the
+		// tests related to it.
+		return file
+	}
 	dir := path.Dir(file)
 	if dir == "." {
 		return "."
@@ -241,26 +253,53 @@ func PackageArg(file string) string {
 	return "./" + dir
 }
 
-// ExpandCommand replaces the one standalone {package} argument; nothing else
-// is added, so the executed argv is the reviewed argv plus that expansion.
-func ExpandCommand(command []string, pkg string) []string {
+// ExpandCommand replaces the one standalone {package} argument of a go test
+// command, or the one standalone {file} argument of a Vitest or Jest command,
+// by unit, and {results_out} by ResultsPath; nothing else is added, so the
+// executed argv is the reviewed argv plus those expansions.
+func ExpandCommand(command []string, unit string) []string {
 	out := append([]string(nil), command...)
 	for i, arg := range out {
-		if arg == PackagePlaceholder {
-			out[i] = pkg
+		if arg == PackagePlaceholder || arg == FilePlaceholder {
+			out[i] = unit
+			continue
 		}
+		out[i] = strings.ReplaceAll(arg, ResultsPlaceholder, ResultsPath)
 	}
 	return out
+}
+
+// ScriptCommand reports whether a mutation command runs Vitest or Jest (its
+// mutants are TS/JS sites, its outcomes read from a JSON report) rather
+// than go test.
+func ScriptCommand(command []string) bool {
+	return len(command) > 0 && path.Base(command[0]) != "go"
 }
 
 // PackagePlaceholder mirrors config.PackagePlaceholder (config is not a
 // dependency of this package).
 const PackagePlaceholder = "{package}"
 
-// inScope selects changed, non-deleted, non-binary, non-test Go files, as the
-// coverage measurement does.
-func inScope(f model.ChangedFile) bool {
-	return f.Status != "D" && !f.Binary && strings.HasSuffix(f.Path, ".go") && !strings.HasSuffix(f.Path, "_test.go")
+// FilePlaceholder and ResultsPlaceholder mirror the generated_test tokens, and
+// ResultsPath mirrors harness.ResultsPath: the fixed in-container path of the
+// JSON report (a harness test checks that the two stay equal).
+const (
+	FilePlaceholder    = "{file}"
+	ResultsPlaceholder = "{results_out}"
+	ResultsPath        = "/tmp/probe-test-results.json"
+)
+
+// inScope selects changed, non-deleted, non-binary, non-test source files of
+// the command's language, as the coverage measurement does: Go files for a go
+// test command, TypeScript and JavaScript sources for a Vitest or Jest one.
+func inScope(script bool, f model.ChangedFile) bool {
+	if f.Status == "D" || f.Binary {
+		return false
+	}
+	if script {
+		return coverage.ScriptSource(f.Path)
+	}
+	return strings.HasSuffix(f.Path, ".go") && !strings.HasSuffix(f.Path, "_test.go")
 }
 
 // addedLines returns the new-side line numbers of added lines, ascending.
@@ -333,4 +372,21 @@ func joinReasons(a, b string) string {
 		return b
 	}
 	return a + "; " + b
+}
+
+// Terms are the words a report uses for a mutation command's unit and
+// invalid mutants.
+type Terms struct {
+	Runs    string // how the command runs: "once per package with {package} expanded"
+	Invalid string // what an INVALID mutant did not do
+	Unit    string // "the package" or "the source file"
+	PerUnit string // "named tests passed in package" or "tests passed for source file"
+}
+
+// TermsFor returns the Terms of a mutation command.
+func TermsFor(command []string) Terms {
+	if ScriptCommand(command) {
+		return Terms{Runs: "once per source file with {file} expanded", Invalid: "did not load", Unit: "the source file", PerUnit: "tests passed for source file"}
+	}
+	return Terms{Runs: "once per package with {package} expanded", Invalid: "did not build or pass go vet", Unit: "the package", PerUnit: "named tests passed in package"}
 }

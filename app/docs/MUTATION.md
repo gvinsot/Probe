@@ -4,7 +4,7 @@ Coverage tells you whether an added line was executed by the package's tests. It
 
 A mutant with which no test that the command ran for its package failed (`SURVIVED`) becomes a medium `surviving_mutant` review signal. That is an observation about the recorded runs, not a defect: the mutant may be semantically equivalent to the original code, and only the tests of the mutated file's own package ran. A mutant with which a named test failed (`KILLED`) is counted and never listed: it is no reassurance about the tests. Mutation creates no evidence record and no hypothesis, never produces exit 1, never removes, lowers or dismisses anything else in the report, and computes no mutation score and no percentage.
 
-The stage runs during `review` only, mutates Go only, and has no flag of its own.
+The stage runs during `review` only, mutates Go or, with a Vitest or Jest command, TypeScript and JavaScript (see [below](#typescript-and-javascript)), and has no flag of its own.
 
 ## Enabling it
 
@@ -139,9 +139,24 @@ Only the trusted policy chooses the command and the budgets; `{package}` comes f
 
 The candidate controls its own tests, and code executing in the sandbox can write the logs the outcomes are read from (see [Outcomes](#outcomes)), so it can force any mutant status. Forcing `KILLED`, `INVALID`, `TIMEOUT` or `INCONCLUSIVE` only removes claims or requests review; forcing `SURVIVED` only adds review targets against the candidate itself. That is why mutation may add signals and sentences and never deletes a signal, lowers a severity, supports a dismissal, creates evidence or influences a hypothesis.
 
+## TypeScript and JavaScript
+
+A `mutation.command` that does not start with `go` must call Vitest or Jest directly (not `npm`, `yarn`, `pnpm`, `bun`, a shell or `env`), contain `{file}` exactly once as a standalone argument and write the runner's JSON report to `{results_out}` exactly once. The stage then mutates changed TypeScript and JavaScript sources instead of Go files:
+
+```json
+"mutation": { "command": ["vitest", "related", "{file}", "--run", "--reporter=json", "--outputFile={results_out}"], "max_mutants": 20, "timeout_seconds": 60, "max_runtime_seconds": 600 }
+```
+
+For Jest: `["npx", "--no", "--", "jest", "--findRelatedTests", "{file}", "--json", "--outputFile={results_out}"]`. A binary before this release rejects such a policy with exit 3.
+
+- **Files**: added lines of changed `.ts`, `.tsx`, `.mts`, `.cts`, `.js`, `.jsx`, `.mjs` and `.cjs` sources, except test files (`*.test.*`, `*.spec.*`, `__tests__/`), declaration files, minified bundles, files marked `@generated` or `DO NOT EDIT`, and files with a line longer than 1000 bytes.
+- **Sites** are found on the tokens of the static index's lexical reader, inside the function and method bodies it records (arrow functions included), without a parser or type checker: `negate_condition` on the parentheses of `if` and `while`; `boundary` (`<`, `<=`, `>`, `>=`), `negate_comparison` (`===`, `!==`, `==`, `!=`), `swap_logical` (`&&`, `||`) and `swap_arithmetic` (`+`, `-`, `*`, `/`) only on operators written with white space on both sides, the form of a binary operator (so `i++`, unary minus and `Array<T>` are left alone); `increment_constant` on an integer operand of a comparison; `flip_boolean` on `true` or `false` right after `return` or `=>`. In `.tsx` and `.jsx` files `<` and `>` are not mutated, since they may be tags. `drop_error` has no TS/JS form.
+- **Unit**: the mutated source file. `{file}` expands to its repository path, and the runner selects the tests related to it (`vitest related`, `jest --findRelatedTests`); one control run per file, then its mutants.
+- **Outcomes** come from the JSON report of each run: `KILLED` when the run failed with exit code 1 to 124 and the report records a failed test; `SURVIVED` when it passed with exit code 0, at least one passed test and none failed; `INVALID` when a test file failed to load and no test failed (a mutant that does not compile or throws on import, for example with ts-jest's type checking); a missing or unreadable report is `INCONCLUSIVE`, never an operational error. The control must pass with at least one passed test, no failed test and no test file that failed to load, otherwise every mutant of the file stays not run with the reason (for example when the candidate's own tests of that file already fail).
+
 ## Limitations
 
-- Go only; TypeScript and JavaScript are not mutated.
+- Go, and TypeScript and JavaScript with a Vitest or Jest command. TS/JS sites are lexical: an operator that is not written as a binary operator, or a condition outside `if` and `while`, is not mutated, and a mutant a parser would have refused runs and ends `INVALID`.
 - One package per mutant: tests of other packages that exercise the mutated function do not run, so a survivor may be killed by them.
 - Equivalent mutants are not detected, and some survivors cannot be killed by any test.
 - Files with build constraints or GOOS/GOARCH names are skipped rather than evaluated against the sandbox platform.
@@ -167,7 +182,7 @@ Surviving mutants (no test that the command ran for the package failed with the 
 - **mutant-6** boundary at price/price.go:18 in Discount: replaced &gt;= with &gt;; control check mutation-check-1, mutant check mutation-check-7; 2 named tests passed in package ./price; patch sha256 463f60190b79acd703b770e52aa99e4cac9ea06902ee55f70c006de72236fbcf
 - **mutant-7** increment\_constant at price/price.go:18 in Discount: replaced 100 with \(100+1\); control check mutation-check-1, mutant check mutation-check-8; 2 named tests passed in package ./price; patch sha256 8c07cae514ca7eba08bf72cdf697ed6c6c298a5a6efcc3a41a1129d234eab25e
 
-Changed Go files that were not mutated:
+Changed files that were not mutated:
 
 - price/fast\_windows.go: the file name has a GOOS or GOARCH suffix; files a build may exclude are not mutated
 ```

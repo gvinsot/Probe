@@ -24,7 +24,7 @@ import (
 // not recorded.
 const workspaceFailure = "the mutation workspace could not be prepared"
 
-// runMutation mutates added Go lines and runs the policy's command once per
+// runMutation mutates added Go (or, with a Vitest or Jest command, TS/JS) lines and runs the policy's command once per
 // mutant. It sets r.Mutation (with the mutation ledger), merges the survivor
 // signals, appends the Unverified sentence of a not_run or incomplete section,
 // and returns true on an operational failure: an infrastructure error of a
@@ -35,7 +35,11 @@ func runMutation(ctx context.Context, h *harness.Harness, cfg config.Config, cha
 	if cfg.Mutation == nil {
 		return false
 	}
-	fmt.Fprintln(errOut, "Running mutation analysis of added Go lines in isolated Docker sandboxes...")
+	lines := "Go"
+	if mutation.ScriptCommand(cfg.Mutation.Command) {
+		lines = "TypeScript/JavaScript"
+	}
+	fmt.Fprintf(errOut, "Running mutation analysis of added %s lines in isolated Docker sandboxes...\n", lines)
 	w, err := h.NewMutationWorkspace()
 	if err != nil {
 		r.Mutation = mutationSection(cfg, model.MutationNotRun, workspaceFailure)
@@ -73,6 +77,7 @@ func mutationSection(cfg config.Config, status, reason string) *model.Mutation {
 	m := &model.Mutation{Status: status, Reason: reason, Command: []string{}, Files: []model.MutationFile{}, Mutants: []model.Mutant{}, Checks: []model.Check{}, Note: model.MutationNote}
 	if cfg.Mutation != nil {
 		m.Command = append(m.Command, cfg.Mutation.Command...)
+		m.Note = model.MutationNoteFor(m.Command)
 		m.Limits = mutationLimits(cfg)
 	}
 	return m
@@ -115,8 +120,8 @@ func mutationLine(m *model.Mutation) string {
 	if m.Status != model.MutationRan {
 		status = m.Status
 	}
-	return fmt.Sprintf("Mutation of added lines (%s): %d mutants selected of %d generated; %d killed, %d survived, %d did not build or pass go vet, %d timed out, %d inconclusive, %d not run.",
-		status, len(m.Mutants), m.Generated, m.Killed, m.Survived, m.Invalid, m.TimedOut, m.Inconclusive, m.NotRun)
+	return fmt.Sprintf("Mutation of added lines (%s): %d mutants selected of %d generated; %d killed, %d survived, %d %s, %d timed out, %d inconclusive, %d not run.",
+		status, len(m.Mutants), m.Generated, m.Killed, m.Survived, m.Invalid, mutation.TermsFor(m.Command).Invalid, m.TimedOut, m.Inconclusive, m.NotRun)
 }
 
 // orNoReason is a reason for a stdout sentence its caller ends itself: an

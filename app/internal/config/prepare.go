@@ -65,7 +65,7 @@ func (p *Prepare) validate(s Sandbox) error {
 		if strings.ContainsRune(arg, 0) || len(arg) > 16384 {
 			return fmt.Errorf("invalid argument in prepare.command")
 		}
-		for _, token := range []string{"{file}", PackagePlaceholder, coverage.Placeholder, ResultsPlaceholder} {
+		for _, token := range []string{"{file}", PackagePlaceholder, coverage.Placeholder, coverage.DirPlaceholder, ResultsPlaceholder} {
 			if strings.Contains(arg, token) {
 				return fmt.Errorf("prepare.command does not substitute placeholders; remove %s", token)
 			}

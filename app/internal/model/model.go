@@ -168,6 +168,7 @@ type CoverageFile struct {
 // reported beside the four states rather than inside them.
 type Coverage struct {
 	Status           string         `json:"status"`
+	Format           string         `json:"format,omitempty"`
 	Reason           string         `json:"reason,omitempty"`
 	CheckID          string         `json:"check_id,omitempty"`
 	ProfileSHA256    string         `json:"profile_sha256,omitempty"`

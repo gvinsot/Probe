@@ -110,6 +110,7 @@ func fullyPopulatedReport() Report {
 	r.Change.Files = append(r.Change.Files, ChangedFile{Path: "assets/logo.png", Status: "M", Binary: true, Hunks: []Hunk{}})
 	r.Checks = append(r.Checks, Check{ID: "check-15", Kind: CheckExistingTest, Status: "FAIL", Command: []string{"go", "test", "-json", "./calc"}, ExitCode: 1, DurationMS: 40, Output: "{\"Action\":\"output\"}", Truncated: true})
 	r.Coverage.NotExecutedLines, r.Coverage.NoBlockLines, r.Coverage.NotMeasuredLines = 1, 1, 1
+	r.Coverage.Format = "go"
 	r.Coverage.Files = append(r.Coverage.Files, CoverageFile{Path: "calc/other.go", Status: "measured", AddedLines: 3, NotExecutedLines: 1, NoBlockLines: 1, NotMeasuredLines: 1})
 	r.Execution.Budget.DeadlineReached = true
 	c := &r.Execution.Cache

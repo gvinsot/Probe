@@ -22,11 +22,41 @@ type Block struct {
 	Count     int
 }
 
-// Profile is a parsed Go coverage profile. It holds only what the profile
-// itself stated; nothing is inferred from the filesystem or from the diff.
+// Profile formats.
+const (
+	FormatGo   = "go"
+	FormatLCOV = "lcov"
+)
+
+// Profile is a parsed Go coverage profile or LCOV report. It holds only what
+// the profile itself stated; nothing is inferred from the filesystem or from
+// the diff. An LCOV line entry is a one-line block.
 type Profile struct {
+	Format string
 	Mode   string
 	Blocks []Block
+}
+
+// Parse recognizes the format from the first nonblank line, "mode: " for a Go
+// profile and an LCOV record field otherwise, and parses the whole payload in
+// that format.
+func Parse(b []byte) (*Profile, error) {
+	if len(b) > maxProfileBytes {
+		return nil, ErrBlockLimit
+	}
+	for _, raw := range strings.Split(string(b), "\n") {
+		text := strings.TrimSpace(raw)
+		switch {
+		case text == "":
+			continue
+		case strings.HasPrefix(text, "mode: "):
+			return ParseGoProfile(b)
+		case lcovStart(text):
+			return ParseLCOV(b)
+		}
+		break
+	}
+	return nil, ErrFormat
 }
 
 // ParseGoProfile parses `mode: set|count|atomic` followed by
@@ -39,7 +69,7 @@ func ParseGoProfile(b []byte) (*Profile, error) {
 	if len(b) > maxProfileBytes {
 		return nil, ErrBlockLimit
 	}
-	profile := &Profile{}
+	profile := &Profile{Format: FormatGo}
 	index := map[string]int{}
 	for row, raw := range strings.Split(string(b), "\n") {
 		text := strings.TrimRight(raw, "\r")
@@ -49,7 +79,7 @@ func ParseGoProfile(b []byte) (*Profile, error) {
 		if profile.Mode == "" {
 			mode, ok := strings.CutPrefix(text, "mode: ")
 			if !ok || mode != "set" && mode != "count" && mode != "atomic" {
-				return nil, ErrNotGo
+				return nil, ErrFormat
 			}
 			profile.Mode = mode
 			continue
@@ -73,7 +103,7 @@ func ParseGoProfile(b []byte) (*Profile, error) {
 		profile.Blocks = append(profile.Blocks, block)
 	}
 	if profile.Mode == "" {
-		return nil, ErrNotGo
+		return nil, ErrFormat
 	}
 	sort.Slice(profile.Blocks, func(i, j int) bool {
 		a, b := profile.Blocks[i], profile.Blocks[j]
@@ -154,3 +184,20 @@ type syntaxError struct{}
 func (syntaxError) Error() string { return "malformed coverage profile row" }
 
 var errSyntax = syntaxError{}
+
+// ExpectedFormat is the format a coverage command is expected to write, used
+// only to word a report in which nothing could be measured: LCOV when the
+// command writes a report directory or the policy language is TypeScript or
+// JavaScript, and a Go profile otherwise. A measurement always uses the format
+// Parse recognized.
+func ExpectedFormat(command []string, language string) string {
+	for _, arg := range command {
+		if strings.Contains(arg, DirPlaceholder) {
+			return FormatLCOV
+		}
+	}
+	if language == "typescript" || language == "javascript" {
+		return FormatLCOV
+	}
+	return FormatGo
+}

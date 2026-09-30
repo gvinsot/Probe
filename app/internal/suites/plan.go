@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/gvinsot/Probe/app/internal/model"
+	"github.com/gvinsot/Probe/app/internal/symbols"
 )
 
 // Reader reads one committed file. (*gitrepo.Repository).ReadFile satisfies
@@ -23,7 +24,7 @@ var ErrTooLarge = errors.New("file exceeds the read limit")
 
 // Planning limits. Every overflow is reported as a note, never dropped silently.
 const (
-	MaxTestFiles     = 50  // changed Go test files analyzed
+	MaxTestFiles     = 50  // changed Go, TypeScript and JavaScript test files analyzed
 	MaxSelectedTests = 100 // selected test functions
 )
 
@@ -62,14 +63,14 @@ func Plan(ctx context.Context, read Reader, change model.Change) (Selection, err
 	type candidate struct{ basePath, candPath string }
 	var files []candidate
 	for _, f := range change.Files {
-		if basePath, candPath, ok := goTestPaths(f); ok {
+		if basePath, candPath, ok := testPaths(f); ok {
 			files = append(files, candidate{basePath, candPath})
 		}
 	}
 	sort.SliceStable(files, func(i, j int) bool { return files[i].basePath < files[j].basePath })
 	var sel Selection
 	if len(files) > MaxTestFiles {
-		sel.Notes = append(sel.Notes, fmt.Sprintf("%s%d changed Go test files beyond the limit of %d were not analyzed, so their tests were not re-run.", notePrefix, len(files)-MaxTestFiles, MaxTestFiles))
+		sel.Notes = append(sel.Notes, fmt.Sprintf("%s%d changed test files beyond the limit of %d were not analyzed, so their tests were not re-run.", notePrefix, len(files)-MaxTestFiles, MaxTestFiles))
 		files = files[:MaxTestFiles]
 	}
 	for _, f := range files {
@@ -84,10 +85,22 @@ func Plan(ctx context.Context, read Reader, change model.Change) (Selection, err
 			sel.Notes = append(sel.Notes, readNote(f.basePath, err))
 			continue
 		}
-		base, err := parseTestFile(f.basePath, src)
+		base, err := parseAnyTestFile(f.basePath, src)
 		if err != nil {
-			sel.Notes = append(sel.Notes, fmt.Sprintf("%sthe baseline version of %s could not be parsed as Go, so its tests were not re-run.", notePrefix, f.basePath))
+			as := ""
+			if strings.HasSuffix(f.basePath, ".go") {
+				as = " as Go"
+			}
+			sel.Notes = append(sel.Notes, fmt.Sprintf("%sthe baseline version of %s could not be parsed%s, so its tests were not re-run.", notePrefix, f.basePath, as))
 			continue
+		}
+		ambiguous := make([]string, 0, len(base.ambiguous))
+		for name := range base.ambiguous {
+			ambiguous = append(ambiguous, name)
+		}
+		sort.Strings(ambiguous)
+		for _, name := range ambiguous {
+			sel.Notes = append(sel.Notes, fmt.Sprintf("%sthe baseline version of %s declares more than one test named %q, so none of them was re-run.", notePrefix, f.basePath, name))
 		}
 		var cand testFile
 		var candErr error
@@ -100,11 +113,14 @@ func Plan(ctx context.Context, read Reader, change model.Change) (Selection, err
 				}
 				candErr = err
 			} else {
-				cand, candErr = parseTestFile(f.candPath, src)
+				cand, candErr = parseAnyTestFile(f.candPath, src)
 			}
 			changed = candErr == nil && (fileChanged(base, cand) || renameChanged(f.basePath, f.candPath))
 		}
 		for _, t := range base.tests {
+			if base.ambiguous[t.name] {
+				continue
+			}
 			kind := classifyChange(f.candPath, candErr, cand, t, changed)
 			if kind == "" {
 				continue
@@ -151,6 +167,9 @@ func classifyChange(candPath string, candErr error, cand testFile, t testFunc, f
 	case candPath == "":
 		return model.BaseTestFileDeleted
 	case candErr != nil:
+		return model.BaseTestModified
+	}
+	if cand.ambiguous[t.name] {
 		return model.BaseTestModified
 	}
 	c, ok := cand.test(t.name)
@@ -241,4 +260,43 @@ func isGoTestFile(p string) bool {
 		}
 	}
 	return true
+}
+
+// parseAnyTestFile parses a Go test file with go/parser and a TypeScript or
+// JavaScript test file with the index's lexical reader.
+func parseAnyTestFile(filename string, src []byte) (testFile, error) {
+	if strings.HasSuffix(filename, ".go") {
+		return parseTestFile(filename, src)
+	}
+	return parseScriptTestFile(filename, src)
+}
+
+// testPaths is goTestPaths for Go test files and for TypeScript and
+// JavaScript test files (symbols.IsScriptTestPath). A rename between the two
+// languages is a deletion.
+func testPaths(f model.ChangedFile) (basePath, candPath string, ok bool) {
+	if basePath, candPath, ok := goTestPaths(f); ok {
+		return basePath, candPath, true
+	}
+	if f.Binary {
+		return "", "", false
+	}
+	switch f.Status {
+	case "M":
+		if symbols.IsScriptTestPath(f.Path) {
+			return f.Path, f.Path, true
+		}
+	case "D":
+		if symbols.IsScriptTestPath(f.Path) {
+			return f.Path, "", true
+		}
+	case "R":
+		if symbols.IsScriptTestPath(f.OldPath) {
+			if symbols.IsScriptTestPath(f.Path) {
+				return f.OldPath, f.Path, true
+			}
+			return f.OldPath, "", true
+		}
+	}
+	return "", "", false
 }

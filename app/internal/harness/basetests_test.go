@@ -1054,7 +1054,7 @@ func TestBaseTestFixedTextsNeedNoEntities(t *testing.T) {
 		model.BaseTestsNote, budgetExhaustedText, budgetReservedText, deadlineText,
 	}
 	for _, change := range []string{model.BaseTestRemoved, model.BaseTestModified, model.BaseTestSharedCodeChanged, model.BaseTestFileDeleted, "other"} {
-		texts = append(texts, BaseTestChangeText(change), baseTestDescription(model.BaseTest{Name: "TestA", Path: "pkg/a_test.go", Change: change}, "pkg"))
+		texts = append(texts, BaseTestChangeText(change), baseTestDescription(model.BaseTest{Name: "TestA", Path: "pkg/a_test.go", Change: change}, baseTestUnit{dir: "pkg"}))
 	}
 	for _, c := range []model.Check{
 		{ID: "check-1", Status: "SKIPPED", Output: budgetExhaustedText}, {ID: "check-1", Status: "TIMEOUT"}, {ID: "check-1", Status: "ERROR"},
@@ -1062,7 +1062,7 @@ func TestBaseTestFixedTextsNeedNoEntities(t *testing.T) {
 		{ID: "check-1", Status: "PASS", Output: btEvents("TestA", "skip")}, {ID: "check-1", Status: "FAIL", ExitCode: 1, Output: btEvents("TestA", "pass")},
 		{ID: "check-1", Status: "FAIL", ExitCode: 1, Output: "FAIL x [build failed]"}, {ID: "check-1", Status: "PASS"},
 	} {
-		texts = append(texts, baseTestBaselineReason(c, "TestA"))
+		texts = append(texts, (&baseTestRun{}).baselineReason(c, "", "TestA"))
 	}
 	cancelled, cancel := context.WithCancel(context.Background())
 	cancel()

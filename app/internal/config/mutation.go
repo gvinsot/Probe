@@ -71,11 +71,14 @@ func validateMutationCommand(argv []string) error {
 			return fmt.Errorf("invalid argument in mutation.command")
 		}
 	}
-	if path.Base(argv[0]) != "go" || argv[1] != "test" {
+	if path.Base(argv[0]) != "go" {
+		return validateScriptMutationCommand(argv)
+	}
+	if argv[1] != "test" {
 		return fmt.Errorf("mutation.command must start with \"go\", \"test\"")
 	}
 	placeholder := func(arg string) error {
-		for _, token := range []string{PackagePlaceholder, "{file}", coverage.Placeholder, ResultsPlaceholder} {
+		for _, token := range []string{PackagePlaceholder, "{file}", coverage.Placeholder, coverage.DirPlaceholder, ResultsPlaceholder} {
 			if strings.Contains(arg, token) {
 				return fmt.Errorf("mutation.command may contain %s only as one standalone argument and no other placeholder", PackagePlaceholder)
 			}
@@ -126,4 +129,35 @@ func flagName(arg string) string {
 		name = name[:i]
 	}
 	return name
+}
+
+// validateScriptMutationCommand accepts a Vitest or Jest mutation command for
+// TypeScript and JavaScript sources: the mutated source file as exactly one
+// standalone {file} argument and the runner's JSON report written to
+// {results_out} exactly once, for example
+// ["vitest", "related", "{file}", "--run", "--reporter=json", "--outputFile={results_out}"]
+// or ["jest", "--findRelatedTests", "{file}", "--json", "--outputFile={results_out}"].
+// Package-manager scripts and shells are refused, as for generated_test: they
+// run repository-defined commands that decide what executes and what gets
+// written to the report.
+func validateScriptMutationCommand(argv []string) error {
+	switch path.Base(argv[0]) {
+	case "npm", "yarn", "pnpm", "bun", "sh", "bash", "env":
+		return fmt.Errorf("mutation.command must call go test, or the Vitest or Jest runner directly (for example through npx), not %q", argv[0])
+	}
+	files, results := 0, 0
+	for _, arg := range argv {
+		switch {
+		case arg == "{file}":
+			files++
+			continue
+		case strings.Contains(arg, "{file}"), strings.Contains(arg, PackagePlaceholder), strings.Contains(arg, coverage.Placeholder), strings.Contains(arg, coverage.DirPlaceholder):
+			return fmt.Errorf("a Vitest or Jest mutation.command may contain {file} only as one standalone argument, {results_out} once, and no other placeholder")
+		}
+		results += strings.Count(arg, ResultsPlaceholder)
+	}
+	if files != 1 || results != 1 {
+		return fmt.Errorf("a Vitest or Jest mutation.command must contain {file} exactly once as a standalone argument and write its JSON report to %s exactly once", ResultsPlaceholder)
+	}
+	return nil
 }

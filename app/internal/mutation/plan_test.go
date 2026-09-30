@@ -55,7 +55,7 @@ func TestBreadthFirstSelection(t *testing.T) {
 		"c/c.go": threeLineFile("c"), "c/c_test.go": "package c\n",
 	}}
 	change := model.Change{Files: []model.ChangedFile{addedFile("c/c.go", threeLineFile("c")), addedFile("a/a.go", threeLineFile("a")), addedFile("b/b.go", threeLineFile("b"))}}
-	p := NewPlan(src, change, 4, nil)
+	p := NewPlan(src, change, 4, nil, false)
 	if p.Generated != 18 || len(p.Selected) != 4 {
 		t.Fatalf("generated %d selected %d", p.Generated, len(p.Selected))
 	}
@@ -76,7 +76,7 @@ func TestBreadthFirstSelection(t *testing.T) {
 		}
 	}
 	// max_mutants beyond the candidates selects them all, second operators last.
-	all := NewPlan(src, change, 200, nil)
+	all := NewPlan(src, change, 200, nil, false)
 	if len(all.Selected) != 18 {
 		t.Fatalf("selected %d of 18", len(all.Selected))
 	}
@@ -85,7 +85,7 @@ func TestBreadthFirstSelection(t *testing.T) {
 func TestMaxMutantsCapAndDeterminism(t *testing.T) {
 	src := fakeSource{files: map[string]string{"price/price.go": discountSource, "price/price_test.go": "package price\n"}}
 	change := model.Change{Files: []model.ChangedFile{addedFile("price/price.go", discountSource)}}
-	p := NewPlan(src, change, 3, nil)
+	p := NewPlan(src, change, 3, nil, false)
 	if p.Generated != 8 || len(p.Selected) != 3 {
 		t.Fatalf("generated %d selected %d", p.Generated, len(p.Selected))
 	}
@@ -97,7 +97,7 @@ func TestMaxMutantsCapAndDeterminism(t *testing.T) {
 		t.Fatalf("selected %q, want %q", ops, want)
 	}
 	for i := 0; i < 10; i++ {
-		if again := NewPlan(src, change, 3, nil); !reflect.DeepEqual(again.Selected, p.Selected) {
+		if again := NewPlan(src, change, 3, nil, false); !reflect.DeepEqual(again.Selected, p.Selected) {
 			t.Fatal("selection is not deterministic")
 		}
 	}
@@ -111,7 +111,7 @@ func TestNotExecutedLinesSkipped(t *testing.T) {
 			return []int{6, 7}
 		}
 		return nil
-	})
+	}, false)
 	if p.Generated != 4 || p.CoverageSkipped != 4 || len(p.Selected) != 4 {
 		t.Fatalf("generated %d coverage-skipped %d selected %d", p.Generated, p.CoverageSkipped, len(p.Selected))
 	}
@@ -145,7 +145,7 @@ func TestFileSkipReasons(t *testing.T) {
 		addedFile("readme.md", "text\n"), addedFile("tests/t_test.go", "package p\n"),
 		{Path: "tests/nothing_added.go", Status: "M"},
 	}
-	p := NewPlan(src, model.Change{Files: files}, 10, nil)
+	p := NewPlan(src, model.Change{Files: files}, 10, nil, false)
 	got := map[string]string{}
 	for _, f := range p.Files {
 		got[f.Path] = f.Status + ": " + f.Reason

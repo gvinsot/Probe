@@ -154,7 +154,7 @@ The index parses and type-checks untrusted committed source in process, with the
 
 The index lists existing tests that reach a changed function; it does not run them. `probe review --impacted-tests` runs the listed tests whose file the change did not modify on the baseline and on the candidate, inside the sandbox, and records what the two runs showed. No model is involved. It complements [changed baseline tests](BASE_TESTS.md), which covers the tests of modified test files.
 
-The stage is opt-in, runs during `review` only, executes Go tests only, and adds no policy key. It adds evidence and review requests; it never produces exit 1 and never removes, lowers or dismisses anything else in the report. It adds no signal kind: a test that fails on the candidate becomes a high review target at its declaration.
+The stage is opt-in, runs during `review` only, executes Go tests or, with a Vitest or Jest template, TypeScript and JavaScript tests (see [below](#typescript-and-javascript-tests)), and adds no policy key. It adds evidence and review requests; it never produces exit 1 and never removes, lowers or dismisses anything else in the report. It adds no signal kind: a test that fails on the candidate becomes a high review target at its declaration.
 
 ### Enabling it
 
@@ -196,7 +196,7 @@ With an execution cache (`--cache-dir`), a baseline run may be replayed. A repla
 
 ### Statuses
 
-Each run pair is classified per test name from the `go test -json` events of both recorded checks. The name must have exactly one `run` event and exactly one terminal event, in one package, on both sides; a second terminal event, such as a pass printed after a real failure, makes the result unknown.
+Each run pair is classified per test name from the `go test -json` events of both recorded checks. The name must have exactly one `run` event and exactly one terminal event, in one package, on both sides; a second terminal event, such as a pass printed after a real failure, makes the result unknown. For TypeScript and JavaScript tests the recorded JSON reports take the place of the events (see below).
 
 | Status | Requires | It is | It is not |
 |---|---|---|---|
@@ -242,9 +242,27 @@ Every run is charged to the shared `sandbox.max_runtime_seconds` budget. The sta
 
 The test names come from candidate source through the index. They run only when they are Go test names declared in a test file that is byte-identical in both snapshots, and they reach `-run` quoted with `regexp.QuoteMeta`; the command is otherwise the base-branch `generated_test` template. The runs add no mount, volume, network or payload channel and use the unchanged sandbox profile; unchanged baseline test code runs against candidate code, as in the existing experiments. The candidate shapes the index, so it can add or hide reaching tests and influence which tests fill the limits: selection can only add runs and review requests, within fixed limits, and a selected test that the limits leave out requests review. Candidate code can make a test pass on purpose (for example by detecting the sandbox), so `PASSES_ON_CANDIDATE` is an observation only; a forged pass after a real failure makes the result `UNVERIFIED`, and forging a failure only adds a review request. The flag is set by whoever invokes Probe, never by the candidate branch.
 
+### TypeScript and JavaScript tests
+
+With a verifiable Vitest or Jest `generated_test` template (the file as one standalone `{file}` argument and the runner's JSON report written to `{results_out}`, as for [generated tests](../README.md#verified-typescriptjavascript-experiments)), the stage runs the TypeScript and JavaScript tests the lexical index lists instead of Go tests:
+
+```json
+{
+  "commands": {
+    "generated_test": ["vitest", "run", "{file}", "--reporter=json", "--outputFile={results_out}"]
+  }
+}
+```
+
+- A test is named as the index names it: its `describe` titles and its own title, joined by ` > ` (for example `price > edge > zero percent`), each title with white space collapsed. Its file must be a TypeScript or JavaScript test file (`*.test.*`, `*.spec.*` or `__tests__/`), byte-identical in both snapshots. A Go test with such a template, or a TS/JS test with a `go test` template, gets a "not run: " reason.
+- The unit is the test file. Both runs use the template with the file substituted, followed by `-t ^(?:…)$`, a filter that selects the named tests by their titles joined by white space. Vitest and Jest both apply it to the `describe` titles and the title (Jest ignores case).
+- Outcomes come from the JSON report of each run: the report entry of exactly `/workspace/<file>`, and in it exactly one result whose titles give the test's name. `passed` is a pass, `failed` a failure, and `pending`, `skipped`, `todo` and `disabled` a skip. A report that is missing, cut short or unreadable makes the run ERROR. The evidence records runner `jest_json`, and `report.Finalize` re-derives each status from the two recorded reports.
+- The refinements of the two runs apply unchanged: a test that passed inside a failed run gets a run pair of its own, and a replayed baseline never supports `FAILS_ON_CANDIDATE`.
+- A title the index cannot read literally (a template literal with `${…}`, escapes, a title computed at run time, a title longer than 200 bytes, or a title containing ` > `) matches no result or no filter, so its test stays `UNVERIFIED` with a reason.
+
 ### Limitations
 
-- Go only, and only the tests the index lists (20 per changed function, within 3 references); tests reached through function values, reflection or imports that are not loaded are not found.
+- Go and, with a Vitest or Jest template, TypeScript and JavaScript tests; only the tests the index lists (20 per changed function, within 3 references); tests reached through function values, reflection or imports that are not loaded are not found.
 - Tests of modified test files are not run here (see `--base-tests`); added test files have no baseline version.
 - One run each: a flaky test can produce `FAILS_ON_CANDIDATE`, and a failure may come from any part of the change, not only from the function that selected the test.
 - The index selects files with `linux/amd64` constraints; a test file excluded in the sandbox does not run and stays without a result.

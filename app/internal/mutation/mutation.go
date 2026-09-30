@@ -63,6 +63,7 @@ type Result struct {
 // Fixed texts.
 const (
 	reasonNoCandidates   = "no candidate mutant on added lines of changed non-test Go files"
+	reasonNoScripts      = "no candidate mutant on added lines of changed TypeScript or JavaScript sources"
 	reasonCoverageOnly   = "every candidate mutant was on an added line that the coverage run did not execute"
 	reasonBudget         = "mutation.max_runtime_seconds does not leave room for another run of this package"
 	reasonBudgetCut      = "a runtime budget (mutation.max_runtime_seconds, the sandbox budget or the reviewer reserve) left this run less than its own time limit and the run used all of it; this is not a timeout of the mutant"
@@ -76,6 +77,11 @@ const (
 
 	survivorSummary = "With a single-change mutant of this added line, no test that the mutation command ran for its package failed"
 	survivorText    = "Mutant %s (%s) replaced %q with %q. The unmutated control run %s and the mutant run %s of %q both passed; %d named tests passed in package %s and none failed (skipped tests are not counted). Only the tests this command ran for this package directory were run. A surviving mutant can be semantically equivalent to the original code; this is not evidence of a defect, of a missing test, or that the line was not executed. Patch artifact sha256 %s."
+
+	// The TS/JS forms: the unit is the mutated source file, whose related
+	// tests the Vitest or Jest command selects.
+	survivorScriptSummary = "With a single-change mutant of this added line, no test that the mutation command ran for its source file failed"
+	survivorScriptText    = "Mutant %s (%s) replaced %q with %q. The unmutated control run %s and the mutant run %s of %q both passed; %d tests passed for source file %s and none failed (skipped tests are not counted). Only the tests this command ran for this file were run. A surviving mutant can be semantically equivalent to the original code; this is not evidence of a defect, of a missing test, or that the line was not executed. Patch artifact sha256 %s."
 )
 
 // displayLimit is the display cut of Original and Mutated (UTF-8 safe).
@@ -85,14 +91,17 @@ const displayLimit = 256
 // an error: every problem is recorded as a mutant or section status with a
 // reason, and Operational reports an infrastructure or workspace failure.
 func Run(ctx context.Context, w Workspace, cfg Config, change model.Change) Result {
-	section := model.Mutation{Command: redactAll(cfg.Command), Limits: cfg.Limits, Files: []model.MutationFile{}, Mutants: []model.Mutant{}, Checks: []model.Check{}, Note: model.MutationNote}
-	plan := NewPlan(w, change, cfg.Limits.MaxMutants, cfg.NotExecuted)
+	section := model.Mutation{Command: redactAll(cfg.Command), Limits: cfg.Limits, Files: []model.MutationFile{}, Mutants: []model.Mutant{}, Checks: []model.Check{}, Note: model.MutationNoteFor(cfg.Command)}
+	plan := NewPlan(w, change, cfg.Limits.MaxMutants, cfg.NotExecuted, ScriptCommand(cfg.Command))
 	section.Files = append(section.Files, plan.Files...)
 	section.Generated = plan.Generated
 	section.CoverageSkipped = plan.CoverageSkipped
 	section.Dropped = plan.Generated - len(plan.Selected)
 	if len(plan.Selected) == 0 {
 		section.Status, section.Reason = model.MutationNoCandidates, reasonNoCandidates
+		if ScriptCommand(cfg.Command) {
+			section.Reason = reasonNoScripts
+		}
 		if plan.Generated == 0 && plan.CoverageSkipped > 0 {
 			section.Reason = reasonCoverageOnly
 		}

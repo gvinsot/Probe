@@ -227,7 +227,9 @@ func (h *Harness) runWithResultsOptions(ctx context.Context, kind, dir string, c
 		err = errors.New(resultsOverBudget)
 	}
 	if err != nil {
-		c.Status = "ERROR"
+		if !o.reportOptional {
+			c.Status = "ERROR"
+		}
 		c.Output = truncateUTF8(Redact(c.Output+"\n"+err.Error()), h.opts.MaxOutputBytes)
 	} else {
 		c.Results = results

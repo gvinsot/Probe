@@ -62,7 +62,7 @@ const (
 	impactedNothingRan = "no selected test could run; see the reason of each test"
 	// impactedTemplateReason is the section reason for a generated_test
 	// command that cannot establish which Go tests ran.
-	impactedTemplateReason = "the generated_test command cannot establish which Go tests ran; configure it as go test {package}"
+	impactedTemplateReason = "the generated_test command cannot establish which tests ran; configure it as go test {package}, or as a Vitest or Jest command that runs {file} and writes its JSON report to {results_out}"
 	// impactedPassedInsideFailure starts the reason of a test that passed in a
 	// candidate run that failed as a whole and got no result from a pair of its
 	// own.
@@ -134,7 +134,8 @@ func (h *Harness) RunImpactedTests(ctx context.Context, selected []model.ImpactT
 		result.Status = model.ImpactTestsNoCandidates
 		return result
 	}
-	if reason := h.impactedUnavailable(); reason != "" {
+	runner := existingRunnerFor(h.opts.Commands["generated_test"])
+	if reason := h.impactedUnavailable(runner); reason != "" {
 		result.Reason = reason
 		for i := range tests {
 			tests[i].Reason = "not run: " + reason
@@ -142,14 +143,14 @@ func (h *Harness) RunImpactedTests(ctx context.Context, selected []model.ImpactT
 		h.auditImpacted(started, map[string]any{"tests": len(tests), "reason": reason}, "SKIPPED")
 		return result
 	}
-	units, capped := h.planImpactedUnits(tests)
+	units, capped := h.planImpactedUnits(tests, runner)
 	result.Capped = capped
 	if len(units) == 0 {
 		result.Reason = impactedNothingRan
 		h.auditImpacted(started, map[string]any{"tests": len(tests), "reason": impactedNothingRan}, "SKIPPED")
 		return result
 	}
-	run := &impactedRun{h: h, ctx: ctx, ceiling: h.impactedCeiling()}
+	run := &impactedRun{h: h, ctx: ctx, ceiling: h.impactedCeiling(), runner: runner}
 	for n, u := range units {
 		if reason := run.stopReason(); reason != "" {
 			for _, rest := range units[n:] {
@@ -176,13 +177,13 @@ func (h *Harness) RunImpactedTests(ctx context.Context, selected []model.ImpactT
 }
 
 // impactedUnavailable returns why the stage cannot run at all, or "".
-func (h *Harness) impactedUnavailable() string {
+func (h *Harness) impactedUnavailable(runner existingRunner) string {
 	switch {
 	case h.closed:
 		return "the harness is closed"
 	case h.base == "":
 		return "no baseline snapshot is available"
-	case !verifiableGoTemplate(h.opts.Commands["generated_test"]):
+	case runner == "":
 		return impactedTemplateReason
 	}
 	return ""
@@ -233,7 +234,7 @@ type impactedFile struct {
 // in input order within the limits, and records a reason on every other
 // test. It returns the units and the number of tests the limits left out.
 // Caller holds h.mu.
-func (h *Harness) planImpactedUnits(tests []model.ImpactTest) ([]*impactedUnit, int) {
+func (h *Harness) planImpactedUnits(tests []model.ImpactTest, runner existingRunner) ([]*impactedUnit, int) {
 	byFile := impactedFileTemplate(h.opts.Commands["generated_test"])
 	capReason := fmt.Sprintf("not run: the stage runs at most %d tests from at most %d packages per review", ImpactedMaxTests, ImpactedMaxUnits)
 	if byFile {
@@ -245,7 +246,7 @@ func (h *Harness) planImpactedUnits(tests []model.ImpactTest) ([]*impactedUnit, 
 	admitted := map[impactedKey]bool{}
 	capped := 0
 	for i, t := range tests {
-		if reason := h.impactedPrecheck(t, files); reason != "" {
+		if reason := h.impactedPrecheck(t, runner, files); reason != "" {
 			tests[i].Reason = reason
 			continue
 		}
@@ -308,28 +309,34 @@ func impactedFileTemplate(command []string) bool {
 
 // impactedPrecheck returns why a selected test cannot run, or "". files
 // caches the file checks. Caller holds h.mu.
-func (h *Harness) impactedPrecheck(t model.ImpactTest, files map[string]impactedFile) string {
-	if !impactedNamePattern.MatchString(t.Name) || !isGoTestName(t.Name) || !strings.HasSuffix(t.Path, "_test.go") {
+func (h *Harness) impactedPrecheck(t model.ImpactTest, runner existingRunner, files map[string]impactedFile) string {
+	goTest := !runner.jest()
+	if goTest && (!impactedNamePattern.MatchString(t.Name) || !isGoTestName(t.Name) || !strings.HasSuffix(t.Path, "_test.go")) {
 		return "not run: not a Go test function of a Go test file"
+	}
+	// A TS/JS test is named by its titles; the report of its own file, not
+	// a declaration, establishes that it ran (JestTestOutcome).
+	if !goTest && (!ValidJSTestName(t.Name) || !ScriptTestPath(t.Path)) {
+		return "not run: not a TypeScript or JavaScript test of a TypeScript or JavaScript test file"
 	}
 	f, ok := files[t.Path]
 	if !ok {
-		f = h.impactedCheckFile(t.Path)
+		f = h.impactedCheckFile(t.Path, goTest)
 		files[t.Path] = f
 	}
 	switch {
 	case f.reason != "":
 		return f.reason
-	case !f.funcs[t.Name]:
+	case goTest && !f.funcs[t.Name]:
 		return "not run: the test file declares no top-level function of this name"
 	}
 	return ""
 }
 
 // impactedCheckFile checks that the test file p is a regular file of at most
-// impactedFileLimit bytes, byte-identical in both snapshots, and parses it.
-// Caller holds h.mu.
-func (h *Harness) impactedCheckFile(p string) impactedFile {
+// impactedFileLimit bytes, byte-identical in both snapshots, and, for a Go
+// test file, parses it. Caller holds h.mu.
+func (h *Harness) impactedCheckFile(p string, goTest bool) impactedFile {
 	basePath, baseErr := safePath(h.base, p)
 	candidatePath, candidateErr := safePath(h.candidate, p)
 	if baseErr != nil || candidateErr != nil {
@@ -345,6 +352,9 @@ func (h *Harness) impactedCheckFile(p string) impactedFile {
 	}
 	if !bytes.Equal(baseData, candidateData) {
 		return impactedFile{reason: "not run: the test file differs between the baseline and candidate snapshots (changed test files are the subject of --base-tests)"}
+	}
+	if !goTest {
+		return impactedFile{}
 	}
 	file, err := parser.ParseFile(token.NewFileSet(), p, baseData, parser.SkipObjectResolution)
 	if err != nil {
@@ -389,10 +399,11 @@ type impactedRun struct {
 	h        *Harness
 	ctx      context.Context
 	ceiling  time.Duration
-	spent    time.Duration // time of the stage's runs that were not replays
-	executed bool          // at least one run was not SKIPPED
-	skipped  string        // the recorded text of the first SKIPPED run
-	errors   int           // runs recorded as ERROR
+	spent    time.Duration  // time of the stage's runs that were not replays
+	executed bool           // at least one run was not SKIPPED
+	skipped  string         // the recorded text of the first SKIPPED run
+	errors   int            // runs recorded as ERROR
+	runner   existingRunner // the verifier of the generated_test template
 }
 
 // stopReason returns why no further run may start, or "".
@@ -416,7 +427,8 @@ func (r *impactedRun) stopReason() string {
 // not depend on how long the stage's earlier runs took (runOptions.remaining).
 func (r *impactedRun) exec(kind, dir string, command []string, live bool) model.Check {
 	started := time.Now()
-	c, _, _ := r.h.runWithOptions(r.ctx, kind, dir, command, runOptions{timeout: impactedSubCap, remaining: impactedSubCap - r.spent, ceiling: r.ceiling, live: live})
+	o := runOptions{timeout: impactedSubCap, remaining: impactedSubCap - r.spent, ceiling: r.ceiling, live: live}
+	c := r.runner.run(r.h, r.ctx, kind, dir, command, o)
 	if !c.Replayed() {
 		r.spent += time.Since(started)
 	}
@@ -473,7 +485,7 @@ func (r *impactedRun) unit(u *impactedUnit, tests []model.ImpactTest) {
 		if !ok || v.status != model.StatusUnverified || !impactedCompletedFail(v.candidate) {
 			continue
 		}
-		if action, _ := GoTestOutcome(v.candidate.Output, n); action == "pass" {
+		if r.runner.outcome(v.candidate, u.target, n) == "pass" {
 			retry = append(retry, n)
 		}
 	}
@@ -536,7 +548,7 @@ func (r *impactedRun) unit(u *impactedUnit, tests []model.ImpactTest) {
 			CheckID:     v.candidate.ID,
 			BaseCheckID: v.base.ID,
 			Status:      v.status,
-			Runner:      RunnerGo,
+			Runner:      r.runner.evidenceRunner(),
 			TestNames:   []string{k.name},
 		})
 		reason := ""
@@ -595,12 +607,12 @@ func (r *impactedRun) pair(u *impactedUnit, names []string, narrowBase bool, rec
 		markAll(names, func(string) string { return reason })
 		return verdicts, marks
 	}
-	command := selectGoTests(h.testCommand(u.target), names)
+	command := r.runner.command(h, u.target, names)
 	base := record(r.exec(model.CheckImpactedTestBase, h.base, command, false))
 	if narrowBase && impactedCompletedFail(base) {
 		var passed, other []string
 		for _, n := range names {
-			if action, _ := GoTestOutcome(base.Output, n); action == "pass" {
+			if r.runner.outcome(base, u.target, n) == "pass" {
 				passed = append(passed, n)
 			} else {
 				other = append(other, n)
@@ -608,31 +620,31 @@ func (r *impactedRun) pair(u *impactedUnit, names []string, narrowBase bool, rec
 		}
 		if len(passed) > 0 && len(other) > 0 {
 			failed := base
-			markAll(other, func(n string) string { return impactedBaselineReason(failed, n) })
+			markAll(other, func(n string) string { return r.baselineReason(failed, u.target, n) })
 			if reason := r.stopReason(); reason != "" {
 				markAll(passed, func(string) string { return reason })
 				return verdicts, marks
 			}
 			names = passed
-			command = selectGoTests(h.testCommand(u.target), names)
+			command = r.runner.command(h, u.target, names)
 			base = record(r.exec(model.CheckImpactedTestBase, h.base, command, false))
 		}
 	}
 	if base.Status != "PASS" || base.ExitCode != 0 || base.Truncated {
-		markAll(names, func(n string) string { return impactedBaselineReason(base, n) })
+		markAll(names, func(n string) string { return r.baselineReason(base, u.target, n) })
 		return verdicts, marks
 	}
 	// A test that did not pass on the baseline can only end UNVERIFIED, so a
 	// candidate run in which no selected test can get a result is not started.
 	anyPassed := false
 	for _, n := range names {
-		if action, _ := GoTestOutcome(base.Output, n); action == "pass" {
+		if r.runner.outcome(base, u.target, n) == "pass" {
 			anyPassed = true
 			break
 		}
 	}
 	if !anyPassed {
-		markAll(names, func(n string) string { return impactedBaselineReason(base, n) })
+		markAll(names, func(n string) string { return r.baselineReason(base, u.target, n) })
 		return verdicts, marks
 	}
 	if reason := r.stopReason(); reason != "" {
@@ -650,7 +662,7 @@ func (r *impactedRun) pair(u *impactedUnit, names []string, narrowBase bool, rec
 	}
 	confirm := false
 	for _, n := range names {
-		s, reason := ClassifyExistingTest(base, candidate, n)
+		s, reason := r.runner.classify(base, candidate, u.target, n)
 		verdicts[n] = impactedVerdict{s, reason, base, candidate}
 		confirm = confirm || s == model.StatusFailsOnCandidate && base.Replayed()
 	}
@@ -664,7 +676,7 @@ func (r *impactedRun) pair(u *impactedUnit, names []string, narrowBase bool, rec
 	reason := r.stopReason()
 	var live model.Check
 	if reason == "" {
-		live = h.settleReplayedGoBaseline(base, record(r.exec(model.CheckImpactedTestBase, h.base, command, true)), names)
+		live = h.settleReplayedBaseline(base, record(r.exec(model.CheckImpactedTestBase, h.base, command, true)), names, func(c model.Check, n string) string { return r.runner.outcome(c, u.target, n) })
 		if live.Status == "SKIPPED" {
 			reason = fmt.Sprintf("%s did not start: %s", live.ID, impactedSkipText(live))
 		}
@@ -677,15 +689,15 @@ func (r *impactedRun) pair(u *impactedUnit, names []string, narrowBase bool, rec
 			verdicts[n] = impactedVerdict{model.StatusUnverified, "the baseline run was replayed from the execution cache and could not be repeated live (" + strings.TrimPrefix(reason, "not run: ") + ")", base, candidate}
 			continue
 		}
-		s, why := ClassifyExistingTest(live, candidate, n)
+		s, why := r.runner.classify(live, candidate, u.target, n)
 		verdicts[n] = impactedVerdict{s, why, live, candidate}
 	}
 	return verdicts, marks
 }
 
-// impactedBaselineReason says why a test got no candidate run after the
-// baseline run base.
-func impactedBaselineReason(base model.Check, name string) string {
+// baselineReason says why the test name of the file p got no candidate run
+// after the baseline run base.
+func (r *impactedRun) baselineReason(base model.Check, p, name string) string {
 	const tail = ", so it was not run on candidate code"
 	switch {
 	case base.Status == "SKIPPED":
@@ -697,13 +709,19 @@ func impactedBaselineReason(base model.Check, name string) string {
 	case base.Truncated:
 		return fmt.Sprintf("the baseline log of %s was truncated (raise sandbox.max_output_bytes)%s", base.ID, tail)
 	}
-	switch action, _ := GoTestOutcome(base.Output, name); action {
+	switch r.runner.outcome(base, p, name) {
 	case "fail":
 		return fmt.Sprintf("the test failed on the baseline (%s)%s", base.ID, tail)
 	case "skip":
 		return fmt.Sprintf("the test was skipped on the baseline (%s)%s", base.ID, tail)
 	case "pass":
 		return fmt.Sprintf("the baseline run %s failed although this test passed in it%s", base.ID, tail)
+	}
+	if r.runner.jest() {
+		if base.Status == "FAIL" && r.runner.suiteFailure(base, p) {
+			return fmt.Sprintf("the baseline test file did not load or set up in %s%s", base.ID, tail)
+		}
+		return fmt.Sprintf("the baseline report of %s does not record exactly one result of this test in the entry of its file (for example its title is computed at run time)%s", base.ID, tail)
 	}
 	if base.Status == "FAIL" && goBuildFailure(base.Output) {
 		return fmt.Sprintf("the baseline package did not build or set up in %s%s", base.ID, tail)
@@ -725,7 +743,7 @@ func impactedDescription(t model.ImpactTest, unit string) string {
 	switch {
 	case unit == ".":
 		where = "the package at the repository root"
-	case strings.HasSuffix(unit, "_test.go"):
+	case strings.HasSuffix(unit, "_test.go") || ScriptTestPath(unit):
 		where = "test file " + unit
 	}
 	reach := ""

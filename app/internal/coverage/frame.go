@@ -1,5 +1,5 @@
 // Package coverage resolves changed lines against a recorded Go coverage
-// profile. Executed means a line ran at least once during the recorded run; it
+// profile or LCOV report. Executed means a line ran at least once during the recorded run; it
 // is never a claim that behavior is asserted, correct or safe. Absent,
 // truncated, unparsable or unmapped data always resolves to "not measured" and
 // never to a not-executed claim.
@@ -9,6 +9,7 @@ import (
 	"bytes"
 	"errors"
 	"strconv"
+	"strings"
 )
 
 // ProfilePath is the fixed in-container path a coverage command must write to.
@@ -16,12 +17,39 @@ import (
 // committed or stale profile cannot occupy it and no discovery is needed.
 const ProfilePath = "/tmp/probe-coverage.out"
 
+// ReportDir is the fixed in-container directory a coverage command given
+// DirPlaceholder writes its reports to. Tools that write LCOV into a directory
+// (Vitest, Jest) name the file lcov.info, and only LCOVPath is captured.
+const (
+	ReportDir = "/tmp/probe-coverage"
+	LCOVPath  = ReportDir + "/lcov.info"
+)
+
 const (
 	// CommandKey names the optional trusted policy command.
 	CommandKey = "coverage"
-	// Placeholder must appear exactly once in that command's argv.
+	// Placeholder is the profile file path. The command's argv holds exactly
+	// one occurrence of Placeholder or of DirPlaceholder, never both.
 	Placeholder = "{coverage_out}"
+	// DirPlaceholder is the report directory of a tool that writes lcov.info.
+	DirPlaceholder = "{coverage_dir}"
 )
+
+// Expand returns the executed argv of a coverage command and the in-container
+// file its payload is captured from. Probe expands the token the operator
+// wrote and never appends a flag of its own, so the executed argv is the
+// reviewed argv.
+func Expand(command []string) ([]string, string) {
+	out := append([]string(nil), command...)
+	capture := ProfilePath
+	for i, arg := range out {
+		if strings.Contains(arg, DirPlaceholder) {
+			capture = LCOVPath
+		}
+		out[i] = strings.ReplaceAll(strings.ReplaceAll(arg, Placeholder, ProfilePath), DirPlaceholder, ReportDir)
+	}
+	return out, capture
+}
 
 // FrameHeader precedes the decimal payload length and a newline; FrameFooter
 // must match exactly at the declared offset. The sandbox wrapper that emits the
@@ -37,7 +65,7 @@ var (
 	ErrNoProfile  = errors.New("no coverage profile was emitted by the coverage command")
 	ErrTruncated  = errors.New("the coverage profile did not fit in the sandbox payload budget or was cut short; raise sandbox.max_output_bytes")
 	ErrPolluted   = errors.New("the coverage payload channel carried unexpected output")
-	ErrNotGo      = errors.New("the coverage profile is not a Go coverage profile; only Go coverage profiles are supported in this version")
+	ErrFormat     = errors.New("the coverage profile is neither a Go coverage profile nor an LCOV report; only these two formats are supported in this version")
 	ErrBlockLimit = errors.New("the coverage profile exceeded the parser bound of 200000 blocks")
 	ErrModulePath = errors.New("the module path could not be read from go.mod or go.work in the candidate snapshot")
 	ErrArtifact   = errors.New("the coverage profile could not be retained as evidence")

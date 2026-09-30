@@ -186,7 +186,7 @@ func TestRunBaseTestsSelectsAndRecords(t *testing.T) {
 	if runBaseTests(context.Background(), repo, change, h, r, &errOut) {
 		t.Fatal("reported an operational failure")
 	}
-	if !strings.Contains(errOut.String(), "Running the baseline versions of 2 changed Go tests on candidate code") {
+	if !strings.Contains(errOut.String(), "Running the baseline versions of 2 changed tests on candidate code") {
 		t.Fatalf("progress line: %q", errOut.String())
 	}
 	s := r.BaseTests
@@ -251,7 +251,7 @@ func TestRunBaseTestsNothingSelected(t *testing.T) {
 	if runBaseTests(context.Background(), repo, change, h, r, &bytes.Buffer{}) || r.BaseTests.Status != model.BaseTestsNoCandidates || len(r.Unverified) != 0 || len(h.Checks()) != 0 {
 		t.Fatalf("section %+v unverified %q", r.BaseTests, r.Unverified)
 	}
-	if line := baseTestsLine(r.BaseTests); line != "Changed baseline tests on candidate code: none selected (only the tests declared in modified, deleted or renamed Go test files are considered)." {
+	if line := baseTestsLine(r.BaseTests); line != "Changed baseline tests on candidate code: none selected (only the tests declared in modified, deleted or renamed Go, TypeScript or JavaScript test files are considered)." {
 		t.Fatalf("stdout line %q", line)
 	}
 	// A changed test file that cannot be analyzed is not "nothing selected".

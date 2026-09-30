@@ -58,7 +58,7 @@ func TestRejectInvalidPolicy(t *testing.T) {
 // its profile destination must be unambiguous: the token the operator wrote is
 // expanded in place, exactly once, and no flag is ever appended behind it.
 func TestRejectInvalidCoverageCommand(t *testing.T) {
-	const tokenReason = "command coverage must write its profile to {coverage_out}"
+	const tokenReason = "command coverage must write its profile to {coverage_out} or its LCOV report into {coverage_dir}, exactly once"
 	for name, tc := range map[string]struct{ policy, want string }{
 		"no token": {
 			`{"version":1,"commands":{"coverage":["go","test","./..."]}}`, tokenReason},
@@ -66,6 +66,12 @@ func TestRejectInvalidCoverageCommand(t *testing.T) {
 			`{"version":1,"commands":{"coverage":["go","test","-coverprofile={coverage_out}{coverage_out}","./..."]}}`, tokenReason},
 		"token in two arguments": {
 			`{"version":1,"commands":{"coverage":["go","test","-coverprofile={coverage_out}","-o","{coverage_out}","./..."]}}`, tokenReason},
+		"file and directory tokens": {
+			`{"version":1,"commands":{"coverage":["npx","--no","vitest","run","--coverage.reportsDirectory={coverage_dir}","-o={coverage_out}"]}}`, tokenReason},
+		"directory token twice": {
+			`{"version":1,"commands":{"coverage":["npx","--no","jest","--coverageDirectory={coverage_dir}","{coverage_dir}"]}}`, tokenReason},
+		"directory token outside coverage": {
+			`{"version":1,"commands":{"test":["npx","--no","vitest","run","--coverage.reportsDirectory={coverage_dir}"]}}`, "{coverage_dir} may appear only in the coverage command"},
 		"empty argv": {
 			`{"version":1,"commands":{"coverage":[]}}`, "command coverage must be a nonempty argv array (at most 128 arguments)"},
 	} {
@@ -89,6 +95,19 @@ func TestAcceptCoverageCommand(t *testing.T) {
 		t.Fatalf("well-formed coverage command rejected: %v", err)
 	}
 	want := []string{"go", "test", "-covermode=count", "-coverprofile={coverage_out}", "./..."}
+	if !reflect.DeepEqual(got.Commands["coverage"], want) {
+		t.Fatalf("coverage argv decoded as %q, want %q", got.Commands["coverage"], want)
+	}
+}
+
+// An LCOV tool names its report directory; the argv is kept byte for byte.
+func TestAcceptCoverageDirCommand(t *testing.T) {
+	const policy = `{"version":1,"language":"typescript","commands":{"coverage":["npx","--no","vitest","run","--coverage.enabled","--coverage.reporter=lcovonly","--coverage.reportsDirectory={coverage_dir}"]}}`
+	got, err := Decode([]byte(policy))
+	if err != nil {
+		t.Fatalf("well-formed LCOV coverage command rejected: %v", err)
+	}
+	want := []string{"npx", "--no", "vitest", "run", "--coverage.enabled", "--coverage.reporter=lcovonly", "--coverage.reportsDirectory={coverage_dir}"}
 	if !reflect.DeepEqual(got.Commands["coverage"], want) {
 		t.Fatalf("coverage argv decoded as %q, want %q", got.Commands["coverage"], want)
 	}

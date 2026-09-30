@@ -70,9 +70,11 @@ const (
 	// baseTestDirFailed is the reason of a test whose package directory could
 	// not be reverted in the hybrid tree. Only that unit is affected.
 	baseTestDirFailed = "not run: the baseline test files of this package directory could not be restored in the hybrid tree"
+	// baseTestFileFailed is baseTestDirFailed for a TS/JS test file.
+	baseTestFileFailed = "not run: the baseline version of this test file could not be restored in the hybrid tree"
 	// baseTestTemplateReason is the section reason for a generated_test
 	// command that cannot establish which Go tests ran.
-	baseTestTemplateReason = "the generated_test command cannot establish which Go tests ran; configure it as go test {package}"
+	baseTestTemplateReason = "the generated_test command cannot establish which tests ran; configure it as go test {package}, or as a Vitest or Jest command that runs {file} and writes its JSON report to {results_out}"
 )
 
 // baseTestNamePattern is what a selected name must look like: a Go test
@@ -119,7 +121,8 @@ func (h *Harness) RunBaseTests(ctx context.Context, selected []model.BaseTest) (
 		return result, nil
 	}
 	h.baseTests.calls++
-	if reason := h.baseTestsUnavailable(); reason != "" {
+	runner := existingRunnerFor(h.opts.Commands["generated_test"])
+	if reason := h.baseTestsUnavailable(runner); reason != "" {
 		result.Reason = reason
 		for i := range tests {
 			markBaseTest(tests, i, "not run: "+reason)
@@ -127,7 +130,7 @@ func (h *Harness) RunBaseTests(ctx context.Context, selected []model.BaseTest) (
 		h.auditBaseTests(started, map[string]any{"tests": len(tests), "reason": reason}, "SKIPPED")
 		return result, nil
 	}
-	units := h.planBaseTestUnits(tests)
+	units := h.planBaseTestUnits(tests, runner)
 	if len(units) == 0 {
 		result.Reason = baseTestNothingRan
 		h.auditBaseTests(started, map[string]any{"tests": len(tests), "reason": baseTestNothingRan}, "SKIPPED")
@@ -165,12 +168,12 @@ func (h *Harness) RunBaseTests(ctx context.Context, selected []model.BaseTest) (
 		}
 		var kept []baseTestUnit
 		for _, u := range units {
-			if _, failed := failedDirs[u.dir]; !failed {
+			if _, failed := failedDirs[u.revertKey()]; !failed {
 				kept = append(kept, u)
 				continue
 			}
 			for _, i := range u.items {
-				markBaseTest(tests, i, baseTestDirFailed)
+				markBaseTest(tests, i, u.revertFailure())
 			}
 		}
 		if units = kept; len(units) == 0 {
@@ -178,7 +181,7 @@ func (h *Harness) RunBaseTests(ctx context.Context, selected []model.BaseTest) (
 			return result, nil
 		}
 	}
-	run := &baseTestRun{h: h, ctx: ctx, hybrid: hybrid, ceiling: h.baseTestsCeiling()}
+	run := &baseTestRun{h: h, ctx: ctx, hybrid: hybrid, ceiling: h.baseTestsCeiling(), runner: runner}
 	for n, u := range units {
 		if reason := run.stopReason(); reason != "" {
 			for _, rest := range units[n:] {
@@ -202,13 +205,13 @@ func (h *Harness) RunBaseTests(ctx context.Context, selected []model.BaseTest) (
 }
 
 // baseTestsUnavailable returns why the stage cannot run at all, or "".
-func (h *Harness) baseTestsUnavailable() string {
+func (h *Harness) baseTestsUnavailable(runner existingRunner) string {
 	switch {
 	case h.closed:
 		return "the harness is closed"
 	case h.base == "":
 		return "no baseline snapshot is available"
-	case !verifiableGoTemplate(h.opts.Commands["generated_test"]):
+	case runner == "":
 		return baseTestTemplateReason
 	}
 	return ""
@@ -245,6 +248,7 @@ func (h *Harness) auditBaseTests(started time.Time, arguments map[string]any, st
 // baseTestMaxNames names.
 type baseTestUnit struct {
 	dir    string   // package directory, slash-separated ("." for the root)
+	file   string   // the TS/JS test file reverted in the hybrid tree; "" for Go
 	target string   // path substituted into the generated_test template
 	names  []string // sorted, unique
 	items  []int    // indexes of the tests of these names, ascending
@@ -252,7 +256,7 @@ type baseTestUnit struct {
 
 // planBaseTestUnits groups the tests that can run into units and marks the
 // others UNVERIFIED with their reason. Caller holds h.mu.
-func (h *Harness) planBaseTestUnits(tests []model.BaseTest) []baseTestUnit {
+func (h *Harness) planBaseTestUnits(tests []model.BaseTest, runner existingRunner) []baseTestUnit {
 	byFile := baseTestFileTemplate(h.opts.Commands["generated_test"])
 	type group struct {
 		dir, target string
@@ -261,7 +265,7 @@ func (h *Harness) planBaseTestUnits(tests []model.BaseTest) []baseTestUnit {
 	groups := map[string]*group{}
 	var keys []string
 	for i, t := range tests {
-		if reason := h.baseTestPrecheck(t); reason != "" {
+		if reason := h.baseTestPrecheck(t, runner); reason != "" {
 			markBaseTest(tests, i, reason)
 			continue
 		}
@@ -295,6 +299,9 @@ func (h *Harness) planBaseTestUnits(tests []model.BaseTest) []baseTestUnit {
 		for start := 0; start < len(names); start += baseTestMaxNames {
 			end := min(start+baseTestMaxNames, len(names))
 			u := baseTestUnit{dir: g.dir, target: g.target, names: append([]string(nil), names[start:end]...)}
+			if runner.jest() {
+				u.file = g.target
+			}
 			for _, name := range u.names {
 				u.items = append(u.items, byName[name]...)
 			}
@@ -329,8 +336,12 @@ func baseTestFileTemplate(command []string) bool {
 
 // baseTestPrecheck returns why a selected test cannot run, or "". Caller
 // holds h.mu.
-func (h *Harness) baseTestPrecheck(t model.BaseTest) string {
-	if !baseTestNamePattern.MatchString(t.Name) || !isGoTestName(t.Name) || !strings.HasSuffix(t.Path, "_test.go") {
+func (h *Harness) baseTestPrecheck(t model.BaseTest, runner existingRunner) string {
+	if runner.jest() {
+		if !ValidJSTestName(t.Name) || !ScriptTestPath(t.Path) {
+			return "not run: not a TypeScript or JavaScript test of a TypeScript or JavaScript test file"
+		}
+	} else if !baseTestNamePattern.MatchString(t.Name) || !isGoTestName(t.Name) || !strings.HasSuffix(t.Path, "_test.go") {
 		return "not run: not a Go test function of a Go test file"
 	}
 	p, err := safePath(h.base, t.Path)
@@ -339,6 +350,12 @@ func (h *Harness) baseTestPrecheck(t model.BaseTest) string {
 	}
 	if info, err := os.Lstat(p); err != nil || !info.Mode().IsRegular() {
 		return "not run: the baseline test file is not in the baseline snapshot"
+	}
+	if runner.jest() {
+		// A TS/JS test file imports the code it tests by path; a candidate
+		// that moved that code makes the file fail to load, which the
+		// report of the hybrid run records.
+		return ""
 	}
 	dir := path.Dir(t.Path)
 	if baseTestHasCode(h.base, dir) && !baseTestHasCode(h.candidate, dir) {
@@ -378,11 +395,15 @@ func baseTestHasCode(root, dir string) bool {
 // FailedDirs lists the directories whose revert failed: none of their tests
 // ran, and their entries record what was done before the failure.
 type baseTestManifest struct {
-	Schema     string                  `json:"schema"`
-	Dirs       []string                `json:"dirs"`
-	FailedDirs []string                `json:"failed_dirs"`
-	Entries    []baseTestManifestEntry `json:"entries"`
-	Truncated  bool                    `json:"truncated"`
+	Schema     string   `json:"schema"`
+	Dirs       []string `json:"dirs"`
+	FailedDirs []string `json:"failed_dirs"`
+	// Files and FailedFiles are the TS/JS test files reverted, each with its
+	// snapshot file; they are absent for Go tests.
+	Files       []string                `json:"files,omitempty"`
+	FailedFiles []string                `json:"failed_files,omitempty"`
+	Entries     []baseTestManifestEntry `json:"entries"`
+	Truncated   bool                    `json:"truncated"`
 }
 
 // baseTestManifestEntry is one file removed from the candidate copy or
@@ -416,17 +437,31 @@ func (h *Harness) buildBaseTestHybrid(units []baseTestUnit) (string, func(), []b
 	m := baseTestManifest{Schema: "probe-base-tests-hybrid/v1", Dirs: []string{}, FailedDirs: []string{}, Entries: []baseTestManifestEntry{}}
 	seen := map[string]bool{}
 	for _, u := range units {
-		if !seen[u.dir] {
-			seen[u.dir] = true
+		switch {
+		case seen[u.revertKey()]:
+		case u.file != "":
+			m.Files = append(m.Files, u.file)
+		default:
 			m.Dirs = append(m.Dirs, u.dir)
 		}
+		seen[u.revertKey()] = true
 	}
 	sort.Strings(m.Dirs)
+	sort.Strings(m.Files)
 	failed := map[string]string{}
+	fail := func(key string, err error) {
+		failed[key] = baseTestErrorText(err, [2]string{dir, "(hybrid tree)"}, [2]string{h.base, "(baseline snapshot)"}, [2]string{h.root, "(harness directory)"})
+	}
 	for _, d := range m.Dirs {
 		if err := baseTestRevertDir(h.base, dir, d, &m); err != nil {
-			failed[d] = baseTestErrorText(err, [2]string{dir, "(hybrid tree)"}, [2]string{h.base, "(baseline snapshot)"}, [2]string{h.root, "(harness directory)"})
+			fail(d, err)
 			m.FailedDirs = append(m.FailedDirs, d)
+		}
+	}
+	for _, f := range m.Files {
+		if err := baseTestRevertFile(h.base, dir, f, &m); err != nil {
+			fail(f, err)
+			m.FailedFiles = append(m.FailedFiles, f)
 		}
 	}
 	data, err := json.Marshal(m)
@@ -655,9 +690,10 @@ type baseTestRun struct {
 	ctx      context.Context
 	hybrid   string
 	ceiling  time.Duration
-	spent    time.Duration // time of the stage's runs that were not replays
-	executed bool          // at least one run was not SKIPPED
-	skipped  string        // the recorded text of the first SKIPPED run
+	spent    time.Duration  // time of the stage's runs that were not replays
+	executed bool           // at least one run was not SKIPPED
+	skipped  string         // the recorded text of the first SKIPPED run
+	runner   existingRunner // the verifier of the generated_test template
 }
 
 // stopReason returns why no further run may start, or "".
@@ -681,7 +717,7 @@ func (r *baseTestRun) stopReason() string {
 // not depend on how long the stage's earlier runs took (runOptions.remaining).
 func (r *baseTestRun) exec(kind, dir string, command []string, live bool) model.Check {
 	started := time.Now()
-	c, _, _ := r.h.runWithOptions(r.ctx, kind, dir, command, runOptions{timeout: baseTestSubCap, remaining: baseTestSubCap - r.spent, ceiling: r.ceiling, live: live})
+	c := r.runner.run(r.h, r.ctx, kind, dir, command, runOptions{timeout: baseTestSubCap, remaining: baseTestSubCap - r.spent, ceiling: r.ceiling, live: live})
 	if !c.Replayed() {
 		r.spent += time.Since(started)
 	}
@@ -728,7 +764,7 @@ func (r *baseTestRun) unit(u baseTestUnit, tests []model.BaseTest) {
 		if !ok || v.status != model.StatusUnverified || !baseTestCompletedFail(v.hybrid) {
 			continue
 		}
-		if action, _ := GoTestOutcome(v.hybrid.Output, n); action == "pass" {
+		if r.runner.outcome(v.hybrid, u.target, n) == "pass" {
 			retry = append(retry, n)
 		}
 	}
@@ -785,12 +821,12 @@ func (r *baseTestRun) unit(u baseTestUnit, tests []model.BaseTest) {
 		}
 		e := h.appendEvidence(model.Evidence{
 			Kind:        model.EvidenceBaseTestDifferential,
-			Description: baseTestDescription(tests[i], u.dir),
+			Description: baseTestDescription(tests[i], u),
 			Path:        tests[i].Path,
 			CheckID:     v.hybrid.ID,
 			BaseCheckID: v.base.ID,
 			Status:      v.status,
-			Runner:      RunnerGo,
+			Runner:      r.runner.evidenceRunner(),
 			TestNames:   []string{name},
 		})
 		tests[i].EvidenceID, tests[i].Status, tests[i].Reason = e.ID, v.status, ""
@@ -825,12 +861,12 @@ func (r *baseTestRun) pair(u baseTestUnit, names []string, narrowBase bool, reco
 		markAll(names, func(string) string { return reason })
 		return verdicts, marks
 	}
-	command := selectGoTests(h.testCommand(u.target), names)
+	command := r.runner.command(h, u.target, names)
 	base := record(r.exec(model.CheckBaseTestBase, h.base, command, false))
 	if narrowBase && baseTestCompletedFail(base) {
 		var passed, other []string
 		for _, n := range names {
-			if action, _ := GoTestOutcome(base.Output, n); action == "pass" {
+			if r.runner.outcome(base, u.target, n) == "pass" {
 				passed = append(passed, n)
 			} else {
 				other = append(other, n)
@@ -838,18 +874,18 @@ func (r *baseTestRun) pair(u baseTestUnit, names []string, narrowBase bool, reco
 		}
 		if len(passed) > 0 && len(other) > 0 {
 			failed := base
-			markAll(other, func(n string) string { return baseTestBaselineReason(failed, n) })
+			markAll(other, func(n string) string { return r.baselineReason(failed, u.target, n) })
 			if reason := r.stopReason(); reason != "" {
 				markAll(passed, func(string) string { return reason })
 				return verdicts, marks
 			}
 			names = passed
-			command = selectGoTests(h.testCommand(u.target), names)
+			command = r.runner.command(h, u.target, names)
 			base = record(r.exec(model.CheckBaseTestBase, h.base, command, false))
 		}
 	}
 	if base.Status != "PASS" || base.ExitCode != 0 || base.Truncated {
-		markAll(names, func(n string) string { return baseTestBaselineReason(base, n) })
+		markAll(names, func(n string) string { return r.baselineReason(base, u.target, n) })
 		return verdicts, marks
 	}
 	// A test that did not pass on the baseline can only end UNVERIFIED, so a
@@ -857,13 +893,13 @@ func (r *baseTestRun) pair(u baseTestUnit, names []string, narrowBase bool, reco
 	// A unit with at least one passing test keeps the identical command.
 	anyPassed := false
 	for _, n := range names {
-		if action, _ := GoTestOutcome(base.Output, n); action == "pass" {
+		if r.runner.outcome(base, u.target, n) == "pass" {
 			anyPassed = true
 			break
 		}
 	}
 	if !anyPassed {
-		markAll(names, func(n string) string { return baseTestBaselineReason(base, n) })
+		markAll(names, func(n string) string { return r.baselineReason(base, u.target, n) })
 		return verdicts, marks
 	}
 	if reason := r.stopReason(); reason != "" {
@@ -873,7 +909,7 @@ func (r *baseTestRun) pair(u baseTestUnit, names []string, narrowBase bool, reco
 	hybrid := record(r.exec(model.CheckBaseTestHybrid, r.hybrid, command, false))
 	confirm := false
 	for _, n := range names {
-		s, reason := ClassifyExistingTest(base, hybrid, n)
+		s, reason := r.runner.classify(base, hybrid, u.target, n)
 		verdicts[n] = baseTestVerdict{s, reason, base, hybrid}
 		confirm = confirm || s == model.StatusFailsOnCandidate && base.Replayed()
 	}
@@ -887,7 +923,7 @@ func (r *baseTestRun) pair(u baseTestUnit, names []string, narrowBase bool, reco
 	reason := r.stopReason()
 	var live model.Check
 	if reason == "" {
-		live = h.settleReplayedGoBaseline(base, record(r.exec(model.CheckBaseTestBase, h.base, command, true)), names)
+		live = h.settleReplayedBaseline(base, record(r.exec(model.CheckBaseTestBase, h.base, command, true)), names, func(c model.Check, n string) string { return r.runner.outcome(c, u.target, n) })
 	}
 	for _, n := range names {
 		if verdicts[n].status != model.StatusFailsOnCandidate {
@@ -897,15 +933,15 @@ func (r *baseTestRun) pair(u baseTestUnit, names []string, narrowBase bool, reco
 			verdicts[n] = baseTestVerdict{model.StatusUnverified, "the baseline run was replayed from the execution cache and could not be repeated live (" + strings.TrimPrefix(reason, "not run: ") + ")", base, hybrid}
 			continue
 		}
-		s, why := ClassifyExistingTest(live, hybrid, n)
+		s, why := r.runner.classify(live, hybrid, u.target, n)
 		verdicts[n] = baseTestVerdict{s, why, live, hybrid}
 	}
 	return verdicts, marks
 }
 
-// baseTestBaselineReason says why a test got no candidate-side run after the
-// baseline run base.
-func baseTestBaselineReason(base model.Check, name string) string {
+// baselineReason says why the test name of the file p got no candidate-side
+// run after the baseline run base.
+func (r *baseTestRun) baselineReason(base model.Check, p, name string) string {
 	const tail = ", so it was not run on candidate code"
 	switch {
 	case base.Status == "SKIPPED":
@@ -917,13 +953,19 @@ func baseTestBaselineReason(base model.Check, name string) string {
 	case base.Truncated:
 		return fmt.Sprintf("the baseline log of %s was truncated (raise sandbox.max_output_bytes)%s", base.ID, tail)
 	}
-	switch action, _ := GoTestOutcome(base.Output, name); action {
+	switch r.runner.outcome(base, p, name) {
 	case "fail":
 		return fmt.Sprintf("the test failed on the baseline tree (%s)%s", base.ID, tail)
 	case "skip":
 		return fmt.Sprintf("the test was skipped on the baseline tree (%s)%s", base.ID, tail)
 	case "pass":
 		return fmt.Sprintf("the baseline run %s failed although this test passed in it%s", base.ID, tail)
+	}
+	if r.runner.jest() {
+		if base.Status == "FAIL" && r.runner.suiteFailure(base, p) {
+			return fmt.Sprintf("the baseline test file did not load or set up in %s%s", base.ID, tail)
+		}
+		return fmt.Sprintf("the baseline report of %s does not record exactly one result of this test in the entry of its file (for example its title is computed at run time)%s", base.ID, tail)
 	}
 	if base.Status == "FAIL" && goBuildFailure(base.Output) {
 		return fmt.Sprintf("the baseline package did not build or set up in %s%s", base.ID, tail)
@@ -932,7 +974,11 @@ func baseTestBaselineReason(base model.Check, name string) string {
 }
 
 // baseTestDescription is the evidence description of one test.
-func baseTestDescription(t model.BaseTest, dir string) string {
+func baseTestDescription(t model.BaseTest, u baseTestUnit) string {
+	if u.file != "" {
+		return truncateUTF8(Redact(fmt.Sprintf("Baseline version of %s from %s (%s), run on the baseline tree and on the candidate tree with the test file and its snapshot file reverted to the baseline.", t.Name, t.Path, BaseTestChangeText(t.Change))), 1024)
+	}
+	dir := u.dir
 	where := "of " + dir
 	if dir == "." {
 		where = "of the repository root"
@@ -953,4 +999,78 @@ func BaseTestChangeText(change string) string {
 		return "its file was deleted or renamed to a non-test file"
 	}
 	return "changed"
+}
+
+// revertKey names what the hybrid tree reverts for the unit: its TS/JS test
+// file, or its Go package directory.
+func (u baseTestUnit) revertKey() string {
+	if u.file != "" {
+		return u.file
+	}
+	return u.dir
+}
+
+// revertFailure is the reason of the unit's tests when its revert failed.
+func (u baseTestUnit) revertFailure() string {
+	if u.file != "" {
+		return baseTestFileFailed
+	}
+	return baseTestDirFailed
+}
+
+// baseTestSnapshotPath is the snapshot file Jest and Vitest keep for the
+// test file p by default: __snapshots__/<name>.snap next to it.
+func baseTestSnapshotPath(p string) string {
+	return path.Join(path.Dir(p), "__snapshots__", path.Base(p)+".snap")
+}
+
+// baseTestRevertFile makes the TS/JS test file p of the hybrid tree, and its
+// snapshot file, the baseline's: the candidate entries at those paths are
+// removed, whatever their type, and the baseline's regular files copied. A
+// test file imports what it tests by path, so the rest of the candidate tree,
+// helpers and fixtures included, stays the candidate's. Every removed and
+// restored file is recorded in the manifest.
+func baseTestRevertFile(base, hybrid, p string, m *baseTestManifest) error {
+	for _, rel := range []string{p, baseTestSnapshotPath(p)} {
+		src, err := safePath(base, rel)
+		if err != nil {
+			return err
+		}
+		info, err := os.Lstat(src)
+		switch {
+		case err == nil && info.Mode().IsRegular():
+		case rel == p && err == nil:
+			return fmt.Errorf("the baseline test file %s is not a regular file", rel)
+		case rel != p && (err == nil || os.IsNotExist(err)):
+			// No baseline snapshot: a candidate snapshot is removed, so that
+			// the baseline test writes its own instead of comparing with it.
+			info = nil
+		default:
+			return err
+		}
+		if info == nil {
+			target, err := safePath(hybrid, rel)
+			if err != nil {
+				return err
+			}
+			if err := baseTestRemove(target, rel, m); err != nil {
+				return err
+			}
+			continue
+		}
+		hybridDir, err := baseTestEnsureDir(hybrid, path.Dir(rel), m)
+		if err != nil {
+			return err
+		}
+		target := filepath.Join(hybridDir, path.Base(rel))
+		if err := baseTestRemove(target, rel, m); err != nil {
+			return err
+		}
+		sum, err := baseTestCopyFile(src, target)
+		if err != nil {
+			return err
+		}
+		m.add(rel, "restored_from_baseline", sum)
+	}
+	return nil
 }

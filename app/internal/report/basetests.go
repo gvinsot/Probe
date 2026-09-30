@@ -26,7 +26,7 @@ const (
 	// or a reason.
 	baseTestNoResultText = "no recorded run pair gave this test a result"
 	// baseTestsNoneSelectedText is the text of a no_candidates section.
-	baseTestsNoneSelectedText = "No test was selected, so no baseline version was re-run. Only the tests declared in modified, deleted or renamed Go test files are considered; this says nothing about any other test."
+	baseTestsNoneSelectedText = "No test was selected, so no baseline version was re-run. Only the tests declared in modified, deleted or renamed Go, TypeScript or JavaScript test files are considered; this says nothing about any other test."
 	// baseTestsIntentText is rendered when an intent was supplied.
 	baseTestsIntentText = "Intent was supplied; Probe does not decide whether a behavior change matches it."
 	// maxPassesShown caps the PASSES_ON_CANDIDATE lines of the Markdown
@@ -64,9 +64,19 @@ func verifyBaseTests(r *model.Report, l *ledger) map[string]string {
 }
 
 // baseTestEvidenceStatus is the status the recorded checks of one
-// base_test_differential record support, or "".
+// base_test_differential record support, or "". A go_test_json record is
+// classified from go test -json events, a jest_json record (a TS/JS test
+// run by a Vitest or Jest template on its own file) from the two recorded
+// JSON reports.
 func baseTestEvidenceStatus(e model.Evidence, l *ledger) string {
-	if e.Runner != harness.RunnerGo || len(e.TestNames) != 1 || !verifiableNames(e.TestNames) || e.Path == "" || !verifiableText(e.Path) {
+	if len(e.TestNames) != 1 || !verifiableNames(e.TestNames) || e.Path == "" || !verifiableText(e.Path) {
+		return ""
+	}
+	jest := e.Runner == harness.RunnerJest
+	switch {
+	case e.Runner != harness.RunnerGo && !jest:
+		return ""
+	case jest && (!harness.ValidJSTestName(e.TestNames[0]) || !harness.ScriptTestPath(e.Path)):
 		return ""
 	}
 	base, baseOK := l.check(e.BaseCheckID)
@@ -74,10 +84,15 @@ func baseTestEvidenceStatus(e model.Evidence, l *ledger) string {
 	if !baseOK || !hybridOK || base.Kind != model.CheckBaseTestBase || hybrid.Kind != model.CheckBaseTestHybrid || hybrid.Replayed() {
 		return ""
 	}
-	if !baseTestCommandTargets(base.Command, e.Path) {
+	if jest && !scriptCommandTargets(base.Command, e.Path) || !jest && !baseTestCommandTargets(base.Command, e.Path) {
 		return ""
 	}
-	switch status, _ := harness.ClassifyExistingTest(base, hybrid, e.TestNames[0]); {
+	status, _ := harness.ClassifyExistingTest(base, hybrid, e.TestNames[0])
+	if jest {
+		// The hybrid tree holds the baseline test file at its baseline path.
+		status, _ = harness.ClassifyExistingJestTest(base, hybrid, e.Path, e.TestNames[0])
+	}
+	switch {
 	case status == model.StatusFailsOnCandidate && positiveBaseline(base):
 		return model.StatusFailsOnCandidate
 	case status == model.StatusPassesOnCandidate && negativeBaseline(base):
@@ -118,7 +133,7 @@ func finalizeBaseTests(r *model.Report, l *ledger) bool {
 	if b.Tests == nil {
 		b.Tests = []model.BaseTest{}
 	}
-	b.Note = model.BaseTestsNote
+	b.Note = model.BaseTestsNoteFor(b.Tests)
 	needsHuman := b.Status == model.BaseTestsNotRun
 	for i := range b.Tests {
 		t := &b.Tests[i]
@@ -213,7 +228,7 @@ func writeBaseTests(b *bytes.Buffer, r *model.Report) {
 		}
 		fmt.Fprintf(b, "Not run: %s.\n", inline(reason))
 	default:
-		fmt.Fprintf(b, "%d baseline versions of changed Go tests selected: %d %s, %d %s, %d %s.\n", len(s.Tests), fails, inline(model.StatusFailsOnCandidate), passes, inline(model.StatusPassesOnCandidate), other, inline(model.StatusUnverified))
+		fmt.Fprintf(b, "%d baseline versions of changed %s selected: %d %s, %d %s, %d %s.\n", len(s.Tests), baseTestsKind(s.Tests), fails, inline(model.StatusFailsOnCandidate), passes, inline(model.StatusPassesOnCandidate), other, inline(model.StatusUnverified))
 	}
 	if len(s.Tests) > 0 {
 		evidence := map[string]model.Evidence{}
@@ -246,7 +261,7 @@ func writeBaseTests(b *bytes.Buffer, r *model.Report) {
 			line(b, baseTestLine(t, evidence))
 		}
 	}
-	fmt.Fprintf(b, "\n%s\n", inline(model.BaseTestsNote))
+	fmt.Fprintf(b, "\n%s\n", inline(model.BaseTestsNoteFor(s.Tests)))
 	if r.Intent != "" {
 		fmt.Fprintf(b, "\n%s\n", inline(baseTestsIntentText))
 	}
@@ -264,11 +279,11 @@ func baseTestLine(t model.BaseTest, evidence map[string]model.Evidence) string {
 	}
 	switch t.Status {
 	case model.StatusFailsOnCandidate:
-		return fmt.Sprintf("- **%s** %s. It passed on the baseline tree and failed on the candidate tree with its package's test files reverted to the baseline%s; %s. One recorded run each: possibly a behavior change accompanied by a test edit, possibly flakiness, for a human to judge.",
-			inline(t.Status), head, checks, inline(t.EvidenceID))
+		return fmt.Sprintf("- **%s** %s. It passed on the baseline tree and failed on the candidate tree with %s reverted to the baseline%s; %s. One recorded run each: possibly a behavior change accompanied by a test edit, possibly flakiness, for a human to judge.",
+			inline(t.Status), head, baseTestReverted(t), checks, inline(t.EvidenceID))
 	case model.StatusPassesOnCandidate:
-		return fmt.Sprintf("- **%s** %s. It passed on the baseline tree and on the candidate tree with its package's test files reverted to the baseline%s; %s.",
-			inline(t.Status), head, checks, inline(t.EvidenceID))
+		return fmt.Sprintf("- **%s** %s. It passed on the baseline tree and on the candidate tree with %s reverted to the baseline%s; %s.",
+			inline(t.Status), head, baseTestReverted(t), checks, inline(t.EvidenceID))
 	}
 	reason := strings.TrimSuffix(strings.TrimSpace(t.Reason), ".")
 	if reason == "" {
@@ -279,4 +294,30 @@ func baseTestLine(t model.BaseTest, evidence map[string]model.Evidence) string {
 		suffix = "; " + inline(t.EvidenceID)
 	}
 	return fmt.Sprintf("- **%s** %s: %s%s.", inline(model.StatusUnverified), head, inline(reason), suffix)
+}
+
+// baseTestsKind names the tests a section lists: Go tests, TypeScript and
+// JavaScript tests, or both.
+func baseTestsKind(tests []model.BaseTest) string {
+	scripts := 0
+	for _, t := range tests {
+		if model.ScriptBaseTest(t) {
+			scripts++
+		}
+	}
+	switch scripts {
+	case 0:
+		return "Go tests"
+	case len(tests):
+		return "TypeScript/JavaScript tests"
+	}
+	return "Go, TypeScript and JavaScript tests"
+}
+
+// baseTestReverted says what the hybrid tree of a test reverted.
+func baseTestReverted(t model.BaseTest) string {
+	if model.ScriptBaseTest(t) {
+		return "its test file and snapshot file"
+	}
+	return "its package's test files"
 }

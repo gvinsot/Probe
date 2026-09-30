@@ -201,7 +201,7 @@ func TestRunImpactedTestsWithoutDocker(t *testing.T) {
 	if runImpactedTests(context.Background(), h, r, res, &errOut) {
 		t.Fatal("reported an operational failure")
 	}
-	if !strings.Contains(errOut.String(), "Running up to 2 of 2 selected unchanged Go tests that statically reach changed code on baseline and candidate") {
+	if !strings.Contains(errOut.String(), "Running up to 2 of 2 selected unchanged existing tests that statically reach changed code on baseline and candidate") {
 		t.Fatalf("progress line %q", errOut.String())
 	}
 	const skipped = "no run started: No Docker image configured; repository code was not executed."
@@ -242,7 +242,7 @@ func TestImpactedProgressLineStatesTheLimit(t *testing.T) {
 	h := stageHarness(t, repo, change, []string{"go", "test", "{package}"})
 	var errOut bytes.Buffer
 	runImpactedStage(context.Background(), h, &model.Report{Impact: im}, &errOut)
-	if !strings.Contains(errOut.String(), "Running up to 16 of 30 selected unchanged Go tests") {
+	if !strings.Contains(errOut.String(), "Running up to 16 of 30 selected unchanged existing tests") {
 		t.Fatalf("progress line %q", errOut.String())
 	}
 }

@@ -63,7 +63,7 @@ func runBaseTests(ctx context.Context, repo *gitrepo.Repository, change model.Ch
 		r.BaseTests = baseTestsSection(model.BaseTestsNoCandidates, "")
 		return false
 	}
-	fmt.Fprintf(errOut, "Running the baseline versions of %d changed Go tests on candidate code in isolated Docker sandboxes...\n", len(sel.Tests))
+	fmt.Fprintf(errOut, "Running the baseline versions of %d changed tests on candidate code in isolated Docker sandboxes...\n", len(sel.Tests))
 	section, err := h.RunBaseTests(ctx, sel.Tests)
 	r.BaseTests = &section
 	if err != nil {
@@ -125,7 +125,7 @@ func baseTestsLine(b *model.BaseTests) string {
 	switch b.Status {
 	case model.BaseTestsNoCandidates:
 		if reason == "" {
-			reason = "only the tests declared in modified, deleted or renamed Go test files are considered"
+			reason = "only the tests declared in modified, deleted or renamed Go, TypeScript or JavaScript test files are considered"
 		}
 		return "Changed baseline tests on candidate code: none selected (" + reason + ")."
 	case model.BaseTestsNotRun:

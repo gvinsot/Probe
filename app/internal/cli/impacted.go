@@ -162,7 +162,7 @@ func runImpactedStage(ctx context.Context, h *harness.Harness, r *model.Report, 
 	}
 	// The harness prechecks and limits decide what runs: at most
 	// ImpactedMaxTests tests from ImpactedMaxUnits units.
-	fmt.Fprintf(errOut, "Running up to %d of %d selected unchanged Go tests that statically reach changed code on baseline and candidate in isolated Docker sandboxes...\n", min(len(plan.tests), harness.ImpactedMaxTests), len(plan.tests))
+	fmt.Fprintf(errOut, "Running up to %d of %d selected unchanged existing tests that statically reach changed code on baseline and candidate in isolated Docker sandboxes...\n", min(len(plan.tests), harness.ImpactedMaxTests), len(plan.tests))
 	out := h.RunImpactedTests(ctx, plan.tests)
 	recordImpactedOutcome(r, plan, out)
 	return out.Errors > 0

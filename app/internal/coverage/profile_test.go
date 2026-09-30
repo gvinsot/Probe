@@ -25,7 +25,7 @@ func TestParseGoProfileModes(t *testing.T) {
 		"cobertura":       "<?xml version=\"1.0\"?><coverage line-rate=\"0.5\"></coverage>",
 	}
 	for name, body := range rejected {
-		if _, err := ParseGoProfile([]byte(body)); !errors.Is(err, ErrNotGo) {
+		if _, err := ParseGoProfile([]byte(body)); !errors.Is(err, ErrFormat) {
 			t.Fatalf("%s accepted as a Go profile: %v", name, err)
 		}
 	}

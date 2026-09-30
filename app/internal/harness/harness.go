@@ -236,28 +236,29 @@ func (h *Harness) RunCoverage(ctx context.Context) (model.Check, []byte, string,
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	started := time.Now()
-	command := append([]string(nil), h.opts.Commands[coverage.CommandKey]...)
-	for i, arg := range command {
-		command[i] = strings.ReplaceAll(arg, coverage.Placeholder, coverage.ProfilePath)
-	}
-	c, payload, truncated := h.runWith(ctx, coverage.CommandKey, h.candidate, command, coverage.ProfilePath)
+	command, capture := coverage.Expand(h.opts.Commands[coverage.CommandKey])
+	c, payload, truncated := h.runWith(ctx, coverage.CommandKey, h.candidate, command, capture)
 	h.audit = append(h.audit, model.AuditEvent{Time: started.UTC(), Tool: "run_" + coverage.CommandKey, Status: c.Status, DurationMS: time.Since(started).Milliseconds()})
 	if c.Status != "PASS" && c.Status != "FAIL" {
 		// Report the recorded status rather than paraphrase it: a TIMEOUT did run,
 		// and an ERROR can mean the command ran but its log could not be retained.
 		return c, nil, "", fmt.Sprintf("the coverage run did not complete (%s): %s", c.Status, truncateUTF8(strings.TrimSpace(c.Output), 200))
 	}
+	name := c.ID + "-coverage.out"
 	profile, err := coverage.DecodeFrame(payload, truncated)
 	if err == nil {
 		// Validate before labelling: an artifact recorded as a coverage profile
 		// must be one, or the evidence record contradicts the report.
-		_, err = coverage.ParseGoProfile(profile)
+		var parsed *coverage.Profile
+		if parsed, err = coverage.Parse(profile); err == nil && parsed.Format == coverage.FormatLCOV {
+			name = c.ID + "-coverage.lcov"
+		}
 	}
 	if err != nil {
 		h.rejectPayload(c.ID, payload)
 		return c, nil, "", err.Error()
 	}
-	if err := h.saveArtifact(c.ID+"-coverage.out", "coverage_profile", profile); err != nil {
+	if err := h.saveArtifact(name, "coverage_profile", profile); err != nil {
 		return c, nil, "", coverage.ErrArtifact.Error()
 	}
 	return c, profile, h.artifacts[len(h.artifacts)-1].SHA256, ""

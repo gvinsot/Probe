@@ -103,7 +103,7 @@ func (e *executor) runPackage(pkg string, from, to int) bool {
 	e.lastControl = duration(control)
 	// The control log is read once; every mutant of the package is classified
 	// against it.
-	ctl := NewControl(control)
+	ctl := NewControlFor(ScriptCommand(e.cfg.Command), control)
 	if why := ctl.Reason(); why != "" {
 		for k := from; k < to; k++ {
 			e.mutants[k].ControlCheckID, e.mutants[k].Reason = control.ID, why
@@ -240,10 +240,14 @@ func lines(src []byte, first, last int) []string {
 
 // survivorSignal is the medium review signal of one SURVIVED mutant.
 func survivorSignal(m model.Mutant, controlID string, c model.Check) model.Signal {
+	summary, text := survivorSummary, survivorText
+	if scriptPath(m.Path) {
+		summary, text = survivorScriptSummary, survivorScriptText
+	}
 	s := model.Signal{
 		Kind: model.SignalSurvivingMutant, Path: m.Path, Line: m.Line, Side: "new", Symbol: m.Symbol, Severity: "medium",
-		Summary:  survivorSummary,
-		Evidence: redact.Redact(fmt.Sprintf(survivorText, m.ID, m.Operator, m.Original, m.Mutated, controlID, c.ID, strings.Join(c.Command, " "), m.TestsRun, m.Package, m.PatchSHA256)),
+		Summary:  summary,
+		Evidence: redact.Redact(fmt.Sprintf(text, m.ID, m.Operator, m.Original, m.Mutated, controlID, c.ID, strings.Join(c.Command, " "), m.TestsRun, m.Package, m.PatchSHA256)),
 	}
 	if m.EndLine > m.Line {
 		s.EndLine = m.EndLine

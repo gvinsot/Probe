@@ -339,12 +339,12 @@ func TestNotMeasuredReasonsAreExact(t *testing.T) {
 		"no coverage profile was emitted by the coverage command",
 		"the coverage profile did not fit in the sandbox payload budget or was cut short; raise sandbox.max_output_bytes",
 		"the coverage payload channel carried unexpected output",
-		"the coverage profile is not a Go coverage profile; only Go coverage profiles are supported in this version",
+		"the coverage profile is neither a Go coverage profile nor an LCOV report; only these two formats are supported in this version",
 		"the coverage profile exceeded the parser bound of 200000 blocks",
 		"the module path could not be read from go.mod or go.work in the candidate snapshot",
 		"the coverage profile could not be retained as evidence",
 	}
-	got := []string{ErrNoProfile.Error(), ErrTruncated.Error(), ErrPolluted.Error(), ErrNotGo.Error(), ErrBlockLimit.Error(), ErrModulePath.Error(), ErrArtifact.Error()}
+	got := []string{ErrNoProfile.Error(), ErrTruncated.Error(), ErrPolluted.Error(), ErrFormat.Error(), ErrBlockLimit.Error(), ErrModulePath.Error(), ErrArtifact.Error()}
 	for i := range want {
 		if got[i] != want[i] {
 			t.Fatalf("reason %d:\n got %q\nwant %q", i, got[i], want[i])

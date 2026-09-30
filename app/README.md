@@ -77,11 +77,11 @@ Start with the flagged lines and the reason for each review target. These signal
 - Deduplicated review ranges with old/new coordinates and counts of actual changed lines.
 - Optional trusted dependency preparation (`prepare` policy object): the base branch's own command runs on inputs exported from the base commit, and its container becomes the local image for every check of the run ([dependency preparation](docs/PREPARE.md)).
 - An opt-in baseline execution cache (`--cache-dir`) and up to four initial checks at a time (`--parallel`); a replayed baseline run never supports a positive result ([execution cache](docs/EXECUTION_CACHE.md)).
-- Changed baseline tests (`--base-tests`): the baseline version of each Go test function the change modified or removed runs on baseline and candidate code, and a baseline pass with a candidate failure is reported as `FAILS_ON_CANDIDATE` for review, not as a defect ([changed baseline tests](docs/BASE_TESTS.md)).
+- Changed baseline tests (`--base-tests`): the baseline version of each Go test function (or TypeScript/JavaScript test, with a Vitest or Jest template) the change modified or removed runs on baseline and candidate code, and a baseline pass with a candidate failure is reported as `FAILS_ON_CANDIDATE` for review, not as a defect ([changed baseline tests](docs/BASE_TESTS.md)).
 - Impact analysis (`--impact`, on by default): a static index lists callers of changed functions and the existing tests that reach them, labelled approximate. Go packages are type-checked; TypeScript/JavaScript, Python and Rust sources are scanned lexically and calls are linked by name (`name` resolution). `--impacted-tests` runs the reaching Go tests on both revisions ([impact analysis](docs/IMPACT.md)).
-- Languages: Go, TypeScript/JavaScript, Python and Rust. `probe init` detects `go.mod`, `Cargo.toml`, `tsconfig.json`/`package.json` and `pyproject.toml`/`setup.py`/`requirements.txt`, and writes matching sandbox images and commands (`--language go|typescript|javascript|python|rust`). Coverage, mutation testing, changed baseline tests and impacted-test runs remain Go-only; fuzzing covers Go and TS/JS.
+- Languages: Go, TypeScript/JavaScript, Python and Rust. `probe init` detects `go.mod`, `Cargo.toml`, `tsconfig.json`/`package.json` and `pyproject.toml`/`setup.py`/`requirements.txt`, and writes matching sandbox images and commands (`--language go|typescript|javascript|python|rust`). Changed-line coverage reads a Go profile or an LCOV report (TypeScript/JavaScript through Vitest or Jest); changed baseline tests, impacted-test runs, fuzzing and mutation testing cover Go and TS/JS (TS/JS with Vitest or Jest).
 - Optional deterministic differential fuzzing (`fuzz` policy object): changed Go functions, and exported TypeScript/JavaScript functions read lexically, whose signature is unchanged run on identical seeded inputs on both revisions, without a model, and a confirmed difference is shown with both values ([differential fuzzing](docs/FUZZ.md)).
-- Optional mutation of added Go lines (`mutation` policy object): surviving mutants are reported for review, killed mutants are only counted, and no mutation score is computed ([mutation of added lines](docs/MUTATION.md)).
+- Optional mutation of added Go lines, or TypeScript/JavaScript lines with a Vitest or Jest command (`mutation` policy object): surviving mutants are reported for review, killed mutants are only counted, and no mutation score is computed ([mutation of added lines](docs/MUTATION.md)).
 - Observation experiments: a generated test may record values instead of asserting them, and a value that differs between revisions, after a live baseline repeat agreed with the first baseline run, is shown with both values as a behavior divergence for a human to judge ([observations](docs/OBSERVATIONS.md)).
 - Acceptance criteria from `--intent` or `--intent-file`: the reviewer may write a candidate-only test for one quoted criterion, and a failure is reported as `INTENT_TEST_FAILED`, apart from reproduced issues and without a baseline control ([intent criteria](docs/INTENT.md)).
 - Pre-change plans (`probe plan --intent-file FILE`, provider required): the model simulates the implementation read-only and submits a plan; Probe evaluates it with fixed rules (critical paths, callers and reaching tests, exported signatures, dependency manifests, new packages) into `PLAN.json` and `PLAN.md`, and `review --plan` / `lint --plan` report every file, exported signature, critical path or manifest the diff changes outside the plan. `review --plan` ends with a **plan gate**: no human review is required only when the re-assessed plan raised no category and was fully measured, the change conforms to it, the checks passed and nothing else in the report requests review; with `--ci` the gate is the exit code (0 or 2) ([plans, scope drift and the plan gate](docs/PLAN.md)).
@@ -98,8 +98,8 @@ probe review --base main --checks=false      # explicitly skip execution
 probe review main..HEAD                      # exact endpoints
 probe review main...HEAD                     # common ancestor to head
 probe review --base main --intent-file PR.md # acceptance criteria
-probe review --base main --base-tests        # baseline versions of changed Go tests
-probe review --base main --impacted-tests    # existing Go tests that reach changed functions
+probe review --base main --base-tests        # baseline versions of changed tests
+probe review --base main --impacted-tests    # existing tests that reach changed functions
 probe lint --base main --impact=false        # skip the static impact index
 probe review --base main --cache-dir "$HOME/.cache/probe" --parallel 2
 probe review --base main --deadline 25m      # overall bound for execution stages
@@ -117,11 +117,11 @@ probe review --help
 | Flag | Commands | Default | Effect |
 | --- | --- | --- | --- |
 | `--report-url URL` | review, lint, report | none | Links the full report from `PR_COMMENT.md`. Requires `pr-comment` in `--format` and an `https` URL. |
-| `--base-tests` | review | off | Runs the baseline versions of changed Go tests on candidate code. |
+| `--base-tests` | review | off | Runs the baseline versions of changed Go tests (or TypeScript/JavaScript tests, with a Vitest or Jest template) on candidate code. |
 | `--fuzz` | review | on | `--fuzz=false` skips differential fuzzing configured in policy. |
 | `--impact` | lint, review | on | `--impact=false` skips the static impact index. |
 | `--plan FILE` | lint, review | none | Checks the diff against the contract of a PLAN.json written by `probe plan` and adds the `plan_drift` section ([plans and scope drift](docs/PLAN.md)). |
-| `--impacted-tests` | review | off | Runs the existing Go tests that reach changed functions on both revisions. |
+| `--impacted-tests` | review | off | Runs the existing Go tests (or TypeScript/JavaScript tests, with a Vitest or Jest template) that reach changed functions on both revisions. |
 | `--cache-dir DIR` | review | none: no cache | Enables the baseline execution cache in DIR, which must be outside the repository and the report directory. |
 | `--parallel N` | review | 1 | Runs up to N (at most 4) initial checks at a time. The runtime budget is unchanged. |
 | `--allow-prepare-network` | review | off | Lets the policy's `prepare` command use the network, only if the policy also enables it. |
@@ -182,6 +182,22 @@ Probe expands `{coverage_out}` to the in-container profile path and never append
 The coverage command runs **after the other configured checks and in addition to** `test`, before the v0.4 evidence stages and the reviewer, so it roughly doubles sandbox time against `sandbox.max_runtime_seconds`; raise that budget before enabling it. An existing `.probe.json` does **not** acquire the key automatically: `init` refuses to overwrite an existing file, and policy decoding starts from an empty command map rather than merging the defaults. Add the key by hand, and read the release-ordering rule in [CI integration](docs/CI.md) first — an older pinned binary rejects the key with exit 3.
 
 Each added Go line in a changed non-test file is reported in exactly one of four states: **executed**, **not executed**, **not inside any instrumented block**, or **not measured**. Absent, truncated, unparsable or unmapped profile data is always reported as *not measured*, never as not executed. Executed means the line ran at least once; it does not mean the line is tested, asserted, correct or safe.
+
+#### TypeScript and JavaScript (LCOV)
+
+A coverage command may instead write an LCOV report. Put the token `{coverage_dir}` in its argv, exactly once and in place of `{coverage_out}`: Probe expands it to an empty in-container directory and reads the `lcov.info` file the tool writes there. The format is recognized from the report itself, and `coverage.format` records it (`go` or `lcov`).
+
+```json
+{
+  "commands": {
+    "coverage": ["vitest", "run", "--coverage.enabled", "--coverage.reporter=lcovonly", "--coverage.reportsDirectory={coverage_dir}"]
+  }
+}
+```
+
+For Jest: `["npx", "--no", "--", "jest", "--coverage", "--coverageReporters=lcovonly", "--coverageDirectory={coverage_dir}"]`. Keep the `--` after `npx --no`: without an argument after `jest`, npx takes Jest's options as its own and Jest runs without coverage. Another tool that writes `lcov.info` into a directory it is given can be used the same way. Vitest needs the `@vitest/coverage-v8` (or `@vitest/coverage-istanbul`) package in the image; `probe init --language typescript` does not write a coverage command, since the stock Node image has none.
+
+An LCOV report measures the added lines of changed TypeScript and JavaScript sources (`.ts`, `.tsx`, `.mts`, `.cts`, `.js`, `.jsx`, `.mjs`, `.cjs`), except declaration files, minified bundles, test files (`*.test.*`, `*.spec.*`, `__tests__/`) and `node_modules`; a Go profile measures only Go files, so one measurement never reports the other language's lines as not measured. Verdicts are line-granular: a line the report has no line entry for is *not inside any instrumented block*. Paths are matched as the report writes them, relative to the repository root (the default of Istanbul-based tools run from `/workspace`) or as `/workspace/<path>`. A report whose paths are relative to a subdirectory, for example a Vitest `--root web`, leaves every file *not measured*: run the command from the repository root. A file absent from the report is *not measured*; with Vitest's default `coverage.include`, that is every source no test loaded. A whole-repository report must fit in `sandbox.max_output_bytes`; narrow `coverage.include` otherwise. A binary before this release rejects `{coverage_dir}` with exit 3, so read the [release ordering](docs/CI.md#release-ordering-for-v04) rule first.
 
 ## Optional AI investigation
 
@@ -389,7 +405,7 @@ Opt-in with `--cache-dir DIR`, review only. A baseline-side run (a check kind en
 - `PASSES_ON_CANDIDATE`: it passed in both runs. This does not show that behavior is preserved or that the edited test is equivalent.
 - `UNVERIFIED`: no result was drawn, for example because the baseline test does not compile against the candidate code after an API change.
 
-Selection is static (Go syntax; comment and layout edits select nothing unless they change a build constraint or a compiler directive). The `generated_test` template must be a verifiable Go template such as `["go", "test", "{package}"]`, and the stage has a 180 s sub-cap inside the shared runtime budget. It never produces exit 1: `FAILS_ON_CANDIDATE`, `UNVERIFIED` and a stage that did not run request review (exit 2 with `--ci`). In `lint` and `review`, lexical signals flag risky test edits in Go, JavaScript/TypeScript and Python (`test_assertion_removed`, `test_case_removed`, `test_skip_added`, `test_expectation_relaxed`, and the high `test_focus_added`); they are heuristics, never evidence. See [changed baseline tests](docs/BASE_TESTS.md).
+Selection is static (Go syntax; comment and layout edits select nothing unless they change a build constraint or a compiler directive). The `generated_test` template must be a verifiable Go template such as `["go", "test", "{package}"]`, and the stage has a 180 s sub-cap inside the shared runtime budget. It never produces exit 1: `FAILS_ON_CANDIDATE`, `UNVERIFIED` and a stage that did not run request review (exit 2 with `--ci`). In `lint` and `review`, lexical signals flag risky test edits in Go, JavaScript/TypeScript and Python (`test_assertion_removed`, `test_case_removed`, `test_skip_added`, `test_expectation_relaxed`, and the high `test_focus_added`); they are heuristics, never evidence. With a Vitest or Jest template, the `test()` and `it()` calls of changed TypeScript and JavaScript test files are selected the same way, and their hybrid tree reverts only the test file and its snapshot file ([TypeScript and JavaScript tests](docs/BASE_TESTS.md#typescript-and-javascript-tests)). See [changed baseline tests](docs/BASE_TESTS.md).
 <!-- F3:end -->
 
 <!-- F6:begin -->
@@ -397,7 +413,7 @@ Selection is static (Go syntax; comment and layout edits select nothing unless t
 
 `lint` and `review` build a static index of the repository's own Go packages from committed Git objects, on the host, without running repository code or loading imports from outside the repository; `--impact=false` disables it. For each changed Go function or method, the report lists its callers in unchanged, non-test code (resolution `static`, or `interface` for possible dispatch) and the existing Go tests that reach it within 3 references. Callers become low `impacted_caller` review targets, at most 10 per function and 100 per run, and one medium `analysis_limited` signal states what was left out or why the index is limited. The reviewer's `find_references`, `inspect_symbol` and `find_callers` answer from the index and fall back to lexical search. Everything here is approximate: an absent caller is not proof that none exists, and a reaching test is not evidence that it asserts the changed behavior. See [impact analysis](docs/IMPACT.md).
 
-With `review --impacted-tests`, the listed reaching tests whose file the change did not modify (at most 16, from at most 4 packages) run on the baseline and on the candidate with the verifiable `generated_test` template, inside a 180 s sub-cap. Each test gets one `impacted_test_differential` evidence record: `FAILS_ON_CANDIDATE` (it passed on the baseline and failed on the candidate, one recorded run each), `PASSES_ON_CANDIDATE` or `UNVERIFIED`. A failure is an outcome difference for a human to judge, not a reproduced issue: the static link is approximate, and the failure may come from any part of the change or from flakiness. `FAILS_ON_CANDIDATE`, `UNVERIFIED`, a selected test without a result (including tests over the limits) and a stage that did not run request review (exit 2 with `--ci`), never exit 1, and add no signal kind. See [impacted tests](docs/IMPACT.md#impacted-tests---impacted-tests).
+With `review --impacted-tests`, the listed reaching tests whose file the change did not modify (at most 16, from at most 4 packages or test files) run on the baseline and on the candidate with the verifiable `generated_test` template, inside a 180 s sub-cap: Go tests with a `go test {package}` template, TypeScript and JavaScript tests with a Vitest or Jest template, whose JSON reports then record each test's result. Each test gets one `impacted_test_differential` evidence record: `FAILS_ON_CANDIDATE` (it passed on the baseline and failed on the candidate, one recorded run each), `PASSES_ON_CANDIDATE` or `UNVERIFIED`. A failure is an outcome difference for a human to judge, not a reproduced issue: the static link is approximate, and the failure may come from any part of the change or from flakiness. `FAILS_ON_CANDIDATE`, `UNVERIFIED`, a selected test without a result (including tests over the limits) and a stage that did not run request review (exit 2 with `--ci`), never exit 1, and add no signal kind. See [impacted tests](docs/IMPACT.md#impacted-tests---impacted-tests).
 <!-- F6:end -->
 
 <!-- F2:begin -->
@@ -421,7 +437,7 @@ With a `mutation` object in the trusted base-branch policy, `review` makes deter
 "mutation": { "command": ["go", "test", "-json", "-count=1", "-failfast", "{package}"], "max_mutants": 20, "timeout_seconds": 60, "max_runtime_seconds": 300 }
 ```
 
-A mutant with which no test that the command ran for its package failed (`SURVIVED`) becomes a medium `surviving_mutant` signal with its patch retained; it may be semantically equivalent and is not a defect. Killed mutants are counted, never listed. Mutation creates no evidence, never produces exit 1 and computes no score; an `incomplete` or `not_run` section requests review under `--ci`. See [mutation of added lines](docs/MUTATION.md).
+A mutant with which no test that the command ran for its package failed (`SURVIVED`) becomes a medium `surviving_mutant` signal with its patch retained; it may be semantically equivalent and is not a defect. Killed mutants are counted, never listed. Mutation creates no evidence, never produces exit 1 and computes no score; an `incomplete` or `not_run` section requests review under `--ci`. With a Vitest or Jest command (`{file}` and `{results_out}` instead of `{package}`), changed TypeScript and JavaScript sources are mutated instead, lexically, with one control run per source file and outcomes read from the JSON reports ([TypeScript and JavaScript](docs/MUTATION.md#typescript-and-javascript)). See [mutation of added lines](docs/MUTATION.md).
 <!-- F4:end -->
 
 <!-- F1:begin -->

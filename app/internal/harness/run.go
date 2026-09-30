@@ -27,6 +27,10 @@ type runOptions struct {
 	teeOverflow *bool         // set to true when the tee cap was hit
 	ledger      string        // "" -> h.checks, "check-N"; ledgerMutation -> h.mutationChecks, "mutation-check-N", artifact kind mutation_check_output
 	live        bool          // never served from the execution cache; write-through still allowed (§1.11)
+	// reportOptional keeps the status of a run whose JSON report is missing or
+	// unreadable (runWithResultsOptions): the check records why and holds no
+	// Results, and its consumer classifies it as inconclusive.
+	reportOptional bool
 }
 
 // runOptions.remaining is what remains of a stage's sub-cap (§1.7.1 rule 3).

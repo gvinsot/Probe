@@ -108,7 +108,7 @@ func verifyMutation(r *model.Report) map[string]string {
 		}
 		ctl, ok := controls[mu.ControlCheckID]
 		if !ok {
-			ctl = mutation.NewControl(control)
+			ctl = mutation.NewControlFor(mutation.ScriptCommand(m.Command), control)
 			controls[mu.ControlCheckID] = ctl
 		}
 		v := ctl.Classify(run)
@@ -171,7 +171,7 @@ func finalizeMutation(r *model.Report, verified map[string]string) bool {
 		m.Checks = []model.Check{}
 	}
 	if m.Note == "" {
-		m.Note = model.MutationNote
+		m.Note = model.MutationNoteFor(m.Command)
 	}
 	for i := range m.Mutants {
 		mu := &m.Mutants[i]
@@ -215,6 +215,7 @@ const maxListedMutants = 20
 // inline(); no percentage and no score is written.
 func writeMutation(b *bytes.Buffer, r *model.Report) {
 	m := r.Mutation
+	terms := mutation.TermsFor(m.Command)
 	line(b, "\n## Mutation of Added Lines\n")
 	switch m.Status {
 	case model.MutationNotRun:
@@ -227,7 +228,7 @@ func writeMutation(b *bytes.Buffer, r *model.Report) {
 		fmt.Fprintf(b, "Status: %s. %s\n\n", inline(m.Status), inline(mutationOrNone(m.Reason)))
 	}
 	if len(m.Command) > 0 {
-		fmt.Fprintf(b, "Command: %s, run once per package with {package} expanded (max\\_mutants %d, timeout\\_seconds %d, max\\_runtime\\_seconds %d).\n\n", inline(strings.Join(m.Command, " ")), m.Limits.MaxMutants, m.Limits.TimeoutSeconds, m.Limits.MaxRuntimeSeconds)
+		fmt.Fprintf(b, "Command: %s, run %s (max\\_mutants %d, timeout\\_seconds %d, max\\_runtime\\_seconds %d).\n\n", inline(strings.Join(m.Command, " ")), inline(terms.Runs), m.Limits.MaxMutants, m.Limits.TimeoutSeconds, m.Limits.MaxRuntimeSeconds)
 	}
 	if m.Status != model.MutationNotRun || len(m.Mutants) > 0 {
 		coverageNote := ""
@@ -236,17 +237,17 @@ func writeMutation(b *bytes.Buffer, r *model.Report) {
 		}
 		fmt.Fprintf(b, "Candidate mutants on added lines: %d generated, %d selected, %d not run because of max\\_mutants%s.\n\n", m.Generated, len(m.Mutants), m.Dropped, coverageNote)
 		if len(m.Mutants) > 0 {
-			fmt.Fprintf(b, "Outcomes of the selected mutants: %d killed (counted, not listed), %d survived, %d did not build or pass go vet, %d timed out, %d inconclusive, %d not run.\n\n", m.Killed, m.Survived, m.Invalid, m.TimedOut, m.Inconclusive, m.NotRun)
+			fmt.Fprintf(b, "Outcomes of the selected mutants: %d killed (counted, not listed), %d survived, %d %s, %d timed out, %d inconclusive, %d not run.\n\n", m.Killed, m.Survived, m.Invalid, terms.Invalid, m.TimedOut, m.Inconclusive, m.NotRun)
 		}
 	}
 	if m.Survived > 0 {
-		line(b, "Surviving mutants (no test that the command ran for the package failed with the change; skipped tests are not counted):\n")
+		line(b, "Surviving mutants (no test that the command ran for "+terms.Unit+" failed with the change; skipped tests are not counted):\n")
 		for _, mu := range m.Mutants {
 			if mu.Status != model.MutantSurvived {
 				continue
 			}
-			fmt.Fprintf(b, "- **%s** %s at %s: replaced %s with %s; control check %s, mutant check %s; %d named tests passed in package %s; patch sha256 %s\n",
-				inline(mu.ID), inline(mu.Operator), mutantLocation(mu), inline(orEmpty(mu.Original)), inline(orEmpty(mu.Mutated)), inline(mu.ControlCheckID), inline(mu.CheckID), mu.TestsRun, inline(mu.Package), inline(mu.PatchSHA256))
+			fmt.Fprintf(b, "- **%s** %s at %s: replaced %s with %s; control check %s, mutant check %s; %d %s %s; patch sha256 %s\n",
+				inline(mu.ID), inline(mu.Operator), mutantLocation(mu), inline(orEmpty(mu.Original)), inline(orEmpty(mu.Mutated)), inline(mu.ControlCheckID), inline(mu.CheckID), mu.TestsRun, terms.PerUnit, inline(mu.Package), inline(mu.PatchSHA256))
 		}
 		line(b, "")
 	}
@@ -281,7 +282,7 @@ func writeMutation(b *bytes.Buffer, r *model.Report) {
 			continue
 		}
 		if listed == 0 {
-			line(b, "Changed Go files that were not mutated:\n")
+			line(b, "Changed files that were not mutated:\n")
 		}
 		listed++
 		fmt.Fprintf(b, "- %s: %s\n", inline(f.Path), inline(mutationOrNone(f.Reason)))

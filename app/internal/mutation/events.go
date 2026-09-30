@@ -191,6 +191,7 @@ type Control struct {
 	check  model.Check
 	pkg    string
 	reason string
+	script bool // outcomes come from a Jest-compatible JSON report (Check.Results)
 }
 
 // NewControl checks an unmutated control run: kind mutation_control, a
@@ -273,6 +274,9 @@ func validateControl(control model.Check) (pkg string, reason string) {
 func (c Control) Classify(mutant model.Check) Verdict {
 	if c.reason != "" {
 		return Verdict{Status: model.MutantInconclusive, Reason: c.reason}
+	}
+	if c.script {
+		return c.classifyScript(mutant)
 	}
 	if mutant.Kind != model.CheckMutant {
 		return Verdict{Status: model.MutantInconclusive, Reason: fmt.Sprintf("check %s is not a mutant run", mutant.ID)}

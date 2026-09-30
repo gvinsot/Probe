@@ -148,3 +148,32 @@ func TestFlagName(t *testing.T) {
 		}
 	}
 }
+
+func TestScriptMutationCommand(t *testing.T) {
+	policy := func(command string) string {
+		return `{"version":1,"mutation":{"command":` + command + `,"max_mutants":10,"timeout_seconds":60,"max_runtime_seconds":300}}`
+	}
+	for _, command := range []string{
+		`["vitest","related","{file}","--run","--reporter=json","--outputFile={results_out}"]`,
+		`["npx","--no","--","jest","--findRelatedTests","{file}","--json","--outputFile={results_out}"]`,
+	} {
+		if _, err := Decode([]byte(policy(command))); err != nil {
+			t.Errorf("%s rejected: %v", command, err)
+		}
+	}
+	for name, command := range map[string]string{
+		"npm script":     `["npm","test","{file}","--outputFile={results_out}"]`,
+		"shell":          `["sh","-c","vitest related {file}","{file}","{results_out}"]`,
+		"no file":        `["vitest","run","--reporter=json","--outputFile={results_out}"]`,
+		"file twice":     `["vitest","related","{file}","{file}","--outputFile={results_out}"]`,
+		"embedded file":  `["vitest","related","--x={file}","--outputFile={results_out}"]`,
+		"no report":      `["vitest","related","{file}","--run"]`,
+		"report twice":   `["vitest","related","{file}","--outputFile={results_out}","--o={results_out}"]`,
+		"package token":  `["vitest","related","{file}","{package}","--outputFile={results_out}"]`,
+		"coverage token": `["vitest","related","{file}","--outputFile={results_out}","--c={coverage_dir}"]`,
+	} {
+		if _, err := Decode([]byte(policy(command))); err == nil {
+			t.Errorf("%s: %s accepted", name, command)
+		}
+	}
+}

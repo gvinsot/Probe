@@ -141,7 +141,7 @@ func (w *MutationWorkspace) RunControl(ctx context.Context, pkg string, command 
 		return model.Check{}, err
 	}
 	started := time.Now()
-	c, _, _ := h.runWithOptions(ctx, model.CheckMutationControl, w.dir, command, runOptions{timeout: timeout, ceiling: w.ceiling, ledger: ledgerMutation})
+	c := w.run(ctx, model.CheckMutationControl, command, runOptions{timeout: timeout, ceiling: w.ceiling, ledger: ledgerMutation})
 	w.audit(auditMutationControl, started, c.Status, map[string]string{"package": pkg, "check_id": c.ID})
 	return c, nil
 }
@@ -184,7 +184,7 @@ func (w *MutationWorkspace) RunMutant(ctx context.Context, id, rel string, origi
 	// Computed under the same hold of h.mu as the reservation runWithOptions
 	// makes next, so it is the limit reserveRun gives the run.
 	limit := w.runLimit(timeout)
-	c, _, _ := h.runWithOptions(ctx, model.CheckMutant, w.dir, command, runOptions{timeout: timeout, ceiling: w.ceiling, ledger: ledgerMutation})
+	c := w.run(ctx, model.CheckMutant, command, runOptions{timeout: timeout, ceiling: w.ceiling, ledger: ledgerMutation})
 	if c.Status == "SKIPPED" {
 		limit = 0
 	}
@@ -312,4 +312,20 @@ func restore(path string, original []byte) error {
 		return errors.New("the workspace file does not hold the original content")
 	}
 	return nil
+}
+
+// run records one control or mutant run. A Vitest or Jest command (one that
+// writes ResultsPath) returns its JSON report on the payload channel, recorded
+// in Check.Results; a report the run did not write leaves the status as it is
+// and the mutant inconclusive, never ERROR, since candidate code decides
+// whether the runner writes it. Caller holds h.mu.
+func (w *MutationWorkspace) run(ctx context.Context, kind string, command []string, o runOptions) model.Check {
+	for _, arg := range command {
+		if strings.Contains(arg, ResultsPath) {
+			o.reportOptional = true
+			return w.h.runWithResultsOptions(ctx, kind, w.dir, command, o)
+		}
+	}
+	c, _, _ := w.h.runWithOptions(ctx, kind, w.dir, command, o)
+	return c
 }
