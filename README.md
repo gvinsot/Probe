@@ -2,6 +2,8 @@
 
 **Spend review time on the changes that need your judgment.**
 
+![Probe demo: an agent reports a change as done, and Probe shows what still needs review](.github/assets/probe-demo.gif)
+
 Probe is a Go CLI for reviewing AI-assisted pull requests: it maps Git
 changes to risk signals, runs isolated checks and adversarial tests, and
 produces a focused review plan with traceable evidence.
