@@ -47,6 +47,10 @@ RUN python3 scripts/i18n.py build --out /out/site
 FROM nginx:1.27-alpine-slim
 
 COPY web/nginx.conf /etc/nginx/conf.d/default.conf
+# The base image ships its own index.html and 50x.html. The site replaces them
+# entirely: a leftover default page would be served, listed in sitemap.xml and
+# rejected by the search checks below.
+RUN rm -rf /usr/share/nginx/html && mkdir -p /usr/share/nginx/html
 COPY --from=site /out/site /usr/share/nginx/html
 # sitemap.xml is generated from the pages the image really serves, so it never
 # goes stale when a page is added or removed.
