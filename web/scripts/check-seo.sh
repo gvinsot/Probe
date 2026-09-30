@@ -8,9 +8,10 @@
 # a meta description of at most 160, a canonical link on SITE_URL matching the
 # og:url, the Open Graph and Twitter card tags with an existing image, a
 # JSON-LD block, exactly one <h1>, and images with alt text and dimensions.
-# A page marked noindex (404.html) only needs its title and noindex; error
-# pages that are not the site's (nginx's 50x.html) and pages whose name starts
-# with an underscore are skipped, as generate-sitemap.sh skips them.
+# A page marked noindex (404.html, 50x.html) only needs its title and noindex;
+# pages whose name starts with an underscore are skipped, as
+# generate-sitemap.sh skips them. nginx's own default pages are removed from
+# the image before the check (web/Dockerfile).
 #
 # The translated pages web/scripts/i18n.py writes to <lang>/ are checked too,
 # and on a translated site every page must link its versions (hreflang) and
@@ -46,10 +47,10 @@ pages() {
 
 for page in $(pages); do
   name=${page#"$DIR"/}
-  # Error pages and pages whose name starts with an underscore are not part
-  # of the site, as for generate-sitemap.sh: nginx's own 50x.html has none of
-  # this markup.
-  case "${name##*/}" in _*|50x.html) continue ;; esac
+  # Pages whose name starts with an underscore are not part of the site, as
+  # for generate-sitemap.sh. The error pages (404.html, 50x.html) are checked
+  # through the noindex branch: a title and noindex.
+  case "${name##*/}" in _*) continue ;; esac
   flat=$(tr '\n' ' ' < "$page")
   title=$(printf '%s' "$flat" | grep -o '<title>[^<]*</title>' | sed 's/<[^>]*>//g' || true)
   [ -n "$title" ] || fail "$name" "no <title>"
