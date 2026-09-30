@@ -1,9 +1,11 @@
 name: Build release artifacts
 
+# Manual only. PulsarCD tags every commit it builds, and the website already
+# serves the CLI archives and the Windows executables of each production
+# version (web/Dockerfile). A GitHub release is for a version meant to be
+# pinned by checksum (review.yml, the PulsarCD installer) and for the macOS
+# application: run this workflow from that version's tag.
 on:
-  push:
-    tags:
-      - 'v*'
   workflow_dispatch:
     inputs:
       version:
@@ -56,10 +58,10 @@ jobs:
         os: [ubuntu-latest, windows-latest, macos-latest]
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           persist-credentials: false
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v7
         with:
           go-version-file: app/go.mod
           cache: false
@@ -90,10 +92,10 @@ jobs:
       TARGET_GOARCH: ${{ matrix.goarch }}
       VERSION: ${{ needs.prepare.outputs.version }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           persist-credentials: false
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v7
         with:
           go-version-file: app/go.mod
           cache: false
@@ -103,7 +105,7 @@ jobs:
           set -euo pipefail
           go run ./tools/build -version "$VERSION" -out dist \
             -targets "$TARGET_GOOS/$TARGET_GOARCH"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: probe-${{ matrix.goos }}-${{ matrix.goarch }}
           path: |
@@ -129,10 +131,10 @@ jobs:
       # desktop/ is a separate module, outside the repository go.work.
       GOWORK: 'off'
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           persist-credentials: false
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v7
         with:
           go-version-file: desktop/go.mod
           cache: false
@@ -155,10 +157,10 @@ jobs:
       GOWORK: 'off'
       VERSION: ${{ needs.prepare.outputs.version }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           persist-credentials: false
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v7
         with:
           go-version-file: desktop/go.mod
           cache: false
@@ -174,7 +176,7 @@ jobs:
           mkdir -p dist
           go build -trimpath -ldflags "-H=windowsgui -s -w -X main.version=$VERSION" \
             -o "dist/probe-desktop-$VERSION-windows-$GOARCH.exe" ./cmd/probe-desktop
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: probe-desktop-windows-${{ matrix.goarch }}
           path: desktop/dist/*.exe
@@ -191,17 +193,17 @@ jobs:
       GOWORK: 'off'
       VERSION: ${{ needs.prepare.outputs.version }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           persist-credentials: false
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v7
         with:
           go-version-file: desktop/go.mod
           cache: false
       - run: go test ./...
       - name: Build the universal application
         run: bash scripts/build-macos.sh "$VERSION"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: probe-desktop-darwin-universal
           path: desktop/dist/*.zip
@@ -222,10 +224,10 @@ jobs:
       GH_REPO: ${{ github.repository }}
       VERSION: ${{ needs.prepare.outputs.version }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           persist-credentials: false
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: probe-release
           path: dist
@@ -247,7 +249,7 @@ jobs:
     needs: [build, desktop-windows, desktop-macos]
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           pattern: probe-*
           path: dist
@@ -259,7 +261,7 @@ jobs:
           cd dist
           sha256sum probe-*.tar.gz probe-*.zip probe-desktop-*.exe > SHA256SUMS
           sha256sum --check SHA256SUMS
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: probe-release
           path: dist/*

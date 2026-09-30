@@ -175,8 +175,23 @@ services:
         - "traefik.http.routers.probe-app-http.middlewares=redirect-to-https@file"
         - "traefik.http.routers.probe-app-http.service=noop@internal"
 
+  # The tests PulsarCD runs before deploying (its test stage runs this
+  # service with docker compose). Never deployed: no replica.
+  test:
+    image: registry.methodinfo.fr/probe-test:latest
+    build:
+      context: ..
+      dockerfile: devops/test.Dockerfile
+    volumes:
+      # Build cache kept between pipelines: unchanged packages are not
+      # compiled again.
+      - probe-test-gocache:/root/.cache/go-build
+    deploy:
+      replicas: 0
+
 volumes:
   probe-hub-data:
+  probe-test-gocache:
 
 networks:
   proxy:

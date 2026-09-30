@@ -198,11 +198,10 @@ query-log suppression is operator configuration, not accomplished by labels.
 
 [hub/scripts/postbuild.sh](../hub/scripts/postbuild.sh) builds/tags and optionally
 pushes images to Docker Hub or an internal registry; only a `vX.Y.Z` version
-moves `latest`. The Hub workflow is already installed at
-[.github/workflows/hub.yml](../.github/workflows/hub.yml); the copy under
-`devops/github-workflows/` is a template. It builds, vets, tests, race-checks and
-checks formatting, then builds the image; publishing needs credentials and is
-disabled for pull requests. The CLI reusable review workflow remains pinned to
+moves `latest`. The PulsarCD test stage (`devops/test.Dockerfile`) vets,
+race-checks and tests the hub and checks its formatting before every
+deployment; [docker-compose.post.sh](../devops/docker-compose.post.sh) then
+publishes the deployed image to Docker Hub when credentials are set. The CLI reusable review workflow remains pinned to
 v0.1.0 with an archive checksum; current-source F1–F9 capabilities do not imply
 that workflow already runs them. Upgrade policy and workflow pins in the order
 specified by the CLI contract.
@@ -223,7 +222,7 @@ integration boundary. This repository's compose files do not implement that gate
 | Atomic/private storage and bounded history | [store](../hub/internal/store/) |
 | Exit-code mapping, alert order and diff limits | [report](../hub/internal/report/) |
 | Account event streams and frontend | [events](../hub/internal/events/), [embedded UI](../hub/web/public/), `TestEventStreamIsPerAccount` in server tests |
-| Website and deployment | [web](../web/), [devops](../devops/), [Hub workflow](../.github/workflows/hub.yml) |
+| Website and deployment | [web](../web/), [devops](../devops/), [PulsarCD tests](../devops/test.Dockerfile), [Docker Hub publication](../devops/docker-compose.post.sh) |
 
 Run `go test ./hub/...` and `go vet ./hub/...` from the workspace root; the Hub
 workflow also runs race checks and image smoke checks. Unit/HTTP fixture tests

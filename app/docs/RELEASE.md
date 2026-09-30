@@ -83,14 +83,12 @@ artifacts → Run workflow**, select the branch, enter a version such as
 exact commit used for the build. Versions with a suffix such as `-rc.1` are
 marked as prereleases.
 
-Alternatively, push a version tag from your checkout:
+PulsarCD tags every commit it builds (`v0.5.16`, …) and the website serves
+the CLI archives of each production version under `/download/`, so a tag
+alone publishes nothing on GitHub. To publish one of these versions, choose
+its tag in **Use workflow from**, check **publish** and run: the version is
+then the tag's name.
 
-```sh
-git tag -a v0.1.0 -m "Probe v0.1.0"
-git push origin v0.1.0
-```
-
-Pushing a `v*` tag triggers verification, packaging and publication automatically.
 Published versions must use `vMAJOR.MINOR.PATCH` with an optional prerelease suffix.
 Use a new version for each release. An existing release is never overwritten;
 if publication fails after draft creation, inspect and complete that draft.

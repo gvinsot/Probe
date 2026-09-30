@@ -94,6 +94,9 @@ h1, h2, h3 { line-height: 1.25; }
   border-bottom: 1px solid var(--line);
 }
 .brand { display: flex; align-items: center; gap: 10px; font-weight: 700; color: var(--text); text-decoration: none; }
+/* The wordmark is black on white: multiply drops the white on light pages; inverted and screened it reads white on dark (same as the website). */
+.brand-title { display: block; height: 32px; width: auto; mix-blend-mode: multiply; }
+@media (prefers-color-scheme: dark) { .brand-title { filter: invert(1); mix-blend-mode: screen; } }
 .brand small { font-weight: 500; color: var(--muted); }
 .spacer { flex: 1; }
 .severity-picker { display: flex; align-items: center; gap: 8px; font-size: 0.85rem; color: var(--muted); white-space: nowrap; }
@@ -366,6 +369,9 @@ pre.policy { margin: 0; background: var(--code-bg); color: var(--code-text); pad
 .signin { min-height: 100vh; display: grid; place-items: center; padding: 24px; }
 .signin-card { width: min(520px, 100%); text-align: center; padding: 32px; }
 .signin-card h1 { margin: 6px 0 6px; font-size: 1.6rem; }
+.signin-title { display: flex; align-items: center; justify-content: center; gap: 10px; }
+.signin-title .brand-title { height: 48px; }
+.signin-title span { font-size: 2rem; font-weight: 500; color: var(--muted); }
 .signin-card p { color: var(--muted); }
 .signin-actions { display: grid; gap: 10px; margin-top: 20px; }
 .signin-actions a { display: block; text-decoration: none; text-align: center; padding: 12px; border-radius: 10px; border: 1px solid var(--line); color: var(--text); font-weight: 600; }

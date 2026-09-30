@@ -29,7 +29,7 @@ One asymmetry is known and deliberate: `probe report` re-renders a saved report 
 v0.4 extends the coverage rule above to three policy keys, several flags, new report fields and the report schema. Binaries without these features fail or silently lose information; intermediate v0.3 tags contain only part of the integration (see below). Upgrade in this order: publish v0.4.0, re-pin every workflow that reviews the base branch (download URL and sha256 together), and only then commit a new key or pass a new flag.
 
 1. **Policy keys.** `fuzz`, `mutation` and `prepare` are optional top-level policy objects. Policy decoding rejects unknown fields, so a binary built from v0.3.4 or earlier (including the published v0.1.0, v0.2.0 and v0.3.0) exits 3 on a policy that contains one of them. Do not add them to any base-branch policy, including this repository's own `.probe.json` and `app/examples/probe.go.json`, before the re-pin. `probe init` never writes them.
-2. **Flags.** `--base-tests`, `--fuzz`, `--impact`, `--impacted-tests`, `--cache-dir`, `--parallel`, `--allow-prepare-network`, `--deadline` and `--report-url`, and the `--format` values `sarif` and `pr-comment`, make an older binary exit 3 while parsing arguments. Do not pass them through a job pinned to an older release. The included `review.yml` and `pr-review.yml` are deliberately unchanged and pass none of them.
+2. **Flags.** `--base-tests`, `--fuzz`, `--impact`, `--impacted-tests`, `--cache-dir`, `--parallel`, `--allow-prepare-network`, `--deadline` and `--report-url`, and the `--format` values `sarif` and `pr-comment`, make an older binary exit 3 while parsing arguments. Do not pass them through a job pinned to an older release. The included `review.yml` is deliberately unchanged and passes none of them.
 3. **Report fields.** An older `probe report` decodes a v0.4 report with plain `json.Unmarshal`. It silently drops the new objects and fields (`prepare`, `base_tests`, `divergences`, `intent_sha256`, `intent_criteria`, `intent_test_failures`, `fuzz`, `mutation`, `impact`, `execution`, and the new check, evidence and hypothesis fields), and it re-derives hypothesis statuses it does not know, such as `DIVERGED` and `INTENT_TEST_FAILED`, as `UNVERIFIED`. Render reports with the binary that produced them.
 4. **Schema consumers.** The report schema forbids unknown properties, so a consumer that validates against the v0.3 schema rejects a v0.4 report. Publish the updated schema with the release, and update consumers before they receive v0.4 reports.
 
@@ -141,7 +141,7 @@ Put the criteria under an `## Acceptance criteria` heading as a Markdown list. A
 <!-- F9:begin -->
 ### Publishing evidence-backed findings (SARIF and PR comment)
 
-`--format sarif,pr-comment` writes `confidence-report.sarif` and `PR_COMMENT.md`, which list only findings backed by recorded sandbox evidence ([exports](EXPORTS.md)). Probe itself never contacts GitHub; a workflow may post the rendered files with its own token. The formats and `--report-url` make an older binary exit 3, so pass them only after the re-pin described above; the included `review.yml` and `pr-review.yml` do not pass them.
+`--format sarif,pr-comment` writes `confidence-report.sarif` and `PR_COMMENT.md`, which list only findings backed by recorded sandbox evidence ([exports](EXPORTS.md)). Probe itself never contacts GitHub; a workflow may post the rendered files with its own token. The formats and `--report-url` make an older binary exit 3, so pass them only after the re-pin described above; the included `review.yml` does not pass them.
 
 - **Upload SARIF only when the exit code is 0, 1 or 2, `executionSuccessful` is true** (`.runs[0].invocations[0]` in the SARIF file), **and no notification of kind `no_execution`, `stage_not_run` or `omitted_findings` is present.** An upload closes every earlier alert of its category that it lacks as "fixed". The gate skips the uploads where the report records that execution failed, did not happen or was cut: an operational failure, a SKIPPED, TIMEOUT or ERROR check, or a reached deadline, and a run where:
   - nothing executed (`lint`, or `review` without checks and reviewer), where `executionSuccessful` is still true;
@@ -293,8 +293,7 @@ S is the sandbox time spent before the reviewer. It never exceeds `max_runtime_s
 
 ## Included GitHub workflows
 
-`.github/workflows/pr-review.yml` starts an informational pilot on this
-repository's PRs. `.github/workflows/review.yml` is reusable: it installs the
+`.github/workflows/review.yml` is reusable: it installs the
 published v0.1.0 binary with a pinned checksum, preloads a trusted Docker image,
 reviews immutable SHAs and retains reports and experiments for 30 days.
 The workflow explicitly selects the reviewer flag for v0.1.0 compatibility.
@@ -324,8 +323,7 @@ baseline policy's image. It must already contain the project's dependencies.
 To investigate with a model on same-repository PRs, configure it in trusted
 baseline policy, set `reviewer: true` and explicitly map the
 `reviewer-api-key` secret. The workflow exports it as `PROBE_API_KEY`.
-Fork PRs force the investigator off. The repository pilot starts without a
-provider. The PulsarCD provider bridge is a separate deployment integration;
+Fork PRs force the investigator off. The PulsarCD provider bridge is a separate deployment integration;
 GitHub-hosted runners do not automatically acquire its internal credentials.
 
 A runner or container may instead supply the provider through the environment:

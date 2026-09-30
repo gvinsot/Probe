@@ -234,12 +234,14 @@ PUSH=false hub/scripts/postbuild.sh
 
 Only a `vX.Y.Z` version moves the `latest` tag; a development build never does.
 
-In CI, the installed workflow in
-[`.github/workflows/hub.yml`](../.github/workflows/hub.yml) tests the module,
-then runs this script as its post-build step. A template is also kept in
-`devops/github-workflows/hub.yml`. Set the `DOCKERHUB_USERNAME`
-and `DOCKERHUB_TOKEN` repository secrets; without them the workflow still
-builds and smoke-tests the image, it just does not publish.
+The probe.technology deployment does not run this script. PulsarCD tests the
+module before every deployment (the `test` service of
+`devops/docker-compose.swarm.yml`), and after each production deployment
+`devops/docker-compose.post.sh` pushes the very image production runs to
+`<DOCKERHUB_USERNAME>/probe-hub:vX.Y.Z` and `:latest`, with the
+`DOCKERHUB_USERNAME` and `DOCKERHUB_TOKEN` of `devops/.env`; without them it
+publishes nothing. That image is `linux/amd64` only; this script remains the
+way to build a multi-architecture image.
 
 ## Security model
 

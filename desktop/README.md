@@ -113,10 +113,12 @@ the engine logs it and keeps running its version.
 
 The website image (`web/Dockerfile`) builds the downloads and `latest.json` at
 every PulsarCD build and signs the manifest when its container starts, with
-the `PROBE_UPDATE_SIGNING_KEY` of `devops/.env`. PulsarCD only deploys to
-production after its tests, so installed applications only receive tested
-versions. To replace the key, add the new public key to `trustedKeys`, ship a
-release, then change the signing key.
+the `PROBE_UPDATE_SIGNING_KEY` of `devops/.env`. Installed applications
+receive the version production serves, which PulsarCD deploys only after the
+`test` service of `devops/docker-compose.swarm.yml` passed (vet, race-checked
+tests and formatting of the three modules, `devops/test.Dockerfile`). To replace
+the key, add the new public key to `trustedKeys`, ship a release, then change
+the signing key.
 
 ## Build
 
@@ -140,10 +142,13 @@ macOS (on a Mac, with the Xcode command line tools; cgo is required):
 bash scripts/build-macos.sh v0.6.0            # dist/probe-desktop-v0.6.0-darwin-universal.zip
 ```
 
-In CI, `.github/workflows/ci.yml` tests and builds the application on Linux,
-Windows and macOS. A `v*` tag runs `.github/workflows/release.yml`, which
-publishes the Windows executables (amd64, arm64) and the macOS application
-(universal) in the same GitHub release as the CLI, listed in `SHA256SUMS`.
+PulsarCD tests the module on Linux before every deployment (the `test` service
+of `devops/docker-compose.swarm.yml`, which also vets the Windows build).
+Tests only run on Windows and macOS in `.github/workflows/release.yml`, run by
+hand from a version tag, which also publishes the Windows executables (amd64, arm64) and the macOS
+application (universal) in the same GitHub release as the CLI, listed in
+`SHA256SUMS`. The Windows executables of every production version are also
+served by the website, which is where installed applications update from.
 
 ### Distribution
 

@@ -65,8 +65,9 @@ It runs as a single container with no database, so a company can deploy it
 internally against its own GitHub Enterprise or GitLab instance. Sign-in needs
 an OAuth application per forge; until one is configured the deployment still
 serves, and its sign-in page says that no forge is available. Images are
-published to Docker Hub by `hub/scripts/postbuild.sh` (wired into CI by
-`.github/workflows/hub.yml`, with a template in `devops/github-workflows/`); see
+published to Docker Hub after each production deployment
+(`devops/docker-compose.post.sh`), or built by hand with
+`hub/scripts/postbuild.sh`; see
 [hub/README.md](hub/README.md) for the configuration and the security model.
 
 Licensed under the GNU AGPL-3.0 with an attribution term (section 7(b)), see [LICENSE](LICENSE) and [NOTICE](NOTICE). Releases up to v0.3.0 remain available under the MIT license.
