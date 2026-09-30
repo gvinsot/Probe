@@ -61,7 +61,7 @@ async function api(method, path, body) {
 
 // getSettings tolerates an older engine that sends null for empty lists.
 async function getSettings() {
-  const s = await getSettings();
+  const s = await api("GET", "/api/settings");
   s.folders = s.folders || [];
   s.cloud_folders = s.cloud_folders || [];
   s.keys = s.keys || {};

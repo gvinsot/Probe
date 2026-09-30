@@ -6,6 +6,9 @@
 //	probe-desktop                 engine: tray icon, watcher, local server,
 //	                              and opens the window
 //	probe-desktop --background    engine without opening the window (login)
+//	probe-desktop --background --restart
+//	                              engine started by the previous one after
+//	                              an update, which waits for its lock
 //	probe-desktop --window URL    the window process, started by the engine
 //
 // On Windows it is built with -H=windowsgui: no console window ever appears,
@@ -46,8 +49,16 @@ func main() {
 			return
 		}
 	}
-	background := len(os.Args) > 1 && os.Args[1] == autostart.BackgroundFlag
-	if err := app.Run(app.Options{Version: version, Background: background}); err != nil {
+	opts := app.Options{Version: version}
+	for _, arg := range os.Args[1:] {
+		switch arg {
+		case autostart.BackgroundFlag:
+			opts.Background = true
+		case app.RestartFlag:
+			opts.Restart = true
+		}
+	}
+	if err := app.Run(opts); err != nil {
 		logFatal(err.Error())
 		os.Exit(1)
 	}

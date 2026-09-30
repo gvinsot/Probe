@@ -65,23 +65,37 @@ func (l *Lock) Publish(info Info) error {
 	return os.Chmod(path, 0o600)
 }
 
-// Release drops the lock and the published information.
+// Release drops the lock and the published information. Releasing twice is
+// harmless: the engine releases early to hand over to its update.
 func (l *Lock) Release() {
+	if l.f == nil {
+		return
+	}
 	os.Remove(filepath.Join(l.dir, "instance.json"))
 	unlockFile(l.f)
 	l.f.Close()
+	l.f = nil
+}
+
+// Running returns the process that published its information, if any.
+func Running(dir string) (Info, bool) {
+	data, err := os.ReadFile(filepath.Join(dir, "instance.json"))
+	if err != nil {
+		return Info{}, false
+	}
+	var info Info
+	if json.Unmarshal(data, &info) != nil {
+		return Info{}, false
+	}
+	return info, true
 }
 
 // Signal asks the running engine to perform a control action, such as
 // "show" to open its window.
 func Signal(dir, action string) error {
-	data, err := os.ReadFile(filepath.Join(dir, "instance.json"))
-	if err != nil {
-		return err
-	}
-	var info Info
-	if err := json.Unmarshal(data, &info); err != nil {
-		return err
+	info, ok := Running(dir)
+	if !ok {
+		return errors.New("no running engine published its address")
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()

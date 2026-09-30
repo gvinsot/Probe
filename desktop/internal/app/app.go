@@ -25,17 +25,24 @@ import (
 	"github.com/gvinsot/Probe/desktop/internal/platform"
 	"github.com/gvinsot/Probe/desktop/internal/server"
 	"github.com/gvinsot/Probe/desktop/internal/tray"
+	"github.com/gvinsot/Probe/desktop/internal/update"
 	"github.com/gvinsot/Probe/desktop/internal/watch"
 )
 
 // WindowFlag starts the executable as the window process.
 const WindowFlag = "--window"
 
+// RestartFlag marks an engine started by the previous one, which may still
+// hold the single-instance lock for a moment.
+const RestartFlag = "--restart"
+
 // Options of an engine run.
 type Options struct {
 	Version string
 	// Background starts without opening the window (start at login).
 	Background bool
+	// Restart waits for the previous engine to release the lock.
+	Restart bool
 }
 
 // Run starts the engine and blocks until the user quits from the tray.
@@ -48,6 +55,10 @@ func Run(opts Options) error {
 	defer closeLog()
 
 	lock, err := instance.Acquire(dir)
+	for tries := 0; opts.Restart && errors.Is(err, instance.ErrRunning) && tries < 80; tries++ {
+		time.Sleep(250 * time.Millisecond)
+		lock, err = instance.Acquire(dir)
+	}
 	if errors.Is(err, instance.ErrRunning) {
 		// Launching the app again means "show me": the running engine opens
 		// its window and this process leaves.
@@ -73,6 +84,12 @@ func Run(opts Options) error {
 		return err
 	}
 	a := &engine{dir: dir, log: logger}
+	// Taken now: once an update has moved this executable aside, it would
+	// report the path of the copy.
+	a.exe, err = os.Executable()
+	if err != nil {
+		return fmt.Errorf("locate executable: %w", err)
+	}
 	srv, err := server.New(server.Deps{
 		Settings:   settings,
 		Watcher:    watcher,
@@ -95,6 +112,9 @@ func Run(opts Options) error {
 	}()
 	stop := make(chan struct{})
 	go watcher.Run(stop)
+	if a.updater = update.New(opts.Version, a.exe, dir, logger); a.updater != nil {
+		go a.updater.Run(stop, func(p *update.Pending) { a.installWhenIdle(p, stop) })
+	}
 
 	tray.Run(tray.Actions{
 		Open:         a.showWindow,
@@ -115,16 +135,121 @@ func Run(opts Options) error {
 	a.closeWindow()
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
-	return srv.Shutdown(ctx)
+	err = srv.Shutdown(ctx)
+	if p := a.takePending(); p != nil {
+		lock.Release()
+		a.handoff(p)
+	}
+	return err
 }
 
 type engine struct {
-	dir string
-	log *slog.Logger
-	srv *server.Server
+	dir     string
+	exe     string
+	log     *slog.Logger
+	srv     *server.Server
+	updater *update.Updater
 
-	mu     sync.Mutex
-	window *os.Process
+	mu      sync.Mutex
+	window  *os.Process
+	pending *update.Pending // set when the engine quits to install it
+}
+
+// installWhenIdle quits the engine to install an update as soon as no
+// window is open: closing a window the user is reading would be rude.
+func (a *engine) installWhenIdle(p *update.Pending, stop <-chan struct{}) {
+	tick := time.NewTicker(time.Minute)
+	defer tick.Stop()
+	for {
+		a.mu.Lock()
+		idle := a.window == nil
+		if idle {
+			a.pending = p
+		}
+		a.mu.Unlock()
+		if idle {
+			a.log.Info("restarting to install the update", "version", p.Version)
+			tray.Quit()
+			return
+		}
+		select {
+		case <-stop:
+			return
+		case <-tick.C:
+		}
+	}
+}
+
+func (a *engine) takePending() *update.Pending {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	p := a.pending
+	a.pending = nil
+	return p
+}
+
+// handoff puts the new version in place and starts it. If it has not taken
+// over within half a minute, the previous executable comes back and starts
+// again, and that version is not downloaded a second time.
+func (a *engine) handoff(p *update.Pending) {
+	log := a.log.With("version", p.Version)
+	if err := update.Swap(a.exe, p.Staged); err != nil {
+		log.Error("install update", "err", err)
+		a.restartSelf()
+		return
+	}
+	proc, err := platform.Start(a.exe, autostart.BackgroundFlag, RestartFlag)
+	if err == nil && a.tookOver(proc, 30*time.Second) {
+		log.Info("update installed")
+		return
+	}
+	log.Error("updated engine did not start, restoring the previous version", "err", err)
+	if proc != nil {
+		proc.Kill()
+	}
+	// Windows keeps the file of a process that is still exiting.
+	var rerr error
+	for i := 0; i < 40; i++ {
+		if rerr = update.Restore(a.exe); rerr == nil {
+			break
+		}
+		time.Sleep(250 * time.Millisecond)
+	}
+	if rerr != nil {
+		log.Error("restore previous version", "err", rerr)
+	}
+	a.updater.Skip(p.Version)
+	a.restartSelf()
+}
+
+func (a *engine) restartSelf() {
+	if _, err := platform.Start(a.exe, autostart.BackgroundFlag, RestartFlag); err != nil {
+		a.log.Error("restart", "err", err)
+	}
+}
+
+// tookOver waits for proc to publish itself as the running engine.
+func (a *engine) tookOver(proc *os.Process, limit time.Duration) bool {
+	exited := make(chan struct{})
+	go func() {
+		proc.Wait()
+		close(exited)
+	}()
+	deadline := time.After(limit)
+	tick := time.NewTicker(250 * time.Millisecond)
+	defer tick.Stop()
+	for {
+		select {
+		case <-exited:
+			return false
+		case <-deadline:
+			return false
+		case <-tick.C:
+			if info, ok := instance.Running(a.dir); ok && info.PID == proc.Pid {
+				return true
+			}
+		}
+	}
 }
 
 // showWindow opens the window process with a fresh single-use launch URL.
@@ -136,13 +261,7 @@ func (a *engine) showWindow() {
 		a.window.Kill()
 		a.window = nil
 	}
-	exe, err := os.Executable()
-	if err != nil {
-		a.log.Error("locate executable", "err", err)
-		a.openBrowserLocked()
-		return
-	}
-	p, err := platform.Start(exe, WindowFlag, a.srv.LaunchURL())
+	p, err := platform.Start(a.exe, WindowFlag, a.srv.LaunchURL())
 	if err != nil {
 		a.log.Error("start window", "err", err)
 		a.openBrowserLocked()

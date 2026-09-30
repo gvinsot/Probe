@@ -13,8 +13,18 @@ services:
   probe-web:
     image: registry.methodinfo.fr/probe-web:latest
     build:
-      context: ../web
-      dockerfile: Dockerfile
+      # The site also serves the CLI archives and the Probe Desktop
+      # executables built from app/ and desktop/: the context is the root.
+      context: ..
+      dockerfile: web/Dockerfile
+      args:
+        # Names the downloads and latest.json; installed Desktops update to it.
+        VERSION: "${VERSION:-dev}"
+    environment:
+      # Signs latest.json at start-up. The _KEY suffix makes PulsarCD mount it
+      # as the Swarm secret /run/secrets/PROBE_UPDATE_SIGNING_KEY. Empty: the
+      # site serves no signature and no Desktop updates from it.
+      PROBE_UPDATE_SIGNING_KEY: "${PROBE_UPDATE_SIGNING_KEY:-}"
     networks:
       - proxy
     deploy:

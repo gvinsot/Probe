@@ -96,10 +96,22 @@ jobs:
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: web
+        working-directory: .
     steps:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
+      # The context is the root: the image also builds the downloads.
       - name: Build the website image
-        run: docker build -t probe-web:ci .
+        run: docker build -f web/Dockerfile --build-arg VERSION=0.0.0 -t probe-web:ci .
+      - name: Check the downloads and the update manifest it serves
+        run: |
+          set -euo pipefail
+          docker run -d --name probe-web -p 8080:80 probe-web:ci
+          for i in $(seq 30); do curl -sf -o /dev/null http://127.0.0.1:8080/ && break; sleep 1; done
+          curl -sf http://127.0.0.1:8080/download/latest.json | tee latest.json
+          grep -q '"name": "probe-desktop-0.0.0-windows-amd64.exe"' latest.json
+          # No key in CI: the manifest must come without a signature.
+          test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8080/download/latest.json.sig)" = 404
+      - if: always()
+        run: docker rm -f probe-web || true

@@ -1,10 +1,46 @@
-# Promotional website for Probe: static files served by nginx.
-# Build context is the web/ directory, so only public/ and nginx.conf can
-# reach the image.
+# Promotional website for Probe: static files served by nginx, and the
+# downloads Probe Desktop updates itself from.
+#
+# Build context is the repository root, because the downloads are built from
+# app/ and desktop/:
+#   docker build -f web/Dockerfile --build-arg VERSION=0.6.1 -t probe-web .
+#
+# /download/ holds the CLI archives, the Windows executables of Probe Desktop
+# and latest.json, which lists them with their size and SHA-256. The
+# container signs latest.json when it starts (docker-entrypoint.d), with the
+# key Swarm mounts as a secret: the key is never part of the image.
+
+FROM golang:1.26-bookworm AS build
+WORKDIR /src
+# Each module builds on its own: go.work would also want hub/.
+ENV CGO_ENABLED=0 GOFLAGS=-trimpath GOWORK=off
+COPY LICENSE NOTICE ./
+COPY app/ app/
+COPY desktop/ desktop/
+ARG VERSION=dev
+RUN --mount=type=cache,target=/root/.cache/go-build --mount=type=cache,target=/go/pkg/mod \
+    set -eu; \
+    mkdir -p /out/download; \
+    cd /src/app; \
+    go run ./tools/build -version "$VERSION" -out /tmp/cli \
+      -targets linux/amd64,linux/arm64,darwin/amd64,darwin/arm64,windows/amd64,windows/arm64; \
+    cp /tmp/cli/*.tar.gz /tmp/cli/*.zip /out/download/; \
+    go build -ldflags "-s -w" -o /out/manifest ./tools/manifest; \
+    cd /src/desktop; \
+    for arch in amd64 arm64; do \
+      GOOS=windows GOARCH=$arch go build -ldflags "-H=windowsgui -s -w -X main.version=$VERSION" \
+        -o "/out/download/probe-desktop-$VERSION-windows-$arch.exe" ./cmd/probe-desktop; \
+    done; \
+    /out/manifest write -version "$VERSION" -dir /out/download > /out/download/latest.json; \
+    cat /out/download/latest.json
+
 FROM nginx:1.27-alpine-slim
 
-COPY nginx.conf /etc/nginx/conf.d/default.conf
-COPY public /usr/share/nginx/html
+COPY web/nginx.conf /etc/nginx/conf.d/default.conf
+COPY web/public /usr/share/nginx/html
+COPY --from=build /out/download /usr/share/nginx/html/download
+COPY --from=build /out/manifest /usr/local/bin/probe-manifest
+COPY --chmod=0755 web/docker-entrypoint.d/40-sign-update-manifest.sh /docker-entrypoint.d/
 
 EXPOSE 80
 

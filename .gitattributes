@@ -1,2 +1,4 @@
 # Test fixtures and golden files are compared byte for byte on every platform.
 app/**/testdata/** -text
+# Shell scripts copied into Linux images must keep LF endings on Windows too.
+*.sh text eol=lf

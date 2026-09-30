@@ -90,6 +90,34 @@ It holds `settings.json`, `state.json` (documents and reports), `baselines/`
 (the reviewed copies), `desktop.log` and the web view profile.
 `PROBE_DESKTOP_HOME` overrides it, for tests or a portable install.
 
+## Updates
+
+On Windows, Probe Desktop updates itself from `https://probe.technology/download/`.
+A minute after start, then every six hours, it reads `latest.json` and
+checks its Ed25519 signature (`latest.json.sig`) against the keys built into
+the executable (`internal/update/update.go`). When the manifest names a newer
+stable version, the executable for this system is downloaded next to the
+running one, checked against the size and SHA-256 of the signed manifest, and
+started once with `version` to confirm it runs. As soon as no window is open,
+the engine moves itself to `probe-desktop….exe.old`, puts the new version at
+its path and restarts into it; `.old` is removed on the next check. If the new
+engine has not taken over within thirty seconds, the previous executable comes
+back and restarts, and that version is recorded in `update-skip` so it is not
+downloaded again.
+
+A development build (`dev`) never updates, nor does an older version ever
+replace a newer one. `PROBE_DESKTOP_UPDATE=off` disables updates;
+`PROBE_DESKTOP_UPDATE_URL` points to another site, for tests. The executable
+must be in a folder the user can write to (not `Program Files`): otherwise
+the engine logs it and keeps running its version.
+
+The website image (`web/Dockerfile`) builds the downloads and `latest.json` at
+every PulsarCD build and signs the manifest when its container starts, with
+the `PROBE_UPDATE_SIGNING_KEY` of `devops/.env`. PulsarCD only deploys to
+production after its tests, so installed applications only receive tested
+versions. To replace the key, add the new public key to `trustedKeys`, ship a
+release, then change the signing key.
+
 ## Build
 
 The module is independent from the repository `go.work` (it needs a newer Go
@@ -136,5 +164,6 @@ publishes the Windows executables (amd64, arm64) and the macOS application
 | `internal/reviewer` | optional AI explanation (Anthropic SDK, OpenAI-compatible HTTP) |
 | `internal/tray`, `internal/window`, `internal/icon` | tray icon, native window, drawn icon |
 | `internal/instance`, `internal/autostart`, `internal/platform` | single instance, start at login, OS calls |
+| `internal/update` | signed manifest, download and replacement of the executable |
 | `internal/config`, `internal/secret` | settings, cloud folder detection, keychain |
 | `web/public` | the interface (HTML, CSS, JavaScript, no framework) |
