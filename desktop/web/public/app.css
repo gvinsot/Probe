@@ -252,6 +252,13 @@ mark.ins { background: rgba(26, 127, 55, 0.28); background: color-mix(in srgb, v
 .dialog-section { padding: 14px 16px; display: grid; gap: 10px; border-bottom: 1px solid var(--line); }
 .dialog-section h3 { margin: 0; font-size: 0.95rem; }
 .dialog-section h3 small { color: var(--muted); font-weight: 500; }
+.dialog-section h4 { margin: 6px 0 0; font-size: 0.86rem; }
+.dialog-section h4 small { color: var(--muted); font-weight: 500; }
+.subsection { display: grid; gap: 10px; }
+.client > summary { cursor: pointer; font-size: 0.84rem; color: var(--muted); }
+.client[open] { display: grid; gap: 8px; }
+.folder-list li .source-kind { flex: none; font-size: 0.72rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
+.folder-list li select { flex: none; padding: 2px 6px; font-size: 0.8rem; }
 .row { display: flex; align-items: center; gap: 8px; }
 .grid2 { display: grid; grid-template-columns: max-content 1fr; gap: 8px 12px; align-items: center; font-size: 0.88rem; }
 .key-row { display: grid; gap: 4px; }

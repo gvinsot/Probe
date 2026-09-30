@@ -83,15 +83,49 @@
       </header>
 
       <section class="dialog-section">
-        <h3>Watched folders</h3>
-        <p class="note">Choose the OneDrive or Google Drive folders synchronized on this computer. Probe keeps a private copy of each document as the reviewed version, in your user profile.</p>
-        <ul class="folder-list" id="folder-list"></ul>
+        <h3>Watched sources</h3>
+        <p class="note">Folders of this computer (OneDrive, SharePoint, Google Drive, Dropbox, iCloud, a network share…) or a Google Drive read through its API. Probe keeps a private copy of each reviewed version in your user profile.</p>
+        <ul class="folder-list" id="source-list"></ul>
+
+        <h4>A folder of this computer</h4>
         <div id="cloud-folders" class="cloud-folders"></div>
         <div class="row">
           <input class="search" id="folder-path" placeholder="Or paste a folder path, e.g. C:\Users\me\OneDrive\Contracts" autocomplete="off">
+          <button class="btn ghost small hidden" type="button" id="browse-folder">Browse…</button>
           <button class="btn ghost small" type="button" id="add-folder">Add</button>
         </div>
         <label class="check"><input type="checkbox" id="download-cloud"> Download online-only files to record their reviewed version (can download a lot of data)</label>
+
+        <div id="google-section" class="subsection hidden">
+          <h4>Google Drive <small>through the Google API, Google Docs, Sheets and Slides included</small></h4>
+          <p class="note">No synchronization client needed. Probe only reads (drive.readonly) and downloads a document only once it changed: the reviewed version is taken from the Drive version history.</p>
+          <ul class="folder-list" id="google-accounts"></ul>
+          <div class="row">
+            <button class="btn ghost small" type="button" id="google-connect">Connect a Google account</button>
+            <span class="note" id="google-status" role="status"></span>
+          </div>
+          <details id="google-client" class="client">
+            <summary>OAuth client</summary>
+            <p class="note">Create a "Desktop app" OAuth client in a Google Cloud project where the Google Drive API is enabled (in a Google Workspace, an internal app needs no review by Google), then paste its id and secret. The secret is stored in the system keychain.</p>
+            <div class="grid2">
+              <label for="google-client-id">Client id</label>
+              <input id="google-client-id" class="search" autocomplete="off" placeholder="….apps.googleusercontent.com">
+              <label for="google-client-secret">Client secret</label>
+              <input id="google-client-secret" class="search" type="password" autocomplete="off">
+            </div>
+          </details>
+          <div class="grid2 hidden" id="google-add">
+            <label for="google-account">Account</label>
+            <select id="google-account"></select>
+            <label for="google-drive">Drive</label>
+            <select id="google-drive"></select>
+            <label for="google-folder">Folder</label>
+            <input id="google-folder" class="search" autocomplete="off" placeholder="Optional: link of a folder, to watch only this folder">
+            <span></span>
+            <div class="row"><button class="btn ghost small" type="button" id="add-google">Add this drive</button></div>
+          </div>
+        </div>
+
         <div class="row">
           <label for="scan-seconds">Scan every</label>
           <select id="scan-seconds">

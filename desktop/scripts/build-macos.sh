@@ -7,6 +7,8 @@
 # application lives in the menu bar.
 #
 # Usage: scripts/build-macos.sh [version]
+# PROBE_GOOGLE_CLIENT_ID and PROBE_GOOGLE_CLIENT_SECRET, when set, build in the
+# OAuth client used to connect Google accounts (see README.md).
 # Signing: set CODESIGN_IDENTITY="Developer ID Application: …" to sign; then
 # notarize the zip with `xcrun notarytool submit … --wait`.
 set -euo pipefail
@@ -17,9 +19,15 @@ cd "$root"
 export GOWORK=off CGO_ENABLED=1
 mkdir -p dist/build
 
+ldflags="-s -w -X main.version=$version"
+if [[ -n "${PROBE_GOOGLE_CLIENT_ID:-}" ]]; then
+  pkg=github.com/gvinsot/Probe/desktop/internal/gdrive
+  ldflags+=" -X $pkg.DefaultClientID=$PROBE_GOOGLE_CLIENT_ID -X $pkg.DefaultClientSecret=${PROBE_GOOGLE_CLIENT_SECRET:-}"
+fi
+
 for arch in arm64 amd64; do
   GOOS=darwin GOARCH="$arch" go build -trimpath \
-    -ldflags "-s -w -X main.version=$version" \
+    -ldflags "$ldflags" \
     -o "dist/build/probe-desktop-$arch" ./cmd/probe-desktop
 done
 

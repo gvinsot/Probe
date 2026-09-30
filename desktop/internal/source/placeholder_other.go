@@ -1,6 +1,6 @@
 //go:build !windows && !darwin
 
-package watch
+package source
 
 import "io/fs"
 

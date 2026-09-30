@@ -1,5 +1,7 @@
 // Command probe-desktop watches the Word, Excel and PowerPoint documents of
-// OneDrive or Google Drive folders and flags the risky modifications.
+// folders (OneDrive, SharePoint, Google Drive, Dropbox, network shares…) and
+// of Google Drives read through their API, and flags the risky
+// modifications.
 //
 // The same executable plays two roles:
 //

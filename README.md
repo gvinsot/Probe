@@ -11,7 +11,7 @@ produces a focused review plan with traceable evidence.
 | Directory | Contents |
 | --- | --- |
 | [`app/`](app/README.md) | The Probe CLI (Go module `github.com/gvinsot/Probe/app`) and its documentation, examples and report schema. |
-| [`desktop/`](desktop/README.md) | Probe Desktop (Go module `github.com/gvinsot/Probe/desktop`): the Windows and macOS application that watches the Word, Excel and PowerPoint files of OneDrive or Google Drive folders. |
+| [`desktop/`](desktop/README.md) | Probe Desktop (Go module `github.com/gvinsot/Probe/desktop`): the Windows and macOS application that watches the Word, Excel and PowerPoint files of synchronized folders (OneDrive, SharePoint, Google Drive, Dropbox…) and of Google Drives read through their API. |
 | [`hub/`](hub/README.md) | The Probe Hub web application (Go module `github.com/gvinsot/Probe/hub`): forge sign-in, policy bootstrap and the live report viewer. |
 | [`web/`](web/) | The static promotional website, served by nginx. |
 | [`devops/`](devops/) | PulsarCD / Docker Swarm deployment of the website. |

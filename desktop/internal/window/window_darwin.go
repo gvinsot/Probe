@@ -10,6 +10,7 @@ func Run(url, dataDir string) {
 	defer w.Destroy()
 	w.SetTitle(Title)
 	w.SetSize(Width, Height, webview.HintNone)
+	w.Bind(PickFolderBinding, pickFolder)
 	w.Navigate(url)
 	w.Run()
 }

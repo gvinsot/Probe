@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -12,6 +13,7 @@ import (
 	"testing"
 
 	"github.com/gvinsot/Probe/desktop/internal/config"
+	"github.com/gvinsot/Probe/desktop/internal/gdrive"
 	"github.com/gvinsot/Probe/desktop/internal/instance"
 	"github.com/gvinsot/Probe/desktop/internal/watch"
 )
@@ -166,7 +168,7 @@ func TestSettingsStoreKeyWithoutExposingIt(t *testing.T) {
 	f := newFixture(t)
 	f.login(t)
 	folder := t.TempDir()
-	body, _ := json.Marshal(map[string]any{"folders": []string{folder}, "provider": "anthropic", "api_key": "sk-ant-secret", "scan_seconds": 30})
+	body, _ := json.Marshal(map[string]any{"sources": []map[string]string{{"type": "folder", "path": folder}}, "provider": "anthropic", "api_key": "sk-ant-secret", "scan_seconds": 30})
 	rec := f.do(http.MethodPut, "/api/settings", string(body), nil)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("save: %d %s", rec.Code, rec.Body)
@@ -179,11 +181,11 @@ func TestSettingsStoreKeyWithoutExposingIt(t *testing.T) {
 	}
 	var got settingsResponse
 	json.Unmarshal(rec.Body.Bytes(), &got)
-	if !got.Keys["anthropic"] || got.ScanSeconds != 30 || len(got.Folders) != 1 {
+	if !got.Keys["anthropic"] || got.ScanSeconds != 30 || len(got.Sources) != 1 || got.Sources[0].ID != config.FolderSourceID(folder) {
 		t.Fatalf("settings echo: %+v", got)
 	}
 
-	bad, _ := json.Marshal(map[string]any{"folders": []string{"relative/path"}})
+	bad, _ := json.Marshal(map[string]any{"sources": []map[string]string{{"type": "folder", "path": "relative/path"}}})
 	if rec := f.do(http.MethodPut, "/api/settings", string(bad), nil); rec.Code != http.StatusBadRequest {
 		t.Fatalf("relative folder accepted: %d", rec.Code)
 	}
@@ -202,9 +204,92 @@ func TestSettingsListsAreArraysOnFreshInstall(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &raw); err != nil {
 		t.Fatal(err)
 	}
-	for _, k := range []string{"folders", "cloud_folders"} {
+	for _, k := range []string{"sources", "cloud_folders", "google_accounts"} {
 		if !strings.HasPrefix(string(raw[k]), "[") {
 			t.Fatalf("%s = %s, want a JSON array", k, raw[k])
+		}
+	}
+}
+
+type fakeGoogle struct {
+	disconnected []string
+}
+
+func (g *fakeGoogle) Connect() error                      { return nil }
+func (g *fakeGoogle) ConnectStatus() gdrive.ConnectStatus { return gdrive.ConnectStatus{} }
+func (g *fakeGoogle) Disconnect(a string) error {
+	g.disconnected = append(g.disconnected, a)
+	return nil
+}
+func (g *fakeGoogle) Drives(ctx context.Context, a string) ([]gdrive.Drive, error) {
+	return []gdrive.Drive{{Name: "My Drive"}}, nil
+}
+func (g *fakeGoogle) LookupFolder(ctx context.Context, a, ref string) (gdrive.Folder, error) {
+	return gdrive.Folder{ID: ref, Name: "Legal"}, nil
+}
+
+// The connected accounts only change through the connection flow: the
+// interface cannot add one, and an account in use cannot be disconnected.
+func TestGoogleAccounts(t *testing.T) {
+	f := newFixture(t)
+	g := &fakeGoogle{}
+	f.srv.deps.Google = g
+	f.login(t)
+	if err := f.srv.deps.Settings.Update(func(s *config.Settings) { s.GoogleAccounts = []string{"me@example.com"} }); err != nil {
+		t.Fatal(err)
+	}
+
+	forged, _ := json.Marshal(map[string]any{"google_accounts": []string{"intruder@example.com"}})
+	if rec := f.do(http.MethodPut, "/api/settings", string(forged), nil); rec.Code != http.StatusOK {
+		t.Fatalf("save: %d %s", rec.Code, rec.Body)
+	}
+	if got := f.srv.deps.Settings.Get().GoogleAccounts; len(got) != 1 || got[0] != "me@example.com" {
+		t.Fatalf("accounts changed by the interface: %v", got)
+	}
+
+	src, _ := json.Marshal(map[string]any{"sources": []map[string]string{{"type": "gdrive", "account": "me@example.com", "folder_id": "abc", "folder_name": "Legal"}}})
+	if rec := f.do(http.MethodPut, "/api/settings", string(src), nil); rec.Code != http.StatusOK {
+		t.Fatalf("drive source: %d %s", rec.Code, rec.Body)
+	}
+	unknown, _ := json.Marshal(map[string]any{"sources": []map[string]string{{"type": "gdrive", "account": "other@example.com"}}})
+	if rec := f.do(http.MethodPut, "/api/settings", string(unknown), nil); rec.Code != http.StatusBadRequest {
+		t.Fatalf("source of an unknown account: %d", rec.Code)
+	}
+
+	if rec := f.do(http.MethodDelete, "/api/google/accounts/me@example.com", "", nil); rec.Code != http.StatusConflict {
+		t.Fatalf("disconnect an account in use: %d", rec.Code)
+	}
+	f.do(http.MethodPut, "/api/settings", `{"sources":[]}`, nil)
+	if rec := f.do(http.MethodDelete, "/api/google/accounts/me@example.com", "", nil); rec.Code != http.StatusNoContent {
+		t.Fatalf("disconnect: %d %s", rec.Code, rec.Body)
+	}
+	if len(g.disconnected) != 1 || len(f.srv.deps.Settings.Get().GoogleAccounts) != 0 {
+		t.Fatalf("disconnected %v, accounts %v", g.disconnected, f.srv.deps.Settings.Get().GoogleAccounts)
+	}
+	if rec := f.do(http.MethodGet, "/api/google/drives?account=me@example.com", "", nil); rec.Code != http.StatusBadRequest {
+		t.Fatalf("drives of a disconnected account: %d", rec.Code)
+	}
+}
+
+func TestGoogleUnavailable(t *testing.T) {
+	f := newFixture(t)
+	f.login(t)
+	if rec := f.do(http.MethodPost, "/api/google/connect", "", nil); rec.Code != http.StatusNotFound {
+		t.Fatalf("connect without Google: %d", rec.Code)
+	}
+}
+
+func TestGoogleLink(t *testing.T) {
+	for link, want := range map[string]bool{
+		"https://docs.google.com/document/d/1/edit": true,
+		"https://drive.google.com/file/d/1/view":    true,
+		"http://docs.google.com/document/d/1":       false,
+		"https://evil.example/docs.google.com":      false,
+		"file:///C:/Windows/System32/calc.exe":      false,
+		"https://user@docs.google.com/x":            false,
+	} {
+		if got := googleLink(link); got != want {
+			t.Errorf("googleLink(%q) = %v, want %v", link, got, want)
 		}
 	}
 }

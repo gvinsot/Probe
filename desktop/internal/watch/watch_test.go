@@ -3,6 +3,7 @@ package watch
 import (
 	"archive/zip"
 	"bytes"
+	"context"
 	"errors"
 	"io"
 	"log/slog"
@@ -15,19 +16,26 @@ import (
 	"github.com/gvinsot/Probe/desktop/internal/office"
 )
 
-func writeDocx(t *testing.T, path, text string, when time.Time) {
-	t.Helper()
+// docxBytes builds a minimal Word document. The comment changes the bytes
+// without changing the content, like two exports of the same version.
+func docxBytes(text, comment string) []byte {
 	var buf bytes.Buffer
 	zw := zip.NewWriter(&buf)
-	for name, content := range map[string]string{
-		"[Content_Types].xml": `<Types/>`,
-		"word/document.xml":   `<w:document xmlns:w="w"><w:body><w:p><w:r><w:t>` + text + `</w:t></w:r></w:p></w:body></w:document>`,
+	for _, part := range []struct{ name, content string }{
+		{"[Content_Types].xml", `<Types/>`},
+		{"word/document.xml", `<w:document xmlns:w="w"><w:body><w:p><w:r><w:t>` + text + `</w:t></w:r></w:p></w:body></w:document>`},
 	} {
-		w, _ := zw.Create(name)
-		w.Write([]byte(content))
+		w, _ := zw.Create(part.name)
+		w.Write([]byte(part.content))
 	}
+	zw.SetComment(comment)
 	zw.Close()
-	if err := os.WriteFile(path, buf.Bytes(), 0o600); err != nil {
+	return buf.Bytes()
+}
+
+func writeDocx(t *testing.T, path, text string, when time.Time) {
+	t.Helper()
+	if err := os.WriteFile(path, docxBytes(text, ""), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.Chtimes(path, when, when); err != nil {
@@ -35,10 +43,18 @@ func writeDocx(t *testing.T, path, text string, when time.Time) {
 	}
 }
 
+func folderSettings(folders ...string) config.Settings {
+	s := config.Defaults()
+	for _, f := range folders {
+		s.Sources = append(s.Sources, config.Source{Type: config.SourceFolder, Path: f})
+	}
+	s.Normalize()
+	return s
+}
+
 func newWatcher(t *testing.T, folder string) *Watcher {
 	t.Helper()
-	s := config.Defaults()
-	s.Folders = []string{folder}
+	s := folderSettings(folder)
 	w, err := New(t.TempDir(), func() config.Settings { return s }, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	if err != nil {
 		t.Fatal(err)
@@ -79,11 +95,11 @@ func TestLifecycle(t *testing.T) {
 
 	// A new edit after the report: accepting must not approve unseen content.
 	writeDocx(t, path, "Payment is due within 120 days.", t0.Add(2*time.Minute))
-	if err := w.Accept(d.ID); !errors.Is(err, ErrStale) {
+	if err := w.Accept(context.Background(), d.ID); !errors.Is(err, ErrStale) {
 		t.Fatalf("Accept on a stale report = %v, want ErrStale", err)
 	}
 	w.Scan()
-	if err := w.Accept(d.ID); err != nil {
+	if err := w.Accept(context.Background(), d.ID); err != nil {
 		t.Fatalf("Accept: %v", err)
 	}
 	if d := only(t, w); d.Status != StatusClean || d.Report != nil {
@@ -95,7 +111,7 @@ func TestLifecycle(t *testing.T) {
 	if d := only(t, w); d.Status != StatusRemoved {
 		t.Fatalf("after delete: status %s", d.Status)
 	}
-	if err := w.Accept(d.ID); err != nil {
+	if err := w.Accept(context.Background(), d.ID); err != nil {
 		t.Fatal(err)
 	}
 	if st := w.State(); st.Total != 0 {
@@ -108,8 +124,7 @@ func TestStatePersists(t *testing.T) {
 	path := filepath.Join(folder, "a.docx")
 	writeDocx(t, path, "One", time.Now().Add(-time.Hour))
 	dir := t.TempDir()
-	s := config.Defaults()
-	s.Folders = []string{folder}
+	s := folderSettings(folder)
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	w, _ := New(dir, func() config.Settings { return s }, logger)
 	w.Scan()
@@ -128,11 +143,10 @@ func TestStatePersists(t *testing.T) {
 func TestUnwatchedFolderIsForgotten(t *testing.T) {
 	folder := t.TempDir()
 	writeDocx(t, filepath.Join(folder, "a.docx"), "One", time.Now())
-	s := config.Defaults()
-	s.Folders = []string{folder}
+	s := folderSettings(folder)
 	w, _ := New(t.TempDir(), func() config.Settings { return s }, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	w.Scan()
-	s.Folders = nil
+	s.Sources = nil
 	w.Scan()
 	if st := w.State(); st.Total != 0 {
 		t.Fatalf("documents of an unwatched folder kept: %d", st.Total)

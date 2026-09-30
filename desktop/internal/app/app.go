@@ -1,6 +1,6 @@
 // Package app assembles the Probe Desktop engine: the single-instance lock,
-// the folder watcher, the local interface server, the tray icon and the
-// window process.
+// the watcher and its sources, the local interface server, the tray icon and
+// the window process.
 //
 // Everything runs in the background. The executable is built as a GUI
 // program (no console on Windows) and bundled with LSUIElement on macOS (no
@@ -21,9 +21,12 @@ import (
 
 	"github.com/gvinsot/Probe/desktop/internal/autostart"
 	"github.com/gvinsot/Probe/desktop/internal/config"
+	"github.com/gvinsot/Probe/desktop/internal/gdrive"
 	"github.com/gvinsot/Probe/desktop/internal/instance"
 	"github.com/gvinsot/Probe/desktop/internal/platform"
+	"github.com/gvinsot/Probe/desktop/internal/secret"
 	"github.com/gvinsot/Probe/desktop/internal/server"
+	"github.com/gvinsot/Probe/desktop/internal/source"
 	"github.com/gvinsot/Probe/desktop/internal/tray"
 	"github.com/gvinsot/Probe/desktop/internal/update"
 	"github.com/gvinsot/Probe/desktop/internal/watch"
@@ -83,6 +86,15 @@ func Run(opts Options) error {
 	if err != nil {
 		return err
 	}
+	google := newGoogle(settings, logger)
+	// Each Google Drive source keeps the list of its files there.
+	caches := filepath.Join(dir, "sources")
+	watcher.SetFactory(func(cfg config.Source) (source.Source, error) {
+		if cfg.Type == config.SourceGoogleDrive {
+			return google.NewSource(cfg, caches), nil
+		}
+		return watch.FolderFactory(cfg)
+	})
 	a := &engine{dir: dir, log: logger}
 	// Taken now: once an update has moved this executable aside, it would
 	// report the path of the copy.
@@ -91,12 +103,16 @@ func Run(opts Options) error {
 		return fmt.Errorf("locate executable: %w", err)
 	}
 	srv, err := server.New(server.Deps{
-		Settings:   settings,
-		Watcher:    watcher,
-		Log:        logger,
-		Version:    opts.Version,
-		OnShow:     a.showWindow,
-		OnSettings: watcher.ScanNow,
+		Settings: settings,
+		Watcher:  watcher,
+		Log:      logger,
+		Version:  opts.Version,
+		Google:   google,
+		OnShow:   a.showWindow,
+		OnSettings: func() {
+			gdrive.PruneCaches(caches, settings.Get().Sources)
+			watcher.ScanNow()
+		},
 	})
 	if err != nil {
 		return err
@@ -144,6 +160,31 @@ func Run(opts Options) error {
 		a.handoff(p)
 	}
 	return err
+}
+
+// newGoogle returns the Google accounts manager. It uses the OAuth client
+// entered in the settings, or the one built into the application.
+func newGoogle(settings *config.Store, logger *slog.Logger) *gdrive.Manager {
+	return &gdrive.Manager{
+		Keys: server.SystemKeys{},
+		Client: func() gdrive.OAuthClient {
+			if id := settings.Get().GoogleClientID; id != "" {
+				s, err := secret.Get(gdrive.ClientSecretKey)
+				if err != nil {
+					logger.Warn("read the Google client secret", "err", err)
+				}
+				return gdrive.OAuthClient{ID: id, Secret: s}
+			}
+			return gdrive.OAuthClient{ID: gdrive.DefaultClientID, Secret: gdrive.DefaultClientSecret}
+		},
+		Open: platform.Open,
+		OnAccount: func(account string) error {
+			return settings.Update(func(s *config.Settings) {
+				s.GoogleAccounts = append(s.GoogleAccounts, account)
+			})
+		},
+		Log: logger,
+	}
 }
 
 type engine struct {

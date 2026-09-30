@@ -24,7 +24,8 @@ const ui = {
   detail: null,
   detailKey: "",
   settings: null,
-  draftFolders: [],
+  draftSources: [],
+  drives: {},
   threshold: 1,
   busy: {},
   // List filters and sort, kept between sessions.
@@ -65,7 +66,9 @@ async function api(method, path, body) {
 // getSettings tolerates an older engine that sends null for empty lists.
 async function getSettings() {
   const s = await api("GET", "/api/settings");
-  s.folders = s.folders || [];
+  s.sources = s.sources || [];
+  s.google_accounts = s.google_accounts || [];
+  s.google = s.google || {};
   s.cloud_folders = s.cloud_folders || [];
   s.keys = s.keys || {};
   s.default_models = s.default_models || {};
@@ -129,6 +132,18 @@ function detailSeverity(d) {
   return raised && RANK[raised] > RANK[sev] ? raised : sev;
 }
 
+// sourceLabel mirrors config.Source.Label of the engine.
+function sourceLabel(src) {
+  if (src.type !== "gdrive") return src.path;
+  let name = src.drive_name || "My Drive";
+  if (src.folder_id) name += ` › ${src.folder_name || src.folder_id}`;
+  return `Google Drive · ${src.account} · ${name}`;
+}
+
+function sameFolder(a, b) {
+  return a.toLowerCase() === b.toLowerCase();
+}
+
 // isExplaining reports an explanation in progress, asked from this window or
 // started automatically by the engine when it detected the change.
 function isExplaining(id) {
@@ -169,10 +184,10 @@ function renderStatus() {
     s.textContent = "Scanning…";
     s.className = "status busy";
   } else if (st.scan_error) {
-    s.textContent = `Folder unavailable: ${st.scan_error}`;
+    s.textContent = `Source unavailable: ${st.scan_error}`;
     s.className = "status warn";
-  } else if (st.folders === 0) {
-    s.textContent = "No folder watched yet";
+  } else if (st.sources === 0) {
+    s.textContent = "Nothing watched yet";
     s.className = "status";
   } else {
     const last = ago(st.last_scan);
@@ -215,10 +230,10 @@ function renderList() {
     ),
   );
   let empty = "";
-  if (ui.state.folders === 0) empty = "Add a OneDrive or Google Drive folder in Settings to start.";
-  else if (!shown.length && filtered) empty = "No document matches these filters.";
+  if (ui.state.sources === 0) empty = "Add a folder or a Google Drive in Settings to start.";
+  else if (!shown.length && q) empty = "No document matches this filter.";
   else if (!shown.length && ui.tab === "review") empty = "Nothing to review: every watched document matches its reviewed version.";
-  else if (!shown.length) empty = ui.state.scanning ? "First scan in progress…" : "No Word, Excel or PowerPoint document in the watched folders.";
+  else if (!shown.length) empty = ui.state.scanning ? "First scan in progress…" : "No Word, Excel or PowerPoint document in the watched sources.";
   $("list-empty").textContent = empty;
   $("list-empty").classList.toggle("hidden", !empty);
 }
@@ -297,7 +312,7 @@ async function renderWelcome() {
   ui.detailKey = "";
   const panel = $("detail");
   const st = ui.state;
-  if (st && st.folders > 0) {
+  if (st && st.sources > 0) {
     panel.replaceChildren(el("div", { class: "welcome" },
       el("h2", { text: st.to_review ? "Select a document to review" : "All caught up" }),
       el("p", { text: st.to_review
@@ -308,7 +323,7 @@ async function renderWelcome() {
   }
   const box = el("div", { class: "welcome" },
     el("h2", { text: "Watch your shared documents" }),
-    el("p", { text: "Probe follows the Word, Excel and PowerPoint files of a synchronized folder and tells you which modifications deserve a look: a formula replaced by a number, an amount changed in a contract, a softened obligation, a hidden sheet…" }),
+    el("p", { text: "Probe follows the Word, Excel and PowerPoint files of a folder or of a Google Drive and tells you which modifications deserve a look: a formula replaced by a number, an amount changed in a contract, a softened obligation, a hidden sheet…" }),
   );
   panel.replaceChildren(box);
   try {
@@ -318,7 +333,7 @@ async function renderWelcome() {
     box.append(
       buttons.length
         ? el("div", { class: "cloud-folders" }, ...buttons)
-        : el("p", { text: "No OneDrive or Google Drive folder was detected on this computer." }),
+        : el("p", { text: "No synchronized folder was detected on this computer. Choose any folder, or connect a Google Drive, in the settings." }),
       el("div", { class: "actions" }, el("button", { class: "btn", onclick: openSettings }, "Open settings")),
     );
   } catch (_) { /* the settings dialog stays available */ }
@@ -327,7 +342,7 @@ async function renderWelcome() {
 async function quickAdd(path) {
   try {
     const s = await getSettings();
-    if (!s.folders.some((f) => f.toLowerCase() === path.toLowerCase())) s.folders.push(path);
+    if (!s.sources.some((src) => src.type === "folder" && sameFolder(src.path, path))) s.sources.push({ type: "folder", path });
     await api("PUT", "/api/settings", s);
     ui.detail = null;
     await refresh();
@@ -339,7 +354,7 @@ async function quickAdd(path) {
 function renderDetail() {
   const d = ui.detail;
   const panel = $("detail");
-  const name = d.path.split(/[\\/]/).pop();
+  const name = d.name || d.path.split(/[\\/]/).pop();
   const head = el("div", { class: "detail-head" },
     el("div", { class: "detail-title" }, kindBadge(d.kind), el("h2", { text: name }), statusChip({ ...d, severity: detailSeverity(d) })),
     el("p", { class: "detail-sub mono", text: d.path }),
@@ -402,7 +417,7 @@ function metaLine(d) {
 function actions(d) {
   const box = el("div", { class: "actions" });
   if (d.status !== "removed") {
-    box.append(el("button", { class: "btn quiet small", onclick: () => run(d.id, "open") }, "Open document"));
+    box.append(el("button", { class: "btn quiet small", onclick: () => run(d.id, "open") }, d.link ? "Open in Google Drive" : "Open document"));
   }
   if (d.report) {
     const configured = ui.state && ui.state.ai_configured;
@@ -522,8 +537,12 @@ async function openSettings() {
     return;
   }
   const s = ui.settings;
-  ui.draftFolders = [...s.folders];
+  ui.draftSources = s.sources.map((src) => ({ ...src }));
   $("folder-path").value = "";
+  $("google-folder").value = "";
+  $("google-client-id").value = s.google_client_id || "";
+  $("google-client-secret").value = "";
+  $("google-status").textContent = "";
   $("download-cloud").checked = !!s.download_cloud_files;
   $("scan-seconds").value = String(s.scan_seconds);
   if (!$("scan-seconds").value) $("scan-seconds").value = "60";
@@ -533,19 +552,166 @@ async function openSettings() {
   $("language").value = s.language || "en";
   $("api-key").value = "";
   $("clear-key").checked = false;
-  renderFolders();
+  $("browse-folder").classList.toggle("hidden", typeof window.probePickFolder !== "function");
+  renderSources();
+  renderGoogle();
   renderProvider();
   $("settings").showModal();
 }
 
-function renderFolders() {
-  $("folder-list").replaceChildren(...ui.draftFolders.map((f, i) =>
-    el("li", {}, el("span", { class: "mono", text: f }),
-      el("button", { class: "btn quiet small", type: "button", onclick: () => { ui.draftFolders.splice(i, 1); renderFolders(); } }, "Remove"))));
-  const lower = ui.draftFolders.map((f) => f.toLowerCase());
-  const candidates = ui.settings.cloud_folders.filter((c) => !lower.includes(c.path.toLowerCase()));
+const INTERVALS = [[0, "Default pace"], [60, "Every minute"], [300, "Every 5 min"], [900, "Every 15 min"], [3600, "Every hour"]];
+
+function renderSources() {
+  $("source-list").replaceChildren(...ui.draftSources.map((src, i) => {
+    const pace = el("select", {
+      title: "How often this source is scanned. A network share or a large drive deserves a slower pace.",
+      onchange: (e) => { src.scan_seconds = Number(e.target.value); },
+    }, ...INTERVALS.map(([v, label]) => el("option", { value: String(v), selected: (src.scan_seconds || 0) === v }, label)));
+    return el("li", {},
+      el("span", { class: "source-kind", text: src.type === "gdrive" ? "API" : "Folder" }),
+      el("span", { class: src.type === "gdrive" ? "" : "mono", text: sourceLabel(src) }),
+      pace,
+      el("button", { class: "btn quiet small", type: "button", onclick: () => { ui.draftSources.splice(i, 1); renderSources(); } }, "Remove"));
+  }));
+  const candidates = ui.settings.cloud_folders.filter((c) => !hasFolder(c.path));
   $("cloud-folders").replaceChildren(...candidates.map((c) =>
-    el("button", { class: "btn ghost small", type: "button", title: c.path, onclick: () => { ui.draftFolders.push(c.path); renderFolders(); } }, `+ ${c.label}`)));
+    el("button", { class: "btn ghost small", type: "button", title: c.path, onclick: () => addFolder(c.path) }, `+ ${c.label}`)));
+}
+
+function hasFolder(path) {
+  return ui.draftSources.some((src) => src.type === "folder" && sameFolder(src.path, path));
+}
+
+function addFolder(path) {
+  path = path.trim();
+  if (!path || hasFolder(path)) return;
+  ui.draftSources.push({ type: "folder", path });
+  renderSources();
+}
+
+async function browseFolder() {
+  try {
+    const path = await window.probePickFolder();
+    if (path) addFolder(path);
+  } catch (err) {
+    $("settings-error").textContent = String((err && err.message) || err);
+  }
+}
+
+// ---------- Google Drive ----------
+
+function renderGoogle() {
+  const s = ui.settings;
+  $("google-section").classList.toggle("hidden", !s.google.available);
+  if (!s.google.available) return;
+  $("google-accounts").replaceChildren(...s.google_accounts.map((a) =>
+    el("li", {}, el("span", { text: a }),
+      el("button", { class: "btn quiet small", type: "button", onclick: () => disconnectGoogle(a) }, "Disconnect"))));
+  const needsClient = !s.google.builtin_client && !s.google_client_id;
+  $("google-client").open = needsClient;
+  $("google-client-secret").placeholder = s.google.secret_saved ? "A secret is saved; type a new one to replace it" : "";
+  $("google-add").classList.toggle("hidden", !s.google_accounts.length);
+  const select = $("google-account");
+  const current = select.value;
+  select.replaceChildren(...s.google_accounts.map((a) => el("option", { value: a, selected: a === current }, a)));
+  if (s.google_accounts.length) loadDrives(select.value);
+}
+
+async function loadDrives(account) {
+  const select = $("google-drive");
+  if (!ui.drives[account]) {
+    select.replaceChildren(el("option", { value: "" }, "Loading…"));
+    try {
+      ui.drives[account] = await api("GET", `/api/google/drives?account=${encodeURIComponent(account)}`);
+    } catch (err) {
+      select.replaceChildren(el("option", { value: "" }, "My Drive"));
+      $("google-status").textContent = err.message;
+      return;
+    }
+  }
+  if ($("google-account").value !== account) return;
+  select.replaceChildren(...ui.drives[account].map((d) => el("option", { value: d.id }, d.name)));
+}
+
+async function connectGoogle() {
+  const status = $("google-status");
+  $("settings-error").textContent = "";
+  try {
+    await api("POST", "/api/google/connect", {
+      client_id: $("google-client-id").value.trim(),
+      client_secret: $("google-client-secret").value,
+    });
+  } catch (err) {
+    status.textContent = err.message;
+    return;
+  }
+  $("google-client-secret").value = "";
+  status.textContent = "Finish in the browser window that just opened…";
+  const started = Date.now();
+  while (Date.now() - started < 5 * 60 * 1000) {
+    await new Promise((r) => setTimeout(r, 1500));
+    let st;
+    try {
+      st = await api("GET", "/api/google/connect");
+    } catch (err) {
+      status.textContent = err.message;
+      return;
+    }
+    if (st.state === "pending") continue;
+    if (st.state === "error") {
+      status.textContent = st.error;
+      return;
+    }
+    status.textContent = `Connected: ${st.account}`;
+    await reloadGoogle();
+    $("google-account").value = st.account;
+    loadDrives(st.account);
+    return;
+  }
+  status.textContent = "The connection was not completed.";
+}
+
+// reloadGoogle refreshes the accounts without losing the sources being edited.
+async function reloadGoogle() {
+  const fresh = await getSettings();
+  ui.settings.google_accounts = fresh.google_accounts;
+  ui.settings.google_client_id = fresh.google_client_id;
+  ui.settings.google = fresh.google;
+  renderGoogle();
+}
+
+async function disconnectGoogle(account) {
+  if (!confirm(`Disconnect ${account}? Probe forgets its Google token.`)) return;
+  try {
+    await api("DELETE", `/api/google/accounts/${encodeURIComponent(account)}`);
+    delete ui.drives[account];
+    await reloadGoogle();
+  } catch (err) {
+    $("settings-error").textContent = err.message;
+  }
+}
+
+async function addGoogleSource() {
+  const account = $("google-account").value;
+  const driveSelect = $("google-drive");
+  const drive = driveSelect.selectedOptions[0];
+  const src = { type: "gdrive", account, drive_id: driveSelect.value, drive_name: drive && driveSelect.value ? drive.textContent : "" };
+  const ref = $("google-folder").value.trim();
+  $("settings-error").textContent = "";
+  if (ref) {
+    try {
+      const f = await api("GET", `/api/google/folder?account=${encodeURIComponent(account)}&ref=${encodeURIComponent(ref)}`);
+      Object.assign(src, { folder_id: f.id, folder_name: f.name, drive_id: f.drive_id, drive_name: f.drive_name });
+    } catch (err) {
+      $("settings-error").textContent = err.message;
+      return;
+    }
+  }
+  const exists = ui.draftSources.some((o) => o.type === "gdrive" && o.account === src.account &&
+    (o.drive_id || "") === (src.drive_id || "") && (o.folder_id || "") === (src.folder_id || ""));
+  if (!exists) ui.draftSources.push(src);
+  $("google-folder").value = "";
+  renderSources();
 }
 
 function renderProvider() {
@@ -561,12 +727,13 @@ function renderProvider() {
 
 async function saveSettings() {
   const path = $("folder-path").value.trim();
-  if (path) {
-    ui.draftFolders.push(path);
+  const typed = path && !hasFolder(path);
+  if (typed) {
+    ui.draftSources.push({ type: "folder", path });
     $("folder-path").value = "";
   }
   const body = {
-    folders: ui.draftFolders,
+    sources: ui.draftSources,
     provider: $("provider").value,
     model: $("model").value.trim(),
     base_url: $("base-url").value.trim(),
@@ -576,14 +743,16 @@ async function saveSettings() {
     download_cloud_files: $("download-cloud").checked,
     api_key: $("api-key").value,
     clear_key: $("clear-key").checked,
+    google_client_id: $("google-client-id").value.trim(),
+    google_client_secret: $("google-client-secret").value,
   };
   try {
     ui.settings = await api("PUT", "/api/settings", body);
     $("settings").close();
     await refresh();
   } catch (err) {
-    if (path) ui.draftFolders.pop();
-    renderFolders();
+    if (typed) ui.draftSources.pop();
+    renderSources();
     $("settings-error").textContent = err.message;
   }
 }
@@ -620,12 +789,13 @@ $("open-settings").addEventListener("click", openSettings);
 $("provider").addEventListener("change", renderProvider);
 $("save-settings").addEventListener("click", saveSettings);
 $("add-folder").addEventListener("click", () => {
-  const path = $("folder-path").value.trim();
-  if (!path) return;
-  ui.draftFolders.push(path);
+  addFolder($("folder-path").value);
   $("folder-path").value = "";
-  renderFolders();
 });
+$("browse-folder").addEventListener("click", browseFolder);
+$("google-connect").addEventListener("click", connectGoogle);
+$("google-account").addEventListener("change", (e) => loadDrives(e.target.value));
+$("add-google").addEventListener("click", addGoogleSource);
 
 setThreshold(Math.min(Math.max(ui.threshold - 1, 0), 3));
 renderFilters();

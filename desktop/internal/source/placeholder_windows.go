@@ -1,4 +1,4 @@
-package watch
+package source
 
 import (
 	"io/fs"

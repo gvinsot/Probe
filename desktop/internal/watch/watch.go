@@ -1,22 +1,23 @@
-// Package watch follows the documents of the watched folders.
+// Package watch follows the documents of the watched sources.
 //
 // Each document has a baseline: the last version a person reviewed (or the
-// version found when the folder was first added). A scan compares every
+// version found when the source was first added). A scan compares every
 // modified document with its baseline and keeps the report until someone
 // marks the new version as reviewed, which makes it the next baseline.
 //
-// This is the local folder source. It reads the folders synchronized by the
-// OneDrive and Google Drive clients; the cloud version history is a later
-// source that will feed the same reports.
+// The documents come from sources (package source): the folders of this
+// computer, or a Google Drive read through its API. A source that keeps the
+// version history records a baseline by reference and the watcher downloads
+// it only once the document changed.
 package watch
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io/fs"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -28,6 +29,7 @@ import (
 
 	"github.com/gvinsot/Probe/desktop/internal/config"
 	"github.com/gvinsot/Probe/desktop/internal/office"
+	"github.com/gvinsot/Probe/desktop/internal/source"
 )
 
 // Status of a document relative to its baseline.
@@ -68,16 +70,34 @@ type Explanation struct {
 	Outdated bool `json:"outdated,omitempty"`
 }
 
-// Document is the state of one watched file.
+// Document is the state of one watched document.
 type Document struct {
-	ID           string         `json:"id"`
-	Path         string         `json:"path"`
-	Root         string         `json:"root"`
-	Kind         office.Kind    `json:"kind"`
-	Status       Status         `json:"status"`
-	Size         int64          `json:"size"`
-	ModTime      time.Time      `json:"mod_time"`
+	ID string `json:"id"`
+	// Source is the id of the configured source, Key the id of the document
+	// within it (the file path of a folder, the file id of a drive).
+	Source string `json:"source"`
+	Key    string `json:"key"`
+	Name   string `json:"name"`
+	Folder string `json:"folder"`
+	// Path is the full location shown to the user: a file path, or the
+	// place of the document in its drive.
+	Path string `json:"path"`
+	// Link opens a document that has no local path.
+	Link string `json:"link,omitempty"`
+	// Root is the watched folder, as saved by the versions that only
+	// watched folders; it is only read to migrate their state.
+	Root     string      `json:"root,omitempty"`
+	Kind     office.Kind `json:"kind"`
+	Status   Status      `json:"status"`
+	Size     int64       `json:"size"`
+	ModTime  time.Time   `json:"mod_time"`
+	Version  string      `json:"version,omitempty"`
+	Exported bool        `json:"exported,omitempty"`
+	// BaselineHash is the hash of the local copy of the reviewed version.
+	// BaselineRev references the reviewed version in the history of the
+	// source instead, while it has not been downloaded.
 	BaselineHash string         `json:"baseline_hash,omitempty"`
+	BaselineRev  string         `json:"baseline_rev,omitempty"`
 	BaselineAt   time.Time      `json:"baseline_at,omitempty"`
 	CurrentHash  string         `json:"current_hash,omitempty"`
 	ChangedAt    time.Time      `json:"changed_at,omitempty"`
@@ -106,13 +126,15 @@ func (d *Document) Severity() string {
 	return office.None
 }
 
+func (d *Document) hasBaseline() bool { return d.BaselineHash != "" || d.BaselineRev != "" }
+
 // Summary is a document without its report, for lists.
 type Summary struct {
 	ID         string      `json:"id"`
+	Source     string      `json:"source"`
 	Path       string      `json:"path"`
 	Name       string      `json:"name"`
 	Folder     string      `json:"folder"`
-	Root       string      `json:"root"`
 	Kind       office.Kind `json:"kind"`
 	Status     Status      `json:"status"`
 	Severity   string      `json:"severity"`
@@ -135,12 +157,24 @@ type State struct {
 	Documents []Summary `json:"documents"`
 }
 
-// Watcher scans the folders and keeps the document states.
+// Factory builds the source of a configured location.
+type Factory func(cfg config.Source) (source.Source, error)
+
+// FolderFactory builds folder sources only.
+func FolderFactory(cfg config.Source) (source.Source, error) {
+	if cfg.Type != config.SourceFolder {
+		return nil, fmt.Errorf("unsupported source type %q", cfg.Type)
+	}
+	return source.NewFolder(cfg.Path), nil
+}
+
+// Watcher scans the sources and keeps the document states.
 type Watcher struct {
 	dir      string
 	settings func() config.Settings
 	log      *slog.Logger
 	onUpdate func(total, toReview int)
+	factory  Factory
 	// onScanned runs after each scan, for the automatic AI explanations.
 	onScanned func()
 
@@ -148,22 +182,34 @@ type Watcher struct {
 	docs      map[string]*Document
 	scanning  bool
 	lastScan  time.Time
+	problems  map[string]string // by source id
 	scanError string
+
+	srcMu  sync.Mutex
+	active map[string]*activeSource
 
 	trigger chan struct{}
 	scanMu  sync.Mutex // one scan at a time
 }
 
-// New loads the saved state of a data directory.
+type activeSource struct {
+	cfg config.Source
+	src source.Source
+}
+
+// New loads the saved state of a data directory. It reads folder sources
+// until SetFactory adds the other types.
 func New(dir string, settings func() config.Settings, log *slog.Logger) (*Watcher, error) {
 	w := &Watcher{
-		dir:       dir,
-		settings:  settings,
-		log:       log,
-		docs:      map[string]*Document{},
-		trigger:   make(chan struct{}, 1),
-		onUpdate:  func(int, int) {},
-		onScanned: func() {},
+		dir:      dir,
+		settings: settings,
+		log:      log,
+		factory:  FolderFactory,
+		docs:     map[string]*Document{},
+		problems: map[string]string{},
+		active:   map[string]*activeSource{},
+		trigger:  make(chan struct{}, 1),
+		onUpdate: func(int, int) {},
 	}
 	if err := os.MkdirAll(w.baselineDir(), 0o700); err != nil {
 		return nil, err
@@ -181,10 +227,33 @@ func New(dir string, settings func() config.Settings, log *slog.Logger) (*Watche
 			log.Error("state.json unreadable, starting from scratch", "err", err)
 		}
 		for _, d := range docs {
+			migrate(d)
 			w.docs[d.ID] = d
 		}
 	}
 	return w, nil
+}
+
+// migrate fills the fields of a document saved by a version that only
+// watched folders. Its id is unchanged: folder documents keep the id derived
+// from their path.
+func migrate(d *Document) {
+	if d.Source != "" || d.Root == "" {
+		return
+	}
+	d.Source = config.FolderSourceID(d.Root)
+	d.Key = d.Path
+	d.Name = filepath.Base(d.Path)
+	d.Folder = source.RelFolder(d.Root, d.Path)
+	d.Root = ""
+}
+
+// SetFactory sets how the sources are built; call it before Run.
+func (w *Watcher) SetFactory(f Factory) {
+	w.srcMu.Lock()
+	defer w.srcMu.Unlock()
+	w.factory = f
+	w.active = map[string]*activeSource{}
 }
 
 // OnUpdate registers a callback run after each scan and review, used by the
@@ -201,21 +270,67 @@ func (w *Watcher) baselinePath(id string) string {
 	return filepath.Join(w.baselineDir(), id)
 }
 
-// Run scans at the configured interval until the stop channel closes.
+// pendingPath keeps the content an exported document had when its report
+// was computed: a review approves that copy, since exporting again could
+// give different bytes for the same version.
+func (w *Watcher) pendingPath(id string) string {
+	return filepath.Join(w.baselineDir(), id+".next")
+}
+
+// Run scans each source at its interval until the stop channel closes.
 func (w *Watcher) Run(stop <-chan struct{}) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go func() {
+		<-stop
+		cancel()
+	}()
+	next := map[string]time.Time{}
+	all := true
 	for {
-		w.Scan()
-		delay := time.Duration(w.settings().ScanSeconds) * time.Second
+		now := time.Now()
+		var only map[string]bool
+		if !all {
+			only = map[string]bool{}
+			for _, src := range w.settings().Sources {
+				if !now.Before(next[src.ID]) {
+					only[src.ID] = true
+				}
+			}
+		}
+		if all || len(only) > 0 {
+			scanned := w.scan(ctx, only)
+			done := time.Now()
+			s := w.settings()
+			for _, src := range s.Sources {
+				if scanned[src.ID] {
+					next[src.ID] = done.Add(time.Duration(s.Interval(src)) * time.Second)
+				}
+			}
+		}
+		all = false
+
+		s := w.settings()
+		wait := time.Duration(s.ScanSeconds) * time.Second
+		for _, src := range s.Sources {
+			if d := time.Until(next[src.ID]); d < wait {
+				wait = d
+			}
+		}
+		if wait < time.Second {
+			wait = time.Second
+		}
 		select {
 		case <-stop:
 			return
 		case <-w.trigger:
-		case <-time.After(delay):
+			all = true
+		case <-time.After(wait):
 		}
 	}
 }
 
-// ScanNow asks the loop to scan without waiting for the interval.
+// ScanNow asks the loop to scan every source without waiting.
 func (w *Watcher) ScanNow() {
 	select {
 	case w.trigger <- struct{}{}:
@@ -223,13 +338,21 @@ func (w *Watcher) ScanNow() {
 	}
 }
 
-// Scan walks every watched folder once.
-func (w *Watcher) Scan() {
+// Scan reads every source once.
+func (w *Watcher) Scan() { w.scan(context.Background(), nil) }
+
+// scan reads the sources of only, or all of them when only is nil, and
+// returns the ids of those it read.
+func (w *Watcher) scan(ctx context.Context, only map[string]bool) map[string]bool {
 	w.scanMu.Lock()
 	defer w.scanMu.Unlock()
+	scanned := map[string]bool{}
 	defer func() {
 		if r := recover(); r != nil {
 			w.log.Error("scan panic", "panic", r)
+			w.mu.Lock()
+			w.scanning = false
+			w.mu.Unlock()
 		}
 	}()
 	s := w.settings()
@@ -238,82 +361,117 @@ func (w *Watcher) Scan() {
 	w.mu.Unlock()
 	started := time.Now()
 
-	roots := map[string]bool{}
-	for _, r := range s.Folders {
-		roots[r] = true
+	configured := map[string]config.Source{}
+	for _, cfg := range s.Sources {
+		configured[cfg.ID] = cfg
 	}
+	w.pruneSources(configured)
+
 	seen := map[string]bool{}
 	completed := map[string]bool{}
-	var problems []string
 	processed := 0
-	for _, root := range s.Folders {
-		err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
-			if err != nil {
-				if path == root {
-					return err
-				}
-				return nil // an unreadable sub-folder does not stop the scan
-			}
-			name := d.Name()
-			if d.IsDir() {
-				if path != root && (strings.HasPrefix(name, ".") || strings.HasPrefix(name, "~") || strings.EqualFold(name, "$RECYCLE.BIN")) {
-					return filepath.SkipDir
-				}
-				return nil
-			}
-			// Lock and temporary files of Office and of the sync clients.
-			if strings.HasPrefix(name, "~$") || strings.HasPrefix(name, ".~") || strings.HasPrefix(name, "._") || strings.HasPrefix(name, "~") {
-				return nil
-			}
-			kind := office.KindOf(name)
-			if kind == "" {
-				return nil
-			}
-			info, err := d.Info()
-			if err != nil {
-				return nil
-			}
-			id := docID(path)
-			seen[id] = true
-			w.process(id, root, path, kind, info, s)
-			processed++
-			if processed%200 == 0 {
-				w.save()
-			}
-			return nil
-		})
-		if err != nil {
-			problems = append(problems, fmt.Sprintf("%s: %v", root, err))
-			w.log.Warn("folder unavailable", "folder", root, "err", err)
+	for _, cfg := range s.Sources {
+		if only != nil && !only[cfg.ID] {
 			continue
 		}
-		completed[root] = true
+		if ctx.Err() != nil {
+			break
+		}
+		scanned[cfg.ID] = true
+		src, err := w.sourceFor(cfg)
+		if err == nil {
+			err = src.List(ctx, func(e source.Entry) {
+				id := documentID(cfg, e.Key)
+				seen[id] = true
+				w.process(ctx, cfg, src, id, e, s)
+				processed++
+				if processed%200 == 0 {
+					w.save()
+				}
+			})
+		}
+		w.mu.Lock()
+		if err != nil {
+			w.problems[cfg.ID] = fmt.Sprintf("%s: %v", cfg.Label(), err)
+			w.log.Warn("source unavailable", "source", cfg.Label(), "err", err)
+		} else {
+			delete(w.problems, cfg.ID)
+			completed[cfg.ID] = true
+		}
+		w.mu.Unlock()
 	}
 
 	w.mu.Lock()
+	for id := range w.problems {
+		if _, ok := configured[id]; !ok {
+			delete(w.problems, id)
+		}
+	}
 	for id, d := range w.docs {
+		_, watched := configured[d.Source]
 		switch {
-		case !roots[d.Root]:
-			// The folder is no longer watched: forget its documents.
+		case !watched:
+			// The source is no longer watched: forget its documents.
 			delete(w.docs, id)
-			os.Remove(w.baselinePath(id))
-		case completed[d.Root] && !seen[id] && d.Status != StatusRemoved:
-			if d.BaselineHash == "" {
+			w.removeCopies(id)
+		case completed[d.Source] && !seen[id] && d.Status != StatusRemoved:
+			if !d.hasBaseline() {
 				delete(w.docs, id)
 				continue
 			}
 			d.Status, d.ChangedAt, d.Report, d.Explanation, d.Error = StatusRemoved, time.Now(), nil, nil, ""
 		}
 	}
+	problems := make([]string, 0, len(w.problems))
+	for _, p := range w.problems {
+		problems = append(problems, p)
+	}
+	sort.Strings(problems)
 	w.scanning = false
 	w.lastScan = time.Now()
 	w.scanError = strings.Join(problems, "; ")
 	w.mu.Unlock()
 	w.save()
 	total, toReview := w.counts()
-	w.log.Info("scan done", "documents", total, "to_review", toReview, "duration", time.Since(started).Round(time.Millisecond))
+	w.log.Info("scan done", "sources", len(scanned), "documents", total, "to_review", toReview, "duration", time.Since(started).Round(time.Millisecond))
 	w.onUpdate(total, toReview)
 	w.onScanned()
+	return scanned
+}
+
+// sourceFor returns the source of a configuration, built once and kept
+// while the configuration does not change (a drive keeps its cache).
+func (w *Watcher) sourceFor(cfg config.Source) (source.Source, error) {
+	w.srcMu.Lock()
+	defer w.srcMu.Unlock()
+	if a, ok := w.active[cfg.ID]; ok && a.cfg == cfg {
+		return a.src, nil
+	}
+	src, err := w.factory(cfg)
+	if err != nil {
+		return nil, err
+	}
+	w.active[cfg.ID] = &activeSource{cfg: cfg, src: src}
+	return src, nil
+}
+
+func (w *Watcher) pruneSources(configured map[string]config.Source) {
+	w.srcMu.Lock()
+	defer w.srcMu.Unlock()
+	for id := range w.active {
+		if _, ok := configured[id]; !ok {
+			delete(w.active, id)
+		}
+	}
+}
+
+func (w *Watcher) configuredSource(id string) (config.Source, bool) {
+	for _, cfg := range w.settings().Sources {
+		if cfg.ID == id {
+			return cfg, true
+		}
+	}
+	return config.Source{}, false
 }
 
 func (w *Watcher) counts() (total, toReview int) {
@@ -328,59 +486,122 @@ func (w *Watcher) counts() (total, toReview int) {
 	return total, toReview
 }
 
+// sameVersion reports whether an entry is the version already processed.
+func sameVersion(d *Document, e source.Entry) bool {
+	return d.Size == e.Size && d.ModTime.Equal(e.ModTime) && d.Version == e.Version
+}
+
 // process brings one document up to date. It never holds the lock while
-// reading the file: a large document or a slow cloud download must not
-// freeze the interface.
-func (w *Watcher) process(id, root, path string, kind office.Kind, info fs.FileInfo, s config.Settings) {
+// reading: a large document or a slow download must not freeze the
+// interface.
+func (w *Watcher) process(ctx context.Context, cfg config.Source, src source.Source, id string, e source.Entry, s config.Settings) {
 	w.mu.Lock()
 	prev, known := w.docs[id]
 	var d Document
 	if known {
-		d = *prev
-		if d.Size == info.Size() && d.ModTime.Equal(info.ModTime()) && d.Status != StatusError && d.Status != StatusRemoved {
+		if sameVersion(prev, e) && prev.Status != StatusError && prev.Status != StatusRemoved {
+			// A document renamed or moved in its drive keeps its id: only
+			// what is shown changes.
+			prev.Name, prev.Folder, prev.Path, prev.Link = e.Name, e.Folder, e.Location, e.Link
 			w.mu.Unlock()
 			return
 		}
+		d = *prev
 	} else {
 		d = Document{ID: id}
 	}
 	w.mu.Unlock()
 
-	d.Path, d.Root, d.Kind = path, root, kind
+	d.Source, d.Key, d.Name, d.Folder, d.Path, d.Link = cfg.ID, e.Key, e.Name, e.Folder, e.Location, e.Link
+	d.Kind, d.Exported = e.Kind, e.Exported
 	commit := func() {
 		w.mu.Lock()
 		w.docs[id] = &d
 		w.mu.Unlock()
 	}
-	stamp := func() { d.Size, d.ModTime = info.Size(), info.ModTime() }
+	stamp := func() { d.Size, d.ModTime, d.Version = e.Size, e.ModTime, e.Version }
+	fail := func(msg string) {
+		// Size and time are left as they were so the next scan retries.
+		d.Status, d.Error = StatusError, msg
+		commit()
+	}
+	tooLarge := func() {
+		stamp()
+		d.Status, d.Error = StatusTooLarge, fmt.Sprintf("larger than %d MB", s.MaxFileMB)
+		commit()
+	}
+	limit := int64(s.MaxFileMB) << 20
+	history, hasHistory := src.(source.History)
 
-	if d.BaselineHash == "" && cloudOnly(info) && !s.DownloadCloudFiles {
+	if !d.hasBaseline() && hasHistory && e.Revision != "" {
+		// The source keeps the versions: remember which one is the
+		// reference and download it only if the document changes.
+		stamp()
+		d.BaselineRev, d.BaselineAt, d.CurrentHash = e.Revision, time.Now(), ""
+		d.Status, d.Report, d.Explanation, d.Error = StatusClean, nil, nil, ""
+		commit()
+		return
+	}
+	if !d.hasBaseline() && e.CloudOnly && !s.DownloadCloudFiles {
 		stamp()
 		d.Status, d.Error = StatusCloudOnly, ""
 		commit()
 		return
 	}
-	if info.Size() > int64(s.MaxFileMB)<<20 {
-		stamp()
-		d.Status, d.Error = StatusTooLarge, fmt.Sprintf("larger than %d MB", s.MaxFileMB)
-		commit()
+	if e.Size > limit {
+		tooLarge()
 		return
 	}
-	data, err := os.ReadFile(path)
+	data, err := src.Read(ctx, e, limit)
+	if errors.Is(err, source.ErrTooLarge) {
+		tooLarge()
+		return
+	}
 	if err != nil {
-		// Size and time are left as they were so the next scan retries.
-		d.Status, d.Error = StatusError, "cannot read the file: "+err.Error()
-		commit()
+		fail("cannot read the document: " + err.Error())
 		return
 	}
-	sum := sha256.Sum256(data)
-	hash := hex.EncodeToString(sum[:])
+	hash := hashOf(data)
+
+	if d.BaselineHash == "" && d.BaselineRev != "" {
+		var base []byte
+		err := source.ErrRevisionGone
+		if hasHistory {
+			base, err = history.ReadRevision(ctx, e, d.BaselineRev, limit)
+		}
+		switch {
+		case errors.Is(err, source.ErrRevisionGone):
+			// Nothing left to compare with: the person must read the whole
+			// document, which a review then makes the baseline.
+			if e.Exported {
+				if err := config.WriteFileAtomic(w.pendingPath(id), data); err != nil {
+					fail("cannot store the analyzed copy: " + err.Error())
+					return
+				}
+			}
+			stamp()
+			d.CurrentHash, d.Report, d.Explanation, d.Error = hash, lostBaselineReport(e.Kind), nil, ""
+			d.Status, d.ChangedAt = StatusChanged, time.Now()
+			commit()
+			return
+		case errors.Is(err, source.ErrTooLarge):
+			tooLarge()
+			return
+		case err != nil:
+			fail("cannot read the reviewed version: " + err.Error())
+			return
+		}
+		if err := w.writeBaseline(id, base); err != nil {
+			fail("cannot store the baseline: " + err.Error())
+			return
+		}
+		d.BaselineHash, d.BaselineRev = hashOf(base), ""
+	}
 
 	switch {
 	case d.BaselineHash == "":
 		if err := w.writeBaseline(id, data); err != nil {
-			d.Status, d.Error = StatusError, "cannot store the baseline: "+err.Error()
-			commit()
+			fail("cannot store the baseline: " + err.Error())
 			return
 		}
 		stamp()
@@ -389,6 +610,7 @@ func (w *Watcher) process(id, root, path string, kind office.Kind, info fs.FileI
 	case hash == d.BaselineHash:
 		stamp()
 		d.CurrentHash, d.Status, d.Report, d.Explanation, d.Error = hash, StatusClean, nil, nil, ""
+		os.Remove(w.pendingPath(id))
 	case hash == d.CurrentHash && d.Report != nil:
 		// Touched (synchronized, opened and saved) without new content.
 		stamp()
@@ -396,17 +618,29 @@ func (w *Watcher) process(id, root, path string, kind office.Kind, info fs.FileI
 	default:
 		baseline, err := os.ReadFile(w.baselinePath(id))
 		if err != nil {
-			d.Status, d.Error = StatusError, "baseline missing: "+err.Error()
-			commit()
+			fail("baseline missing: " + err.Error())
 			return
 		}
-		report, err := office.Compare(kind, baseline, data)
+		report, err := office.Compare(e.Kind, baseline, data)
 		if err != nil {
 			// Most often the file is still being written or synchronized:
 			// keep the previous size and time so the next scan tries again.
-			d.Status, d.Error = StatusError, err.Error()
+			fail(err.Error())
+			return
+		}
+		if e.Exported && report.ChangeCount == 0 {
+			// Exported again without a visible modification.
+			stamp()
+			d.CurrentHash, d.Status, d.Report, d.Explanation, d.Error = hash, StatusClean, nil, nil, ""
+			os.Remove(w.pendingPath(id))
 			commit()
 			return
+		}
+		if e.Exported {
+			if err := config.WriteFileAtomic(w.pendingPath(id), data); err != nil {
+				fail("cannot store the analyzed copy: " + err.Error())
+				return
+			}
 		}
 		stamp()
 		d.Explanation = carryExplanation(d.Explanation, d.Report, report)
@@ -414,6 +648,26 @@ func (w *Watcher) process(id, root, path string, kind office.Kind, info fs.FileI
 		d.Status, d.ChangedAt = StatusChanged, time.Now()
 	}
 	commit()
+}
+
+// lostBaselineReport stands for a comparison that cannot be made because
+// the source no longer keeps the reviewed version.
+func lostBaselineReport(kind office.Kind) *office.Report {
+	return &office.Report{
+		Kind:     kind,
+		Severity: office.High,
+		Findings: []office.Finding{{
+			Severity: office.High,
+			Rule:     "source.baseline-unavailable",
+			Title:    "The reviewed version is no longer kept by the source: read the whole document before marking it as reviewed",
+		}},
+		Changes: []office.Change{},
+	}
+}
+
+func hashOf(data []byte) string {
+	sum := sha256.Sum256(data)
+	return hex.EncodeToString(sum[:])
 }
 
 // carryExplanation keeps what an earlier AI review said about the elements
@@ -494,6 +748,11 @@ func (w *Watcher) writeBaseline(id string, data []byte) error {
 	return config.WriteFileAtomic(w.baselinePath(id), data)
 }
 
+func (w *Watcher) removeCopies(id string) {
+	os.Remove(w.baselinePath(id))
+	os.Remove(w.pendingPath(id))
+}
+
 // ErrStale reports a review of a report that no longer matches the file.
 var ErrStale = errors.New("the document changed again since this report; it is being analyzed again")
 
@@ -501,9 +760,11 @@ var ErrStale = errors.New("the document changed again since this report; it is b
 var ErrNotFound = errors.New("unknown document")
 
 // Accept marks the current version of a document as reviewed: it becomes
-// the baseline for the next changes. The file is read again and must still
-// be the version the report describes, so nobody approves unseen content.
-func (w *Watcher) Accept(id string) error {
+// the baseline for the next changes. The document is read again and must
+// still be the version the report describes, so nobody approves unseen
+// content. An exported document is checked by its version, and the copy
+// analyzed for the report becomes the baseline.
+func (w *Watcher) Accept(ctx context.Context, id string) error {
 	w.mu.Lock()
 	d, ok := w.docs[id]
 	if !ok {
@@ -513,28 +774,67 @@ func (w *Watcher) Accept(id string) error {
 	if d.Status == StatusRemoved {
 		delete(w.docs, id)
 		w.mu.Unlock()
-		os.Remove(w.baselinePath(id))
+		w.removeCopies(id)
 		w.afterReview()
 		return nil
 	}
-	path, expected := d.Path, d.CurrentHash
+	snapshot := *d
 	w.mu.Unlock()
+	if snapshot.CurrentHash == "" {
+		w.ScanNow()
+		return ErrStale
+	}
 
-	data, err := os.ReadFile(path)
+	cfg, ok := w.configuredSource(snapshot.Source)
+	if !ok {
+		return ErrNotFound
+	}
+	src, err := w.sourceFor(cfg)
 	if err != nil {
 		return err
 	}
-	sum := sha256.Sum256(data)
-	if hex.EncodeToString(sum[:]) != expected {
+	e, err := src.Stat(ctx, snapshot.Key)
+	if errors.Is(err, source.ErrNotFound) {
+		w.ScanNow()
+		return ErrStale
+	}
+	if err != nil {
+		return err
+	}
+	var data []byte
+	if e.Exported {
+		if !sameVersion(&snapshot, e) {
+			w.ScanNow()
+			return ErrStale
+		}
+		data, err = os.ReadFile(w.pendingPath(id))
+		if err != nil {
+			// The analyzed copy is gone: analyze the document again.
+			w.mu.Lock()
+			if d, ok := w.docs[id]; ok {
+				d.Status, d.Error = StatusError, "the analyzed copy is missing"
+			}
+			w.mu.Unlock()
+			w.ScanNow()
+			return ErrStale
+		}
+	} else {
+		data, err = src.Read(ctx, e, int64(w.settings().MaxFileMB)<<20)
+		if err != nil {
+			return err
+		}
+	}
+	if hashOf(data) != snapshot.CurrentHash {
 		w.ScanNow()
 		return ErrStale
 	}
 	if err := w.writeBaseline(id, data); err != nil {
 		return err
 	}
+	os.Remove(w.pendingPath(id))
 	w.mu.Lock()
 	if d, ok := w.docs[id]; ok {
-		d.BaselineHash, d.BaselineAt = expected, time.Now()
+		d.BaselineHash, d.BaselineRev, d.BaselineAt = snapshot.CurrentHash, "", time.Now()
 		d.Status, d.Report, d.Explanation, d.Error = StatusClean, nil, nil, ""
 	}
 	w.mu.Unlock()
@@ -618,10 +918,9 @@ func (w *Watcher) State() State {
 			st.ToReview++
 		}
 		sum := Summary{
-			ID: d.ID, Path: d.Path, Name: filepath.Base(d.Path), Root: d.Root,
-			Folder: relFolder(d.Root, d.Path), Kind: d.Kind, Status: d.Status,
-			Severity: d.Severity(), ModTime: d.ModTime, ChangedAt: d.ChangedAt,
-			BaselineAt: d.BaselineAt, Error: d.Error,
+			ID: d.ID, Source: d.Source, Path: d.Path, Name: d.Name, Folder: d.Folder,
+			Kind: d.Kind, Status: d.Status, Severity: d.Severity(), ModTime: d.ModTime,
+			ChangedAt: d.ChangedAt, BaselineAt: d.BaselineAt, Error: d.Error,
 		}
 		if d.Report != nil {
 			sum.Findings = len(d.Report.Findings)
@@ -644,14 +943,6 @@ func (w *Watcher) State() State {
 	return st
 }
 
-func relFolder(root, path string) string {
-	rel, err := filepath.Rel(root, filepath.Dir(path))
-	if err != nil || rel == "." {
-		return filepath.Base(root)
-	}
-	return filepath.Join(filepath.Base(root), rel)
-}
-
 func (w *Watcher) save() {
 	w.mu.Lock()
 	docs := make([]*Document, 0, len(w.docs))
@@ -669,6 +960,17 @@ func (w *Watcher) save() {
 	if err := config.WriteFileAtomic(w.statePath(), data); err != nil {
 		w.log.Error("save state", "err", err)
 	}
+}
+
+// documentID derives a stable id for a document. A folder document keeps
+// the id the versions that only watched folders derived from its path; the
+// documents of the other sources are scoped by their source.
+func documentID(cfg config.Source, key string) string {
+	if cfg.Type == config.SourceFolder {
+		return docID(key)
+	}
+	sum := sha256.Sum256([]byte(cfg.ID + "\x00" + key))
+	return hex.EncodeToString(sum[:10])
 }
 
 // docID derives a stable id from the path. Windows and macOS file systems

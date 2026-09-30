@@ -1,9 +1,11 @@
 # Probe Desktop
 
 Probe Desktop is the Probe for office documents. It watches the Word, Excel and
-PowerPoint files of a OneDrive or Google Drive folder synchronized on the
-computer. When a document changes, it compares the new version with the last
-reviewed one and flags the modifications that deserve a look.
+PowerPoint files of its *sources*: folders of the computer (OneDrive,
+SharePoint, Google Drive for desktop, Dropbox, Box, iCloud, a network share or
+any folder) and Google Drives read through the Google API, Google Docs, Sheets
+and Slides included. When a document changes, it compares the new version with
+the last reviewed one and flags the modifications that deserve a look.
 
 The findings are computed on the computer by fixed rules. An AI provider
 (Anthropic or OpenAI, or a local OpenAI-compatible model) can be configured to
@@ -27,7 +29,8 @@ the raised severity stays only if none of the earlier modifications changed.
 | PowerPoint (`.pptx`, `.pptm`) | figures changed on a slide or in its notes, slide deleted or hidden |
 | All | macros added, link to an external file added, embedded object added |
 
-Macs write the same formats, so Office for Mac documents are covered.
+Macs write the same formats, so Office for Mac documents are covered, and
+Google Docs, Sheets and Slides are exported to them by a Google Drive source.
 Apple iWork files (Pages, Numbers, Keynote) and legacy `.doc`/`.xls` files are
 not read yet.
 
@@ -43,8 +46,10 @@ probe-desktop                      probe-desktop --window <url>
 ```
 
 - One executable, two processes. The **engine** keeps the tray icon, scans
-  the folders and serves the interface on the loopback interface. The
-  **window** is only a client: closing it does not stop the watching.
+  the sources and serves the interface on the loopback interface. The
+  **window** is only a client: closing it does not stop the watching. It
+  gives the page a single native function, the folder dialog behind
+  *Browse…*; the chosen path is checked by the engine like a typed one.
 - **No console, no Dock icon.** The Windows executable is built with
   `-H=windowsgui`; the macOS bundle declares `LSUIElement`. Errors go to
   `desktop.log` in the data directory.
@@ -81,14 +86,88 @@ ask for one from the document. The OpenAI provider
 accepts a custom endpoint, so a compatible server run on premises (vLLM,
 Ollama…) keeps everything inside the company.
 
-### Online-only files
+## Sources
+
+The watcher (`internal/watch`) only knows the `source.Source` interface: list
+the documents, read one, check one before a review. A source that keeps the
+version history also implements `source.History`; the watcher then records a
+baseline by reference and downloads nothing until the document changes. Each
+source can have its own scan interval (a network share or a large drive
+deserves a slower pace than the global one).
+
+### Folders
+
+A folder source (`internal/source`) walks a folder of the computer at each
+scan. The settings propose the folders the sync clients created (OneDrive and
+the SharePoint/Teams libraries it synchronizes, Google Drive for desktop,
+Dropbox, Box, iCloud Drive), *Browse…* opens the system folder dialog, and any
+absolute path can be typed. A folder inside another watched folder is
+refused: its documents would belong to either one depending on the scan
+order. A folder already watched that becomes unavailable (unplugged drive,
+network share) stays in the settings and is reported until it comes back; its
+documents are not reported as deleted meanwhile.
 
 OneDrive "Files On-Demand" and Google Drive streaming keep some files in the
 cloud only. Reading them downloads them, so by default Probe does not record a
 baseline for them; enable *Download online-only files* in the settings to do
 it anyway. Once a file has a baseline, a later change is read (and downloaded)
-normally. Reading the version history of OneDrive/SharePoint and Google Drive
-through their APIs is the next source to add; it will feed the same reports.
+normally.
+
+### Google Drive through its API
+
+A Google Drive source (`internal/gdrive`) needs no sync client. It watches My
+Drive, a shared drive or one folder of them, and reads:
+
+- the uploaded Word, Excel and PowerPoint files;
+- Google Docs, Sheets and Slides, exported to `.docx`, `.xlsx` and `.pptx`
+  (Google limits an export to 10 MB).
+
+The first scan lists the drive (metadata only) and keeps the list in
+`sources/<id>.json`; the next scans only ask Drive for the changes since the
+previous one (`changes.list`), and the whole drive is listed again once a day.
+No document is downloaded to record its baseline: the reviewed version is the
+current revision, fetched from the Drive history once the document has
+changed. An uploaded file names it by revision id. A Google Doc has no
+revision id in its listing, so its baseline is the latest revision saved at or
+before the reviewed time; Drive merges the revisions of an editing session,
+so a report can then show more changes than strictly happened, never fewer.
+Drive purges old revisions of uploaded files (30 days or 100 revisions): if
+the reviewed version is gone when a change arrives, the report says so with a
+high finding and asks for a full reading before *Mark as reviewed*.
+
+An exported document can differ byte for byte between two exports of the same
+version. The copy analyzed for the report is kept next to the baseline
+(`baselines/<id>.next`); *Mark as reviewed* checks that the Drive version did
+not move and makes that copy the baseline. An export that shows no change at
+all is not reported.
+
+**Connecting an account.** *Connect a Google account* opens the Google consent
+page in the default browser (OAuth for installed applications, loopback
+redirect to a one-shot listener, PKCE, `state` checked). The only scope is
+`drive.readonly`. The refresh token is stored in the system keychain; the
+access tokens only live in memory, and a token is only ever sent to the Drive
+API and to the Google hosts that serve exports. Disconnecting revokes the
+token at Google and deletes it; an account still used by a source cannot be
+disconnected.
+
+**The OAuth client.** `drive.readonly` is a restricted scope: an application
+published for everyone must pass the Google verification and a yearly
+security assessment. Until then, each company creates its own client:
+
+1. in a Google Cloud project, enable the *Google Drive API*;
+2. configure the consent screen as *Internal* (Google Workspace): an internal
+   application needs no verification;
+3. create an OAuth client of type *Desktop app*;
+4. paste its id and secret under *Settings › Google Drive › OAuth client*
+   (the secret goes to the keychain).
+
+A build can also carry a client, used when the settings name none:
+`-ldflags "-X github.com/gvinsot/Probe/desktop/internal/gdrive.DefaultClientID=… -X github.com/gvinsot/Probe/desktop/internal/gdrive.DefaultClientSecret=…"`
+(the build scripts read `PROBE_GOOGLE_CLIENT_ID` and
+`PROBE_GOOGLE_CLIENT_SECRET`).
+
+Only the file name, the findings and the changed excerpts are sent to the AI
+provider, whatever the source.
 
 ## Data directory
 
@@ -98,7 +177,11 @@ through their APIs is the next source to add; it will feed the same reports.
 | macOS | `~/Library/Application Support/Probe Desktop` |
 
 It holds `settings.json`, `state.json` (documents and reports), `baselines/`
-(the reviewed copies), `desktop.log` and the web view profile.
+(the reviewed copies, and the analyzed copy of an exported document waiting
+for a review), `sources/` (the file lists of the Google Drive sources),
+`desktop.log` and the web view profile. Settings written by a version that
+only watched folders are migrated on start; the documents keep their state
+and baselines.
 `PROBE_DESKTOP_HOME` overrides it, for tests or a portable install.
 
 ## Updates

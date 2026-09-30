@@ -22,15 +22,18 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"log/slog"
 	"net"
 	"net/http"
+	"net/url"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/gvinsot/Probe/desktop/internal/config"
+	"github.com/gvinsot/Probe/desktop/internal/gdrive"
 	"github.com/gvinsot/Probe/desktop/internal/instance"
 	"github.com/gvinsot/Probe/desktop/internal/office"
 	"github.com/gvinsot/Probe/desktop/internal/platform"
@@ -58,6 +61,15 @@ type SystemKeys struct{}
 func (SystemKeys) Get(p string) (string, error) { return secret.Get(p) }
 func (SystemKeys) Set(p, k string) error        { return secret.Set(p, k) }
 
+// Google connects Google accounts and browses their drives.
+type Google interface {
+	Connect() error
+	ConnectStatus() gdrive.ConnectStatus
+	Disconnect(account string) error
+	Drives(ctx context.Context, account string) ([]gdrive.Drive, error)
+	LookupFolder(ctx context.Context, account, ref string) (gdrive.Folder, error)
+}
+
 // Deps are the engine services the interface drives.
 type Deps struct {
 	Settings *config.Store
@@ -65,12 +77,15 @@ type Deps struct {
 	Keys     Keys
 	Log      *slog.Logger
 	Version  string
+	// Google is nil when Google Drive sources are not available.
+	Google Google
 	// OnShow opens the window (control request from a second launch).
 	OnShow func()
 	// OnSettings runs after the settings changed.
 	OnSettings func()
-	// Open opens a document with its default application.
-	Open func(path string) error
+	// Open opens a document with its default application, or a web
+	// address in the default browser.
+	Open func(target string) error
 }
 
 // Server is the loopback HTTP server of the interface.
@@ -171,6 +186,11 @@ func (s *Server) Handler() http.Handler {
 	api.HandleFunc("POST /api/scan", s.scan)
 	api.HandleFunc("GET /api/settings", s.getSettings)
 	api.HandleFunc("PUT /api/settings", s.putSettings)
+	api.HandleFunc("POST /api/google/connect", s.googleConnect)
+	api.HandleFunc("GET /api/google/connect", s.googleStatus)
+	api.HandleFunc("DELETE /api/google/accounts/{account}", s.googleDisconnect)
+	api.HandleFunc("GET /api/google/drives", s.googleDrives)
+	api.HandleFunc("GET /api/google/folder", s.googleFolder)
 	assets, _ := fs.Sub(web.Assets, "public")
 	api.Handle("GET /", http.FileServerFS(assets))
 
@@ -262,7 +282,7 @@ func (s *Server) controlAction(w http.ResponseWriter, r *http.Request) {
 type stateResponse struct {
 	watch.State
 	Version    string `json:"version"`
-	Folders    int    `json:"folders"`
+	Sources    int    `json:"sources"`
 	Configured bool   `json:"ai_configured"`
 	// Explaining lists the documents an AI explanation is being written for.
 	Explaining []string `json:"explaining"`
@@ -273,7 +293,7 @@ func (s *Server) state(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, stateResponse{
 		State:      s.deps.Watcher.State(),
 		Version:    s.deps.Version,
-		Folders:    len(st.Folders),
+		Sources:    len(st.Sources),
 		Configured: s.aiConfigured(st),
 		Explaining: s.auto.running(),
 	})
@@ -297,7 +317,7 @@ func (s *Server) document(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) accept(w http.ResponseWriter, r *http.Request) {
-	err := s.deps.Watcher.Accept(r.PathValue("id"))
+	err := s.deps.Watcher.Accept(r.Context(), r.PathValue("id"))
 	switch {
 	case errors.Is(err, watch.ErrNotFound):
 		writeError(w, http.StatusNotFound, err.Error())
@@ -317,15 +337,27 @@ func (s *Server) explain(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "no report to explain")
 		return
 	}
-	s.auto.begin(id)
-	e, err := s.explainDocument(r.Context(), d)
-	s.auto.end(id)
-	switch {
-	case errors.Is(err, errKeychain):
-		writeError(w, http.StatusInternalServerError, err.Error())
-	case errors.Is(err, reviewer.ErrNotConfigured):
-		writeError(w, http.StatusBadRequest, err.Error())
-	case errors.Is(err, watch.ErrStale), errors.Is(err, watch.ErrNotFound):
+	st := s.deps.Settings.Get()
+	key, err := s.deps.Keys.Get(st.Provider)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "cannot read the API key from the keychain: "+err.Error())
+		return
+	}
+	res, err := reviewer.Explain(r.Context(), st, key, d.Name, d.Report)
+	if err != nil {
+		s.deps.Log.Warn("explanation failed", "provider", st.Provider, "model", st.EffectiveModel(), "err", err)
+		status := http.StatusBadGateway
+		if errors.Is(err, reviewer.ErrNotConfigured) {
+			status = http.StatusBadRequest
+		}
+		writeError(w, status, err.Error())
+		return
+	}
+	e := watch.Explanation{
+		Provider: st.Provider, Model: st.EffectiveModel(), Text: res.Text, Findings: res.Findings,
+		Impacts: res.Impacts, Severity: res.Severity, At: time.Now(),
+	}
+	if err := s.deps.Watcher.SetExplanation(id, d.CurrentHash, e); err != nil {
 		writeError(w, http.StatusConflict, err.Error())
 	case err != nil:
 		writeError(w, http.StatusBadGateway, err.Error())
@@ -340,16 +372,35 @@ func (s *Server) open(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "unknown document")
 		return
 	}
-	// Only paths the watcher found are opened, and only Office documents.
-	if office.KindOf(d.Path) == "" {
+	target := d.Path
+	switch {
+	case d.Link != "":
+		// A drive document opens in the browser, and only on Google.
+		if !googleLink(d.Link) {
+			writeError(w, http.StatusBadRequest, "not a document link")
+			return
+		}
+		target = d.Link
+	case office.KindOf(d.Path) == "":
+		// Only paths the watcher found are opened, and only Office documents.
 		writeError(w, http.StatusBadRequest, "not a document")
 		return
 	}
-	if err := s.deps.Open(d.Path); err != nil {
+	if err := s.deps.Open(target); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// googleLink accepts the addresses Drive gives to open a document.
+func googleLink(link string) bool {
+	u, err := url.Parse(link)
+	if err != nil || u.Scheme != "https" || u.User != nil {
+		return false
+	}
+	host := u.Hostname()
+	return host == "docs.google.com" || host == "drive.google.com"
 }
 
 func (s *Server) scan(w http.ResponseWriter, r *http.Request) {
@@ -362,6 +413,19 @@ type settingsResponse struct {
 	Keys          map[string]bool      `json:"keys"`
 	CloudFolders  []config.CloudFolder `json:"cloud_folders"`
 	DefaultModels map[string]string    `json:"default_models"`
+	Google        googleInfo           `json:"google"`
+}
+
+// googleInfo tells the interface what Google Drive needs.
+type googleInfo struct {
+	// Available is false when the engine was built without Google Drive.
+	Available bool `json:"available"`
+	// BuiltinClient is true when the application carries an OAuth client,
+	// so the person does not need to enter one.
+	BuiltinClient bool `json:"builtin_client"`
+	// SecretSaved is true when the secret of the configured client is in
+	// the keychain.
+	SecretSaved bool `json:"secret_saved"`
 }
 
 func (s *Server) getSettings(w http.ResponseWriter, r *http.Request) {
@@ -370,6 +434,7 @@ func (s *Server) getSettings(w http.ResponseWriter, r *http.Request) {
 		k, _ := s.deps.Keys.Get(p)
 		keys[p] = k != ""
 	}
+	secret, _ := s.deps.Keys.Get(gdrive.ClientSecretKey)
 	writeJSON(w, settingsResponse{
 		Settings:     s.deps.Settings.Get(),
 		Keys:         keys,
@@ -377,6 +442,11 @@ func (s *Server) getSettings(w http.ResponseWriter, r *http.Request) {
 		DefaultModels: map[string]string{
 			config.ProviderAnthropic: config.DefaultAnthropicModel,
 			config.ProviderOpenAI:    config.DefaultOpenAIModel,
+		},
+		Google: googleInfo{
+			Available:     s.deps.Google != nil,
+			BuiltinClient: gdrive.DefaultClientID != "",
+			SecretSaved:   secret != "",
 		},
 	})
 }
@@ -387,6 +457,8 @@ type settingsRequest struct {
 	APIKey string `json:"api_key"`
 	// ClearKey deletes the stored key of the chosen provider.
 	ClearKey bool `json:"clear_key"`
+	// GoogleClientSecret, when set, is stored in the keychain.
+	GoogleClientSecret string `json:"google_client_secret"`
 }
 
 func (s *Server) putSettings(w http.ResponseWriter, r *http.Request) {
@@ -396,8 +468,13 @@ func (s *Server) putSettings(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid settings")
 		return
 	}
+	// The connected accounts only change through the connection flow.
+	req.Settings.GoogleAccounts = s.deps.Settings.Get().GoogleAccounts
 	if err := s.deps.Settings.Save(req.Settings); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if !s.storeClientSecret(w, req.GoogleClientSecret) {
 		return
 	}
 	provider := s.deps.Settings.Get().Provider
@@ -415,12 +492,152 @@ func (s *Server) putSettings(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
-	s.deps.Log.Info("settings saved", "folders", len(req.Folders), "provider", provider)
+	s.deps.Log.Info("settings saved", "sources", len(s.deps.Settings.Get().Sources), "provider", provider)
 	s.deps.OnSettings()
 	// A new provider, model or key deserves a new attempt on the documents
 	// whose explanation failed.
 	s.auto.retry()
 	s.getSettings(w, r)
+}
+
+func (s *Server) storeClientSecret(w http.ResponseWriter, secret string) bool {
+	if secret = strings.TrimSpace(secret); secret == "" {
+		return true
+	}
+	if err := s.deps.Keys.Set(gdrive.ClientSecretKey, secret); err != nil {
+		writeError(w, http.StatusInternalServerError, "cannot store the Google client secret in the keychain: "+err.Error())
+		return false
+	}
+	return true
+}
+
+func (s *Server) google(w http.ResponseWriter) (Google, bool) {
+	if s.deps.Google == nil {
+		writeError(w, http.StatusNotFound, "Google Drive is not available in this version")
+		return nil, false
+	}
+	return s.deps.Google, true
+}
+
+// connectRequest can carry the OAuth client typed in the settings, saved
+// before the consent page opens.
+type connectRequest struct {
+	ClientID     string `json:"client_id"`
+	ClientSecret string `json:"client_secret"`
+}
+
+func (s *Server) googleConnect(w http.ResponseWriter, r *http.Request) {
+	g, ok := s.google(w)
+	if !ok {
+		return
+	}
+	var req connectRequest
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<16)).Decode(&req); err != nil && !errors.Is(err, io.EOF) {
+		writeError(w, http.StatusBadRequest, "invalid request")
+		return
+	}
+	if id := strings.TrimSpace(req.ClientID); id != "" {
+		if err := s.deps.Settings.Update(func(st *config.Settings) { st.GoogleClientID = id }); err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+	}
+	if !s.storeClientSecret(w, req.ClientSecret) {
+		return
+	}
+	if err := g.Connect(); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	w.WriteHeader(http.StatusAccepted)
+}
+
+func (s *Server) googleStatus(w http.ResponseWriter, r *http.Request) {
+	g, ok := s.google(w)
+	if !ok {
+		return
+	}
+	writeJSON(w, g.ConnectStatus())
+}
+
+func (s *Server) googleDisconnect(w http.ResponseWriter, r *http.Request) {
+	g, ok := s.google(w)
+	if !ok {
+		return
+	}
+	account := strings.ToLower(r.PathValue("account"))
+	for _, src := range s.deps.Settings.Get().Sources {
+		if src.Type == config.SourceGoogleDrive && src.Account == account {
+			writeError(w, http.StatusConflict, "remove the Google Drive sources of this account first")
+			return
+		}
+	}
+	if err := g.Disconnect(account); err != nil {
+		writeError(w, http.StatusInternalServerError, "cannot delete the Google token: "+err.Error())
+		return
+	}
+	err := s.deps.Settings.Update(func(st *config.Settings) {
+		kept := []string{}
+		for _, a := range st.GoogleAccounts {
+			if a != account {
+				kept = append(kept, a)
+			}
+		}
+		st.GoogleAccounts = kept
+	})
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	s.deps.Log.Info("google account disconnected", "account", account)
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// connectedAccount returns the account named by a request, which must be
+// connected.
+func (s *Server) connectedAccount(w http.ResponseWriter, r *http.Request) (string, bool) {
+	account := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("account")))
+	for _, a := range s.deps.Settings.Get().GoogleAccounts {
+		if a == account {
+			return account, true
+		}
+	}
+	writeError(w, http.StatusBadRequest, "this Google account is not connected")
+	return "", false
+}
+
+func (s *Server) googleDrives(w http.ResponseWriter, r *http.Request) {
+	g, ok := s.google(w)
+	if !ok {
+		return
+	}
+	account, ok := s.connectedAccount(w, r)
+	if !ok {
+		return
+	}
+	drives, err := g.Drives(r.Context(), account)
+	if err != nil {
+		writeError(w, http.StatusBadGateway, err.Error())
+		return
+	}
+	writeJSON(w, drives)
+}
+
+func (s *Server) googleFolder(w http.ResponseWriter, r *http.Request) {
+	g, ok := s.google(w)
+	if !ok {
+		return
+	}
+	account, ok := s.connectedAccount(w, r)
+	if !ok {
+		return
+	}
+	folder, err := g.LookupFolder(r.Context(), account, r.URL.Query().Get("ref"))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, folder)
 }
 
 func writeJSON(w http.ResponseWriter, v any) {

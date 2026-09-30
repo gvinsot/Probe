@@ -33,7 +33,9 @@ func Run(url, dataDir string) {
 		return
 	}
 	defer w.Destroy()
-	setWindowIcon(w.Window())
+	hwnd := w.Window()
+	setWindowIcon(hwnd)
+	w.Bind(PickFolderBinding, func() (string, error) { return pickFolder(hwnd) })
 	w.Navigate(url)
 	w.Run()
 }
