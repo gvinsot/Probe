@@ -19,6 +19,7 @@ let fixtureActivities = [
   { repo_key: 'repo', commit: fixtureSHA('a'), variant: 'normal', status: 'failed', queued_at: fixtureAgo(3), finished_at: fixtureAgo(2), error: '<img src=x onerror=alert(1)>' },
 ];
 let fixtureFeedback = [];
+let fixtureNewCommits = [];
 let fixtureReposGate;
 let fixtureReportGate;
 let fixtureReportError = false;
@@ -53,6 +54,7 @@ window.fetch = async (path, init) => {
     data = { repo: { ...state.repos.get(key), monitored: init.method === 'POST' } };
   }
   else if (path.endsWith('/commits')) data = { limited: false, branches: [{name:'main',sha:fixtureSHA('a')},{name:'feature/ui',sha:fixtureSHA('c')}], commits: [
+    ...fixtureNewCommits,
     { sha: fixtureSHA('a'), parents: [fixtureSHA('b'), fixtureSHA('c')], branches: ['main'], message: 'Merge feature', author: 'Ada' },
     { sha: fixtureSHA('c'), parents: [fixtureSHA('d')], branches: ['feature/ui'], message: '<img src=x onerror=alert(1)>', author: 'Grace' },
     { sha: fixtureSHA('b'), parents: [fixtureSHA('d')], branches: [], message: 'Main branch work', author: 'Ada' },
@@ -530,7 +532,14 @@ window.addEventListener('DOMContentLoaded', async () => {
 
     // A reconnect/periodic refresh catches results whose SSE was missed.
     fixtureRepo.recent.push({ commit: fixtureSHA('g'), status: 'done', queued_at: fixtureAgo(0.1), summary: { verdict: 'review', counts: fixtureCounts } });
+    // The periodic refresh also reloads the commit tree in place.
+    fixtureNewCommits = [{ sha: fixtureSHA('9'), parents: [fixtureSHA('a')], branches: ['main'], message: 'Pushed after the tree loaded', author: 'Ada' }];
+    const selectedBefore = state.commit;
+    const commitsCalls = fixtureCalls.filter((call) => call.path.endsWith('/commits')).length;
     await refreshDashboard();
+    assert(fixtureCalls.filter((call) => call.path.endsWith('/commits')).length === commitsCalls + 1, 'the minute tick fetches the commit tree again');
+    assert(document.getElementById('commit-tree').textContent.includes('Pushed after the tree loaded') && state.commit === selectedBefore, 'a new commit appears without changing the selection');
+    fixtureNewCommits = [];
     assert(repoMeta().includes('Human review required') && document.getElementById('review-count').textContent.startsWith('1 repository'), 'refresh reconciles missed events and review counts');
     assert(!state.repos.get('repo').recent, 'repository snapshot does not duplicate the recent cache');
     const realNow = Date.now;

@@ -2183,7 +2183,12 @@ async function refreshDashboard(refreshHistory = false) {
   refreshingDashboard = true;
   try {
     await loadRepos();
-    if (refreshHistory && state.repoKey) await loadHistory();
+    if (refreshHistory && state.repoKey) {
+      state.graphs.delete(state.repoKey);
+      await loadHistory();
+    } else if (state.repoKey) {
+      await refreshCommitTree();
+    }
     renderDashboard();
   } catch (err) {
     toast('Could not refresh results: ' + err.message, true);
@@ -2191,6 +2196,34 @@ async function refreshDashboard(refreshHistory = false) {
   } finally {
     refreshingDashboard = false;
   }
+}
+
+// refreshCommitTree reloads the commit tree and the run history of the
+// selected repository in place, every minute with the dashboard: new commits
+// and results appear without disturbing the open report, the selection or the
+// scroll position. A failure keeps the current tree; the next tick retries.
+async function refreshCommitTree() {
+  const repo = state.repos.get(state.repoKey);
+  if (!repo || !state.graphs.has(repo.key)) return;
+  const loadID = state.loadID;
+  const base = '/api/repos/' + encodeURIComponent(repo.key);
+  let graph, runs;
+  try {
+    [graph, runs] = await Promise.all([api(base + '/commits'), api(base + '/runs')]);
+  } catch (err) {
+    return;
+  }
+  // A repository or commit selected meanwhile has loaded its own history.
+  if (loadID !== state.loadID || repo.key !== state.repoKey) return;
+  state.graphs.set(repo.key, graph);
+  state.runs = runs.runs || [];
+  settleFromHistory(repo.key);
+  const tree = el('commit-tree');
+  const top = tree.scrollTop, left = tree.scrollLeft;
+  renderGraph();
+  tree.scrollTop = top;
+  tree.scrollLeft = left;
+  if (state.commit) renderCommitActions();
 }
 
 function readHash() {
