@@ -22,7 +22,7 @@ func (s *Server) explainDocument(ctx context.Context, d watch.Document) (watch.E
 	if err != nil {
 		return watch.Explanation{}, errors.Join(errKeychain, err)
 	}
-	res, err := reviewer.Explain(ctx, st, key, d.Path, d.Report)
+	res, err := reviewer.Explain(ctx, st, key, d.Name, d.Report)
 	if err != nil {
 		s.deps.Log.Warn("explanation failed", "provider", st.Provider, "model", st.EffectiveModel(), "err", err)
 		return watch.Explanation{}, err

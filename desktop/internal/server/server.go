@@ -337,27 +337,15 @@ func (s *Server) explain(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "no report to explain")
 		return
 	}
-	st := s.deps.Settings.Get()
-	key, err := s.deps.Keys.Get(st.Provider)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "cannot read the API key from the keychain: "+err.Error())
-		return
-	}
-	res, err := reviewer.Explain(r.Context(), st, key, d.Name, d.Report)
-	if err != nil {
-		s.deps.Log.Warn("explanation failed", "provider", st.Provider, "model", st.EffectiveModel(), "err", err)
-		status := http.StatusBadGateway
-		if errors.Is(err, reviewer.ErrNotConfigured) {
-			status = http.StatusBadRequest
-		}
-		writeError(w, status, err.Error())
-		return
-	}
-	e := watch.Explanation{
-		Provider: st.Provider, Model: st.EffectiveModel(), Text: res.Text, Findings: res.Findings,
-		Impacts: res.Impacts, Severity: res.Severity, At: time.Now(),
-	}
-	if err := s.deps.Watcher.SetExplanation(id, d.CurrentHash, e); err != nil {
+	s.auto.begin(id)
+	e, err := s.explainDocument(r.Context(), d)
+	s.auto.end(id)
+	switch {
+	case errors.Is(err, errKeychain):
+		writeError(w, http.StatusInternalServerError, err.Error())
+	case errors.Is(err, reviewer.ErrNotConfigured):
+		writeError(w, http.StatusBadRequest, err.Error())
+	case errors.Is(err, watch.ErrStale), errors.Is(err, watch.ErrNotFound):
 		writeError(w, http.StatusConflict, err.Error())
 	case err != nil:
 		writeError(w, http.StatusBadGateway, err.Error())

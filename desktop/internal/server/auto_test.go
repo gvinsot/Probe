@@ -60,7 +60,7 @@ func TestChangesAreExplainedAutomatically(t *testing.T) {
 		t.Fatal(err)
 	}
 	s := st.Get()
-	s.Folders = []string{folder}
+	s.Sources = []config.Source{{Type: config.SourceFolder, Path: folder}}
 	s.Provider, s.BaseURL = config.ProviderOpenAI, provider.URL+"/v1"
 	if err := st.Save(s); err != nil {
 		t.Fatal(err)
