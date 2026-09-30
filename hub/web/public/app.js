@@ -703,6 +703,79 @@ function openRulesDialog(repo) {
   text.focus();
 }
 
+/* ----------------------------------------------------- PR summary -- */
+
+// The pull request summary the reviewer model wrote after the review: a
+// folded narrative, rendered as text only, with a button that copies it as
+// Markdown for a pull request description.
+function renderPRSummary(s) {
+  const box = document.createElement('details');
+  box.className = 'reviewer-summary pr-summary';
+  const head = document.createElement('summary');
+  const label = document.createElement('b');
+  label.textContent = 'AI pull request summary: ';
+  head.append(label, document.createTextNode(s.title || ''));
+  box.appendChild(head);
+  const overview = document.createElement('p');
+  overview.textContent = s.overview || '';
+  box.appendChild(overview);
+  const section = (title, items) => {
+    if (!items || !items.length) return;
+    const h = document.createElement('b');
+    h.textContent = title;
+    const list = document.createElement('ul');
+    for (const item of items) {
+      const li = document.createElement('li');
+      li.textContent = item;
+      list.appendChild(li);
+    }
+    box.append(h, list);
+  };
+  section('Changes', (s.changes || []).map((c) => c.area + ': ' + c.summary + (c.files && c.files.length ? ' (' + c.files.join(', ') + ')' : '')));
+  section('Behavior changes', s.behavior_changes);
+  section('Risks', s.risks);
+  section('Where to look first', s.review_focus);
+  if (s.testing) {
+    const h = document.createElement('b');
+    h.textContent = 'Testing';
+    const p = document.createElement('p');
+    p.textContent = s.testing;
+    box.append(h, p);
+  }
+  const footer = document.createElement('div');
+  footer.className = 'row';
+  const caveat = document.createElement('span');
+  caveat.className = 'note';
+  caveat.textContent = 'Written by ' + (s.model || 'the reviewer model') + ' after the review. Model output, not evidence.';
+  const copy = button('Copy as Markdown', 'btn quiet small', async () => {
+    try {
+      await navigator.clipboard.writeText(prSummaryMarkdown(s));
+      toast('Summary copied.');
+    } catch (err) {
+      toast('Could not copy: ' + err.message, true);
+    }
+  });
+  footer.append(caveat, copy);
+  box.appendChild(footer);
+  return box;
+}
+
+function prSummaryMarkdown(s) {
+  const lines = ['# ' + (s.title || ''), '', s.overview || ''];
+  const list = (title, items) => {
+    if (!items || !items.length) return;
+    lines.push('', '## ' + title, '');
+    for (const item of items) lines.push('- ' + item);
+  };
+  list('Changes', (s.changes || []).map((c) => '**' + c.area + '**: ' + c.summary + (c.files && c.files.length ? ' (' + c.files.join(', ') + ')' : '')));
+  list('Behavior changes', s.behavior_changes);
+  list('Risks', s.risks);
+  list('Where to look first', s.review_focus);
+  if (s.testing) lines.push('', '## Testing', '', s.testing);
+  lines.push('', '---', '', '_Written by ' + (s.model || 'the reviewer model') + ' from the Probe review. Model output, not evidence._');
+  return lines.join('\n') + '\n';
+}
+
 /* ------------------------------------------------------- agent access -- */
 
 // Agent tokens let coding agents (Claude Code, Cursor, …) use the hub's MCP
@@ -1498,6 +1571,8 @@ function renderReport() {
     note.textContent = 'Read-only AI review: no code or tests were executed. Model suspicions are unverified hypotheses, not reproduced issues.';
     head.appendChild(note);
   }
+
+  if (view.pr_summary) head.appendChild(renderPRSummary(view.pr_summary));
 
   if (view.reviewer_summary) {
     const summary = document.createElement('div');

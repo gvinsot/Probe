@@ -129,6 +129,27 @@ type ReviewerAgent struct {
 	Note       string   `json:"note,omitempty"`
 }
 
+// PRSummary is a model-written, natural-language summary of the change, for
+// a pull request description. It is generated after the verdict and changes
+// nothing in it: model output, never evidence.
+type PRSummary struct {
+	Title           string            `json:"title"`
+	Overview        string            `json:"overview"`
+	Changes         []PRSummaryChange `json:"changes"`          // always an array
+	BehaviorChanges []string          `json:"behavior_changes"` // always an array
+	Risks           []string          `json:"risks"`            // always an array
+	ReviewFocus     []string          `json:"review_focus"`     // always an array
+	Testing         string            `json:"testing,omitempty"`
+	Model           string            `json:"model"`
+}
+
+// PRSummaryChange is one area of a PR summary.
+type PRSummaryChange struct {
+	Area    string   `json:"area"`
+	Summary string   `json:"summary"`
+	Files   []string `json:"files"` // changed files only; always an array
+}
+
 // Reviewer agent statuses.
 const (
 	AgentCompleted  = "completed"
@@ -263,6 +284,7 @@ type Report struct {
 	SignalAssessments  []SignalAssessment `json:"signal_assessments"`         // model judgment, always an array
 	ReviewerSummary    string             `json:"reviewer_summary,omitempty"` // the model's closing text, never evidence
 	ReviewerAgents     []ReviewerAgent    `json:"reviewer_agents,omitempty"`  // the reviewer swarm, when one ran
+	PRSummary          *PRSummary         `json:"pr_summary,omitempty"`       // the model's narrative of the change, never evidence
 	Evidence           []Evidence         `json:"evidence"`
 	ReproducedIssues   []Hypothesis       `json:"reproduced_issues"`
 	BaseTests          *BaseTests         `json:"base_tests,omitempty"` // F3

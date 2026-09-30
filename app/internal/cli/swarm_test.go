@@ -97,7 +97,7 @@ func TestReadOnlyReviewWithSwarm(t *testing.T) {
 	}
 	mu.Lock()
 	defer mu.Unlock()
-	if agents["security"] < 2 || agents["tests"] < 1 || agents["solo"] != 0 {
+	if agents["security"] < 2 || agents["tests"] < 1 || agents["solo"] != 2 {
 		t.Fatalf("agent requests %v", agents)
 	}
 	r := readReviewerReport(t, dir)

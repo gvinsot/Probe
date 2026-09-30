@@ -68,7 +68,7 @@ func TestReviewerActivation(t *testing.T) {
 			}
 			policy := filepath.Join(t.TempDir(), "policy.json")
 			writeReviewerPolicy(t, policy, cfg)
-			args := append([]string{tc.mode, "--repo", dir, "--config", policy, "--checks=false", "--ci", "--out", "report"}, tc.flags...)
+			args := append([]string{tc.mode, "--repo", dir, "--config", policy, "--checks=false", "--ci", "--out", "report", "--pr-summary=false"}, tc.flags...)
 			var out, errOut bytes.Buffer
 			if code := Run(context.Background(), args, &out, &errOut, "test"); code != tc.wantCode {
 				t.Fatalf("exit %d, want %d: %s", code, tc.wantCode, errOut.String())
@@ -111,7 +111,7 @@ func TestReviewerTrustsOnlySelectedPolicy(t *testing.T) {
 	writeReviewerPolicy(t, policy, cfg)
 	git(t, dir, "add", config.Filename)
 	git(t, dir, "commit", "-m", "candidate attempts to enable provider")
-	args := []string{"review", "--repo", dir, "--checks=false", "--out", "report"}
+	args := []string{"review", "--repo", dir, "--checks=false", "--out", "report", "--pr-summary=false"}
 	var out bytes.Buffer
 	if code := Run(context.Background(), args, &out, &out, "test"); code != 0 || candidateCalls.Load() != 0 {
 		t.Fatalf("candidate enabled provider: exit %d, calls %d, %s", code, candidateCalls.Load(), out.String())
@@ -147,7 +147,7 @@ func TestAutomaticReviewerFailurePreservesStaticReport(t *testing.T) {
 	policy := filepath.Join(t.TempDir(), "policy.json")
 	writeReviewerPolicy(t, policy, cfg)
 	var out bytes.Buffer
-	if code := Run(context.Background(), []string{"review", "--repo", dir, "--config", policy, "--checks=false", "--ci", "--out", "report"}, &out, &out, "test"); code != 2 {
+	if code := Run(context.Background(), []string{"review", "--repo", dir, "--config", policy, "--checks=false", "--ci", "--out", "report", "--pr-summary=false"}, &out, &out, "test"); code != 2 {
 		t.Fatalf("incomplete reviewer must request human review: %d, %s", code, out.String())
 	}
 	r := readReviewerReport(t, dir)
@@ -216,7 +216,7 @@ func TestReviewerTakesProviderFromDeployment(t *testing.T) {
 	t.Setenv(cfg.Reviewer.APIKeyEnv+config.FileEnvSuffix, secret)
 	t.Setenv(config.EndpointEnv, server.URL+"/v1")
 	t.Setenv(config.ModelEnv, "deployed-model")
-	args := []string{"review", "--repo", dir, "--config", policy, "--checks=false", "--ci", "--out", "report"}
+	args := []string{"review", "--repo", dir, "--config", policy, "--checks=false", "--ci", "--out", "report", "--pr-summary=false"}
 	var out, errOut bytes.Buffer
 	// The model never assesses the fixture's linter signals: two reminders follow its answer.
 	if code := Run(context.Background(), args, &out, &errOut, "test"); code != 2 || calls.Load() != 3 {

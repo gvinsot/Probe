@@ -244,6 +244,27 @@ type Report struct {
 	// text. Both are model output: they never change the verdict.
 	SignalAssessments []SignalAssessment `json:"signal_assessments"`
 	ReviewerSummary   string             `json:"reviewer_summary,omitempty"`
+	// PRSummary is the model-written pull request summary, never evidence.
+	PRSummary *PRSummary `json:"pr_summary,omitempty"`
+}
+
+// PRSummary is the CLI's pr_summary, passed through to the dashboard.
+type PRSummary struct {
+	Title           string            `json:"title"`
+	Overview        string            `json:"overview"`
+	Changes         []PRSummaryChange `json:"changes"`
+	BehaviorChanges []string          `json:"behavior_changes"`
+	Risks           []string          `json:"risks"`
+	ReviewFocus     []string          `json:"review_focus"`
+	Testing         string            `json:"testing,omitempty"`
+	Model           string            `json:"model"`
+}
+
+// PRSummaryChange is one area of a PR summary.
+type PRSummaryChange struct {
+	Area    string   `json:"area"`
+	Summary string   `json:"summary"`
+	Files   []string `json:"files"`
 }
 
 // Decode parses a confidence report. Size is bounded by the caller.
@@ -403,6 +424,8 @@ type View struct {
 	SeverityLevels []string      `json:"severity_levels"`
 	// ReviewerSummary is the reviewer model's closing text, never evidence.
 	ReviewerSummary string `json:"reviewer_summary,omitempty"`
+	// PRSummary is the model-written pull request summary, never evidence.
+	PRSummary *PRSummary `json:"pr_summary,omitempty"`
 }
 
 // Summarize computes the compact result without building the full view.
@@ -771,6 +794,7 @@ func (r *Report) BuildView() View {
 		ToolVersion:     r.ToolVersion,
 		SeverityLevels:  Levels,
 		ReviewerSummary: strings.TrimSpace(r.ReviewerSummary),
+		PRSummary:       r.PRSummary,
 	}
 	v.Alerts, v.Dismissed = r.alertLists()
 	if v.Dismissed == nil {

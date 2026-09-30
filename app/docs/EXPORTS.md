@@ -18,6 +18,7 @@ probe report --input .probe/confidence-report.json --format sarif,pr-comment
 | `json` | `confidence-report.json` | The full report (default). |
 | `sarif` | `confidence-report.sarif` | Evidence-backed findings with a location in the changed files, plus notifications. |
 | `pr-comment` | `PR_COMMENT.md` | Status block, then every evidence-backed finding. |
+| `pr-summary` | `PR_SUMMARY.md` | Not an evidence-only export: the AI-written pull request summary, model output, written with `markdown` whenever a summary exists ([PR summary](PR_SUMMARY.md)). |
 
 - `--format` takes a comma-separated list; the default stays `markdown,json`. An unknown value exits 3 before anything runs or is written.
 - Every requested format is rendered in memory before any file is written, and each file is replaced atomically. A render error writes nothing.

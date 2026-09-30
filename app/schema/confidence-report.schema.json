@@ -29,6 +29,7 @@
     "signal_assessments": {"type": "array", "items": {"$ref": "#/$defs/signalAssessment"}, "description": "The reviewer model's plain-language reading of linter signals. Model judgment, not evidence: it changes no hypothesis status. With ai_impacts_criticality, a kept no_risk reading lowers its signal's severity by one level and sets a low signal aside."},
     "ai_impacts_criticality": {"type": "boolean", "description": "Records --ai-impacts-criticality: kept no_risk readings of linter signals lowered their severity, which review targets, the review surface and the exit code then use."},
     "reviewer_summary": {"type": "string", "description": "The reviewer model's closing text. Model output, not evidence."},
+    "pr_summary": {"$ref": "#/$defs/prSummary"},
     "reviewer_agents": {"type": "array", "minItems": 2, "maxItems": 12, "items": {"$ref": "#/$defs/reviewerAgent"}, "description": "The agents of a reviewer swarm, when one ran: each investigated the change with one focus, in parallel. A description of the run, not evidence."},
     "evidence": {"type": "array", "items": {"$ref": "#/$defs/evidence"}},
     "reproduced_issues": {
@@ -262,6 +263,31 @@
         {"if": {"properties": {"kind": {"const": "intent_test"}}}, "then": {"required": ["check_id", "criterion_id", "runner", "path"], "not": {"required": ["base_check_id"]}, "properties": {"test_names": {"minItems": 1}, "status": {"enum": ["INTENT_TEST_FAILED", "INTENT_TEST_PASSED", "UNVERIFIED"]}}}},
         {"if": {"properties": {"kind": {"const": "intent_test"}, "status": {"const": "INTENT_TEST_FAILED"}}}, "then": {"required": ["referenced_symbols"], "properties": {"referenced_symbols": {"minItems": 1}}}}
       ]
+    },
+    "prSummary": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "A natural-language summary of the change for a pull request description, written by the reviewer model after the review. Model output, not evidence: it changes no status, severity or exit code.",
+      "required": ["title", "overview", "changes", "behavior_changes", "risks", "review_focus", "model"],
+      "properties": {
+        "title": {"type": "string", "minLength": 1, "maxLength": 120},
+        "overview": {"type": "string", "minLength": 1},
+        "changes": {"type": "array", "maxItems": 12, "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["area", "summary", "files"],
+          "properties": {
+            "area": {"type": "string", "minLength": 1},
+            "summary": {"type": "string", "minLength": 1},
+            "files": {"type": "array", "maxItems": 30, "items": {"type": "string"}, "description": "Changed files only."}
+          }
+        }},
+        "behavior_changes": {"type": "array", "maxItems": 8, "items": {"type": "string", "minLength": 1}},
+        "risks": {"type": "array", "maxItems": 8, "items": {"type": "string", "minLength": 1}},
+        "review_focus": {"type": "array", "maxItems": 8, "items": {"type": "string", "minLength": 1}},
+        "testing": {"type": "string"},
+        "model": {"type": "string", "minLength": 1}
+      }
     },
     "reviewerAgent": {
       "type": "object",

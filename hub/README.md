@@ -69,6 +69,12 @@ reports each violation it finds as an unverified issue. Lint-only analyses
 ignore them. The report records the rules it was given. Saving the rules does
 not re-run earlier analyses.
 
+**Pull request summary.** When the AI reviewer runs, the CLI also writes a
+natural-language summary of the change after the verdict (see
+[PR summary](../app/docs/PR_SUMMARY.md)). The report view shows it folded
+above the alerts, labelled as model output, with a button that copies it as
+Markdown for a pull request description. It never changes the verdict.
+
 **Reviewer swarm.** Set `PROBE_HUB_SWARM=true` (or a list such as
 `security,correctness,tests`) to run every AI review as a swarm of
 specialized agents investigating in parallel instead of one reviewer. The

@@ -53,7 +53,7 @@ func WithReportURL(url string) Option {
 // ValidFormat reports whether format names a report format this build renders.
 func ValidFormat(format string) bool {
 	switch format {
-	case FormatMarkdown, FormatJSON, FormatSARIF, FormatPRComment:
+	case FormatMarkdown, FormatJSON, FormatSARIF, FormatPRComment, FormatPRSummary:
 		return true
 	}
 	return false
@@ -219,6 +219,8 @@ func renderFormat(format string, r *model.Report, o writeOptions) (string, []byt
 			}
 		}
 		return prCommentFile, renderPRComment(r, collectFindings(r, verifyExports(r)), o.reportURL), nil
+	case FormatPRSummary:
+		return prSummaryFile, renderPRSummary(r), nil
 	}
 	return "", nil, fmt.Errorf("unsupported report format %q", format)
 }

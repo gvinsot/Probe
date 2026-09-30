@@ -95,7 +95,7 @@ are opt-in and need a v0.4 binary):
   --parallel N             run the initial checks N at a time (1..4)
   --allow-prepare-network  permit network for policy "prepare" only if it enables it too
   --deadline D             overall time limit from 1m to 24h (30s are kept for the report)
-  --format LIST            report formats: markdown,json,sarif,pr-comment (lint, review and report)
+  --format LIST            report formats: markdown,json,sarif,pr-comment,pr-summary (lint, review and report)
   --report-url URL         link to the full report cited by the pr-comment format
 Use 'probe <command> --help' for options.
 `
@@ -181,7 +181,7 @@ func analyze(ctx context.Context, mode string, args []string, out, errOut io.Wri
 	exact := f.Bool("exact", false, "compare exact base instead of merge base")
 	policyPath := f.String("config", "", "explicit trusted local configuration (default: policy at the tip of --base)")
 	outDir := f.String("out", ".probe", "report directory, relative to repository")
-	format := f.String("format", "markdown,json", "comma-separated output formats: markdown,json,sarif,pr-comment")
+	format := f.String("format", "markdown,json", "comma-separated output formats: markdown,json,sarif,pr-comment,pr-summary")
 	ci := f.Bool("ci", false, "return 2 when human review is required")
 	checks := f.Bool("checks", mode == "review", "run configured checks in the Docker sandbox")
 	readOnly := f.Bool("read-only", false, "review: inspect changes with the LLM using read-only tools, without Docker or code execution")
@@ -189,6 +189,7 @@ func analyze(ctx context.Context, mode string, args []string, out, errOut io.Wri
 	aiImpactsCriticality := f.Bool("ai-impacts-criticality", true, "lower by one level the severity of a linter signal the reviewer read as no_risk from a recorded source observation, and set a low one aside; --ai-impacts-criticality=false keeps linter severities")
 	maxIterations := f.Int("max-iterations", 0, "override LLM iteration budget (1..100)")
 	swarmOptions := addSwarmFlags(f)
+	prSummary := f.Bool("pr-summary", true, "review: after the review, have the reviewer model write a natural-language pull request summary (pr_summary, PR_SUMMARY.md); one extra provider call; --pr-summary=false skips it")
 	intent := f.String("intent", "", "PR intent or acceptance criteria")
 	intentFile := f.String("intent-file", "", "UTF-8 file containing PR intent")
 	issues := addIssueFlags(f)
@@ -360,6 +361,9 @@ func analyze(ctx context.Context, mode string, args []string, out, errOut io.Wri
 	reviewerOptions.AllowInsecureHTTP = provider.AllowInsecureHTTP
 	if reviewerOptions.Swarm, err = resolveSwarm(mode, explicit, swarmOptions, cfg.Reviewer.Swarm, *useReviewer); err != nil {
 		return fail(errOut, 3, "%v", err)
+	}
+	if explicit["pr-summary"] && *prSummary && (mode == "lint" || !*useReviewer) {
+		return fail(errOut, 3, "--pr-summary is written by the reviewer model; it needs review with the reviewer enabled")
 	}
 	if *useReviewer {
 		if err := reviewer.Validate(reviewerOptions); err != nil {
@@ -640,6 +644,9 @@ func analyze(ctx context.Context, mode string, args []string, out, errOut io.Wri
 	if operationalFailure {
 		r.ExitCode = 4
 	}
+	if *prSummary && *useReviewer && reviewer.SummaryAvailable(&r) {
+		writePRSummary(work, repo, reviewerOptions, &r, errOut)
+	}
 	if err := report.Write(output, &r, formats, opts...); err != nil {
 		return fail(errOut, 4, "write report: %v", err)
 	}
@@ -728,7 +735,7 @@ func render(args []string, out, errOut io.Writer) int {
 	f.SetOutput(errOut)
 	input := f.String("input", ".probe/confidence-report.json", "saved JSON report")
 	dir := f.String("out", ".probe", "output directory")
-	format := f.String("format", "markdown,json", "comma-separated output formats: markdown,json,sarif,pr-comment")
+	format := f.String("format", "markdown,json", "comma-separated output formats: markdown,json,sarif,pr-comment,pr-summary")
 	reportURL := f.String("report-url", "", "https link to the full report, cited by the pr-comment format")
 	if err := f.Parse(args); err != nil {
 		return flagCode(err)

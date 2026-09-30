@@ -620,7 +620,7 @@ func (s *Server) findings(ctx context.Context, repo *store.Repo, commit, variant
 		return result, nil
 	}
 	view, _ := out["view"].(map[string]any)
-	for _, key := range []string{"summary", "change", "unverified", "checks", "coverage", "review_surface", "intent", "reviewer_summary", "diff_truncated", "tool_version", "generated_at"} {
+	for _, key := range []string{"summary", "change", "unverified", "checks", "coverage", "review_surface", "intent", "reviewer_summary", "pr_summary", "diff_truncated", "tool_version", "generated_at"} {
 		if v, ok := view[key]; ok {
 			result[key] = v
 		}

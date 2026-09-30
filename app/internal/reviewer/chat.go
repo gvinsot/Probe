@@ -72,13 +72,20 @@ type completionChoice struct {
 // event worth recording, when the request exceeds the input budget. The
 // returned message is redacted and has the assistant role.
 func (c *chat) complete(ctx context.Context, messages []message, tools []map[string]any, iteration int) (completionChoice, model.AuditEvent, error) {
+	// A request without tools omits both tool fields: providers reject
+	// parallel_tool_calls, and some an empty tools array, when no tool is
+	// offered.
+	var parallel *bool
+	if len(tools) > 0 {
+		parallel = new(bool)
+	}
 	body, err := json.Marshal(struct {
 		Model               string           `json:"model"`
 		Messages            []message        `json:"messages"`
-		Tools               []map[string]any `json:"tools"`
+		Tools               []map[string]any `json:"tools,omitempty"`
 		MaxCompletionTokens int              `json:"max_completion_tokens"`
-		ParallelToolCalls   bool             `json:"parallel_tool_calls"`
-	}{c.o.Model, messages, tools, 4096, false})
+		ParallelToolCalls   *bool            `json:"parallel_tool_calls,omitempty"`
+	}{c.o.Model, messages, tools, 4096, parallel})
 	if err != nil {
 		return completionChoice{}, model.AuditEvent{}, err
 	}

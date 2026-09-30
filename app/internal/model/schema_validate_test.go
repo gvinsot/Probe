@@ -370,6 +370,15 @@ func populatedReport() Report {
 		Knowledge:          &Knowledge{Path: "PROBE_KNOWLEDGE.md", Commit: "abc", SHA256: strings.Repeat("e", 64), EntriesTotal: 3, Entries: []KnowledgeEntry{{Title: "Rounding", Kind: KnowledgeConvention, Paths: []string{"calc/**"}, Updated: "2026-09-30", Text: "Amounts round half up."}}, Updates: []KnowledgeUpdate{{Title: "Discount", Kind: KnowledgeComponent, Paths: []string{"calc/calc.go"}, Text: "Discount caps at 50%.", Reason: "new", Obsolete: true}}},
 		ContextRepos:       []ContextRepo{{Name: "company/shared-types", Role: "shared types", Clusters: []string{"payments"}, Ref: "main", Commit: "abc", Source: ContextLocal, Files: 12, Status: ContextAvailable, Reason: "only the first files are listed"}},
 		ReviewerSummary:    "Two signals read; one rounding concern remains.",
+		PRSummary: &PRSummary{
+			Title: "Round discounts up", Overview: "Discounts now round up to the next cent.",
+			Changes:         []PRSummaryChange{{Area: "Pricing", Summary: "Discount rounding changed.", Files: []string{"calc/calc.go"}}},
+			BehaviorChanges: []string{"Discounts can be one cent larger."},
+			Risks:           []string{"Reproduced: a discount of 33% on 5 returns 2 instead of 3."},
+			ReviewFocus:     []string{"calc/calc.go line 3"},
+			Testing:         "A generated differential test ran on both revisions.",
+			Model:           "test-model",
+		},
 		ReviewerAgents: []ReviewerAgent{
 			{Name: "correctness-1", Focus: "logic errors, edge cases and regressions of existing behavior", Paths: []string{"calc/calc.go"}, Status: AgentCompleted, Hypotheses: 1},
 			{Name: "tests", Focus: "whether the tests exercise the changed behavior", Status: AgentIncomplete, Hypotheses: 1, Note: "reviewer deadline or cancellation"},
@@ -578,6 +587,9 @@ func schemaCases(t *testing.T) (valid, invalid map[string][]edit) {
 		},
 	}
 	invalid = map[string][]edit{
+		"summary without title":                         {{"pr_summary/title", ""}},
+		"summary with 13 changes":                       {{"pr_summary/changes", make([]map[string]any, 13)}},
+		"summary unknown field":                         {{"pr_summary/verdict", "approved"}},
 		"swarm of one agent":                            {{"reviewer_agents", []map[string]any{{"name": "security", "focus": "f", "status": "completed", "hypotheses": 0}}}},
 		"swarm agent status":                            {{"reviewer_agents/0/status", "done"}},
 		"swarm agent name":                              {{"reviewer_agents/0/name", "Correctness Agent"}},

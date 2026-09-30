@@ -49,7 +49,7 @@ func TestReadOnlyReviewUsesDeploymentProviderWithoutExecution(t *testing.T) {
 	policy := filepath.Join(t.TempDir(), "policy.json")
 	writeReviewerPolicy(t, policy, cfg)
 	var output bytes.Buffer
-	code := Run(context.Background(), []string{"review", "--read-only", "--repo", dir, "--config", policy, "--out", "report", "--ci"}, &output, &output, "test")
+	code := Run(context.Background(), []string{"review", "--read-only", "--repo", dir, "--config", policy, "--out", "report", "--ci", "--pr-summary=false"}, &output, &output, "test")
 	if code != 2 || calls.Load() != 4 { // two reminders of the unassessed signal follow the answer
 		t.Fatalf("exit=%d calls=%d: %s", code, calls.Load(), output.String())
 	}
@@ -88,7 +88,7 @@ func TestReadOnlyReviewerFailureIsIncomplete(t *testing.T) {
 	var output bytes.Buffer
 	// Without a single completion no AI review happened: that is exit 4, not
 	// a human-review verdict a caller would read as a finished analysis.
-	code := Run(context.Background(), []string{"review", "--read-only", "--repo", dir, "--out", "report", "--ci"}, &output, &output, "test")
+	code := Run(context.Background(), []string{"review", "--read-only", "--repo", dir, "--out", "report", "--ci", "--pr-summary=false"}, &output, &output, "test")
 	if code != 4 || !strings.Contains(output.String(), "Read-only reviewer incomplete: reviewer endpoint returned HTTP 502") {
 		t.Fatalf("exit=%d: %s", code, output.String())
 	}

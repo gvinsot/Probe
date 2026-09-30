@@ -303,6 +303,8 @@ h1, h2, h3 { line-height: 1.25; }
 .ai-reading, .reviewer-summary { border: 1px solid var(--line); border-left: 3px solid var(--accent); border-radius: 8px; padding: 10px; font-size: 0.85rem; display: grid; gap: 4px; background: var(--accent-soft); }
 .ai-reading p, .reviewer-summary p { margin: 0; white-space: pre-wrap; word-break: break-word; }
 .reviewer-summary { margin-top: 4px; }
+.pr-summary summary { cursor: pointer; }
+.pr-summary ul { margin: 0; padding-left: 18px; }
 .chip.lowered { color: var(--muted); border-style: dashed; text-decoration: line-through; }
 .dismissed { border: 1px dashed var(--line); border-radius: 8px; padding: 8px 10px; margin-bottom: 10px; }
 .dismissed > summary { cursor: pointer; font-weight: 600; font-size: 0.85rem; }

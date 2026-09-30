@@ -384,6 +384,7 @@ func renderMarkdown(r *model.Report) []byte {
 	if r.AnalysisMode == "review-read-only" {
 		line(&b, "**Read-only AI review.** No repository code or tests were executed. Model suspicions are unverified hypotheses, not reproduced issues.\n")
 	}
+	writePRSummarySection(&b, r)
 	fmt.Fprintf(&b, "## Change Summary\n\n%d additions / %d deletions · %d files changed\n\n", r.Change.Additions, r.Change.Deletions, len(r.Change.Files))
 	fmt.Fprintf(&b, "Base: %s\n\nCandidate: %s\n\n", inline(r.Change.BaseCommit), inline(r.Change.HeadCommit))
 	switch r.Policy.Source {
@@ -755,6 +756,10 @@ func Write(dir string, r *model.Report, formats []string, opts ...Option) error 
 		data []byte
 	}
 	var files []rendered
+	if r.PRSummary != nil && containsFormat(formats, FormatMarkdown) {
+		// A summary is written next to the Markdown report without asking.
+		formats = append(append([]string{}, formats...), FormatPRSummary)
+	}
 	for _, format := range unique(formats) {
 		name, data, err := renderFormat(format, safe, o)
 		if err != nil {
@@ -847,4 +852,13 @@ func atomicWrite(path string, data []byte) (err error) {
 		return err
 	}
 	return os.Rename(f.Name(), path)
+}
+
+func containsFormat(formats []string, format string) bool {
+	for _, f := range formats {
+		if f == format {
+			return true
+		}
+	}
+	return false
 }

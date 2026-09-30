@@ -181,7 +181,7 @@ func TestReviewerFindCallersUsesIndex(t *testing.T) {
 	if len(requests) != 0 {
 		t.Fatal("lint contacted the provider")
 	}
-	if code := Run(context.Background(), []string{"review", "--repo", dir, "--config", policy, "--checks=false", "--out", "report"}, &out, &errOut, "test"); code != 0 {
+	if code := Run(context.Background(), []string{"review", "--repo", dir, "--config", policy, "--checks=false", "--out", "report", "--pr-summary=false"}, &out, &errOut, "test"); code != 0 {
 		t.Fatalf("review exit %d: %s", code, errOut.String())
 	}
 	if len(requests) != 4 { // two reminders of the unassessed signals follow the answer
