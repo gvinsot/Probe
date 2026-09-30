@@ -103,6 +103,11 @@ type Config struct {
 	CommitStatus bool
 	// DefaultBranchOnly restricts push analysis to the default branch.
 	DefaultBranchOnly bool
+	// Swarm runs the AI review as a swarm of specialized agents: "" for one
+	// reviewer, SwarmAll for the CLI's default agents, or a comma-separated
+	// list of agents. It multiplies provider traffic, so only the operator
+	// chooses it (PROBE_HUB_SWARM).
+	Swarm string
 	// Forges is keyed by forge kind and holds only configured forges.
 	Forges map[string]Forge
 }
@@ -182,6 +187,9 @@ func Load(getenv func(string) string) (Config, error) {
 		if len(c.ReviewPolicies) == 0 {
 			return c, fmt.Errorf("PROBE_HUB_MODE=review needs PROBE_HUB_REVIEW_POLICIES: list the repositories and policy digests you validated")
 		}
+	}
+	if c.Swarm, err = swarmSetting(getenv("PROBE_HUB_SWARM")); err != nil {
+		return c, err
 	}
 	if c.UserQuota < 1 || c.UserQuota > 10000 {
 		return c, fmt.Errorf("PROBE_HUB_USER_QUOTA must be between 1 and 10000")
@@ -399,4 +407,40 @@ func envDuration(getenv func(string) string, name string, fallback time.Duration
 		return fallback
 	}
 	return v
+}
+
+// SwarmAll runs the CLI's default swarm agents.
+const SwarmAll = "all"
+
+// swarmAgents are the agent names the CLI accepts (probe review --swarm-agents).
+var swarmAgents = map[string]bool{"correctness": true, "security": true, "tests": true, "compatibility": true, "reliability": true, "intent": true}
+
+// swarmSetting reads PROBE_HUB_SWARM: empty, false, off or 0 for one
+// reviewer; true, on, 1 or all for the default agents; otherwise a
+// comma-separated list of agents.
+func swarmSetting(value string) (string, error) {
+	v := strings.ToLower(strings.TrimSpace(value))
+	switch v {
+	case "", "false", "off", "0", "no":
+		return "", nil
+	case "true", "on", "1", "yes", SwarmAll:
+		return SwarmAll, nil
+	}
+	var agents []string
+	seen := map[string]bool{}
+	for _, name := range strings.Split(v, ",") {
+		name = strings.TrimSpace(name)
+		if name == "" {
+			continue
+		}
+		if !swarmAgents[name] || seen[name] {
+			return "", fmt.Errorf("PROBE_HUB_SWARM must be true, false or a list of distinct agents among correctness, security, tests, compatibility, reliability and intent, got %q", value)
+		}
+		seen[name] = true
+		agents = append(agents, name)
+	}
+	if len(agents) == 0 {
+		return "", fmt.Errorf("PROBE_HUB_SWARM names no agent")
+	}
+	return strings.Join(agents, ","), nil
 }

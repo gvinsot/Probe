@@ -62,6 +62,17 @@ type Reviewer struct {
 	MaxGeneratedTests int    `json:"max_generated_tests"`
 	TimeoutSeconds    int    `json:"timeout_seconds"`
 	MaxInputBytes     int    `json:"max_input_bytes"`
+	// Swarm runs several specialized reviewer agents in parallel; absent runs
+	// one reviewer. Each agent has the iteration and time budgets above.
+	Swarm *Swarm `json:"swarm,omitempty"`
+}
+
+// Swarm is the reviewer swarm policy. Agent names are checked by package
+// reviewer, which defines them.
+type Swarm struct {
+	Agents         []string `json:"agents,omitempty"`
+	MaxParallel    int      `json:"max_parallel,omitempty"`
+	PartitionFiles *int     `json:"partition_files,omitempty"`
 }
 
 type Config struct {
@@ -249,6 +260,11 @@ func (c Config) Validate() error {
 	// An empty name disables the credential entirely, for a local provider
 	// that takes none. Otherwise the name has to survive being pasted into a
 	// compose file and appended to /run/secrets/.
+	if sw := r.Swarm; sw != nil {
+		if len(sw.Agents) > 12 || sw.MaxParallel < 0 || sw.MaxParallel > 8 || sw.PartitionFiles != nil && (*sw.PartitionFiles < 0 || *sw.PartitionFiles > 1000) {
+			return fmt.Errorf("reviewer.swarm limits are 12 agents, max_parallel 1..8 and partition_files 0..1000")
+		}
+	}
 	if strings.ContainsAny(r.APIKeyEnv, "=/\\ \t\x00\r\n") {
 		return fmt.Errorf("reviewer.api_key_env must be an environment variable name")
 	}

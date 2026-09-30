@@ -458,12 +458,13 @@ func renderMarkdown(r *model.Report) []byte {
 		}
 	}
 	writeExecution(&b, r) // F7a
+	writeReviewerSwarm(&b, r)
 	line(&b, "\n## Investigation Summary\n")
 	if len(r.Hypotheses) == 0 {
 		line(&b, "No structured hypotheses were investigated.\n")
 	}
 	for _, h := range r.Hypotheses {
-		fmt.Fprintf(&b, "- **%s / %s** %s (%s): %s\n", inline(h.Status), inline(h.Severity), inline(h.Title), inline(h.ID), inline(h.Rationale))
+		fmt.Fprintf(&b, "- **%s / %s** %s (%s): %s%s\n", inline(h.Status), inline(h.Severity), inline(h.Title), inline(h.ID), inline(h.Rationale), agentsNote(h))
 		writeIntentLink(&b, r, h) // F5
 	}
 	writeReviewerReading(&b, r)

@@ -111,7 +111,29 @@ type Hypothesis struct {
 	Line           int      `json:"line,omitempty"`
 	CriterionID    string   `json:"criterion_id,omitempty"`    // F5
 	IntentJudgment string   `json:"intent_judgment,omitempty"` // F5: model judgment, never evidence; only on DIVERGED
+	// Agents names the reviewer swarm agents that submitted the hypothesis
+	// (several when agents submitted the same finding); empty for a single
+	// reviewer. Attribution, never evidence.
+	Agents []string `json:"agents,omitempty"`
 }
+
+// ReviewerAgent records one agent of a reviewer swarm: what it was asked to
+// examine and how its investigation ended. It is a description of the run,
+// never evidence.
+type ReviewerAgent struct {
+	Name       string   `json:"name"`
+	Focus      string   `json:"focus"`
+	Paths      []string `json:"paths,omitempty"` // the changed files it owned; empty: all
+	Status     string   `json:"status"`          // completed or incomplete
+	Hypotheses int      `json:"hypotheses"`      // hypotheses it submitted, before merging
+	Note       string   `json:"note,omitempty"`
+}
+
+// Reviewer agent statuses.
+const (
+	AgentCompleted  = "completed"
+	AgentIncomplete = "incomplete"
+)
 
 // Signal assessment judgments.
 const (
@@ -193,6 +215,9 @@ type AuditEvent struct {
 	Arguments  string    `json:"arguments"`
 	Status     string    `json:"status"`
 	DurationMS int64     `json:"duration_ms"`
+	// Agent names the reviewer swarm agent whose call this was; empty for
+	// harness stages and for a single reviewer.
+	Agent string `json:"agent,omitempty"`
 }
 type ReviewSurface struct {
 	ChangedLines int    `json:"changed_lines"`
@@ -237,6 +262,7 @@ type Report struct {
 	Hypotheses         []Hypothesis       `json:"hypotheses"`
 	SignalAssessments  []SignalAssessment `json:"signal_assessments"`         // model judgment, always an array
 	ReviewerSummary    string             `json:"reviewer_summary,omitempty"` // the model's closing text, never evidence
+	ReviewerAgents     []ReviewerAgent    `json:"reviewer_agents,omitempty"`  // the reviewer swarm, when one ran
 	Evidence           []Evidence         `json:"evidence"`
 	ReproducedIssues   []Hypothesis       `json:"reproduced_issues"`
 	BaseTests          *BaseTests         `json:"base_tests,omitempty"` // F3

@@ -303,8 +303,8 @@ func populatedReport() Report {
 	check := func(id, kind, status string, exit int, cache *CheckCache) Check {
 		return Check{ID: id, Kind: kind, Status: status, Command: []string{"go", "test", "-json", "./calc"}, ExitCode: exit, DurationMS: 25, Output: "{\"Action\":\"pass\"}", Truncated: false, Cache: cache}
 	}
-	reproduced := Hypothesis{ID: "hypothesis-1", Title: "Discount rounds up", Severity: "high", Status: StatusReproduced, Rationale: "The generated test fails on the candidate only.", EvidenceIDs: []string{"evidence-2"}, Path: "calc/calc.go", Line: 3}
-	intentFailure := Hypothesis{ID: "hypothesis-3", Title: "AC-1 test failed", Severity: "medium", Status: StatusIntentTestFailed, Rationale: "r", EvidenceIDs: []string{"evidence-7"}, Path: "calc/calc.go", Line: 3, CriterionID: "AC-1"}
+	reproduced := Hypothesis{ID: "hypothesis-1", Title: "Discount rounds up", Severity: "high", Status: StatusReproduced, Rationale: "The generated test fails on the candidate only.", EvidenceIDs: []string{"evidence-2"}, Path: "calc/calc.go", Line: 3, Agents: []string{"correctness-1", "tests"}}
+	intentFailure := Hypothesis{ID: "hypothesis-3", Title: "AC-1 test failed", Severity: "medium", Status: StatusIntentTestFailed, Rationale: "r", EvidenceIDs: []string{"evidence-7"}, Path: "calc/calc.go", Line: 3, CriterionID: "AC-1", Agents: []string{"intent"}}
 	return Report{
 		Version:        1,
 		ToolVersion:    "v0.4.0-test",
@@ -363,13 +363,17 @@ func populatedReport() Report {
 			{SignalID: "signal-2", Title: "go.sum changed", Explanation: "Only checksums of an updated module changed.", Judgment: AssessmentNoRisk, Rationale: "The diff only updates checksums.", EvidenceIDs: []string{"evidence-1"}, AdjustedSeverity: "low"},
 			{SignalID: "signal-3", Title: "Only a comment changed", Explanation: "The rounding comment was reworded.", Judgment: AssessmentNoRisk, Rationale: "Line 2 is a comment.", EvidenceIDs: []string{"evidence-1"}, SetAside: true},
 		},
-		CodingRules:          "Never log credentials.",
-		CodingRulesSHA256:    strings.Repeat("c", 64),
-		TeamFeedback:         &TeamFeedback{Topics: []FeedbackTopic{{Topic: "signal:no_test_change", Useful: 1, NotUseful: 4, Changed: 2, Unchanged: 5}}, Comments: []FeedbackComment{{Topic: "issue", Path: "calc/calc.go", Title: "Rounding", Vote: FeedbackDown, Comment: "We round on purpose.", ReplyTo: "Why round here?"}}},
-		TeamFeedbackSHA256:   strings.Repeat("d", 64),
-		Knowledge:            &Knowledge{Path: "PROBE_KNOWLEDGE.md", Commit: "abc", SHA256: strings.Repeat("e", 64), EntriesTotal: 3, Entries: []KnowledgeEntry{{Title: "Rounding", Kind: KnowledgeConvention, Paths: []string{"calc/**"}, Updated: "2026-09-30", Text: "Amounts round half up."}}, Updates: []KnowledgeUpdate{{Title: "Discount", Kind: KnowledgeComponent, Paths: []string{"calc/calc.go"}, Text: "Discount caps at 50%.", Reason: "new", Obsolete: true}}},
-		ContextRepos:         []ContextRepo{{Name: "company/shared-types", Role: "shared types", Clusters: []string{"payments"}, Ref: "main", Commit: "abc", Source: ContextLocal, Files: 12, Status: ContextAvailable, Reason: "only the first files are listed"}},
-		ReviewerSummary:      "Two signals read; one rounding concern remains.",
+		CodingRules:        "Never log credentials.",
+		CodingRulesSHA256:  strings.Repeat("c", 64),
+		TeamFeedback:       &TeamFeedback{Topics: []FeedbackTopic{{Topic: "signal:no_test_change", Useful: 1, NotUseful: 4, Changed: 2, Unchanged: 5}}, Comments: []FeedbackComment{{Topic: "issue", Path: "calc/calc.go", Title: "Rounding", Vote: FeedbackDown, Comment: "We round on purpose.", ReplyTo: "Why round here?"}}},
+		TeamFeedbackSHA256: strings.Repeat("d", 64),
+		Knowledge:          &Knowledge{Path: "PROBE_KNOWLEDGE.md", Commit: "abc", SHA256: strings.Repeat("e", 64), EntriesTotal: 3, Entries: []KnowledgeEntry{{Title: "Rounding", Kind: KnowledgeConvention, Paths: []string{"calc/**"}, Updated: "2026-09-30", Text: "Amounts round half up."}}, Updates: []KnowledgeUpdate{{Title: "Discount", Kind: KnowledgeComponent, Paths: []string{"calc/calc.go"}, Text: "Discount caps at 50%.", Reason: "new", Obsolete: true}}},
+		ContextRepos:       []ContextRepo{{Name: "company/shared-types", Role: "shared types", Clusters: []string{"payments"}, Ref: "main", Commit: "abc", Source: ContextLocal, Files: 12, Status: ContextAvailable, Reason: "only the first files are listed"}},
+		ReviewerSummary:    "Two signals read; one rounding concern remains.",
+		ReviewerAgents: []ReviewerAgent{
+			{Name: "correctness-1", Focus: "logic errors, edge cases and regressions of existing behavior", Paths: []string{"calc/calc.go"}, Status: AgentCompleted, Hypotheses: 1},
+			{Name: "tests", Focus: "whether the tests exercise the changed behavior", Status: AgentIncomplete, Hypotheses: 1, Note: "reviewer deadline or cancellation"},
+		},
 		AIImpactsCriticality: true,
 		Evidence: []Evidence{
 			{ID: "evidence-1", Kind: EvidenceSourceObservation, Description: "d", Path: "calc/calc.go", Output: "3: return (p*d + 99) / 100", Status: StatusObserved, TestNames: []string{}},
@@ -460,7 +464,7 @@ func populatedReport() Report {
 			ReplayBacked: []string{"evidence-4"},
 		},
 		Artifacts: []Artifact{{Path: "artifacts/check-1.log", Kind: "check_output", SHA256: sha}, {Path: "artifacts/mutant-1.patch", Kind: ArtifactMutantPatch, SHA256: sha}},
-		Audit:     []AuditEvent{{Time: at, Tool: AuditStagePrefix + "run_fuzz", Arguments: "{}", Status: "OK", DurationMS: 1}, {Time: at, Tool: AuditRejectedToolCall, Arguments: "{\"requested_tool\":\"shell\"}", Status: "ERROR"}},
+		Audit:     []AuditEvent{{Time: at, Tool: AuditStagePrefix + "run_fuzz", Arguments: "{}", Status: "OK", DurationMS: 1}, {Time: at, Tool: AuditRejectedToolCall, Arguments: "{\"requested_tool\":\"shell\"}", Status: "ERROR", Agent: "tests"}},
 		ExitCode:  1,
 	}
 }
@@ -574,6 +578,12 @@ func schemaCases(t *testing.T) (valid, invalid map[string][]edit) {
 		},
 	}
 	invalid = map[string][]edit{
+		"swarm of one agent":                            {{"reviewer_agents", []map[string]any{{"name": "security", "focus": "f", "status": "completed", "hypotheses": 0}}}},
+		"swarm agent status":                            {{"reviewer_agents/0/status", "done"}},
+		"swarm agent name":                              {{"reviewer_agents/0/name", "Correctness Agent"}},
+		"hypothesis agent name":                         {{"hypotheses/0/agents", []string{"Security Agent"}}},
+		"hypothesis without agents":                     {{"hypotheses/0/agents", []string{}}},
+		"audit agent name":                              {{"audit/1/agent", "../x"}},
 		"observation DIVERGED without repeat check":     {{"evidence/2/repeat_check_id", d}},
 		"observation evidence without runner":           {{"evidence/2/status", StatusUnverified}, {"evidence/2/runner", d}},
 		"observation evidence status FAILS":             {{"evidence/2/status", StatusFailsOnCandidate}},

@@ -330,3 +330,16 @@ func TestDatabaseNeedsAKeyThatOutlivesTheContainer(t *testing.T) {
 		t.Errorf("Database = %q", c.Database)
 	}
 }
+
+func TestSwarmSetting(t *testing.T) {
+	for in, want := range map[string]string{"": "", "off": "", "false": "", "true": SwarmAll, "ALL": SwarmAll, "security, tests": "security,tests"} {
+		if got, err := swarmSetting(in); err != nil || got != want {
+			t.Errorf("swarmSetting(%q) = %q, %v; want %q", in, got, err, want)
+		}
+	}
+	for _, in := range []string{"poet", "security,security", " , "} {
+		if _, err := swarmSetting(in); err == nil {
+			t.Errorf("swarmSetting(%q) accepted", in)
+		}
+	}
+}

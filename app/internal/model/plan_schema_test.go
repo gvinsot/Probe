@@ -66,7 +66,7 @@ func populatedPlan() Plan {
 		},
 		Contract:   PlanContract{BaseCommit: strings.Repeat("b", 40), Files: []string{"calc/calc.go"}, Symbols: []PlanContractSymbol{{Path: "calc/calc.go", Name: "Discount", Change: PlanSymbolSignature}}, CriticalFiles: []string{"calc/auth/token.go"}, Manifests: []string{"go.mod"}, Dependencies: true, NewPackages: []string{"calc/rules"}},
 		Unverified: []string{"u"},
-		Audit:      []AuditEvent{{Time: at, Tool: "planner_completion", Arguments: "iteration=1", Status: "OK", DurationMS: 1}},
+		Audit:      []AuditEvent{{Time: at, Tool: "planner_completion", Arguments: "iteration=1", Status: "OK", DurationMS: 1, Agent: "planner"}},
 		Note:       PlanNote, ExitCode: 2,
 	}
 }

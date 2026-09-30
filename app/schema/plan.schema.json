@@ -244,6 +244,11 @@
         },
         "duration_ms": {
           "$ref": "#/$defs/count"
+        },
+        "agent": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9-]{0,39}$",
+          "description": "The reviewer swarm agent that made this call; plans run one planner."
         }
       }
     },

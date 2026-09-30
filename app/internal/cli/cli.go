@@ -36,6 +36,7 @@ Usage:
   probe init [--repo PATH] [--language go|typescript|javascript|python|rust]
   probe lint [--base main] [--head HEAD] [--ci]
   probe review [--base main] [--reviewer=false] [--ci]
+  probe review --swarm [--swarm-agents correctness,security,...] [--base main]
   probe review --read-only [--base main] [--ci]
   probe review [flags] BASE..HEAD
   probe plan --intent-file FILE [--base main] [--ci]
@@ -187,6 +188,7 @@ func analyze(ctx context.Context, mode string, args []string, out, errOut io.Wri
 	useReviewer := f.Bool("reviewer", false, "use LLM investigation (default: enabled for review when a model is configured in policy or the environment); --reviewer=false disables provider calls")
 	aiImpactsCriticality := f.Bool("ai-impacts-criticality", true, "lower by one level the severity of a linter signal the reviewer read as no_risk from a recorded source observation, and set a low one aside; --ai-impacts-criticality=false keeps linter severities")
 	maxIterations := f.Int("max-iterations", 0, "override LLM iteration budget (1..100)")
+	swarmOptions := addSwarmFlags(f)
 	intent := f.String("intent", "", "PR intent or acceptance criteria")
 	intentFile := f.String("intent-file", "", "UTF-8 file containing PR intent")
 	issues := addIssueFlags(f)
@@ -356,6 +358,9 @@ func analyze(ctx context.Context, mode string, args []string, out, errOut io.Wri
 	reviewerOptions := reviewer.Options{Endpoint: provider.Endpoint, Model: provider.Model, APIKey: provider.APIKey, MaxIterations: cfg.Reviewer.MaxIterations, Timeout: time.Duration(cfg.Reviewer.TimeoutSeconds) * time.Second, MaxInputBytes: cfg.Reviewer.MaxInputBytes}
 	reviewerOptions.ReadOnly = *readOnly
 	reviewerOptions.AllowInsecureHTTP = provider.AllowInsecureHTTP
+	if reviewerOptions.Swarm, err = resolveSwarm(mode, explicit, swarmOptions, cfg.Reviewer.Swarm, *useReviewer); err != nil {
+		return fail(errOut, 3, "%v", err)
+	}
 	if *useReviewer {
 		if err := reviewer.Validate(reviewerOptions); err != nil {
 			return fail(errOut, 3, "%v", err)
@@ -584,7 +589,11 @@ func analyze(ctx context.Context, mode string, args []string, out, errOut io.Wri
 		r.Checks, r.Evidence, r.Audit = h.Checks(), h.Evidence(), h.Audit()
 		auditBefore := len(r.Audit)
 		if *useReviewer {
-			fmt.Fprintln(errOut, "Investigating with the configured reviewer API...")
+			if reviewerOptions.Swarm != nil {
+				fmt.Fprintln(errOut, "Investigating with a swarm of specialized reviewer agents through the configured reviewer API...")
+			} else {
+				fmt.Fprintln(errOut, "Investigating with the configured reviewer API...")
+			}
 			err := reviewer.Run(work, reviewerOptions, &r, h)
 			if err != nil {
 				r.Unverified = append(r.Unverified, "Reviewer incomplete: "+err.Error())

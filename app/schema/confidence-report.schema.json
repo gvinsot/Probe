@@ -29,6 +29,7 @@
     "signal_assessments": {"type": "array", "items": {"$ref": "#/$defs/signalAssessment"}, "description": "The reviewer model's plain-language reading of linter signals. Model judgment, not evidence: it changes no hypothesis status. With ai_impacts_criticality, a kept no_risk reading lowers its signal's severity by one level and sets a low signal aside."},
     "ai_impacts_criticality": {"type": "boolean", "description": "Records --ai-impacts-criticality: kept no_risk readings of linter signals lowered their severity, which review targets, the review surface and the exit code then use."},
     "reviewer_summary": {"type": "string", "description": "The reviewer model's closing text. Model output, not evidence."},
+    "reviewer_agents": {"type": "array", "minItems": 2, "maxItems": 12, "items": {"$ref": "#/$defs/reviewerAgent"}, "description": "The agents of a reviewer swarm, when one ran: each investigated the change with one focus, in parallel. A description of the run, not evidence."},
     "evidence": {"type": "array", "items": {"$ref": "#/$defs/evidence"}},
     "reproduced_issues": {
       "type": "array",
@@ -262,11 +263,25 @@
         {"if": {"properties": {"kind": {"const": "intent_test"}, "status": {"const": "INTENT_TEST_FAILED"}}}, "then": {"required": ["referenced_symbols"], "properties": {"referenced_symbols": {"minItems": 1}}}}
       ]
     },
+    "reviewerAgent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "focus", "status", "hypotheses"],
+      "properties": {
+        "name": {"type": "string", "pattern": "^[a-z][a-z0-9-]{0,39}$"},
+        "focus": {"type": "string", "minLength": 1},
+        "paths": {"type": "array", "maxItems": 2000, "items": {"type": "string"}, "description": "The changed files this agent owned; absent when it examined the whole change."},
+        "status": {"enum": ["completed", "incomplete"]},
+        "hypotheses": {"type": "integer", "minimum": 0},
+        "note": {"type": "string"}
+      }
+    },
     "hypothesis": {
       "type": "object",
       "additionalProperties": false,
       "required": ["id", "title", "severity", "status", "rationale", "evidence_ids"],
       "properties": {
+        "agents": {"type": "array", "minItems": 1, "maxItems": 12, "items": {"type": "string", "pattern": "^[a-z][a-z0-9-]{0,39}$"}, "description": "The reviewer swarm agents that submitted this hypothesis. Attribution, not evidence."},
         "id": {"$ref": "#/$defs/id"},
         "title": {"type": "string", "minLength": 1},
         "severity": {"$ref": "#/$defs/severity"},
@@ -550,6 +565,7 @@
       "additionalProperties": false,
       "required": ["time", "tool", "arguments", "status", "duration_ms"],
       "properties": {
+        "agent": {"type": "string", "pattern": "^[a-z][a-z0-9-]{0,39}$", "description": "The reviewer swarm agent that made this call."},
         "time": {"type": "string", "format": "date-time"},
         "tool": {"type": "string", "minLength": 1},
         "arguments": {"type": "string", "description": "Bounded, redacted arguments or operation metadata."},

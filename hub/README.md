@@ -69,6 +69,14 @@ reports each violation it finds as an unverified issue. Lint-only analyses
 ignore them. The report records the rules it was given. Saving the rules does
 not re-run earlier analyses.
 
+**Reviewer swarm.** Set `PROBE_HUB_SWARM=true` (or a list such as
+`security,correctness,tests`) to run every AI review as a swarm of
+specialized agents investigating in parallel instead of one reviewer. The
+report lists the agents and credits each finding to the agents that submitted
+it; verdicts are still derived only from evidence. Provider traffic grows with
+the number of agents, so only the operator chooses it. See
+[the reviewer swarm](../app/docs/SWARM.md).
+
 **Learning from team feedback** is on by default and takes effect whenever
 the AI reviewer runs. Under an expanded finding, anyone signed in to the
 account can vote (useful or not useful), comment, and reply to comments.

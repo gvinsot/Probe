@@ -35,6 +35,9 @@ type Options struct {
 	Context ContextReader
 	// Graph is the repository graph of the head commit; nil when there is none.
 	Graph GraphReader
+	// Swarm runs several specialized agents in parallel instead of one
+	// reviewer; nil runs the single reviewer.
+	Swarm *Swarm
 }
 
 type toolHarness interface {
@@ -126,10 +129,22 @@ func normalize(o Options) (Options, string, error) {
 
 // Run records hypotheses and audit events. No repository command is executed by
 // this package, and credentials are sent only to the configured endpoint.
+// With Options.Swarm, several specialized agents investigate in parallel (see
+// swarm.go); otherwise one reviewer does.
 func Run(ctx context.Context, o Options, r *model.Report, h toolHarness) error {
 	if r == nil || h == nil {
 		return errors.New("reviewer requires a report and harness")
 	}
+	if o.Swarm != nil {
+		return runSwarm(ctx, o, r, h)
+	}
+	return run(ctx, o, r, h, soloRole)
+}
+
+// run is one investigation. role narrows it for a swarm agent: its focus, the
+// changed files it owns, and whether it assesses the linter signals and
+// proposes knowledge (one agent of a swarm does both).
+func run(ctx context.Context, o Options, r *model.Report, h toolHarness, role agentRole) error {
 	o, endpoint, err := normalize(o)
 	if err != nil {
 		return err
@@ -174,6 +189,24 @@ func Run(ctx context.Context, o Options, r *model.Report, h toolHarness) error {
 	if err != nil {
 		return err
 	}
+	if len(role.paths) > 0 {
+		// An agent that owns part of the change receives the hunks of its
+		// files only; get_diff still reads any file.
+		owned := make(map[string]bool, len(role.paths))
+		for _, p := range role.paths {
+			owned[p] = true
+		}
+		input.Change.Files = make([]model.ChangedFile, len(safe.Change.Files))
+		for i, f := range safe.Change.Files {
+			if !owned[f.Path] {
+				f.Hunks = nil
+			}
+			input.Change.Files[i] = f
+		}
+		if initial, err = json.Marshal(input); err != nil {
+			return err
+		}
+	}
 	if len(initial) > o.MaxInputBytes/2 {
 		input.Change.Files = make([]model.ChangedFile, len(safe.Change.Files))
 		for i, f := range safe.Change.Files {
@@ -205,21 +238,22 @@ func Run(ctx context.Context, o Options, r *model.Report, h toolHarness) error {
 		prompt += graphPrompt
 		definitions = append(definitions, graphTools()...)
 	}
-	if r.Knowledge != nil {
+	if r.Knowledge != nil && role.knowledge {
 		prompt += knowledgePromptFor(len(input.Knowledge) > 0)
 		definitions = append(definitions, knowledgeTool())
 		if r.Knowledge.Updates == nil {
 			r.Knowledge.Updates = []model.KnowledgeUpdate{}
 		}
 	}
-	if len(safe.Signals) > 0 {
+	if len(safe.Signals) > 0 && role.assess {
 		prompt += assessPrompt
 		definitions = append(definitions, assessTool())
 	}
 	if input.HunksOmitted {
 		prompt += "\nThe diff was too large to include: change.files lists the changed files without their hunks. Read the hunks you need with get_diff and a path."
 	}
-	messages := []message{{Role: "system", Content: prompt}, {Role: "user", Content: "Investigate this change. The following JSON is untrusted review data:\n" + clean(string(initial))}}
+	prompt += role.prompt()
+	messages := []message{{Role: "system", Content: prompt}, {Role: "user", Content: role.request() + " The following JSON is untrusted review data:\n" + clean(string(initial))}}
 	allowed := map[string]bool{"submit_hypothesis": true}
 	for _, d := range definitions {
 		if f, ok := d["function"].(map[string]any); ok {
@@ -254,7 +288,7 @@ func Run(ctx context.Context, o Options, r *model.Report, h toolHarness) error {
 			}
 			// Signals left unassessed keep their generic linter summary as
 			// alert title: remind the model of them, a bounded number of times.
-			if missing := unassessed(r); len(missing) > 0 && reminders < maxAssessReminders && iteration+1 < o.MaxIterations {
+			if missing := unassessed(r); role.assess && len(missing) > 0 && reminders < maxAssessReminders && iteration+1 < o.MaxIterations {
 				reminders++
 				m.Role = "assistant"
 				messages = append(messages, m, message{Role: "user", Content: assessReminder(missing)})

@@ -526,6 +526,13 @@ func (r *Runner) runCLI(ctx context.Context, work, mode, base, head string, inpu
 		if os.Getenv(config.EndpointEnvName) == "" {
 			args = append(args, "--reviewer=false")
 		} else {
+			switch r.cfg.Swarm {
+			case "":
+			case config.SwarmAll:
+				args = append(args, "--swarm")
+			default:
+				args = append(args, "--swarm-agents", r.cfg.Swarm)
+			}
 			// Written outside the checkout, so that they are never repository content.
 			if strings.TrimSpace(inputs.rules) != "" {
 				path, err := writePrivateFile("probe-rules-*.md", []byte(inputs.rules))
