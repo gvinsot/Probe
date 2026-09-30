@@ -81,6 +81,7 @@ On success Probe prints `Jira: SHOP-123 "summary" joins the intent.` on standard
 
 ## See also
 
+- [Notion pages as review context](NOTION.md): product, architecture or requirements pages.
 - [Linear issues as review context](LINEAR.md): the same for Linear; `--jira` and `--linear` can be combined.
 - [Intent criteria and candidate-only intent tests](INTENT.md).
 - [Plans and scope drift](PLAN.md).

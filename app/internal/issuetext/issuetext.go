@@ -104,3 +104,58 @@ func NestHeadings(s string, rename bool) string {
 }
 
 var acceptanceWord = regexp.MustCompile(`(?i)acceptance\s+(criteri)`)
+
+var (
+	proseHeading = regexp.MustCompile(`^ {0,3}(#{1,6})(?:[ \t]+(.*?))?[ \t#]*$`)
+	proseBullet  = regexp.MustCompile(`^([ \t]*)(?:[-*+])[ \t]+(?:\[[ xX]\][ \t]+)?(.*)$`)
+	proseNumber  = regexp.MustCompile(`^([ \t]*)([0-9]{1,9})[.)][ \t]+(.*)$`)
+	criteriaWord = regexp.MustCompile(`(?i)acceptance criteri(a|on)`)
+)
+
+// ProseLists keeps Markdown list items only where intent parsing should take
+// them as acceptance criteria: under a heading that names acceptance
+// criteria. Every other list item becomes prose ("• item", "(1) item"), so
+// that reference material such as an architecture page adds context without
+// adding criteria. Sections follow the criteria grammar: a matching heading
+// of level L is closed by the next heading of level L or higher. Fenced code
+// is left alone.
+func ProseLists(s string) string {
+	lines := strings.Split(s, "\n")
+	fenced := ""
+	inScope, scopeLevel := false, 0
+	for n, line := range lines {
+		trimmed := strings.TrimLeft(line, " ")
+		if fenced != "" {
+			if strings.HasPrefix(trimmed, fenced) {
+				fenced = ""
+			}
+			continue
+		}
+		if strings.HasPrefix(trimmed, "```") || strings.HasPrefix(trimmed, "~~~") {
+			fenced = trimmed[:3]
+			continue
+		}
+		if m := proseHeading.FindStringSubmatch(line); m != nil {
+			level := len(m[1])
+			switch {
+			case criteriaWord.MatchString(m[2]):
+				if !inScope || level <= scopeLevel {
+					scopeLevel = level
+				}
+				inScope = true
+			case inScope && level <= scopeLevel:
+				inScope = false
+			}
+			continue
+		}
+		if inScope {
+			continue
+		}
+		if m := proseBullet.FindStringSubmatch(line); m != nil {
+			lines[n] = m[1] + "• " + m[2]
+		} else if m := proseNumber.FindStringSubmatch(line); m != nil {
+			lines[n] = m[1] + "(" + m[2] + ") " + m[3]
+		}
+	}
+	return strings.Join(lines, "\n")
+}

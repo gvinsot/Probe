@@ -83,7 +83,7 @@ func planCommand(ctx context.Context, args []string, out, errOut io.Writer, vers
 		return fail(errOut, 3, "intent: %v", err)
 	}
 	if strings.TrimSpace(doc.Text) == "" && !issues.any() {
-		return fail(errOut, 3, "plan needs an intent: use --intent-file FILE, --intent TEXT, --jira KEY or --linear KEY")
+		return fail(errOut, 3, "plan needs an intent: use --intent-file FILE, --intent TEXT, --jira KEY, --linear KEY or --notion PAGE")
 	}
 	repo, err := gitrepo.Open(ctx, *repoPath)
 	if err != nil {
