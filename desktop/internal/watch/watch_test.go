@@ -216,3 +216,86 @@ func TestExplanationCarriedOverUnchangedElements(t *testing.T) {
 		t.Fatal("no explanation to carry")
 	}
 }
+
+func TestReviewedChangesAreKept(t *testing.T) {
+	folder := t.TempDir()
+	path := filepath.Join(folder, "contract.docx")
+	t0 := time.Now().Add(-time.Hour)
+	writeDocx(t, path, "Payment is due within 30 days.", t0)
+	dir := t.TempDir()
+	s := folderSettings(folder)
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	w, _ := New(dir, func() config.Settings { return s }, logger)
+	w.Scan()
+
+	writeDocx(t, path, "Payment is due within 90 days.", t0.Add(time.Minute))
+	w.Scan()
+	d := only(t, w)
+	d.Explanation = &Explanation{Text: "The delay tripled."}
+	if err := w.SetExplanation(d.ID, d.CurrentHash, *d.Explanation); err != nil {
+		t.Fatal(err)
+	}
+	if err := w.Accept(context.Background(), d.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	hist := w.History()
+	if len(hist) != 1 || w.State().Reviewed != 1 {
+		t.Fatalf("history = %+v", hist)
+	}
+	h := hist[0]
+	if h.DocID != d.ID || h.Status != StatusChanged || h.Findings == 0 || h.Severity != d.Severity() || h.ReviewedAt.IsZero() {
+		t.Fatalf("summary = %+v", h)
+	}
+	r, ok := w.Review(h.ID)
+	if !ok || r.Report == nil || len(r.Report.Findings) != h.Findings || r.Explanation == nil || r.Explanation.Text != "The delay tripled." {
+		t.Fatalf("review = %+v", r)
+	}
+	// The document itself is clean: the history is a record only.
+	if d := only(t, w); d.Status != StatusClean || d.Report != nil {
+		t.Fatalf("document after review: %s", d.Status)
+	}
+
+	// An acknowledged deletion is recorded too, most recent first.
+	os.Remove(path)
+	w.Scan()
+	if err := w.Accept(context.Background(), d.ID); err != nil {
+		t.Fatal(err)
+	}
+	if hist := w.History(); len(hist) != 2 || hist[0].Status != StatusRemoved || hist[1].ID != h.ID {
+		t.Fatalf("history after deletion = %+v", hist)
+	}
+
+	// The history survives a restart.
+	w2, _ := New(dir, func() config.Settings { return s }, logger)
+	if hist := w2.History(); len(hist) != 2 {
+		t.Fatalf("reloaded history = %+v", hist)
+	}
+	if _, ok := w2.Review(h.ID); !ok {
+		t.Fatal("reloaded review missing")
+	}
+
+	// Unwatching the source forgets its reviews, as it forgets its documents.
+	s.Sources = nil
+	w2.Scan()
+	if hist := w2.History(); len(hist) != 0 {
+		t.Fatalf("reviews of an unwatched source kept: %+v", hist)
+	}
+	w3, _ := New(dir, func() config.Settings { return s }, logger)
+	if hist := w3.History(); len(hist) != 0 {
+		t.Fatalf("pruned history not saved: %+v", hist)
+	}
+}
+
+func TestHistoryIsBounded(t *testing.T) {
+	w := newWatcher(t, t.TempDir())
+	d := &Document{ID: "doc", Status: StatusChanged, Report: &office.Report{Severity: office.Low}}
+	w.mu.Lock()
+	for i := 0; i < MaxHistory+5; i++ {
+		w.record(d)
+	}
+	w.mu.Unlock()
+	if n := len(w.History()); n != MaxHistory {
+		t.Fatalf("history holds %d reviews, want %d", n, MaxHistory)
+	}
+}

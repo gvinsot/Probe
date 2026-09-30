@@ -57,6 +57,11 @@ probe-desktop                      probe-desktop --window <url>
   version (a private copy in the data directory). After a change, *Mark as
   reviewed* makes the current version the new baseline; the file is read
   again and must still match the report, so nobody approves unseen content.
+- **Reviewed history.** The *Reviewed* tab lists the last 50 changes marked
+  as reviewed (and deletions acknowledged), most recent first, with the
+  report and the AI explanation as they were when approved. Reading one
+  again changes nothing: it is a record, not a baseline. The reviews of a
+  source are forgotten when the source is removed, like its documents.
 - **Single instance.** Launching the application again opens the window of
   the running engine.
 - **Start at login** (tray menu) registers `probe-desktop --background` in the
@@ -176,7 +181,8 @@ provider, whatever the source.
 | Windows | `%AppData%\Probe Desktop` |
 | macOS | `~/Library/Application Support/Probe Desktop` |
 
-It holds `settings.json`, `state.json` (documents and reports), `baselines/`
+It holds `settings.json`, `state.json` (documents and reports), `reviewed.json`
+(the latest reviews and their reports), `baselines/`
 (the reviewed copies, and the analyzed copy of an exported document waiting
 for a review), `sources/` (the file lists of the Google Drive sources),
 `desktop.log` and the web view profile. Settings written by a version that

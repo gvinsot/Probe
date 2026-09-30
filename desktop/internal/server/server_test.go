@@ -293,3 +293,18 @@ func TestGoogleLink(t *testing.T) {
 		}
 	}
 }
+
+func TestReviewedHistory(t *testing.T) {
+	f := newFixture(t)
+	if rec := f.do(http.MethodGet, "/api/reviewed", "", nil); rec.Code != http.StatusUnauthorized {
+		t.Fatalf("history without session: %d", rec.Code)
+	}
+	f.login(t)
+	rec := f.do(http.MethodGet, "/api/reviewed", "", nil)
+	if rec.Code != http.StatusOK || strings.TrimSpace(rec.Body.String()) != "[]" {
+		t.Fatalf("empty history: %d %s", rec.Code, rec.Body)
+	}
+	if rec := f.do(http.MethodGet, "/api/reviewed/unknown", "", nil); rec.Code != http.StatusNotFound {
+		t.Fatalf("unknown review: %d", rec.Code)
+	}
+}

@@ -15,11 +15,16 @@ const STATUS_LABEL = {
   error: "Unreadable",
 };
 
+const TABS = ["review", "all", "reviewed"];
+
 const $ = (id) => document.getElementById(id);
 
 const ui = {
   tab: "review",
   selected: null,
+  // The Reviewed tab: the latest reviews and the one shown.
+  history: [],
+  selectedReview: null,
   state: null,
   detail: null,
   detailKey: "",
@@ -34,6 +39,7 @@ const ui = {
 
 try {
   ui.tab = localStorage.getItem("probe.tab") || "review";
+  if (!TABS.includes(ui.tab)) ui.tab = "review";
   ui.threshold = Number(localStorage.getItem("probe.threshold") || 1);
   Object.assign(ui.list, JSON.parse(localStorage.getItem("probe.list") || "{}"));
 } catch (_) { /* storage unavailable: keep defaults */ }
@@ -165,8 +171,19 @@ async function refresh() {
     $("status").className = "status warn";
     return;
   }
+  if (ui.tab === "reviewed") {
+    try {
+      ui.history = await api("GET", "/api/reviewed");
+    } catch (err) {
+      showError(err);
+    }
+  }
   renderStatus();
   renderList();
+  if (ui.tab === "reviewed") {
+    refreshReviewDetail();
+    return;
+  }
   const doc = ui.state.documents.find((d) => d.id === ui.selected);
   const key = doc ? `${doc.id}|${doc.status}|${doc.changed_at}|${doc.mod_time}|${doc.explained_at}|${isExplaining(doc.id)}` : "";
   if (!doc) {
@@ -201,10 +218,18 @@ function renderList() {
   const review = docs.filter(needsReview);
   $("count-review").textContent = review.length;
   $("count-all").textContent = docs.length;
-  $("tab-review").classList.toggle("on", ui.tab === "review");
-  $("tab-all").classList.toggle("on", ui.tab === "all");
-  $("tab-review").setAttribute("aria-selected", ui.tab === "review");
-  $("tab-all").setAttribute("aria-selected", ui.tab === "all");
+  $("count-reviewed").textContent = ui.state.reviewed || 0;
+  for (const tab of TABS) {
+    $(`tab-${tab}`).classList.toggle("on", ui.tab === tab);
+    $(`tab-${tab}`).setAttribute("aria-selected", ui.tab === tab);
+  }
+  // Status and sort do not apply to the history, always newest first.
+  $("filter-status").classList.toggle("hidden", ui.tab === "reviewed");
+  $("sort").classList.toggle("hidden", ui.tab === "reviewed");
+  if (ui.tab === "reviewed") {
+    renderHistory();
+    return;
+  }
 
   const q = $("search").value.trim().toLowerCase();
   const shown = sortDocs((ui.tab === "review" ? review : docs).filter(
@@ -236,6 +261,42 @@ function renderList() {
   else if (!shown.length) empty = ui.state.scanning ? "First scan in progress…" : "No Word, Excel or PowerPoint document in the watched sources.";
   $("list-empty").textContent = empty;
   $("list-empty").classList.toggle("hidden", !empty);
+}
+
+// renderHistory lists the latest reviews, most recent first.
+function renderHistory() {
+  const q = $("search").value.trim().toLowerCase();
+  const shown = ui.history.filter((r) =>
+    (!q || r.name.toLowerCase().includes(q) || r.folder.toLowerCase().includes(q)) && (!ui.list.kind || r.kind === ui.list.kind));
+  $("doc-list").replaceChildren(
+    ...shown.map((r) =>
+      el("li", {
+        class: `doc${r.id === ui.selectedReview ? " active" : ""}`,
+        tabindex: "0",
+        onclick: () => selectReview(r.id),
+        onkeydown: (e) => { if (e.key === "Enter") selectReview(r.id); },
+      },
+      el("div", { class: "doc-name" }, kindBadge(r.kind), el("span", { text: r.name })),
+      el("div", { class: "doc-meta" },
+        reviewChip(r),
+        r.findings ? el("span", { text: `${r.findings} finding${r.findings === 1 ? "" : "s"}` }) : null,
+        el("span", { text: r.folder }),
+        el("span", { text: `reviewed ${ago(r.reviewed_at)}` }),
+      )),
+    ),
+  );
+  let empty = "";
+  if (!shown.length && (q || ui.list.kind)) empty = "No review matches this filter.";
+  else if (!shown.length) empty = "No change reviewed yet. Once you mark a change as reviewed, its report stays available here.";
+  $("list-empty").textContent = empty;
+  $("list-empty").classList.toggle("hidden", !empty);
+}
+
+// reviewChip shows what was approved: the severity of the change, or a
+// deletion acknowledged.
+function reviewChip(r) {
+  if (r.status === "removed") return el("span", { class: "chip tone tone-high" }, el("span", { class: "dot" }), "deletion");
+  return severityChip(r.severity);
 }
 
 const OTHER_STATUSES = ["cloud-only", "too-large", "error"];
@@ -287,6 +348,44 @@ function select(id) {
   ui.detailKey = "";
   renderList();
   refresh();
+}
+
+function selectReview(id) {
+  ui.selectedReview = id;
+  ui.detailKey = "";
+  renderList();
+  refreshReviewDetail();
+}
+
+// refreshReviewDetail shows the selected review, or a hint when none is.
+function refreshReviewDetail() {
+  const r = ui.history.find((h) => h.id === ui.selectedReview);
+  if (!r) {
+    ui.selectedReview = null;
+    if (ui.detailKey !== "reviewed") {
+      ui.detail = null;
+      ui.detailKey = "reviewed";
+      $("detail").replaceChildren(el("div", { class: "welcome" },
+        el("h2", { text: "Read a review again" }),
+        el("p", { text: "Probe keeps the report of the latest changes you marked as reviewed (up to 50), with the AI explanation you saw. Select one to read it again: this changes nothing in the documents or their reviewed versions." }),
+      ));
+    }
+    return;
+  }
+  const key = `review|${r.id}`;
+  if (key !== ui.detailKey) loadReview(r.id, key);
+}
+
+async function loadReview(id, key) {
+  try {
+    const r = await api("GET", `/api/reviewed/${encodeURIComponent(id)}`);
+    if (ui.selectedReview !== id || ui.tab !== "reviewed") return;
+    ui.detail = null;
+    ui.detailKey = key;
+    renderReview(r);
+  } catch (err) {
+    renderMessage(err.message, "error");
+  }
 }
 
 async function loadDetail(id, key) {
@@ -372,6 +471,14 @@ function renderDetail() {
     parts.push(el("p", { class: "message", text: "This file is only in the cloud: Probe will record its reviewed version once it is downloaded, or enable the download option in Settings." }));
   }
 
+  parts.push(...reportParts(d));
+  panel.replaceChildren(...parts);
+}
+
+// reportParts renders the AI explanation, the findings and the changes of a
+// report, for a pending change or a past review.
+function reportParts(d) {
+  const parts = [];
   if (d.explanation) {
     if (d.report && RANK[d.explanation.severity] > RANK[d.report.severity]) {
       const impacts = (d.explanation.impacts || []).join(" and ");
@@ -403,7 +510,37 @@ function renderDetail() {
     }
     parts.push(changesTable(r));
   }
-  panel.replaceChildren(...parts);
+  return parts;
+}
+
+// renderReview shows a past review read-only: the report as it was when the
+// change was marked as reviewed.
+function renderReview(r) {
+  const doc = ui.state && ui.state.documents.find((d) => d.id === r.doc_id);
+  const box = el("div", { class: "actions" });
+  if (doc && doc.status !== "removed") {
+    box.append(el("button", { class: "btn quiet small", onclick: () => run(doc.id, "open") }, r.link ? "Open in Google Drive" : "Open document"));
+    if (doc.status !== "clean") {
+      box.append(el("button", { class: "btn ghost small", onclick: () => { setTab("review"); select(doc.id); } }, "See its new changes"));
+    }
+  }
+  const bits = [`Reviewed ${when(r.reviewed_at)}`];
+  if (r.changed_at) bits.push(`change detected ${when(r.changed_at)}`);
+  if (r.report && r.report.last_modified_by) bits.push(`saved by ${r.report.last_modified_by}`);
+  if (r.baseline_at) bits.push(`compared with the version from ${when(r.baseline_at)}`);
+  const parts = [
+    el("div", { class: "detail-head" },
+      el("div", { class: "detail-title" }, kindBadge(r.kind), el("h2", { text: r.name }), reviewChip(r), el("span", { class: "chip ok" }, "reviewed")),
+      el("p", { class: "detail-sub mono", text: r.path }),
+      el("p", { class: "detail-sub", text: bits.join(" · ") }),
+      box,
+    ),
+    el("p", { class: "message", text: r.status === "removed"
+      ? "You acknowledged that this document was deleted, moved or renamed."
+      : "Read-only: the report as it was when you marked this change as reviewed. The reviewed version has been the reference for the next changes since then." }),
+  ];
+  parts.push(...reportParts(r));
+  $("detail").replaceChildren(...parts);
 }
 
 function metaLine(d) {
@@ -767,13 +904,21 @@ function setThreshold(value) {
 }
 
 function setTab(tab) {
+  const was = ui.tab;
   ui.tab = tab;
   try { localStorage.setItem("probe.tab", tab); } catch (_) { /* optional */ }
-  if (ui.state) renderList();
+  // Entering or leaving the history changes what the detail panel shows.
+  if ((was === "reviewed") !== (tab === "reviewed")) {
+    ui.detailKey = "";
+    refresh();
+  } else if (ui.state) {
+    renderList();
+  }
 }
 
 $("tab-review").addEventListener("click", () => setTab("review"));
 $("tab-all").addEventListener("click", () => setTab("all"));
+$("tab-reviewed").addEventListener("click", () => setTab("reviewed"));
 $("search").addEventListener("input", () => ui.state && renderList());
 $("filter-kind").addEventListener("change", (e) => setListOption("kind", e.target.value));
 $("filter-status").addEventListener("change", (e) => setListOption("status", e.target.value));

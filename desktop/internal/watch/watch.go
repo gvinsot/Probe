@@ -3,7 +3,9 @@
 // Each document has a baseline: the last version a person reviewed (or the
 // version found when the source was first added). A scan compares every
 // modified document with its baseline and keeps the report until someone
-// marks the new version as reviewed, which makes it the next baseline.
+// marks the new version as reviewed, which makes it the next baseline. The
+// latest reviews keep their report, so a person can read again what they
+// approved.
 //
 // The documents come from sources (package source): the folders of this
 // computer, or a Google Drive read through its API. A source that keeps the
@@ -154,7 +156,52 @@ type State struct {
 	ScanError string    `json:"scan_error,omitempty"`
 	Total     int       `json:"total"`
 	ToReview  int       `json:"to_review"`
+	// Reviewed is the number of reviews kept in the history.
+	Reviewed  int       `json:"reviewed"`
 	Documents []Summary `json:"documents"`
+}
+
+// MaxHistory is the number of reviews kept, most recent first.
+const MaxHistory = 50
+
+// Review is a change a person marked as reviewed (or a deletion they
+// acknowledged), kept with the report and the AI explanation they saw so
+// they can read it again. It is a record only: it changes no baseline.
+type Review struct {
+	ID     string      `json:"id"`
+	DocID  string      `json:"doc_id"`
+	Source string      `json:"source"`
+	Name   string      `json:"name"`
+	Folder string      `json:"folder"`
+	Path   string      `json:"path"`
+	Link   string      `json:"link,omitempty"`
+	Kind   office.Kind `json:"kind"`
+	// Status is the status the document had when it was reviewed: changed
+	// or removed.
+	Status   Status `json:"status"`
+	Severity string `json:"severity"`
+	// ChangedAt is when the change was detected, BaselineAt the time of the
+	// version it was compared with, ReviewedAt when it was approved.
+	ChangedAt   time.Time      `json:"changed_at,omitempty"`
+	BaselineAt  time.Time      `json:"baseline_at,omitempty"`
+	ReviewedAt  time.Time      `json:"reviewed_at"`
+	Report      *office.Report `json:"report,omitempty"`
+	Explanation *Explanation   `json:"explanation,omitempty"`
+}
+
+// ReviewSummary is a review without its report, for lists.
+type ReviewSummary struct {
+	ID         string      `json:"id"`
+	DocID      string      `json:"doc_id"`
+	Name       string      `json:"name"`
+	Folder     string      `json:"folder"`
+	Path       string      `json:"path"`
+	Kind       office.Kind `json:"kind"`
+	Status     Status      `json:"status"`
+	Severity   string      `json:"severity"`
+	Findings   int         `json:"findings"`
+	ChangedAt  time.Time   `json:"changed_at,omitempty"`
+	ReviewedAt time.Time   `json:"reviewed_at"`
 }
 
 // Factory builds the source of a configured location.
@@ -180,6 +227,7 @@ type Watcher struct {
 
 	mu        sync.Mutex
 	docs      map[string]*Document
+	history   []*Review // most recent first
 	scanning  bool
 	lastScan  time.Time
 	problems  map[string]string // by source id
@@ -231,7 +279,30 @@ func New(dir string, settings func() config.Settings, log *slog.Logger) (*Watche
 			w.docs[d.ID] = d
 		}
 	}
+	w.loadHistory()
 	return w, nil
+}
+
+// loadHistory reads the saved reviews. The history is only a record: an
+// unreadable file costs the past reports, never a baseline.
+func (w *Watcher) loadHistory() {
+	data, err := os.ReadFile(w.historyPath())
+	if err != nil {
+		if !errors.Is(err, os.ErrNotExist) {
+			w.log.Error("reviewed.json unreadable", "err", err)
+		}
+		return
+	}
+	var history []*Review
+	if err := json.Unmarshal(data, &history); err != nil {
+		w.log.Error("reviewed.json unreadable, starting a new history", "err", err)
+		return
+	}
+	sort.SliceStable(history, func(i, j int) bool { return history[i].ReviewedAt.After(history[j].ReviewedAt) })
+	if len(history) > MaxHistory {
+		history = history[:MaxHistory]
+	}
+	w.history = history
 }
 
 // migrate fills the fields of a document saved by a version that only
@@ -265,6 +336,7 @@ func (w *Watcher) OnUpdate(fn func(total, toReview int)) { w.onUpdate = fn }
 func (w *Watcher) OnScanned(fn func()) { w.onScanned = fn }
 
 func (w *Watcher) statePath() string   { return filepath.Join(w.dir, "state.json") }
+func (w *Watcher) historyPath() string { return filepath.Join(w.dir, "reviewed.json") }
 func (w *Watcher) baselineDir() string { return filepath.Join(w.dir, "baselines") }
 func (w *Watcher) baselinePath(id string) string {
 	return filepath.Join(w.baselineDir(), id)
@@ -407,6 +479,7 @@ func (w *Watcher) scan(ctx context.Context, only map[string]bool) map[string]boo
 			delete(w.problems, id)
 		}
 	}
+	historyChanged := w.pruneHistory(configured)
 	for id, d := range w.docs {
 		_, watched := configured[d.Source]
 		switch {
@@ -432,6 +505,9 @@ func (w *Watcher) scan(ctx context.Context, only map[string]bool) map[string]boo
 	w.scanError = strings.Join(problems, "; ")
 	w.mu.Unlock()
 	w.save()
+	if historyChanged {
+		w.saveHistory()
+	}
 	total, toReview := w.counts()
 	w.log.Info("scan done", "sources", len(scanned), "documents", total, "to_review", toReview, "duration", time.Since(started).Round(time.Millisecond))
 	w.onUpdate(total, toReview)
@@ -772,9 +848,11 @@ func (w *Watcher) Accept(ctx context.Context, id string) error {
 		return ErrNotFound
 	}
 	if d.Status == StatusRemoved {
+		w.record(d)
 		delete(w.docs, id)
 		w.mu.Unlock()
 		w.removeCopies(id)
+		w.saveHistory()
 		w.afterReview()
 		return nil
 	}
@@ -834,12 +912,96 @@ func (w *Watcher) Accept(ctx context.Context, id string) error {
 	os.Remove(w.pendingPath(id))
 	w.mu.Lock()
 	if d, ok := w.docs[id]; ok {
+		// The report approved is the one of this version: record it before
+		// the new baseline clears it.
+		if d.CurrentHash == snapshot.CurrentHash {
+			w.record(d)
+		}
 		d.BaselineHash, d.BaselineRev, d.BaselineAt = snapshot.CurrentHash, "", time.Now()
 		d.Status, d.Report, d.Explanation, d.Error = StatusClean, nil, nil, ""
 	}
 	w.mu.Unlock()
+	w.saveHistory()
 	w.afterReview()
 	return nil
+}
+
+// record adds the review of a document to the history; w.mu must be held.
+func (w *Watcher) record(d *Document) {
+	now := time.Now()
+	r := &Review{
+		ID:    fmt.Sprintf("%s-%d", d.ID, now.UnixNano()),
+		DocID: d.ID, Source: d.Source, Name: d.Name, Folder: d.Folder, Path: d.Path, Link: d.Link,
+		Kind: d.Kind, Status: d.Status, Severity: d.Severity(),
+		ChangedAt: d.ChangedAt, BaselineAt: d.BaselineAt, ReviewedAt: now,
+		Report: d.Report,
+	}
+	if d.Explanation != nil {
+		e := *d.Explanation
+		r.Explanation = &e
+	}
+	w.history = append([]*Review{r}, w.history...)
+	if len(w.history) > MaxHistory {
+		w.history = w.history[:MaxHistory]
+	}
+}
+
+// pruneHistory forgets the reviews of the sources no longer watched, as
+// their documents are: the reports hold excerpts. w.mu must be held.
+func (w *Watcher) pruneHistory(configured map[string]config.Source) bool {
+	kept := w.history[:0]
+	for _, r := range w.history {
+		if _, ok := configured[r.Source]; ok {
+			kept = append(kept, r)
+		}
+	}
+	changed := len(kept) != len(w.history)
+	clear(w.history[len(kept):])
+	w.history = kept
+	return changed
+}
+
+// History lists the latest reviews, most recent first.
+func (w *Watcher) History() []ReviewSummary {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	out := make([]ReviewSummary, len(w.history))
+	for i, r := range w.history {
+		out[i] = ReviewSummary{
+			ID: r.ID, DocID: r.DocID, Name: r.Name, Folder: r.Folder, Path: r.Path,
+			Kind: r.Kind, Status: r.Status, Severity: r.Severity,
+			ChangedAt: r.ChangedAt, ReviewedAt: r.ReviewedAt,
+		}
+		if r.Report != nil {
+			out[i].Findings = len(r.Report.Findings)
+		}
+	}
+	return out
+}
+
+// Review returns a review of the history with its report.
+func (w *Watcher) Review(id string) (Review, bool) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	for _, r := range w.history {
+		if r.ID == id {
+			return *r, true
+		}
+	}
+	return Review{}, false
+}
+
+func (w *Watcher) saveHistory() {
+	w.mu.Lock()
+	data, err := json.Marshal(w.history)
+	w.mu.Unlock()
+	if err != nil {
+		w.log.Error("encode history", "err", err)
+		return
+	}
+	if err := config.WriteFileAtomic(w.historyPath(), data); err != nil {
+		w.log.Error("save history", "err", err)
+	}
 }
 
 func (w *Watcher) afterReview() {
@@ -911,7 +1073,7 @@ func (w *Watcher) Document(id string) (Document, bool) {
 func (w *Watcher) State() State {
 	w.mu.Lock()
 	defer w.mu.Unlock()
-	st := State{Scanning: w.scanning, LastScan: w.lastScan, ScanError: w.scanError, Documents: []Summary{}}
+	st := State{Scanning: w.scanning, LastScan: w.lastScan, ScanError: w.scanError, Reviewed: len(w.history), Documents: []Summary{}}
 	for _, d := range w.docs {
 		st.Total++
 		if d.NeedsReview() {

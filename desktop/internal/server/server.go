@@ -183,6 +183,8 @@ func (s *Server) Handler() http.Handler {
 	api.HandleFunc("POST /api/documents/{id}/accept", s.accept)
 	api.HandleFunc("POST /api/documents/{id}/explain", s.explain)
 	api.HandleFunc("POST /api/documents/{id}/open", s.open)
+	api.HandleFunc("GET /api/reviewed", s.reviewed)
+	api.HandleFunc("GET /api/reviewed/{id}", s.review)
 	api.HandleFunc("POST /api/scan", s.scan)
 	api.HandleFunc("GET /api/settings", s.getSettings)
 	api.HandleFunc("PUT /api/settings", s.putSettings)
@@ -314,6 +316,21 @@ func (s *Server) document(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, d)
+}
+
+// reviewed lists the latest reviews, most recent first.
+func (s *Server) reviewed(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, s.deps.Watcher.History())
+}
+
+// review returns a past review with the report that was approved.
+func (s *Server) review(w http.ResponseWriter, r *http.Request) {
+	rv, ok := s.deps.Watcher.Review(r.PathValue("id"))
+	if !ok {
+		writeError(w, http.StatusNotFound, "unknown review")
+		return
+	}
+	writeJSON(w, rv)
 }
 
 func (s *Server) accept(w http.ResponseWriter, r *http.Request) {
