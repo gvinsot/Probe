@@ -76,6 +76,7 @@ Every Notion failure exits 3 with `probe: notion: …` before any container star
 
 ## See also
 
+- [Google Docs as review context](GOOGLE_DOCS.md): design and requirement documents.
 - [Jira issues](JIRA.md) and [Linear issues](LINEAR.md) as review context.
 - [Intent criteria and candidate-only intent tests](INTENT.md).
 - [Plans and scope drift](PLAN.md).

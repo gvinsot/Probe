@@ -8,7 +8,7 @@ The feature adds no policy key and no flag. It uses the existing `--intent` / `-
 
 ## Supplying an intent
 
-`--intent TEXT` or `--intent-file FILE` (at most 64 KiB) supplies the intent to `review` and `lint`; `--jira KEY` and `--linear KEY` (or `auto`) put a Jira or Linear issue before it, and `--notion PAGE` Notion pages ([Jira issues](JIRA.md), [Linear issues](LINEAR.md), [Notion pages](NOTION.md)). In CI it is usually the pull request description, written by the PR author, so Probe treats it as untrusted input:
+`--intent TEXT` or `--intent-file FILE` (at most 64 KiB) supplies the intent to `review` and `lint`; `--jira KEY` and `--linear KEY` (or `auto`) put a Jira or Linear issue before it, `--notion PAGE` Notion pages and `--gdoc DOC` Google Docs ([Jira issues](JIRA.md), [Linear issues](LINEAR.md), [Notion pages](NOTION.md), [Google Docs](GOOGLE_DOCS.md)). In CI it is usually the pull request description, written by the PR author, so Probe treats it as untrusted input:
 
 - The text must be valid UTF-8 without NUL bytes. Anything else exits 3 with `intent: intent must be UTF-8 text without NUL bytes`, before Git analysis, before any container and before any provider call.
 - Every block from `<!-- probe:pr-comment:begin v1 -->` to `<!-- probe:pr-comment:end -->` is removed first (a begin marker without an end marker removes the rest of the text, and a stray end marker is removed too), and the report records the Unverified note "Probe PR-comment output was removed from the intent text." Removal repeats until no marker is left, since removing a block can join the text around it into a new marker; after 8 passes the text is cut at the first remaining marker. A Probe PR comment pasted into the description therefore never becomes criteria. Post the PR comment as a comment, never into the description.
@@ -208,7 +208,7 @@ The sections appear only when an intent was supplied. With an intent but no crit
 
 ## See also
 
-- [Jira issues](JIRA.md), [Linear issues](LINEAR.md) and [Notion pages](NOTION.md): tickets and pages as intent.
+- [Jira issues](JIRA.md), [Linear issues](LINEAR.md), [Notion pages](NOTION.md) and [Google Docs](GOOGLE_DOCS.md): tickets, pages and documents as intent.
 - [Observation experiments](OBSERVATIONS.md): the DIVERGED hypotheses that may carry an `intent_judgment`.
 - [Exports](EXPORTS.md): the `intent_test_failed` class and the PR comment that must never be pasted into the intent.
 - [Agent workflow](AGENT_WORKFLOW.md) and [CI integration](CI.md).

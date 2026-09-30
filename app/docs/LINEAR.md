@@ -71,6 +71,7 @@ Every Linear failure exits 3 with `probe: linear: …` before any container star
 
 ## See also
 
+- [Google Docs as review context](GOOGLE_DOCS.md): design and requirement documents.
 - [Notion pages as review context](NOTION.md): product, architecture or requirements pages.
 - [Jira issues as review context](JIRA.md).
 - [Intent criteria and candidate-only intent tests](INTENT.md).

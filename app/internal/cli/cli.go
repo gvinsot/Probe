@@ -39,7 +39,7 @@ Usage:
   probe review --read-only [--base main] [--ci]
   probe review [flags] BASE..HEAD
   probe plan --intent-file FILE [--base main] [--ci]
-  probe plan --jira PROJ-123 | --linear ENG-123 [--notion PAGE] [--base main] [--ci]
+  probe plan --jira PROJ-123 | --linear ENG-123 [--notion PAGE] [--gdoc DOC] [--base main] [--ci]
   probe review --plan .probe/PLAN.json [flags]
   probe knowledge build [--base main] [--focus TEXT]
   probe knowledge apply [--from .probe/knowledge-updates.json]
@@ -67,7 +67,9 @@ evaluates it with fixed rules; review or lint --plan check the diff against it.
 messages) add that Jira or Linear issue to the intent of review, lint and plan;
 configure PROBE_JIRA_URL and PROBE_JIRA_EMAIL/PROBE_JIRA_TOKEN, or
 PROBE_LINEAR_API_KEY. --notion PAGE[,PAGE] adds Notion pages as context
-(PROBE_NOTION_TOKEN); only their "Acceptance criteria" items become criteria.
+(PROBE_NOTION_TOKEN) and --gdoc DOC[,DOC] Google Docs such as design documents
+(PROBE_GOOGLE_ACCESS_TOKEN, PROBE_GOOGLE_CREDENTIALS or PROBE_GOOGLE_API_KEY);
+only their "Acceptance criteria" items become criteria.
 The codebase knowledge base (PROBE_KNOWLEDGE.md, editable Markdown) is read at
 the tip of the base branch and given to the reviewer, which proposes updates in
 .probe/knowledge-updates.json; knowledge build proposes entries from a
