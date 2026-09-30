@@ -3,6 +3,7 @@ package cli
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -13,6 +14,7 @@ import (
 	"sort"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/gvinsot/Probe/app/internal/config"
 	"github.com/gvinsot/Probe/app/internal/coverage"
@@ -151,6 +153,8 @@ func analyze(ctx context.Context, mode string, args []string, out, errOut io.Wri
 	maxIterations := f.Int("max-iterations", 0, "override LLM iteration budget (1..100)")
 	intent := f.String("intent", "", "PR intent or acceptance criteria")
 	intentFile := f.String("intent-file", "", "UTF-8 file containing PR intent")
+	rules := f.String("rules", "", "review: team coding rules the reviewer checks the changed code against")
+	rulesFile := f.String("rules-file", "", "review: UTF-8 file containing team coding rules")
 	allowNetwork := f.Bool("allow-network", false, "permit sandbox network only if trusted policy also enables it")
 	noNetwork := f.Bool("no-network", false, "force sandbox networking off (use --reviewer=false to also disable the reviewer API)")
 	reportURL := f.String("report-url", "", "https link to the full report, cited by the pr-comment format")
@@ -216,6 +220,10 @@ func analyze(ctx context.Context, mode string, args []string, out, errOut io.Wri
 	}
 	if len(*intent) > 65536 {
 		return fail(errOut, 3, "intent exceeds 64 KiB")
+	}
+	codingRules, err := loadCodingRules(*rules, *rulesFile)
+	if err != nil {
+		return fail(errOut, 3, "%v", err)
 	}
 	doc, err := parseIntent(*intent)
 	if err != nil {
@@ -327,6 +335,16 @@ func analyze(ctx context.Context, mode string, args []string, out, errOut io.Wri
 		r.AnalysisMode = "review-read-only"
 	}
 	r.AIImpactsCriticality = *aiImpactsCriticality
+	if codingRules != "" {
+		// Rules only reach a reviewer; without one they are not recorded, so
+		// that the report never suggests that they were checked.
+		if *useReviewer {
+			r.CodingRules = codingRules
+			r.CodingRulesSHA256 = fmt.Sprintf("%x", sha256.Sum256([]byte(codingRules)))
+		} else {
+			fmt.Fprintln(errOut, "Coding rules not applied: no reviewer runs in this analysis.")
+		}
+	}
 	r.Unverified = append(r.Unverified, doc.Notes...)
 	if drift != nil {
 		// The critical globs of this review's trusted policy; Finalize
@@ -626,6 +644,30 @@ func parseFormats(s string) ([]string, error) {
 	}
 	return formats, nil
 }
+
+// loadCodingRules returns the team coding rules of --rules or --rules-file,
+// trimmed, or "" when neither is set.
+func loadCodingRules(text, path string) (string, error) {
+	if path != "" {
+		if text != "" {
+			return "", errors.New("use either --rules or --rules-file")
+		}
+		b, err := readLimited(path, reviewer.MaxCodingRulesBytes)
+		if err != nil {
+			return "", fmt.Errorf("rules: %w", err)
+		}
+		text = string(b)
+	}
+	text = strings.TrimSpace(text)
+	switch {
+	case len(text) > reviewer.MaxCodingRulesBytes:
+		return "", fmt.Errorf("coding rules exceed %d bytes", reviewer.MaxCodingRulesBytes)
+	case !utf8.ValidString(text) || strings.ContainsRune(text, 0):
+		return "", errors.New("coding rules must be UTF-8 text")
+	}
+	return text, nil
+}
+
 func readLimited(path string, limit int64) ([]byte, error) {
 	f, err := os.Open(path)
 	if err != nil {

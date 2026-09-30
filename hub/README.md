@@ -60,6 +60,15 @@ The combined public stack uses `auto`; after adding the provider settings and
 redeploying the updated image, new analyses use read-only AI review. Existing
 cached lint reports keep their original mode until explicitly rerun.
 
+Each repository can carry team coding rules ("Coding rules" in the
+repository list, at most 32 KiB). The hub keeps them with the repository and
+hands them to the CLI with `--rules-file` for every review in which the AI
+reviewer runs. The file is private, written outside the checkout and removed
+after the run. The reviewer checks the changed code against the rules and
+reports each violation it finds as an unverified issue. Lint-only analyses
+ignore them. The report records the rules it was given. Saving the rules does
+not re-run earlier analyses.
+
 ## Commit tree and cached results
 
 Click a repository to fetch its branch topology from GitHub or GitLab. The tree
@@ -375,6 +384,7 @@ report view does not display a badge or its URL.
 | `GET` | `/api/me` | Session, configured forges, CSRF token; build, CLI version and mode once signed in. |
 | `GET` `POST` | `/api/repos` · `/api/repos/sync` | List and refresh repositories. |
 | `POST` | `/api/repos/{repo}/policy` | Preview (`{"preview":true}`) or commit `.probe.json`. |
+| `PUT` | `/api/repos/{repo}/rules` | Save the repository's coding rules (`{"rules":"…"}`); an empty text removes them. |
 | `POST` `DELETE` | `/api/repos/{repo}/monitor` | Install or remove the push webhook. |
 | `POST` | `/api/repos/{repo}/analyze` | Analyze a commit, or the tip of the default branch. |
 | `POST` | `/api/repos/{repo}/cancel` | Withdraw a queued analysis (`{"commit","variant"}`); `409` once it started. |

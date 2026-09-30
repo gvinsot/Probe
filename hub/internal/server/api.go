@@ -7,8 +7,10 @@ import (
 	"net/http"
 	"sort"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"github.com/gvinsot/Probe/hub/internal/analysis"
 	"github.com/gvinsot/Probe/hub/internal/forge"
@@ -119,7 +121,7 @@ func (s *Server) syncRepo(ctx context.Context, user *store.User, provider forge.
 		}
 		repo = &store.Repo{Key: key, Provider: user.Provider, ID: item.ID}
 	}
-	// Monitoring state, hook identity and history belong to the hub and are
+	// Monitoring state, hook identity, coding rules and history belong to the hub and are
 	// preserved across syncs; everything else mirrors the forge.
 	repo.FullName, repo.WebURL, repo.CloneURL = item.FullName, item.WebURL, item.CloneURL
 	repo.DefaultBranch, repo.Private, repo.Admin = item.DefaultBranch, item.Private, item.Admin
@@ -217,6 +219,49 @@ func (s *Server) handlePolicy(w http.ResponseWriter, r *http.Request) {
 	}
 	s.events.Publish(sess.UserKey, map[string]any{"type": "repo", "repo": updated.Public()})
 	writeJSON(w, http.StatusCreated, map[string]any{"repo": updated.Public(), "language": language, "policy": string(policy)})
+}
+
+// maxCodingRulesBytes matches the limit of the CLI's --rules-file.
+const maxCodingRulesBytes = 32 * 1024
+
+// handleRules saves the team coding rules of a repository. The hub hands them
+// to the reviewer of every later review; an empty text removes them.
+func (s *Server) handleRules(w http.ResponseWriter, r *http.Request) {
+	sess, _, ok := s.require(w, r)
+	if !ok {
+		return
+	}
+	repo, ok := s.repoOf(w, r, sess)
+	if !ok {
+		return
+	}
+	var body struct {
+		Rules string `json:"rules"`
+	}
+	if err := decodeBody(r, &body); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	rules := strings.TrimSpace(strings.ReplaceAll(body.Rules, "\r\n", "\n"))
+	switch {
+	case len(rules) > maxCodingRulesBytes:
+		writeError(w, http.StatusBadRequest, fmt.Sprintf("coding rules exceed %d bytes", maxCodingRulesBytes))
+		return
+	case !utf8.ValidString(rules) || strings.ContainsRune(rules, 0):
+		writeError(w, http.StatusBadRequest, "coding rules must be UTF-8 text")
+		return
+	}
+	updated, err := s.store.UpdateRepo(sess.UserKey, repo.Key, func(repo *store.Repo) error {
+		repo.CodingRules = rules
+		return nil
+	})
+	if err != nil {
+		s.log.Error("update repository", "error", err)
+		writeError(w, http.StatusInternalServerError, "the coding rules could not be saved")
+		return
+	}
+	s.events.Publish(sess.UserKey, map[string]any{"type": "repo", "repo": updated.Public()})
+	writeJSON(w, http.StatusOK, map[string]any{"repo": updated.Public()})
 }
 
 // handleMonitorOn installs the push webhook and analyzes the current tip.

@@ -363,6 +363,8 @@ func populatedReport() Report {
 			{SignalID: "signal-2", Title: "go.sum changed", Explanation: "Only checksums of an updated module changed.", Judgment: AssessmentNoRisk, Rationale: "The diff only updates checksums.", EvidenceIDs: []string{"evidence-1"}, AdjustedSeverity: "low"},
 			{SignalID: "signal-3", Title: "Only a comment changed", Explanation: "The rounding comment was reworded.", Judgment: AssessmentNoRisk, Rationale: "Line 2 is a comment.", EvidenceIDs: []string{"evidence-1"}, SetAside: true},
 		},
+		CodingRules:          "Never log credentials.",
+		CodingRulesSHA256:    strings.Repeat("c", 64),
 		ReviewerSummary:      "Two signals read; one rounding concern remains.",
 		AIImpactsCriticality: true,
 		Evidence: []Evidence{

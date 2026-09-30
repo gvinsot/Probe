@@ -179,7 +179,7 @@ exit 2
 `)
 	r, _ := testRunner(t, binary)
 	work := t.TempDir()
-	output, code, err := r.runCLI(context.Background(), work, config.ModeLint, "base-sha", "head-sha")
+	output, code, err := r.runCLI(context.Background(), work, config.ModeLint, "base-sha", "head-sha", "")
 	if code != 2 {
 		t.Fatalf("exit code = %d (%v), want 2: %s", code, err, output)
 	}

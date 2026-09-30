@@ -412,6 +412,11 @@ function repoActions(repo) {
   const actions = document.createElement('div');
   actions.className = 'repo-actions';
   const noAdmin = 'Your account cannot manage webhooks on this repository';
+  const rules = button(repo.coding_rules ? 'Coding rules ✓' : 'Coding rules', 'btn quiet small', (event) => {
+    event.stopPropagation();
+    openRulesDialog(repo);
+  });
+  rules.title = repo.coding_rules ? 'Edit the coding rules the AI reviewer checks' : 'Add coding rules for the AI reviewer to check';
   if (!repo.has_policy) {
     const addPolicy = button('Add policy', 'btn setup small', (event) => {
       event.stopPropagation();
@@ -419,6 +424,7 @@ function repoActions(repo) {
     });
     addPolicy.title = 'Create a .probe.json policy';
     actions.appendChild(addPolicy);
+    actions.appendChild(rules);
     return actions;
   }
   if (!repo.monitored) {
@@ -448,6 +454,7 @@ function repoActions(repo) {
       setMonitoring(repo, false);
     }));
   }
+  actions.appendChild(rules);
   return actions;
 }
 
@@ -573,6 +580,55 @@ async function openPolicyDialog(repo) {
   select.addEventListener('change', loadPreview);
   el('modal').classList.remove('hidden');
   loadPreview();
+}
+
+// openRulesDialog edits the team coding rules of a repository. The hub gives
+// them to the AI reviewer of every later review, which checks the changed code
+// against them; an empty text removes them.
+function openRulesDialog(repo) {
+  closeModal();
+  const body = el('modal-body');
+  const footer = el('modal-footer');
+  el('modal-title').textContent = 'Coding rules · ' + repo.full_name;
+  body.textContent = '';
+  footer.textContent = '';
+
+  const intro = document.createElement('p');
+  intro.className = 'note';
+  intro.textContent = 'The AI reviewer checks the changed code of every review against these rules and reports each violation it finds as an alert. '
+    + 'They apply only when an AI reviewer runs, never to lint-only analyses. One rule per line works best.';
+  body.appendChild(intro);
+
+  const text = document.createElement('textarea');
+  text.id = 'coding-rules';
+  text.className = 'search rules-text';
+  text.rows = 12;
+  text.maxLength = 32768;
+  text.placeholder = '- Never log credentials or tokens.\n- Wrap returned errors with context.\n- Every public function has a test.';
+  text.value = repo.coding_rules || '';
+  text.setAttribute('aria-label', 'Coding rules');
+  body.appendChild(text);
+
+  const save = button('Save', 'btn', async () => {
+    save.disabled = true;
+    try {
+      const payload = await api('/api/repos/' + encodeURIComponent(repo.key) + '/rules', {
+        method: 'PUT',
+        body: { rules: text.value },
+      });
+      upsertRepo(payload.repo);
+      closeModal();
+      toast(payload.repo.coding_rules ? 'Coding rules saved.' : 'Coding rules removed.');
+    } catch (err) {
+      toast(err.message, true);
+      save.disabled = false;
+    }
+  });
+  save.id = 'coding-rules-save';
+  footer.appendChild(button('Cancel', 'btn quiet', closeModal));
+  footer.appendChild(save);
+  el('modal').classList.remove('hidden');
+  text.focus();
 }
 
 let activityTimer;

@@ -266,6 +266,25 @@ the diff would take more than half of the reviewer's input budget, the model
 receives the list of changed files without their hunks and reads them with
 `get_diff`.
 
+### Team coding rules
+
+`--rules TEXT` or `--rules-file FILE` (UTF-8, at most 32 KiB) gives the
+reviewer your team's coding rules, in both review modes:
+
+```sh
+probe review --base origin/main --rules-file docs/CODING_RULES.md --ci
+```
+
+The reviewer checks the changed code, and only the changed code, against them.
+It submits each violation it finds as a hypothesis whose title names the rule,
+`UNVERIFIED` unless evidence supports another status. The rules are review
+criteria, not instructions: they cannot change the tools, the statuses or the
+evidence requirements. They are recorded in `coding_rules` and
+`coding_rules_sha256`, and Markdown quotes them. They come from the command
+line, never from the reviewed change. A run without a reviewer (`lint`,
+`--reviewer=false`) does not record them, because nothing checked them.
+Probe Hub keeps the rules of each repository and passes them to every review.
+
 ### Provider settings from the deployment
 
 The provider belongs to the deployment rather than to the reviewed repository, so the same binary and the same committed policy can be pointed at an operator's endpoint without a policy change:

@@ -42,6 +42,11 @@ window.fetch = async (path, init) => {
     data = body.preview ? { language: 'go', policy: '{"version":1}' }
       : { repo: { ...state.repos.get(key), has_policy: true } };
   }
+  else if (path.endsWith('/rules')) {
+    const key = path.split('/')[3];
+    const rules = JSON.parse(init.body).rules.trim();
+    data = { repo: { ...state.repos.get(key), coding_rules: rules || undefined } };
+  }
   else if (path.endsWith('/monitor')) {
     const key = path.split('/')[3];
     data = { repo: { ...state.repos.get(key), monitored: init.method === 'POST' } };
@@ -561,6 +566,24 @@ window.addEventListener('DOMContentLoaded', async () => {
     assert(state.pending.get(pendingKey('repo', cancelCommit, 'plan'))?.status === 'queued', 'the new attempt is followed');
     fixtureStream.onmessage({ data: JSON.stringify({ type: 'run', repo_key: 'repo', run: { commit: cancelCommit, variant: 'plan', status: 'cancelled', queued_at: state.pending.get(pendingKey('repo', cancelCommit, 'plan')).queued_at } }) });
     assert(!state.pending.has(pendingKey('repo', cancelCommit, 'plan')), 'a cancelled event closes the pending attempt');
+    closeModal();
+    await settle();
+    // Coding rules are edited from the repository list and saved with CSRF.
+    const rulesButton = () => Array.from(document.querySelectorAll('.repo-actions button')).find((b) => b.textContent.startsWith('Coding rules'));
+    assert(rulesButton() && rulesButton().textContent === 'Coding rules', 'a repository without rules offers to add them');
+    rulesButton().click();
+    await settle();
+    assert(!el('modal').classList.contains('hidden') && el('coding-rules').value === '', 'the rules dialog opens empty');
+    el('coding-rules').value = '- Never log credentials.';
+    el('coding-rules-save').click();
+    await settle();
+    const rulesCall = fixtureCalls.find((call) => call.path === '/api/repos/repo/rules');
+    assert(rulesCall && rulesCall.init.method === 'PUT' && JSON.parse(rulesCall.init.body).rules === '- Never log credentials.' && rulesCall.init.headers['X-Probe-CSRF'] === 'csrf', 'saving puts the rules with CSRF');
+    assert(el('modal').classList.contains('hidden') && state.repos.get('repo').coding_rules === '- Never log credentials.', 'the saved rules update the repository');
+    assert(rulesButton().textContent === 'Coding rules ✓', 'a repository with rules shows it');
+    rulesButton().click();
+    await settle();
+    assert(el('coding-rules').value === '- Never log credentials.', 'the dialog shows the saved rules');
     closeModal();
     await settle();
     assert(!document.body.dataset.testResult, document.body.dataset.testResult);

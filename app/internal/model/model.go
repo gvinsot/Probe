@@ -205,13 +205,17 @@ type ReviewSurface struct {
 // says what happened. intent_criteria, divergences and intent_test_failures
 // always serialize as arrays.
 type Report struct {
-	Version            int                `json:"version"` // stays 1 (additive change)
-	ToolVersion        string             `json:"tool_version"`
-	AnalysisMode       string             `json:"analysis_mode,omitempty"`
-	GeneratedAt        time.Time          `json:"generated_at"`
-	Intent             string             `json:"intent,omitempty"`
-	IntentSHA256       string             `json:"intent_sha256,omitempty"` // F5
-	IntentCriteria     []IntentCriterion  `json:"intent_criteria"`         // F5, always an array
+	Version        int               `json:"version"` // stays 1 (additive change)
+	ToolVersion    string            `json:"tool_version"`
+	AnalysisMode   string            `json:"analysis_mode,omitempty"`
+	GeneratedAt    time.Time         `json:"generated_at"`
+	Intent         string            `json:"intent,omitempty"`
+	IntentSHA256   string            `json:"intent_sha256,omitempty"` // F5
+	IntentCriteria []IntentCriterion `json:"intent_criteria"`         // F5, always an array
+	// CodingRules are the team coding rules given to the reviewer with
+	// --rules or --rules-file; recorded only when a reviewer ran.
+	CodingRules        string             `json:"coding_rules,omitempty"`
+	CodingRulesSHA256  string             `json:"coding_rules_sha256,omitempty"`
 	Change             Change             `json:"change"`
 	Policy             Policy             `json:"policy"`
 	Prepare            *Prepare           `json:"prepare,omitempty"` // F8

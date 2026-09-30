@@ -442,6 +442,7 @@ body.resizing { cursor: col-resize; user-select: none; }
 .comparison-card > .note { margin: 6px 0 0; }
 .comparison-card > .row { margin-top: 8px; }
 #plan-intent { display: block; width: 100%; resize: vertical; }
+.rules-text { display: block; width: 100%; resize: vertical; font-family: inherit; }
 .plan-intent-field { margin: 8px 0; }
 #plan-result pre { max-height: 500px; overflow: auto; }
 @media (max-width: 700px) {

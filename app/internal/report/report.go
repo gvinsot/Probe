@@ -397,6 +397,15 @@ func renderMarkdown(r *model.Report) []byte {
 	if r.Intent != "" {
 		fmt.Fprintf(&b, "Intent: %s\n\n", inline(r.Intent))
 	}
+	if r.CodingRules != "" {
+		line(&b, "Coding rules given to the reviewer (a violation it found is a hypothesis, not evidence):\n")
+		for _, l := range strings.Split(r.CodingRules, "\n") {
+			if l = strings.TrimSpace(l); l != "" {
+				line(&b, "> "+inline(l))
+			}
+		}
+		line(&b, "")
+	}
 	fmt.Fprintf(&b, "Exit code: %d. No confidence percentage is assigned.\n\n", r.ExitCode)
 	if r.Prepare != nil {
 		writePrepare(&b, r) // F8: "## Dependency Preparation"

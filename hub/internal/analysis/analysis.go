@@ -428,7 +428,7 @@ func (r *Runner) analyze(ctx context.Context, j Job, run *store.Run) (record *st
 	mode := r.modeFor(ctx, g, repo, base)
 	run.Mode = mode
 
-	output, exitCode, runErr := r.runCLI(ctx, work, mode, base, j.Commit)
+	output, exitCode, runErr := r.runCLI(ctx, work, mode, base, j.Commit, repo.CodingRules)
 	data, readErr := readBounded(filepath.Join(work, reportPath), maxReportBytes)
 	if readErr != nil {
 		if runErr != nil {
@@ -480,8 +480,10 @@ func (r *Runner) modeFor(ctx context.Context, g *gitRunner, repo *store.Repo, ba
 	return config.ModeReview
 }
 
-// runCLI executes the trusted binary on the prepared checkout.
-func (r *Runner) runCLI(ctx context.Context, work, mode, base, head string) (string, int, error) {
+// runCLI executes the trusted binary on the prepared checkout. The owner's
+// coding rules reach the CLI only when a reviewer runs, the only step that
+// reads them.
+func (r *Runner) runCLI(ctx context.Context, work, mode, base, head, rules string) (string, int, error) {
 	readOnly := mode == config.ModeReadOnly
 	if readOnly {
 		if strings.TrimSpace(os.Getenv(config.EndpointEnvName)) == "" || strings.TrimSpace(os.Getenv(config.ModelEnvName)) == "" {
@@ -509,9 +511,34 @@ func (r *Runner) runCLI(ctx context.Context, work, mode, base, head string) (str
 		// stays a deployment decision made through the CLI's own environment.
 		if os.Getenv(config.EndpointEnvName) == "" {
 			args = append(args, "--reviewer=false")
+		} else if strings.TrimSpace(rules) != "" {
+			// Written outside the checkout, so that it is never repository content.
+			path, err := writeRulesFile(rules)
+			if err != nil {
+				return "", 3, err
+			}
+			defer os.Remove(path)
+			args = append(args, "--rules-file", path)
 		}
 	}
 	return r.executeCLI(ctx, work, args)
+}
+
+// writeRulesFile stores coding rules in a private temporary file.
+func writeRulesFile(rules string) (string, error) {
+	f, err := os.CreateTemp("", "probe-rules-*.md")
+	if err != nil {
+		return "", fmt.Errorf("coding rules: %w", err)
+	}
+	_, err = f.WriteString(rules)
+	if closeErr := f.Close(); err == nil {
+		err = closeErr
+	}
+	if err != nil {
+		os.Remove(f.Name())
+		return "", fmt.Errorf("coding rules: %w", err)
+	}
+	return f.Name(), nil
 }
 
 // publishStatus reports the outcome back onto the commit, when enabled.

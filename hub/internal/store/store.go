@@ -115,9 +115,12 @@ type Repo struct {
 	HookToken string `json:"hook_token,omitempty"`
 	// BadgeKey addresses the public badge. It is distinct from HookKey so a
 	// badge embedded in a README reveals nothing about the webhook.
-	BadgeKey  string    `json:"badge_key,omitempty"`
-	Latest    *Run      `json:"latest,omitempty"`
-	UpdatedAt time.Time `json:"updated_at"`
+	BadgeKey string `json:"badge_key,omitempty"`
+	// CodingRules are the owner's team coding rules, given to the reviewer
+	// of every review of this repository.
+	CodingRules string    `json:"coding_rules,omitempty"`
+	Latest      *Run      `json:"latest,omitempty"`
+	UpdatedAt   time.Time `json:"updated_at"`
 }
 
 // PublicRepo is the repository projection sent to a browser. It deliberately
@@ -134,6 +137,7 @@ type PublicRepo struct {
 	HasPolicy     bool   `json:"has_policy"`
 	Monitored     bool   `json:"monitored"`
 	BadgeKey      string `json:"badge_key,omitempty"`
+	CodingRules   string `json:"coding_rules,omitempty"`
 	// HookOutdated flags a monitored repository whose webhook predates the
 	// installation token: the forge still delivers, the hub refuses, and the
 	// owner has to reinstall the hook to get pushes and a badge back.
@@ -159,6 +163,7 @@ func (r *Repo) Public() PublicRepo {
 		Key: r.Key, Provider: r.Provider, FullName: r.FullName, WebURL: r.WebURL,
 		DefaultBranch: r.DefaultBranch, Private: r.Private, Admin: r.Admin,
 		HasPolicy: r.HasPolicy, Monitored: r.Monitored, UpdatedAt: r.UpdatedAt,
+		CodingRules: r.CodingRules,
 	}
 	if r.Latest != nil {
 		run := projectRecent(r.Latest)

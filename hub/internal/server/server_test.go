@@ -295,6 +295,9 @@ func TestAnonymousAccess(t *testing.T) {
 	if got := h.do(http.MethodGet, "/api/repos", nil); got.Code != http.StatusUnauthorized {
 		t.Errorf("GET /api/repos = %d, want 401", got.Code)
 	}
+	if got := h.do(http.MethodPut, "/api/repos/x/rules", map[string]any{"rules": "x"}); got.Code != http.StatusUnauthorized {
+		t.Errorf("PUT rules = %d, want 401", got.Code)
+	}
 	if got := h.do(http.MethodPost, "/api/repos/x/policy", map[string]any{}); got.Code != http.StatusUnauthorized {
 		t.Errorf("POST policy = %d, want 401", got.Code)
 	}
