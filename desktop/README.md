@@ -13,7 +13,10 @@ finding and never change the severity of the report. When the model states
 that the modifications may have a legal or financial impact ("Cette
 modification peut avoir une incidence juridique et financière"), the severity
 of the document is raised to high for one of them and to critical for both;
-the model can raise a severity, never lower it.
+the model can raise a severity, never lower it. When the document is saved
+again, the explanation is kept, marked as written for an earlier version: the
+AI findings about elements modified again are removed, the others stay, and
+the raised severity stays only if none of the earlier modifications changed.
 
 ## What it flags
 

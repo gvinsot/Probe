@@ -154,3 +154,51 @@ func TestExplanationRaisesSeverityNeverLowers(t *testing.T) {
 		t.Errorf("no escalation = %s, want high", got)
 	}
 }
+
+func TestExplanationCarriedOverUnchangedElements(t *testing.T) {
+	amount := office.Change{Kind: "modified", Location: "Paragraph 2", Before: "10 000 €", After: "1 000 €"}
+	delay := office.Change{Kind: "modified", Location: "Paragraph 5", Before: "30 days", After: "90 days"}
+	prev := &office.Report{Changes: []office.Change{amount, delay}}
+	e := &Explanation{
+		Text: "The amount and the delay changed.", Impacts: []string{"financial"}, Severity: office.High,
+		Findings: []office.Finding{
+			{Title: "Amount divided by ten", Location: "Paragraph 2"},
+			{Title: "Longer payment delay", After: "90 days"},
+			{Title: "General remark"},
+		},
+	}
+
+	// Saved again with the same modifications: nothing is lost.
+	same := &office.Report{Changes: []office.Change{amount, delay}}
+	if got := carryExplanation(e, prev, same); got == nil || got.Outdated || len(got.Findings) != 3 || got.Severity != office.High {
+		t.Fatalf("same modifications: %+v", got)
+	}
+
+	// A paragraph inserted above: locations shift, contents are unchanged.
+	shifted := amount
+	shifted.Location = "Paragraph 3"
+	added := office.Change{Kind: "added", Location: "Paragraph 1", After: "New clause"}
+	got := carryExplanation(e, prev, &office.Report{Changes: []office.Change{added, shifted, delay}})
+	if got == nil || !got.Outdated || len(got.Findings) != 3 || got.Severity != office.High {
+		t.Fatalf("new change added: %+v", got)
+	}
+
+	// The delay modified again: its finding and the impacts are dropped, the
+	// finding about the unchanged amount is kept.
+	delay2 := delay
+	delay2.After = "120 days"
+	got = carryExplanation(e, prev, &office.Report{Changes: []office.Change{amount, delay2}})
+	if got == nil || !got.Outdated || got.Severity != "" || len(got.Impacts) != 0 {
+		t.Fatalf("delay modified again: %+v", got)
+	}
+	if len(got.Findings) != 1 || got.Findings[0].Title != "Amount divided by ten" {
+		t.Fatalf("kept findings = %+v", got.Findings)
+	}
+	if len(e.Findings) != 3 {
+		t.Fatal("the earlier explanation was modified")
+	}
+
+	if carryExplanation(nil, prev, same) != nil {
+		t.Fatal("no explanation to carry")
+	}
+}

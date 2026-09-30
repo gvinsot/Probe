@@ -317,7 +317,10 @@ function renderDetail() {
       parts.push(el("p", { class: "note", text: "Suggestions from the model, not rule results: check them in the document." }));
     }
     parts.push(el("details", { class: "explanation", open: !extra.length },
-      el("summary", { text: "AI analysis" }),
+      el("summary", { text: d.explanation.outdated ? "AI analysis (earlier version)" : "AI analysis" }),
+      d.explanation.outdated
+        ? el("p", { class: "note", text: "Written for an earlier version of the modifications: the AI findings about elements modified again were removed and the latest changes are not covered. Explain again for a complete analysis." })
+        : null,
       el("p", { text: d.explanation.text }),
       el("span", { class: "note", text: `Explanation by ${d.explanation.model} · ${ago(d.explanation.at)} · the findings below remain the reference` }),
     ));

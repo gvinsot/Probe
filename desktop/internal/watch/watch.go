@@ -62,6 +62,10 @@ type Explanation struct {
 	Impacts  []string  `json:"impacts,omitempty"`
 	Severity string    `json:"severity,omitempty"`
 	At       time.Time `json:"at"`
+	// Outdated marks an explanation carried over from an earlier version of
+	// the modifications: its findings about elements modified again were
+	// dropped, and it does not cover the newest changes.
+	Outdated bool `json:"outdated,omitempty"`
 }
 
 // Document is the state of one watched file.
@@ -395,10 +399,85 @@ func (w *Watcher) process(id, root, path string, kind office.Kind, info fs.FileI
 			return
 		}
 		stamp()
-		d.CurrentHash, d.Report, d.Explanation, d.Error = hash, report, nil, ""
+		d.Explanation = carryExplanation(d.Explanation, d.Report, report)
+		d.CurrentHash, d.Report, d.Error = hash, report, ""
 		d.Status, d.ChangedAt = StatusChanged, time.Now()
 	}
 	commit()
+}
+
+// carryExplanation keeps what an earlier AI review said about the elements
+// that were not modified again when a document changes once more, so a new
+// save does not discard an analysis that still holds.
+//
+// Changes are matched on their content (kind, before and after), not on their
+// location, which shifts when a paragraph or a row is inserted above them. An
+// AI finding is tied to the earlier changes at its location or quoting its
+// excerpts, and kept when all of them are still present. A finding tied to
+// nothing is kept only when every earlier change is still present. The
+// impacts, which were read from the whole answer, are kept on the same
+// condition; the model can only raise the severity from them.
+func carryExplanation(e *Explanation, prev, cur *office.Report) *Explanation {
+	if e == nil || prev == nil || cur == nil {
+		return nil
+	}
+	present := map[string]int{}
+	for _, c := range cur.Changes {
+		present[changeKey(c)]++
+	}
+	stillThere := func(c office.Change) bool { return present[changeKey(c)] > 0 }
+
+	allKept := !prev.Truncated
+	for _, c := range prev.Changes {
+		allKept = allKept && stillThere(c)
+	}
+	if allKept && !cur.Truncated && len(cur.Changes) == len(prev.Changes) {
+		// Same modifications, saved again: the explanation still holds.
+		kept := *e
+		return &kept
+	}
+
+	kept := *e
+	kept.Outdated = true
+	kept.Findings = nil
+	for _, f := range e.Findings {
+		tied := tiedChanges(f, prev.Changes)
+		keep := allKept
+		if len(tied) > 0 {
+			keep = true
+			for _, c := range tied {
+				keep = keep && stillThere(c)
+			}
+		}
+		if keep {
+			kept.Findings = append(kept.Findings, f)
+		}
+	}
+	if !allKept {
+		kept.Impacts, kept.Severity = nil, ""
+	}
+	return &kept
+}
+
+// changeKey identifies a change by its content.
+func changeKey(c office.Change) string {
+	return c.Kind + "\x00" + c.Before + "\x00" + c.After
+}
+
+// tiedChanges returns the changes an AI finding refers to: those at its
+// location, or whose excerpts it quotes.
+func tiedChanges(f office.Finding, changes []office.Change) []office.Change {
+	loc := strings.ToLower(strings.TrimSpace(f.Location))
+	var out []office.Change
+	for _, c := range changes {
+		cl := strings.ToLower(strings.TrimSpace(c.Location))
+		sameLoc := loc != "" && (cl == loc || strings.HasSuffix(cl, " "+loc))
+		quoted := (f.Before != "" && f.Before == c.Before) || (f.After != "" && f.After == c.After)
+		if sameLoc || quoted {
+			out = append(out, c)
+		}
+	}
+	return out
 }
 
 func (w *Watcher) writeBaseline(id string, data []byte) error {
