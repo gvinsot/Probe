@@ -703,6 +703,139 @@ function openRulesDialog(repo) {
   text.focus();
 }
 
+/* ------------------------------------------------------- agent access -- */
+
+// Agent tokens let coding agents (Claude Code, Cursor, …) use the hub's MCP
+// endpoint. A token is shown once, right after it is created.
+async function openAgentDialog() {
+  closeModal();
+  el('modal-title').textContent = 'Agent access (MCP)';
+  const body = el('modal-body');
+  body.textContent = '';
+  const intro = document.createElement('p');
+  intro.className = 'note';
+  intro.textContent = 'Coding agents connect to this hub over the Model Context Protocol with a token. ' +
+    'A read token lists repositories and reads findings; a write token also triggers, reruns and cancels analyses and changes coding rules and learning.';
+  const created = document.createElement('div');
+  created.id = 'agent-token-created';
+  const list = document.createElement('div');
+  list.id = 'agent-token-list';
+  list.textContent = 'Loading tokens…';
+
+  const form = document.createElement('div');
+  form.className = 'row';
+  const name = document.createElement('input');
+  name.className = 'search';
+  name.id = 'agent-token-name';
+  name.placeholder = 'Token name, e.g. Claude Code on my laptop';
+  name.maxLength = 80;
+  const scope = document.createElement('select');
+  scope.id = 'agent-token-scope';
+  for (const [value, label] of [['read', 'Read'], ['write', 'Read and write']]) {
+    const option = document.createElement('option');
+    option.value = value;
+    option.textContent = label;
+    scope.appendChild(option);
+  }
+  const expiry = document.createElement('select');
+  expiry.id = 'agent-token-expiry';
+  for (const [value, label] of [['30', '30 days'], ['90', '90 days'], ['366', '1 year'], ['0', 'No expiry']]) {
+    const option = document.createElement('option');
+    option.value = value;
+    option.textContent = label;
+    expiry.appendChild(option);
+  }
+  form.append(name, scope, expiry);
+  body.append(intro, form, created, list);
+
+  const create = button('Create token', 'btn small', async () => {
+    create.disabled = true;
+    try {
+      const out = await api('/api/tokens', { method: 'POST', body: { name: name.value, scope: scope.value, expires_days: Number(expiry.value) } });
+      name.value = '';
+      showCreatedToken(created, out);
+      await refreshAgentTokens();
+    } catch (err) {
+      toast(err.message, true);
+    }
+    create.disabled = false;
+  });
+  el('modal-footer').replaceChildren(button('Close', 'btn quiet', closeModal), create);
+  el('modal').classList.remove('hidden');
+  name.focus();
+  await refreshAgentTokens();
+}
+
+function showCreatedToken(holder, out) {
+  holder.textContent = '';
+  const warn = document.createElement('p');
+  warn.className = 'notice';
+  warn.textContent = 'Copy this token now: it will not be shown again.';
+  const token = document.createElement('pre');
+  token.className = 'alert-detail mono';
+  token.textContent = out.token;
+  const how = document.createElement('p');
+  how.className = 'note';
+  how.textContent = 'Claude Code:';
+  const claude = document.createElement('pre');
+  claude.className = 'alert-detail mono';
+  claude.textContent = 'claude mcp add --transport http probe-hub ' + out.endpoint + ' --header "Authorization: Bearer ' + out.token + '"';
+  const cursorNote = document.createElement('p');
+  cursorNote.className = 'note';
+  cursorNote.textContent = 'Cursor and other clients (mcp.json):';
+  const cursor = document.createElement('pre');
+  cursor.className = 'alert-detail mono';
+  cursor.textContent = JSON.stringify({ mcpServers: { 'probe-hub': { url: out.endpoint, headers: { Authorization: 'Bearer ' + out.token } } } }, null, 2);
+  holder.append(warn, token, how, claude, cursorNote, cursor);
+}
+
+async function refreshAgentTokens() {
+  const list = el('agent-token-list');
+  if (!list) return;
+  let data;
+  try {
+    data = await api('/api/tokens');
+  } catch (err) {
+    list.textContent = 'Could not load the tokens: ' + err.message;
+    return;
+  }
+  list.textContent = '';
+  const tokens = data.tokens || [];
+  if (!tokens.length) {
+    const empty = document.createElement('p');
+    empty.className = 'note';
+    empty.textContent = 'No agent token yet. Endpoint: ' + data.endpoint;
+    list.appendChild(empty);
+    return;
+  }
+  for (const token of tokens) {
+    const row = document.createElement('div');
+    row.className = 'row activity-row';
+    const label = document.createElement('span');
+    label.textContent = token.name + ' · ' + (token.scope === 'write' ? 'read and write' : 'read');
+    const dates = document.createElement('span');
+    dates.className = 'note';
+    dates.textContent = 'created ' + new Date(token.created_at).toLocaleDateString() +
+      (token.expires_at ? ' · expires ' + new Date(token.expires_at).toLocaleDateString() : ' · no expiry') +
+      (token.last_used_at ? ' · last used ' + new Date(token.last_used_at).toLocaleString() : ' · never used');
+    const spacer = document.createElement('span');
+    spacer.className = 'spacer';
+    const revoke = button('Revoke', 'btn quiet small', async () => {
+      revoke.disabled = true;
+      try {
+        await api('/api/tokens/' + encodeURIComponent(token.id), { method: 'DELETE' });
+        toast('Token revoked.');
+        await refreshAgentTokens();
+      } catch (err) {
+        toast(err.message, true);
+        revoke.disabled = false;
+      }
+    });
+    row.append(label, dates, spacer, revoke);
+    list.appendChild(row);
+  }
+}
+
 let activityTimer;
 let activityDialogID = 0;
 let activityRequestID = 0;
@@ -2262,6 +2395,7 @@ async function boot() {
     window.location.replace('/index.html');
   });
   el('analyses').addEventListener('click', openActivityDialog);
+  el('agent-access').addEventListener('click', openAgentDialog);
   el('sync').addEventListener('click', async (event) => {
     event.target.disabled = true;
     try {

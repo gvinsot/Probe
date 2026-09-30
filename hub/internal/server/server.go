@@ -58,6 +58,9 @@ type Server struct {
 	// etagOnce computes etags: a content hash per embedded asset.
 	etagOnce sync.Once
 	etags    map[string]string
+	// api is the routed API without middleware; MCP tools dispatch to it.
+	apiOnce sync.Once
+	api     http.Handler
 }
 
 // New builds the server.
@@ -79,6 +82,17 @@ func New(cfg config.Config, s store.Store, a *accounts.Manager, r *analysis.Runn
 
 // Handler returns the routed, wrapped HTTP handler.
 func (s *Server) Handler() http.Handler {
+	return s.recover(s.headers(s.logRequests(s.routes())))
+}
+
+// routes returns the router, built once: the HTTP surface and the MCP tools
+// share it.
+func (s *Server) routes() http.Handler {
+	s.apiOnce.Do(func() { s.api = s.buildRoutes() })
+	return s.api
+}
+
+func (s *Server) buildRoutes() http.Handler {
 	mux := http.NewServeMux()
 
 	mux.HandleFunc("GET /healthz", s.handleHealth)
@@ -108,13 +122,19 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/repos/{repo}/reports/{commit}", s.handleReport)
 	mux.HandleFunc("GET /api/repos/{repo}/reports/{commit}/raw", s.handleReportRaw)
 	mux.HandleFunc("GET /api/events", s.handleEvents)
+	mux.HandleFunc("GET /api/tokens", s.handleTokens)
+	mux.HandleFunc("POST /api/tokens", s.handleCreateToken)
+	mux.HandleFunc("DELETE /api/tokens/{token}", s.handleDeleteToken)
+
+	mux.HandleFunc("POST /mcp", s.handleMCP)
+	mux.HandleFunc("GET /mcp", s.handleMCPStream)
+	mux.HandleFunc("DELETE /mcp", s.handleMCPStream)
 
 	mux.HandleFunc("POST /hooks/{hook}", s.handleWebhook)
 	mux.HandleFunc("GET /badge/{badge}", s.handleBadge)
 
 	mux.HandleFunc("GET /", s.handleStatic)
-
-	return s.recover(s.headers(s.logRequests(mux)))
+	return mux
 }
 
 // headers applies the same hardening the promotional site gets at the edge, so
@@ -248,8 +268,13 @@ func (s *Server) assetETag(name string) string {
 	return s.etags[name]
 }
 
-// session authenticates the cookie of a request.
+// session authenticates the cookie of a request, or returns the identity of
+// the agent token an MCP tool call runs under. That identity only exists in
+// the context of an internal dispatch, never in a request from the network.
 func (s *Server) session(r *http.Request) (secrets.Session, error) {
+	if agent := agentOf(r.Context()); agent != nil {
+		return agent.session, nil
+	}
 	c, err := r.Cookie(sessionCookie)
 	if err != nil {
 		return secrets.Session{}, secrets.ErrInvalid
@@ -265,7 +290,14 @@ func (s *Server) require(w http.ResponseWriter, r *http.Request) (secrets.Sessio
 		writeError(w, http.StatusUnauthorized, "sign in to continue")
 		return secrets.Session{}, nil, false
 	}
-	if r.Method != http.MethodGet && r.Method != http.MethodHead {
+	if agent := agentOf(r.Context()); agent != nil {
+		// The bearer token authenticated the MCP request; there is no cookie
+		// to forge, so CSRF does not apply, but a read token never writes.
+		if r.Method != http.MethodGet && r.Method != http.MethodHead && agent.scope != store.ScopeWrite {
+			writeError(w, http.StatusForbidden, "this agent token is read-only")
+			return secrets.Session{}, nil, false
+		}
+	} else if r.Method != http.MethodGet && r.Method != http.MethodHead {
 		if !s.keys.CheckCSRF(sess, r.Header.Get(csrfHeader)) {
 			writeError(w, http.StatusForbidden, "invalid CSRF token")
 			return secrets.Session{}, nil, false

@@ -391,6 +391,65 @@ hub does not re-register them behind the owner's back; instead:
 The public badge remains available through the API-provided `badge_key`; the
 report view does not display a badge or its URL.
 
+## MCP server for coding agents
+
+The hub is an MCP server, so Claude Code, Cursor and any other client of the
+[Model Context Protocol](https://modelcontextprotocol.io) can drive Probe
+directly: find a repository, trigger a review, wait for it, read the
+findings, give feedback on them, rerun an analysis, and manage the review
+context (coding rules, learning from feedback).
+
+**Connect.** In the dashboard, open **Agent access**, name a token, pick its
+scope and lifetime, and copy it: it is shown once. Then:
+
+```sh
+claude mcp add --transport http probe-hub https://hub.example.com/mcp \
+  --header "Authorization: Bearer probe_mcp.…"
+```
+
+or, for Cursor and other clients, in `mcp.json`:
+
+```json
+{ "mcpServers": { "probe-hub": { "url": "https://hub.example.com/mcp",
+  "headers": { "Authorization": "Bearer probe_mcp.…" } } } }
+```
+
+**Tools.**
+
+| Tool | Scope | What it does |
+| --- | --- | --- |
+| `list_repositories` | read | Repositories with policy, monitoring and latest analysis; `query`, `monitored_only`. |
+| `get_repository` | read | One repository with its coding rules and learning state. |
+| `list_analyses` | read | Stored analyses, newest first. |
+| `list_active_analyses` | read | Queued, running and recently finished analyses. |
+| `get_findings` | read | Verdict, summary, alerts (with `min_severity`), what the reviewer set aside, unverified areas and checks, without diffs. |
+| `get_report` | read | The full view with diffs (`format: "view"`) or the CLI's confidence report (`"raw"`). |
+| `wait_for_analysis` | read | Waits (up to 600 s) until an analysis finishes, then returns its findings. |
+| `list_feedback` · `get_learning` | read | Votes and comments on a commit's findings; what the reviewer learned. |
+| `trigger_review` | write | Queue an analysis of a commit, a branch tip or the default branch, or a plan (`variant: "plan"`, `intent`). |
+| `rerun_analysis` · `cancel_analysis` | write | Queue a stored analysis again; withdraw a queued one. |
+| `update_coding_rules` | write | Replace the repository's team coding rules. |
+| `set_learning` · `reset_feedback` | write | Switch learning from feedback; forget all feedback. |
+| `add_feedback` | write | Vote on or comment a finding; signed "login (agent: token name)". |
+| `sync_repositories` · `create_policy` | write | Refresh the list from the forge; preview or commit `.probe.json`. |
+
+A repository is named `owner/name`, by its bare name when unique, or by its
+hub key; a commit by its SHA or a unique prefix of at least 7 characters, and
+defaults to the latest analyzed one.
+
+**Security.** A token belongs to one account and reaches only that account's
+repositories. Only its SHA-256 is stored; it can expire (30 days to a year, or
+never) and is revoked at once from the dashboard, which also shows when it was
+last used. A read token cannot call write tools, and the API refuses its
+writes too. The endpoint ignores session cookies, so a web page cannot use a
+signed-in browser, and refuses requests whose `Origin` is another site. Every
+tool runs the same API handler as the dashboard, under the token's account:
+validation, quotas and verdicts are the dashboard's, and the hub never
+re-derives a verdict for an agent. Tokens cannot create or list other tokens.
+The transport is stateless Streamable HTTP (protocol revisions 2025-11-25,
+2025-06-18 and 2025-03-26) with JSON replies; the server sends no
+notifications.
+
 ## Endpoints
 
 | Method | Path | Purpose |
@@ -411,6 +470,8 @@ report view does not display a badge or its URL.
 | `GET` | `/api/repos/{repo}/runs` | Report history. |
 | `GET` | `/api/repos/{repo}/reports/{commit}` · `/raw` | Rendered view, or the stored JSON report. |
 | `GET` | `/api/events` | Server-sent analysis updates of the signed-in account. |
+| `GET` `POST` `DELETE` | `/api/tokens` · `/api/tokens/{id}` | List, create (`{"name","scope":"read"\|"write","expires_days"}`, the token is returned once) or revoke agent tokens. Session only. |
+| `POST` | `/mcp` | MCP endpoint for coding agents (Streamable HTTP, JSON replies); `Authorization: Bearer` agent token. `GET`/`DELETE` answer `405`. |
 | `POST` | `/hooks/{key}?token=…` | Webhook receiver; needs the installation token and the forge signature. |
 | `GET` | `/badge/{badge_key}.svg` | Latest verdict as a badge; `badge_key` is returned with a monitored repository. |
 

@@ -66,6 +66,27 @@ type User struct {
 	TokenExpiry  time.Time `json:"token_expiry,omitempty"`
 	CreatedAt    time.Time `json:"created_at"`
 	UpdatedAt    time.Time `json:"updated_at"`
+	// AgentTokens authenticate coding agents on the MCP endpoint. Only the
+	// SHA-256 of each token is kept; the token itself is shown once.
+	AgentTokens []AgentToken `json:"agent_tokens,omitempty"`
+}
+
+// Agent token scopes: read lists repositories and reads reports; write also
+// queues, reruns and cancels analyses and changes review settings.
+const (
+	ScopeRead  = "read"
+	ScopeWrite = "write"
+)
+
+// AgentToken is one MCP credential of an account.
+type AgentToken struct {
+	ID         string    `json:"id"`
+	Name       string    `json:"name"`
+	Scope      string    `json:"scope"`
+	Hash       string    `json:"hash"`
+	CreatedAt  time.Time `json:"created_at"`
+	ExpiresAt  time.Time `json:"expires_at,omitempty"`
+	LastUsedAt time.Time `json:"last_used_at,omitempty"`
 }
 
 // Run is the state of one analysis, kept both on the repository (as the latest
