@@ -71,8 +71,8 @@ code, pre { font-family: ui-monospace, "SFMono-Regular", "Cascadia Code", Menlo,
 .nav-inner { display: flex; align-items: center; justify-content: space-between; gap: 16px; min-height: 64px; }
 .brand { display: flex; align-items: center; gap: 10px; color: var(--text); text-decoration: none; font-weight: 700; font-size: 1.1rem; }
 /* The wordmark is black on white: multiply drops the white on light pages; inverted and screened it reads white on dark. */
-.brand-title { display: block; height: 32px; width: auto; mix-blend-mode: multiply; }
-@media (prefers-color-scheme: dark) { .brand-title { filter: invert(1); mix-blend-mode: screen; } }
+.brand-title { display: block; height: 32px; width: auto; }
+@media (prefers-color-scheme: dark) { .brand-title { filter: invert(1); } }
 .nav nav { display: flex; align-items: center; gap: 22px; }
 .nav nav a:not(.btn) { color: var(--muted); text-decoration: none; font-size: 0.95rem; }
 .nav nav a:not(.btn):hover { color: var(--text); }

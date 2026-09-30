@@ -95,8 +95,8 @@ h1, h2, h3 { line-height: 1.25; }
 }
 .brand { display: flex; align-items: center; gap: 10px; font-weight: 700; color: var(--text); text-decoration: none; }
 /* The wordmark is black on white: multiply drops the white on light pages; inverted and screened it reads white on dark (same as the website). */
-.brand-title { display: block; height: 32px; width: auto; mix-blend-mode: multiply; }
-@media (prefers-color-scheme: dark) { .brand-title { filter: invert(1); mix-blend-mode: screen; } }
+.brand-title { display: block; height: 32px; width: auto; }
+@media (prefers-color-scheme: dark) { .brand-title { filter: invert(1); } }
 .brand small { font-weight: 500; color: var(--muted); }
 .spacer { flex: 1; }
 .severity-picker { display: flex; align-items: center; gap: 8px; font-size: 0.85rem; color: var(--muted); white-space: nowrap; }

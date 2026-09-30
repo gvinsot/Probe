@@ -8,7 +8,7 @@
 set -eu
 
 BASE=${1:-http://127.0.0.1:8080}
-PATHS="/ /index.html /desktop.html /download.html /getting-started.html /docs.html /styles.css /site.js /robots.txt /sitemap.xml /logo.jpeg /title.jpeg"
+PATHS="/ /index.html /desktop.html /download.html /getting-started.html /docs.html /styles.css /site.js /robots.txt /sitemap.xml /logo.png /title.png"
 failed=0
 tmp=$(mktemp)
 trap 'rm -f "$tmp"' EXIT

@@ -1,6 +1,6 @@
 // Package icon draws the application icon at run time: the website logo, the
 // black Probe "P", on a white rounded tile, with an orange dot when documents
-// wait for a review. The logo is the logo.jpeg the interface already embeds,
+// wait for a review. The logo is the logo.png the interface already embeds,
 // so the icon needs no binary asset per platform and size.
 package icon
 
@@ -9,7 +9,6 @@ import (
 	"encoding/binary"
 	"image"
 	"image/color"
-	"image/jpeg"
 	"image/png"
 	"io/fs"
 	"math"
@@ -69,23 +68,23 @@ type mask struct {
 }
 
 var loadLogo = sync.OnceValue(func() *mask {
-	data, err := fs.ReadFile(web.Assets, "public/logo.jpeg")
+	data, err := fs.ReadFile(web.Assets, "public/logo.png")
 	if err != nil {
 		return nil
 	}
-	img, err := jpeg.Decode(bytes.NewReader(data))
+	img, err := png.Decode(bytes.NewReader(data))
 	if err != nil {
 		return nil
 	}
 	b := img.Bounds()
-	// The JPEG has no transparency: darkness is ink.
+	// Ink is the opaque dark part of the transparent PNG.
 	full := make([]float64, b.Dx()*b.Dy())
 	minX, minY, maxX, maxY := b.Dx(), b.Dy(), -1, -1
 	for y := 0; y < b.Dy(); y++ {
 		for x := 0; x < b.Dx(); x++ {
-			g := color.GrayModel.Convert(img.At(b.Min.X+x, b.Min.Y+y)).(color.Gray)
-			// Map the compression noise near white and black to exact values.
-			v := math.Min(1, math.Max(0, (235-float64(g.Y))/215))
+			c := color.NRGBAModel.Convert(img.At(b.Min.X+x, b.Min.Y+y)).(color.NRGBA)
+			g := color.GrayModel.Convert(color.RGBA{c.R, c.G, c.B, 0xff}).(color.Gray)
+			v := float64(c.A) / 255 * (1 - float64(g.Y)/255)
 			full[y*b.Dx()+x] = v
 			if v > 0.5 {
 				minX, minY = min(minX, x), min(minY, y)
