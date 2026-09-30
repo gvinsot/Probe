@@ -1,0 +1,15 @@
+{
+  "name": "probe",
+  "description": "Official Claude Code plugins for Probe, evidence-based review of AI-assisted changes",
+  "owner": {
+    "name": "Probe contributors",
+    "url": "https://probe.technology/"
+  },
+  "plugins": [
+    {
+      "name": "probe",
+      "source": "./plugins/probe",
+      "description": "Request Probe reviews, read findings, manage the review context and fix issues from Claude Code"
+    }
+  ]
+}

@@ -1,0 +1,14 @@
+{
+  "name": "probe",
+  "displayName": "Probe",
+  "version": "0.1.0",
+  "description": "Review AI-assisted changes with Probe from Claude Code: request reviews, read findings, manage the review context and fix issues, with evidence instead of model confidence.",
+  "author": {
+    "name": "Probe contributors",
+    "url": "https://probe.technology/"
+  },
+  "homepage": "https://probe.technology/",
+  "repository": "https://github.com/gvinsot/Probe",
+  "license": "AGPL-3.0-only",
+  "keywords": ["code-review", "ai-review", "pull-request", "evidence", "probe"]
+}

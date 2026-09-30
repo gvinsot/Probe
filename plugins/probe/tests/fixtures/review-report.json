@@ -1,0 +1,50 @@
+{
+  "version": 1,
+  "tool_version": "v0.5.16",
+  "generated_at": "2026-09-30T12:00:00Z",
+  "change": {
+    "base_ref": "origin/main", "head_ref": "HEAD",
+    "base_commit": "1111111111111111111111111111111111111111",
+    "head_commit": "2222222222222222222222222222222222222222",
+    "files": [{"path": "payment/refund.go"}, {"path": "auth/auth.go"}],
+    "additions": 40, "deletions": 12
+  },
+  "linter": [
+    {"id": "sig-auth", "kind": "auth_change", "path": "auth/auth.go", "line": 12, "end_line": 20, "side": "new", "severity": "high", "summary": "Authentication or authorization function body changed", "evidence": "Go AST: func Authorize body differs"},
+    {"id": "sig-valid", "kind": "validation_removed", "path": "payment/refund.go", "line": 30, "side": "new", "severity": "high", "summary": "Possible input validation removed", "evidence": "removed: if amount <= 0 { return ErrInvalid }"},
+    {"id": "sig-branch", "kind": "branch_growth", "path": "payment/refund.go", "line": 1, "side": "new", "scope": "file", "severity": "low", "summary": "More branching constructs appear in the diff", "evidence": "Text heuristic"}
+  ],
+  "checks": [
+    {"id": "chk-test", "kind": "test", "status": "PASS", "command": ["go", "test", "./..."], "exit_code": 0, "duration_ms": 900, "output": "ok", "truncated": false},
+    {"id": "chk-build", "kind": "build", "status": "FAIL", "command": ["go", "build", "./..."], "exit_code": 1, "duration_ms": 300, "output": "refund.go:31: undefined: ErrInvalid", "truncated": false}
+  ],
+  "hypotheses": [
+    {"id": "H1", "title": "Negative refunds are accepted", "severity": "high", "status": "REPRODUCED", "rationale": "The validation of the amount was removed.", "evidence_ids": ["E1"], "path": "payment/refund.go", "line": 30},
+    {"id": "H2", "title": "Admin check bypass", "severity": "medium", "status": "UNVERIFIED", "rationale": "Could not build a harness.", "evidence_ids": [], "path": "auth/auth.go", "line": 14},
+    {"id": "H3", "title": "Rounding changed", "severity": "low", "status": "NOT_REPRODUCED", "rationale": "Same results.", "evidence_ids": []},
+    {"id": "H4", "title": "AC-1 not met", "severity": "medium", "status": "INTENT_TEST_FAILED", "rationale": "Criterion test failed.", "evidence_ids": [], "criterion_id": "AC-1"}
+  ],
+  "evidence": [
+    {"id": "E1", "kind": "differential_test", "description": "Refund(-5) fails on candidate, passes on base", "status": "REPRODUCED", "test_names": ["TestNegativeRefund"], "output": "candidate: accepted -5"}
+  ],
+  "reproduced_issues": [
+    {"id": "H1", "title": "Negative refunds are accepted", "severity": "high", "status": "REPRODUCED", "rationale": "The validation of the amount was removed.", "evidence_ids": ["E1"]}
+  ],
+  "divergences": [
+    {"evidence_id": "E2", "kind": "differential_observation", "path": "payment/refund.go", "line": 40, "test_path": "x_test.go", "test_names": [], "check_ids": [], "hypothesis_ids": [], "observations": [], "note": "fee(100) base 2.5, candidate 3"}
+  ],
+  "intent_test_failures": [
+    {"id": "H4", "title": "AC-1 not met", "severity": "medium", "status": "INTENT_TEST_FAILED", "rationale": "Criterion test failed.", "evidence_ids": [], "criterion_id": "AC-1"}
+  ],
+  "unverified": ["coverage command not configured: changed-line execution not measured"],
+  "review_targets": [
+    {"path": "payment/refund.go", "start_line": 1, "end_line": 1, "side": "new", "severity": "low", "reasons": ["More branching constructs appear in the diff"], "signal_ids": ["sig-branch"]},
+    {"path": "auth/auth.go", "start_line": 12, "end_line": 20, "side": "new", "severity": "high", "reasons": ["Authentication or authorization function body changed"], "signal_ids": ["sig-auth"]},
+    {"path": "payment/refund.go", "start_line": 30, "end_line": 30, "side": "new", "severity": "high", "reasons": ["Possible input validation removed", "No nearby test file changed"], "signal_ids": ["sig-valid"]}
+  ],
+  "review_surface": {"changed_lines": 52, "focused_lines": 11, "note": "prioritization aid"},
+  "plan_drift": {"status": "drifted", "plan_sha256": "x", "base_matches": true, "critical_globs": [], "contract": {}, "items": [], "assessment": {}, "decision": "human_review_required", "decision_reasons": ["payment/refund.go is outside the plan"], "note": ""},
+  "artifacts": [],
+  "audit": [],
+  "exit_code": 1
+}

@@ -1,5 +1,11 @@
 # Using Probe in an agent coding loop
 
+With Claude Code, the official plugin wraps this loop: `/probe:review`,
+`/probe:findings`, `/probe:fix` and `/probe:context` (intent, plan, base), and a
+`probe-reviewer` agent Claude can run before a handoff. See
+[`plugins/probe`](../../plugins/probe/README.md). The instructions below apply
+to any agent.
+
 Add the following instructions to a project's agent guidance after installing a
 trusted Probe binary and committing its reviewed `.probe.json` policy:
 

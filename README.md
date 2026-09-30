@@ -240,6 +240,19 @@ Capabilities include:
 
 ---
 
+## Claude Code plugin
+
+Probe ships an official Claude Code plugin, so a developer or a coding agent can request reviews, read findings, manage the review context and fix issues from the session:
+
+```text
+/plugin marketplace add gvinsot/Probe
+/plugin install probe@probe
+```
+
+Then `/probe:review` runs Probe on the committed changes, `/probe:findings T3` explains a finding with its evidence, `/probe:fix T3` works on it and checks the result with Probe, and `/probe:context intent` records the acceptance criteria the review is judged against. See [`plugins/probe/`](plugins/probe/README.md).
+
+---
+
 ## CI
 
 Probe is designed to run before merge.
@@ -378,6 +391,7 @@ Probe Desktop is a separate module outside the workspace: run `GOWORK=off go tes
 | [`hub/`](hub/README.md) | GitHub / GitLab web hub |
 | [`desktop/`](desktop/README.md) | Desktop document review app |
 | [`web/`](web/) | probe.technology website |
+| [`plugins/probe/`](plugins/probe/README.md) | Official Claude Code plugin |
 | [`specs/`](specs/README.md) | Product and implementation specifications |
 | [`devops/`](devops/) | PulsarCD / Docker Swarm deployment |
 

@@ -1,16 +1,19 @@
 # Probe development workflow
 
-The repository has six areas: `app/` (the Go CLI and its docs), `hub/` (the
+The repository has seven areas: `app/` (the Go CLI and its docs), `hub/` (the
 web application that drives the CLI for a whole account), `desktop/` (the
 Windows and macOS application that watches Office documents), `web/` (the
-promotional website), `devops/` (PulsarCD deployment) and `specs/` (product
-specifications).
+promotional website), `plugins/probe/` (the Claude Code plugin, listed by the
+marketplace in `.claude-plugin/`), `devops/` (PulsarCD deployment) and
+`specs/` (product specifications).
 
 Run `go test ./...` and `go vet ./...` from `app/` (or `go test ./app/...` from
 the root, through `go.work`) for relevant Go changes, and `go test ./hub/...`
 for the web application. `desktop/` is a separate module outside `go.work`:
 run `GOWORK=off go test ./...` and `GOWORK=off go vet ./...` from `desktop/`
-(also with `GOOS=windows`). The hub never re-derives a verdict: it runs the
+(also with `GOOS=windows`). For the plugin, run
+`node --test plugins/probe/tests/*.test.mjs` and
+`claude plugin validate ./plugins/probe --strict` (and `.` for the marketplace). The hub never re-derives a verdict: it runs the
 trusted binary and renders the report the CLI produced. Tests which need real
 Docker require `PROBE_TEST_DOCKER_IMAGE` and a preloaded trusted image.
 
