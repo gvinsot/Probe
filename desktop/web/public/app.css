@@ -157,7 +157,7 @@ h1, h2, h3 { line-height: 1.25; }
 /* Document list */
 .search { width: 100%; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); color: var(--text); font: inherit; font-size: 0.9rem; }
 .list-filters { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
-.list-filters select { flex: 1 1 0; min-width: 0; padding: 4px 6px; font-size: 0.8rem; }
+.list-filters select { flex: 1 1 auto; min-width: 7.5em; padding: 4px 6px; font-size: 0.8rem; }
 .list-filters .btn { flex: none; }
 .doc-list { list-style: none; margin: 0; padding: 0; border-top: 1px solid var(--line); }
 .doc { padding: 8px 12px; border-bottom: 1px solid var(--line); cursor: pointer; display: grid; gap: 3px; }

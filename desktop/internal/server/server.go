@@ -35,6 +35,7 @@ import (
 	"github.com/gvinsot/Probe/desktop/internal/config"
 	"github.com/gvinsot/Probe/desktop/internal/gdrive"
 	"github.com/gvinsot/Probe/desktop/internal/instance"
+	"github.com/gvinsot/Probe/desktop/internal/msg"
 	"github.com/gvinsot/Probe/desktop/internal/office"
 	"github.com/gvinsot/Probe/desktop/internal/platform"
 	"github.com/gvinsot/Probe/desktop/internal/reviewer"
@@ -228,7 +229,7 @@ func (s *Server) requireSession(next http.Handler) http.Handler {
 		c, err := r.Cookie(cookieName)
 		if err != nil || subtle.ConstantTimeCompare([]byte(c.Value), []byte(s.session)) != 1 {
 			if strings.HasPrefix(r.URL.Path, "/api/") {
-				writeError(w, http.StatusUnauthorized, "session expired: open Probe Desktop from its icon")
+				writeError(w, http.StatusUnauthorized, msg.M("session expired: open Probe Desktop from its icon"))
 				return
 			}
 			w.Header().Set("Content-Type", "text/html; charset=utf-8")
@@ -238,11 +239,11 @@ func (s *Server) requireSession(next http.Handler) http.Handler {
 		}
 		if r.Method != http.MethodGet && r.Method != http.MethodHead {
 			if r.Header.Get(requestHeader) != "1" {
-				writeError(w, http.StatusForbidden, "missing request header")
+				writeError(w, http.StatusForbidden, msg.M("missing request header"))
 				return
 			}
 			if o := r.Header.Get("Origin"); o != "" && o != s.origin() && o != fmt.Sprintf("http://localhost:%d", s.port) {
-				writeError(w, http.StatusForbidden, "cross-origin request")
+				writeError(w, http.StatusForbidden, msg.M("cross-origin request"))
 				return
 			}
 		}
@@ -283,7 +284,9 @@ func (s *Server) controlAction(w http.ResponseWriter, r *http.Request) {
 
 type stateResponse struct {
 	watch.State
-	Version    string `json:"version"`
+	Version string `json:"version"`
+	// Language is the language of the interface, from the settings.
+	Language   string `json:"language"`
 	Sources    int    `json:"sources"`
 	Configured bool   `json:"ai_configured"`
 	// Explaining lists the documents an AI explanation is being written for.
@@ -295,6 +298,7 @@ func (s *Server) state(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, stateResponse{
 		State:      s.deps.Watcher.State(),
 		Version:    s.deps.Version,
+		Language:   st.Language,
 		Sources:    len(st.Sources),
 		Configured: s.aiConfigured(st),
 		Explaining: s.auto.running(),
@@ -312,7 +316,7 @@ func (s *Server) aiConfigured(st config.Settings) bool {
 func (s *Server) document(w http.ResponseWriter, r *http.Request) {
 	d, ok := s.deps.Watcher.Document(r.PathValue("id"))
 	if !ok {
-		writeError(w, http.StatusNotFound, "unknown document")
+		writeError(w, http.StatusNotFound, msg.M("unknown document"))
 		return
 	}
 	writeJSON(w, d)
@@ -327,7 +331,7 @@ func (s *Server) reviewed(w http.ResponseWriter, r *http.Request) {
 func (s *Server) review(w http.ResponseWriter, r *http.Request) {
 	rv, ok := s.deps.Watcher.Review(r.PathValue("id"))
 	if !ok {
-		writeError(w, http.StatusNotFound, "unknown review")
+		writeError(w, http.StatusNotFound, msg.M("unknown review"))
 		return
 	}
 	writeJSON(w, rv)
@@ -351,7 +355,7 @@ func (s *Server) explain(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	d, ok := s.deps.Watcher.Document(id)
 	if !ok || d.Report == nil {
-		writeError(w, http.StatusNotFound, "no report to explain")
+		writeError(w, http.StatusNotFound, msg.M("no report to explain"))
 		return
 	}
 	s.auto.begin(id)
@@ -374,7 +378,7 @@ func (s *Server) explain(w http.ResponseWriter, r *http.Request) {
 func (s *Server) open(w http.ResponseWriter, r *http.Request) {
 	d, ok := s.deps.Watcher.Document(r.PathValue("id"))
 	if !ok || d.Status == watch.StatusRemoved {
-		writeError(w, http.StatusNotFound, "unknown document")
+		writeError(w, http.StatusNotFound, msg.M("unknown document"))
 		return
 	}
 	target := d.Path
@@ -382,13 +386,13 @@ func (s *Server) open(w http.ResponseWriter, r *http.Request) {
 	case d.Link != "":
 		// A drive document opens in the browser, and only on Google.
 		if !googleLink(d.Link) {
-			writeError(w, http.StatusBadRequest, "not a document link")
+			writeError(w, http.StatusBadRequest, msg.M("not a document link"))
 			return
 		}
 		target = d.Link
 	case office.KindOf(d.Path) == "":
 		// Only paths the watcher found are opened, and only Office documents.
-		writeError(w, http.StatusBadRequest, "not a document")
+		writeError(w, http.StatusBadRequest, msg.M("not a document"))
 		return
 	}
 	if err := s.deps.Open(target); err != nil {
@@ -470,7 +474,7 @@ func (s *Server) putSettings(w http.ResponseWriter, r *http.Request) {
 	var req settingsRequest
 	dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20))
 	if err := dec.Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid settings")
+		writeError(w, http.StatusBadRequest, msg.M("invalid settings"))
 		return
 	}
 	// The connected accounts only change through the connection flow.
@@ -487,12 +491,12 @@ func (s *Server) putSettings(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case req.ClearKey:
 			if err := s.deps.Keys.Set(provider, ""); err != nil {
-				writeError(w, http.StatusInternalServerError, "cannot delete the API key: "+err.Error())
+				writeError(w, http.StatusInternalServerError, fmt.Sprintf(msg.M("cannot delete the API key: %v"), err))
 				return
 			}
 		case strings.TrimSpace(req.APIKey) != "":
 			if err := s.deps.Keys.Set(provider, strings.TrimSpace(req.APIKey)); err != nil {
-				writeError(w, http.StatusInternalServerError, "cannot store the API key in the keychain: "+err.Error())
+				writeError(w, http.StatusInternalServerError, fmt.Sprintf(msg.M("cannot store the API key in the keychain: %v"), err))
 				return
 			}
 		}
@@ -510,7 +514,7 @@ func (s *Server) storeClientSecret(w http.ResponseWriter, secret string) bool {
 		return true
 	}
 	if err := s.deps.Keys.Set(gdrive.ClientSecretKey, secret); err != nil {
-		writeError(w, http.StatusInternalServerError, "cannot store the Google client secret in the keychain: "+err.Error())
+		writeError(w, http.StatusInternalServerError, fmt.Sprintf(msg.M("cannot store the Google client secret in the keychain: %v"), err))
 		return false
 	}
 	return true
@@ -518,7 +522,7 @@ func (s *Server) storeClientSecret(w http.ResponseWriter, secret string) bool {
 
 func (s *Server) google(w http.ResponseWriter) (Google, bool) {
 	if s.deps.Google == nil {
-		writeError(w, http.StatusNotFound, "Google Drive is not available in this version")
+		writeError(w, http.StatusNotFound, msg.M("Google Drive is not available in this version"))
 		return nil, false
 	}
 	return s.deps.Google, true
@@ -538,7 +542,7 @@ func (s *Server) googleConnect(w http.ResponseWriter, r *http.Request) {
 	}
 	var req connectRequest
 	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<16)).Decode(&req); err != nil && !errors.Is(err, io.EOF) {
-		writeError(w, http.StatusBadRequest, "invalid request")
+		writeError(w, http.StatusBadRequest, msg.M("invalid request"))
 		return
 	}
 	if id := strings.TrimSpace(req.ClientID); id != "" {
@@ -573,12 +577,12 @@ func (s *Server) googleDisconnect(w http.ResponseWriter, r *http.Request) {
 	account := strings.ToLower(r.PathValue("account"))
 	for _, src := range s.deps.Settings.Get().Sources {
 		if src.Type == config.SourceGoogleDrive && src.Account == account {
-			writeError(w, http.StatusConflict, "remove the Google Drive sources of this account first")
+			writeError(w, http.StatusConflict, msg.M("remove the Google Drive sources of this account first"))
 			return
 		}
 	}
 	if err := g.Disconnect(account); err != nil {
-		writeError(w, http.StatusInternalServerError, "cannot delete the Google token: "+err.Error())
+		writeError(w, http.StatusInternalServerError, fmt.Sprintf(msg.M("cannot delete the Google token: %v"), err))
 		return
 	}
 	err := s.deps.Settings.Update(func(st *config.Settings) {
@@ -607,7 +611,7 @@ func (s *Server) connectedAccount(w http.ResponseWriter, r *http.Request) (strin
 			return account, true
 		}
 	}
-	writeError(w, http.StatusBadRequest, "this Google account is not connected")
+	writeError(w, http.StatusBadRequest, msg.M("this Google account is not connected"))
 	return "", false
 }
 

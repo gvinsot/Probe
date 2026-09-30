@@ -260,15 +260,30 @@ func clip(s string, n int) string {
 	return s
 }
 
+// promptLanguages gives, per interface language, the language the model
+// writes in and an example of a qualified title, a vague one, and a
+// consistency note, in that language.
+var promptLanguages = map[string]struct{ name, good, bad, note string }{
+	"en": {"English", `"Landlord's name replaced in paragraph 4 (Dupont → Martin)"`, `"Person substitution in paragraph 4"`,
+		`"Paragraph 1 still names Mr Dupont as the landlord: this is no longer consistent with the rest of the document."`},
+	"fr": {"French", `"Nom du bailleur remplacé au paragraphe 4 (Dupont → Martin)"`, `"Substitution de personne dans le paragraphe 4"`,
+		`"Le paragraphe 1 désigne toujours M. Dupont comme bailleur : ce n'est plus cohérent avec le reste du document."`},
+	"es": {"Spanish", `"Nombre del arrendador sustituido en el párrafo 4 (Dupont → Martin)"`, `"Sustitución de persona en el párrafo 4"`,
+		`"El párrafo 1 sigue designando al Sr. Dupont como arrendador: ya no es coherente con el resto del documento."`},
+	"de": {"German", `"Name des Vermieters in Absatz 4 ersetzt (Dupont → Martin)"`, `"Personenersetzung in Absatz 4"`,
+		`"Absatz 1 nennt weiterhin Herrn Dupont als Vermieter: Das passt nicht mehr zum restlichen Dokument."`},
+	"pt": {"Brazilian Portuguese", `"Nome do locador substituído no parágrafo 4 (Dupont → Martin)"`, `"Substituição de pessoa no parágrafo 4"`,
+		`"O parágrafo 1 ainda designa o Sr. Dupont como locador: isso não é mais coerente com o restante do documento."`},
+	"it": {"Italian", `"Nome del locatore sostituito al paragrafo 4 (Dupont → Martin)"`, `"Sostituzione di persona al paragrafo 4"`,
+		`"Il paragrafo 1 indica ancora il sig. Dupont come locatore: non è più coerente con il resto del documento."`},
+}
+
 func systemPrompt(language string) string {
-	lang := "English"
-	good, bad, note := `"Landlord's name replaced in paragraph 4 (Dupont → Martin)"`, `"Person substitution in paragraph 4"`,
-		`"Paragraph 1 still names Mr Dupont as the landlord: this is no longer consistent with the rest of the document."`
-	if language == "fr" {
-		lang = "French"
-		good, bad, note = `"Nom du bailleur remplacé au paragraphe 4 (Dupont → Martin)"`, `"Substitution de personne dans le paragraphe 4"`,
-			`"Le paragraphe 1 désigne toujours M. Dupont comme bailleur : ce n'est plus cohérent avec le reste du document."`
+	l, ok := promptLanguages[language]
+	if !ok {
+		l = promptLanguages["en"]
 	}
+	lang, good, bad, note := l.name, l.good, l.bad, l.note
 	return `You help a person review the latest modifications of an office document (Word, Excel or PowerPoint) before they accept them.
 
 A deterministic comparison already listed the changes and flagged the risky ones with a severity. You receive those findings (numbered F1, F2…), excerpts of the changed content and, under "Other passages", the unchanged passages that still use a term a change replaced or removed. You do not receive the full document.

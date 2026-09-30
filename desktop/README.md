@@ -107,6 +107,35 @@ ask for one from the document. The OpenAI provider
 accepts a custom endpoint, so a compatible server run on premises (vLLM,
 Ollama…) keeps everything inside the company.
 
+## Languages
+
+The application speaks English, French, Spanish, German, Portuguese (Brazil)
+and Italian: the interface, the reports, the tray menu and the AI
+explanations. A fresh installation takes the language of the system
+(Windows user locale, macOS `AppleLocale`, or `LANG`), English when it is
+another one; *Settings › Language* changes it.
+
+The catalogs are `web/public/i18n/<lang>.json`, one per language, mapping each
+English message to its translation. They cover the text of `index.html`, the
+strings of `app.js` written `t("…")` or `tn(n, "…", "…")`, and every message
+of the engine marked `msg.M("…")` in the Go sources: finding titles,
+locations, errors and the tray menu. A Go format such as `"%d row(s) hidden"`
+is translated with numbered placeholders, `"{0} ligne(s) masquée(s)"`.
+
+The engine writes reports in English and the interface translates them when
+it shows them (`tr` in `i18n.js` matches the formats as patterns), so reports
+saved before a language change, or by an earlier version, are shown in the
+current language. Document content is never translated.
+
+`go test ./internal/i18n` fails when a message is missing, empty, unused or
+has other placeholders in a catalog. After adding or changing a message:
+
+```sh
+PROBE_I18N_UPDATE=1 GOWORK=off go test ./internal/i18n   # add new messages, drop unused ones
+# translate the empty values in web/public/i18n/*.json
+GOWORK=off go test ./internal/i18n
+```
+
 ## Sources
 
 The watcher (`internal/watch`) only knows the `source.Source` interface: list

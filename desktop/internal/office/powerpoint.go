@@ -3,6 +3,8 @@ package office
 import (
 	"fmt"
 	"strings"
+
+	"github.com/gvinsot/Probe/desktop/internal/msg"
 )
 
 // Slides keep a stable id across edits, so a slide is compared with itself
@@ -85,9 +87,9 @@ func comparePowerPoint(r *reportBuilder, before, after *pkg) error {
 
 	for _, s := range newSlides {
 		newIDs[s.id] = true
-		loc := fmt.Sprintf("Slide %d", s.number)
+		loc := fmt.Sprintf(msg.M("Slide %d"), s.number)
 		r.current(loc, s.paragraphs...)
-		r.current(loc+" (notes)", s.notes...)
+		r.current(fmt.Sprintf(msg.M("%s (notes)"), loc), s.notes...)
 		old, ok := oldByID[s.id]
 		if !ok {
 			r.change(Change{Kind: "added", Location: loc, After: strings.Join(s.paragraphs, " / ")})
@@ -98,23 +100,23 @@ func comparePowerPoint(r *reportBuilder, before, after *pkg) error {
 		}
 		commonNew = append(commonNew, s.id)
 		if !old.hidden && s.hidden {
-			r.flag(Finding{Severity: Medium, Rule: "powerpoint.slide-hidden", Title: "A slide was hidden: it will be skipped during the presentation", Location: loc})
-			r.change(Change{Kind: "modified", Location: loc, Before: "visible", After: "hidden"})
+			r.flag(Finding{Severity: Medium, Rule: "powerpoint.slide-hidden", Title: msg.M("A slide was hidden: it will be skipped during the presentation"), Location: loc})
+			r.change(Change{Kind: "modified", Location: loc, Before: msg.M("visible"), After: msg.M("hidden")})
 		}
 		compareParagraphs(r, loc, old.paragraphs, s.paragraphs)
-		compareParagraphs(r, loc+" (notes)", old.notes, s.notes)
+		compareParagraphs(r, fmt.Sprintf(msg.M("%s (notes)"), loc), old.notes, s.notes)
 	}
 	for _, s := range oldSlides {
 		if !newIDs[s.id] {
-			loc := fmt.Sprintf("Slide %d (baseline)", s.number)
-			r.flag(Finding{Severity: Medium, Rule: "powerpoint.slide-removed", Title: "A slide was deleted", Location: loc, Before: strings.Join(s.paragraphs, " / ")})
+			loc := fmt.Sprintf(msg.M("Slide %d (baseline)"), s.number)
+			r.flag(Finding{Severity: Medium, Rule: "powerpoint.slide-removed", Title: msg.M("A slide was deleted"), Location: loc, Before: strings.Join(s.paragraphs, " / ")})
 			r.change(Change{Kind: "removed", Location: loc, Before: strings.Join(s.paragraphs, " / ")})
 			continue
 		}
 		commonOld = append(commonOld, s.id)
 	}
 	if strings.Join(commonOld, ",") != strings.Join(commonNew, ",") {
-		r.change(Change{Kind: "modified", Location: "Slide order", Before: "original order", After: "slides reordered"})
+		r.change(Change{Kind: "modified", Location: msg.M("Slide order"), Before: msg.M("original order"), After: msg.M("slides reordered")})
 	}
 	return nil
 }

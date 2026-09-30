@@ -9,6 +9,8 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+
+	"github.com/gvinsot/Probe/desktop/internal/msg"
 )
 
 // A workbook is compared cell by cell from the XML of its worksheets. Excel
@@ -359,16 +361,16 @@ func compareExcel(r *reportBuilder, before, after *pkg) error {
 		newSheets[s.name] = true
 		old, ok := oldSheets[s.name]
 		if !ok {
-			r.flag(Finding{Severity: Low, Rule: "excel.sheet-added", Title: "A sheet was added", Location: s.name})
-			r.change(Change{Kind: "added", Location: "Sheet " + s.name, After: fmt.Sprintf("%d cells", len(s.cells))})
+			r.flag(Finding{Severity: Low, Rule: "excel.sheet-added", Title: msg.M("A sheet was added"), Location: s.name})
+			r.change(Change{Kind: "added", Location: fmt.Sprintf(msg.M("Sheet %s"), s.name), After: fmt.Sprintf(msg.M("%d cells"), len(s.cells))})
 			continue
 		}
 		compareSheet(r, old, s)
 	}
 	for _, s := range oldBook.sheets {
 		if !newSheets[s.name] {
-			r.flag(Finding{Severity: High, Rule: "excel.sheet-removed", Title: "A sheet was deleted (or renamed)", Location: s.name})
-			r.change(Change{Kind: "removed", Location: "Sheet " + s.name, Before: fmt.Sprintf("%d cells", len(s.cells))})
+			r.flag(Finding{Severity: High, Rule: "excel.sheet-removed", Title: msg.M("A sheet was deleted (or renamed)"), Location: s.name})
+			r.change(Change{Kind: "removed", Location: fmt.Sprintf(msg.M("Sheet %s"), s.name), Before: fmt.Sprintf(msg.M("%d cells"), len(s.cells))})
 		}
 	}
 
@@ -376,20 +378,20 @@ func compareExcel(r *reportBuilder, before, after *pkg) error {
 		cur, ok := newBook.names[name]
 		switch {
 		case !ok:
-			r.flag(Finding{Severity: Medium, Rule: "excel.name-removed", Title: "A named range was deleted", Location: name, Before: def})
-			r.change(Change{Kind: "removed", Location: "Name " + name, Before: def})
+			r.flag(Finding{Severity: Medium, Rule: "excel.name-removed", Title: msg.M("A named range was deleted"), Location: name, Before: def})
+			r.change(Change{Kind: "removed", Location: fmt.Sprintf(msg.M("Name %s"), name), Before: def})
 		case cur != def:
-			r.flag(Finding{Severity: Medium, Rule: "excel.name-changed", Title: "A named range now points elsewhere", Location: name, Before: def, After: cur})
-			r.change(Change{Kind: "modified", Location: "Name " + name, Before: def, After: cur})
+			r.flag(Finding{Severity: Medium, Rule: "excel.name-changed", Title: msg.M("A named range now points elsewhere"), Location: name, Before: def, After: cur})
+			r.change(Change{Kind: "modified", Location: fmt.Sprintf(msg.M("Name %s"), name), Before: def, After: cur})
 		}
 	}
 	for name, def := range newBook.names {
 		if _, ok := oldBook.names[name]; !ok {
-			r.change(Change{Kind: "added", Location: "Name " + name, After: def})
+			r.change(Change{Kind: "added", Location: fmt.Sprintf(msg.M("Name %s"), name), After: def})
 		}
 	}
 	if oldBook.protected && !newBook.protected {
-		r.flag(Finding{Severity: Medium, Rule: "excel.protection-removed", Title: "Workbook structure protection was removed"})
+		r.flag(Finding{Severity: Medium, Rule: "excel.protection-removed", Title: msg.M("Workbook structure protection was removed")})
 	}
 	return nil
 }
@@ -399,27 +401,27 @@ func compareSheet(r *reportBuilder, old, cur *xlSheet) {
 	if old.state != cur.state {
 		switch cur.state {
 		case "veryHidden":
-			r.flag(Finding{Severity: High, Rule: "excel.sheet-very-hidden", Title: "The sheet was made \"very hidden\" (invisible from the Excel interface)", Location: name})
+			r.flag(Finding{Severity: High, Rule: "excel.sheet-very-hidden", Title: msg.M("The sheet was made \"very hidden\" (invisible from the Excel interface)"), Location: name})
 		case "hidden":
-			r.flag(Finding{Severity: Medium, Rule: "excel.sheet-hidden", Title: "The sheet was hidden", Location: name})
+			r.flag(Finding{Severity: Medium, Rule: "excel.sheet-hidden", Title: msg.M("The sheet was hidden"), Location: name})
 		}
-		r.change(Change{Kind: "modified", Location: "Sheet " + name, Before: visibility(old.state), After: visibility(cur.state)})
+		r.change(Change{Kind: "modified", Location: fmt.Sprintf(msg.M("Sheet %s"), name), Before: visibility(old.state), After: visibility(cur.state)})
 	}
 	if old.protected && !cur.protected {
-		r.flag(Finding{Severity: Medium, Rule: "excel.sheet-protection-removed", Title: "Sheet protection was removed", Location: name})
+		r.flag(Finding{Severity: Medium, Rule: "excel.sheet-protection-removed", Title: msg.M("Sheet protection was removed"), Location: name})
 	}
 	if cur.validations < old.validations {
-		r.flag(Finding{Severity: Medium, Rule: "excel.validation-removed", Title: fmt.Sprintf("%d data validation rule(s) removed: inputs are no longer checked", old.validations-cur.validations), Location: name})
+		r.flag(Finding{Severity: Medium, Rule: "excel.validation-removed", Title: fmt.Sprintf(msg.M("%d data validation rule(s) removed: inputs are no longer checked"), old.validations-cur.validations), Location: name})
 	}
 	if rows := newlyHidden(old.hiddenRows, cur.hiddenRows); len(rows) > 0 {
-		r.flag(Finding{Severity: Medium, Rule: "excel.rows-hidden", Title: fmt.Sprintf("%d row(s) hidden", len(rows)), Location: name + "!" + rowList(rows)})
+		r.flag(Finding{Severity: Medium, Rule: "excel.rows-hidden", Title: fmt.Sprintf(msg.M("%d row(s) hidden"), len(rows)), Location: name + "!" + rowList(rows)})
 	}
 	if cols := newlyHidden(old.hiddenCols, cur.hiddenCols); len(cols) > 0 {
 		var labels []string
 		for _, c := range cols {
 			labels = append(labels, colName(c))
 		}
-		r.flag(Finding{Severity: Medium, Rule: "excel.columns-hidden", Title: fmt.Sprintf("%d column(s) hidden", len(cols)), Location: name + "!" + strings.Join(limitList(labels), ",")})
+		r.flag(Finding{Severity: Medium, Rule: "excel.columns-hidden", Title: fmt.Sprintf(msg.M("%d column(s) hidden"), len(cols)), Location: name + "!" + strings.Join(limitList(labels), ",")})
 	}
 
 	refs := make([]string, 0, len(cur.cells)+len(old.cells))
@@ -442,7 +444,7 @@ func compareSheet(r *reportBuilder, old, cur *xlSheet) {
 		case !inNew:
 			r.change(Change{Kind: "removed", Location: loc, Before: cellText(a)})
 			if a.formula != "" {
-				r.flag(Finding{Severity: Medium, Rule: "excel.formula-removed", Title: "A formula was deleted", Location: loc, Before: "=" + a.formula})
+				r.flag(Finding{Severity: Medium, Rule: "excel.formula-removed", Title: msg.M("A formula was deleted"), Location: loc, Before: "=" + a.formula})
 			}
 		case !inOld:
 			r.change(Change{Kind: "added", Location: loc, After: cellText(b)})
@@ -460,10 +462,10 @@ func compareCell(r *reportBuilder, loc string, a, b xlCell) {
 	case a.formula != "" && b.formula == "":
 		if a.value == b.value && a.value != "" {
 			r.change(Change{Kind: "modified", Location: loc, Before: "=" + a.formula, After: b.value})
-			r.flag(Finding{Severity: High, Rule: "excel.formula-hardcoded", Title: "A formula was replaced by its value: the cell no longer updates", Location: loc, Before: "=" + a.formula, After: b.value})
+			r.flag(Finding{Severity: High, Rule: "excel.formula-hardcoded", Title: msg.M("A formula was replaced by its value: the cell no longer updates"), Location: loc, Before: "=" + a.formula, After: b.value})
 		} else {
 			r.change(Change{Kind: "modified", Location: loc, Before: "=" + a.formula, After: cellText(b)})
-			r.flag(Finding{Severity: High, Rule: "excel.formula-overwritten", Title: "A formula was overwritten by a typed value", Location: loc, Before: "=" + a.formula + " → " + a.value, After: b.value})
+			r.flag(Finding{Severity: High, Rule: "excel.formula-overwritten", Title: msg.M("A formula was overwritten by a typed value"), Location: loc, Before: "=" + a.formula + " → " + a.value, After: b.value})
 		}
 		return
 	case a.formula == "" && b.formula != "":
@@ -481,9 +483,9 @@ func compareCell(r *reportBuilder, loc string, a, b xlCell) {
 		// Same formula, new result: the effect of a change made elsewhere.
 		r.change(Change{Kind: "recomputed", Location: loc, Before: a.value, After: b.value})
 		if b.isError && !a.isError {
-			r.flag(Finding{Severity: High, Rule: "excel.error-appeared", Title: "A formula now returns an error", Location: loc, Before: a.value, After: b.value})
+			r.flag(Finding{Severity: High, Rule: "excel.error-appeared", Title: msg.M("A formula now returns an error"), Location: loc, Before: a.value, After: b.value})
 		} else if pct, ok := relativeChange(a.value, b.value); ok && pct >= 0.10 {
-			r.flag(Finding{Severity: Medium, Rule: "excel.result-moved", Title: fmt.Sprintf("A computed result moved by %s", formatPct(pct)), Location: loc, Before: a.value, After: b.value})
+			r.flag(Finding{Severity: Medium, Rule: "excel.result-moved", Title: fmt.Sprintf(msg.M("A computed result moved by %s"), formatPct(pct)), Location: loc, Before: a.value, After: b.value})
 		}
 		return
 	}
@@ -496,19 +498,19 @@ func compareCell(r *reportBuilder, loc string, a, b xlCell) {
 func formulaRules(r *reportBuilder, loc string, a, b xlCell) {
 	for _, tok := range errorTokens {
 		if strings.Contains(b.formula, tok) && !strings.Contains(a.formula, tok) {
-			r.flag(Finding{Severity: High, Rule: "excel.broken-reference", Title: "The formula now contains a broken reference (" + tok + ")", Location: loc, Before: "=" + a.formula, After: "=" + b.formula})
+			r.flag(Finding{Severity: High, Rule: "excel.broken-reference", Title: fmt.Sprintf(msg.M("The formula now contains a broken reference (%s)"), tok), Location: loc, Before: "=" + a.formula, After: "=" + b.formula})
 			return
 		}
 	}
 	if shrunk(a.formula, b.formula) {
-		r.flag(Finding{Severity: High, Rule: "excel.range-reduced", Title: "A range in the formula was reduced: some cells are no longer counted", Location: loc, Before: "=" + a.formula, After: "=" + b.formula})
+		r.flag(Finding{Severity: High, Rule: "excel.range-reduced", Title: msg.M("A range in the formula was reduced: some cells are no longer counted"), Location: loc, Before: "=" + a.formula, After: "=" + b.formula})
 		return
 	}
 	if constantsChanged(a.formula, b.formula) {
-		r.flag(Finding{Severity: Medium, Rule: "excel.formula-constant-changed", Title: "A number typed inside a formula was changed", Location: loc, Before: "=" + a.formula, After: "=" + b.formula})
+		r.flag(Finding{Severity: Medium, Rule: "excel.formula-constant-changed", Title: msg.M("A number typed inside a formula was changed"), Location: loc, Before: "=" + a.formula, After: "=" + b.formula})
 		return
 	}
-	r.flag(Finding{Severity: Medium, Rule: "excel.formula-changed", Title: "A formula was changed", Location: loc, Before: "=" + a.formula, After: "=" + b.formula})
+	r.flag(Finding{Severity: Medium, Rule: "excel.formula-changed", Title: msg.M("A formula was changed"), Location: loc, Before: "=" + a.formula, After: "=" + b.formula})
 }
 
 type area struct{ c1, r1, c2, r2 int }
@@ -587,8 +589,13 @@ func cellText(c xlCell) string {
 }
 
 func visibility(state string) string {
-	if state == "" {
-		return "visible"
+	switch state {
+	case "":
+		return msg.M("visible")
+	case "hidden":
+		return msg.M("hidden")
+	case "veryHidden":
+		return msg.M("very hidden")
 	}
 	return state
 }

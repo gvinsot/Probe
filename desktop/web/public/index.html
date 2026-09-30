@@ -6,6 +6,7 @@
   <title>Probe Desktop</title>
   <link rel="icon" href="logo.png" type="image/png">
   <link rel="stylesheet" href="app.css">
+  <script src="i18n.js" defer></script>
   <script src="diff.js" defer></script>
   <script src="app.js" defer></script>
 </head>
@@ -128,14 +129,27 @@
         </div>
 
         <div class="row">
-          <label for="scan-seconds">Scan every</label>
+          <label for="scan-seconds">Scan the sources</label>
           <select id="scan-seconds">
-            <option value="30">30 seconds</option>
-            <option value="60">minute</option>
-            <option value="300">5 minutes</option>
-            <option value="900">15 minutes</option>
+            <option value="30">Every 30 seconds</option>
+            <option value="60">Every minute</option>
+            <option value="300">Every 5 minutes</option>
+            <option value="900">Every 15 minutes</option>
           </select>
         </div>
+      </section>
+
+      <section class="dialog-section">
+        <h3>Language</h3>
+        <p class="note">The language of the interface, the reports, the tray menu and the AI explanations.</p>
+        <select id="language" aria-label="Language">
+          <option value="en" translate="no">English</option>
+          <option value="fr" translate="no">Français</option>
+          <option value="es" translate="no">Español</option>
+          <option value="de" translate="no">Deutsch</option>
+          <option value="pt" translate="no">Português</option>
+          <option value="it" translate="no">Italiano</option>
+        </select>
       </section>
 
       <section class="dialog-section">
@@ -157,11 +171,6 @@
             <input id="api-key" class="search" type="password" autocomplete="off">
             <label class="check hidden" id="clear-key-label"><input type="checkbox" id="clear-key"> Remove the saved key</label>
           </div>
-          <label for="language" class="ai-only">Language</label>
-          <select id="language" class="ai-only">
-            <option value="en">English</option>
-            <option value="fr">Français</option>
-          </select>
         </div>
         <p class="note ai-only">The key is stored in the system keychain (Credential Manager on Windows, Keychain on macOS).</p>
       </section>

@@ -30,6 +30,7 @@ import (
 	"time"
 
 	"github.com/gvinsot/Probe/desktop/internal/config"
+	"github.com/gvinsot/Probe/desktop/internal/msg"
 	"github.com/gvinsot/Probe/desktop/internal/office"
 	"github.com/gvinsot/Probe/desktop/internal/source"
 )
@@ -618,7 +619,7 @@ func (w *Watcher) process(ctx context.Context, cfg config.Source, src source.Sou
 	}
 	tooLarge := func() {
 		stamp()
-		d.Status, d.Error = StatusTooLarge, fmt.Sprintf("larger than %d MB", s.MaxFileMB)
+		d.Status, d.Error = StatusTooLarge, fmt.Sprintf(msg.M("larger than %d MB"), s.MaxFileMB)
 		commit()
 	}
 	limit := int64(s.MaxFileMB) << 20
@@ -649,7 +650,7 @@ func (w *Watcher) process(ctx context.Context, cfg config.Source, src source.Sou
 		return
 	}
 	if err != nil {
-		fail("cannot read the document: " + err.Error())
+		fail(fmt.Sprintf(msg.M("cannot read the document: %v"), err))
 		return
 	}
 	hash := hashOf(data)
@@ -666,7 +667,7 @@ func (w *Watcher) process(ctx context.Context, cfg config.Source, src source.Sou
 			// document, which a review then makes the baseline.
 			if e.Exported {
 				if err := config.WriteFileAtomic(w.pendingPath(id), data); err != nil {
-					fail("cannot store the analyzed copy: " + err.Error())
+					fail(fmt.Sprintf(msg.M("cannot store the analyzed copy: %v"), err))
 					return
 				}
 			}
@@ -679,11 +680,11 @@ func (w *Watcher) process(ctx context.Context, cfg config.Source, src source.Sou
 			tooLarge()
 			return
 		case err != nil:
-			fail("cannot read the reviewed version: " + err.Error())
+			fail(fmt.Sprintf(msg.M("cannot read the reviewed version: %v"), err))
 			return
 		}
 		if err := w.writeBaseline(id, base); err != nil {
-			fail("cannot store the baseline: " + err.Error())
+			fail(fmt.Sprintf(msg.M("cannot store the baseline: %v"), err))
 			return
 		}
 		d.BaselineHash, d.BaselineRev = hashOf(base), ""
@@ -692,7 +693,7 @@ func (w *Watcher) process(ctx context.Context, cfg config.Source, src source.Sou
 	switch {
 	case d.BaselineHash == "":
 		if err := w.writeBaseline(id, data); err != nil {
-			fail("cannot store the baseline: " + err.Error())
+			fail(fmt.Sprintf(msg.M("cannot store the baseline: %v"), err))
 			return
 		}
 		stamp()
@@ -709,7 +710,7 @@ func (w *Watcher) process(ctx context.Context, cfg config.Source, src source.Sou
 	default:
 		baseline, err := os.ReadFile(w.baselinePath(id))
 		if err != nil {
-			fail("baseline missing: " + err.Error())
+			fail(fmt.Sprintf(msg.M("baseline missing: %v"), err))
 			return
 		}
 		report, err := office.Compare(e.Kind, baseline, data)
@@ -729,7 +730,7 @@ func (w *Watcher) process(ctx context.Context, cfg config.Source, src source.Sou
 		}
 		if e.Exported {
 			if err := config.WriteFileAtomic(w.pendingPath(id), data); err != nil {
-				fail("cannot store the analyzed copy: " + err.Error())
+				fail(fmt.Sprintf(msg.M("cannot store the analyzed copy: %v"), err))
 				return
 			}
 		}
@@ -750,7 +751,7 @@ func lostBaselineReport(kind office.Kind) *office.Report {
 		Findings: []office.Finding{{
 			Severity: office.High,
 			Rule:     "source.baseline-unavailable",
-			Title:    "The reviewed version is no longer kept by the source: read the whole document before marking it as reviewed",
+			Title:    msg.M("The reviewed version is no longer kept by the source: read the whole document before marking it as reviewed"),
 		}},
 		Changes: []office.Change{},
 	}
@@ -847,10 +848,10 @@ func (w *Watcher) removeCopies(id string) {
 }
 
 // ErrStale reports a review of a report that no longer matches the file.
-var ErrStale = errors.New("the document changed again since this report; it is being analyzed again")
+var ErrStale = errors.New(msg.M("the document changed again since this report; it is being analyzed again"))
 
 // ErrNotFound reports an unknown document id.
-var ErrNotFound = errors.New("unknown document")
+var ErrNotFound = errors.New(msg.M("unknown document"))
 
 // Accept marks the current version of a document as reviewed: it becomes
 // the baseline for the next changes. The document is read again and must
@@ -907,7 +908,7 @@ func (w *Watcher) Accept(ctx context.Context, id string) error {
 			// The analyzed copy is gone: analyze the document again.
 			w.mu.Lock()
 			if d, ok := w.docs[id]; ok {
-				d.Status, d.Error = StatusError, "the analyzed copy is missing"
+				d.Status, d.Error = StatusError, msg.M("the analyzed copy is missing")
 			}
 			w.mu.Unlock()
 			w.ScanNow()

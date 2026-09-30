@@ -112,6 +112,9 @@ func Run(opts Options) error {
 		OnSettings: func() {
 			gdrive.PruneCaches(caches, settings.Get().Sources)
 			watcher.ScanNow()
+			if t := a.trayIcon(); t != nil {
+				t.SetLanguage(settings.Get().Language)
+			}
 		},
 	})
 	if err != nil {
@@ -142,7 +145,9 @@ func Run(opts Options) error {
 		AutoStart:    autostart.Enabled,
 		SetAutoStart: autostart.Set,
 		Quit:         tray.Quit,
+		Language:     func() string { return settings.Get().Language },
 	}, func(t *tray.Tray) {
+		a.setTrayIcon(t)
 		watcher.OnUpdate(t.SetCounts)
 		if !opts.Background {
 			a.showWindow()
@@ -197,6 +202,19 @@ type engine struct {
 	mu      sync.Mutex
 	window  *os.Process
 	pending *update.Pending // set when the engine quits to install it
+	tray    *tray.Tray      // nil until the icon exists
+}
+
+func (a *engine) setTrayIcon(t *tray.Tray) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.tray = t
+}
+
+func (a *engine) trayIcon() *tray.Tray {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.tray
 }
 
 // installWhenIdle quits the engine to install an update as soon as no

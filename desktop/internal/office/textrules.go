@@ -4,6 +4,8 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+
+	"github.com/gvinsot/Probe/desktop/internal/msg"
 )
 
 // Text rules apply to prose, whatever the format: Word paragraphs, slide
@@ -45,11 +47,11 @@ func textRules(r *reportBuilder, location, before, after string) {
 	}
 	switch {
 	case before == "":
-		r.flag(Finding{Severity: Medium, Rule: "text.sensitive-clause-added", Title: "Text added about a sensitive topic (payment, liability, termination…)", Location: location, After: after})
+		r.flag(Finding{Severity: Medium, Rule: "text.sensitive-clause-added", Title: msg.M("Text added about a sensitive topic (payment, liability, termination…)"), Location: location, After: after})
 	case after == "":
-		r.flag(Finding{Severity: High, Rule: "text.sensitive-clause-removed", Title: "Text removed about a sensitive topic (payment, liability, termination…)", Location: location, Before: before})
+		r.flag(Finding{Severity: High, Rule: "text.sensitive-clause-removed", Title: msg.M("Text removed about a sensitive topic (payment, liability, termination…)"), Location: location, Before: before})
 	default:
-		r.flag(Finding{Severity: Medium, Rule: "text.sensitive-clause-modified", Title: "Wording changed in a sensitive clause (payment, liability, termination…)", Location: location, Before: before, After: after})
+		r.flag(Finding{Severity: Medium, Rule: "text.sensitive-clause-modified", Title: msg.M("Wording changed in a sensitive clause (payment, liability, termination…)"), Location: location, Before: before, After: after})
 	}
 }
 
@@ -64,26 +66,26 @@ func modifiedTextRules(r *reportBuilder, location, before, after string) bool {
 
 	oldDates, newDates := datePattern.FindAllString(before, -1), datePattern.FindAllString(after, -1)
 	if !sameMultiset(normalizeAll(oldDates), normalizeAll(newDates)) {
-		flag(Medium, "text.date-changed", "A date was changed")
+		flag(Medium, "text.date-changed", msg.M("A date was changed"))
 	}
 
 	oldAmounts, oldFigures := figures(datePattern.ReplaceAllString(before, " "))
 	newAmounts, newFigures := figures(datePattern.ReplaceAllString(after, " "))
 	switch {
 	case !sameMultiset(oldAmounts, newAmounts):
-		flag(High, "text.amount-changed", "An amount or a percentage was changed")
+		flag(High, "text.amount-changed", msg.M("An amount or a percentage was changed"))
 	case !sameMultiset(oldFigures, newFigures):
-		flag(Medium, "text.figure-changed", "A figure was changed")
+		flag(Medium, "text.figure-changed", msg.M("A figure was changed"))
 	}
 
 	if strongModal.MatchString(before) && !strongModal.MatchString(after) && weakModal.MatchString(after) {
-		flag(High, "text.obligation-softened", "An obligation was softened (e.g. \"shall\" became \"may\")")
+		flag(High, "text.obligation-softened", msg.M("An obligation was softened (e.g. \"shall\" became \"may\")"))
 	} else if !strongModal.MatchString(before) && strongModal.MatchString(after) {
-		flag(Medium, "text.obligation-added", "The text now states an obligation")
+		flag(Medium, "text.obligation-added", msg.M("The text now states an obligation"))
 	}
 
 	if negations(before) != negations(after) {
-		flag(High, "text.negation-changed", "A negation was added or removed, which may invert the meaning")
+		flag(High, "text.negation-changed", msg.M("A negation was added or removed, which may invert the meaning"))
 	}
 	return fired
 }

@@ -3,6 +3,8 @@ package office
 import (
 	"fmt"
 	"strings"
+
+	"github.com/gvinsot/Probe/desktop/internal/msg"
 )
 
 // wordDoc is the comparable content of a Word document.
@@ -26,13 +28,13 @@ func readWord(p *pkg) (*wordDoc, error) {
 	}
 	root := parseTree(body)
 	doc := &wordDoc{
-		sections:       []wordSection{{label: "Paragraph", paragraphs: paragraphs(root)}},
+		sections:       []wordSection{{label: msg.M("Paragraph"), paragraphs: paragraphs(root)}},
 		trackedChanges: len(root.all("ins")) + len(root.all("del")),
 	}
 	for _, part := range []struct{ prefix, label string }{
-		{"word/header", "Header"},
-		{"word/footer", "Footer"},
-		{"word/footnotes", "Footnote"},
+		{"word/header", msg.M("Header")},
+		{"word/footer", msg.M("Footer")},
+		{"word/footnotes", msg.M("Footnote")},
 	} {
 		var paras []string
 		for _, name := range p.list(part.prefix) {
@@ -123,20 +125,20 @@ func compareWord(r *reportBuilder, before, after *pkg) error {
 		label := newDoc.sections[s].label
 		a, b := oldDoc.sections[s].paragraphs, newDoc.sections[s].paragraphs
 		for j, p := range b {
-			r.current(fmt.Sprintf("%s %d", label, j+1), p)
+			r.current(fmt.Sprintf(msg.M("%s %d"), label, j+1), p)
 		}
 		for _, d := range diffSeq(a, b) {
 			textChanged = true
 			var old, cur, loc string
 			switch {
 			case d.j < 0:
-				old, loc = a[d.i], fmt.Sprintf("%s %d (baseline)", label, d.i+1)
+				old, loc = a[d.i], fmt.Sprintf(msg.M("%s %d (baseline)"), label, d.i+1)
 				r.change(Change{Kind: "removed", Location: loc, Before: old})
 			case d.i < 0:
-				cur, loc = b[d.j], fmt.Sprintf("%s %d", label, d.j+1)
+				cur, loc = b[d.j], fmt.Sprintf(msg.M("%s %d"), label, d.j+1)
 				r.change(Change{Kind: "added", Location: loc, After: cur})
 			default:
-				old, cur, loc = a[d.i], b[d.j], fmt.Sprintf("%s %d", label, d.j+1)
+				old, cur, loc = a[d.i], b[d.j], fmt.Sprintf(msg.M("%s %d"), label, d.j+1)
 				r.change(Change{Kind: "modified", Location: loc, Before: old, After: cur})
 				r.edited(loc, old, cur)
 			}
@@ -145,20 +147,20 @@ func compareWord(r *reportBuilder, before, after *pkg) error {
 	}
 
 	if oldDoc.trackedChanges > 0 && newDoc.trackedChanges == 0 && textChanged {
-		r.flag(Finding{Severity: Medium, Rule: "word.tracked-changes-resolved", Title: fmt.Sprintf("%d pending tracked changes were accepted or rejected without trace", oldDoc.trackedChanges)})
+		r.flag(Finding{Severity: Medium, Rule: "word.tracked-changes-resolved", Title: fmt.Sprintf(msg.M("%d pending tracked changes were accepted or rejected without trace"), oldDoc.trackedChanges)})
 	}
 	if oldDoc.trackRevisions && !newDoc.trackRevisions {
-		r.flag(Finding{Severity: Medium, Rule: "word.tracking-disabled", Title: "Track changes was turned off"})
-		r.change(Change{Kind: "modified", Location: "Settings", Before: "Track changes on", After: "Track changes off"})
+		r.flag(Finding{Severity: Medium, Rule: "word.tracking-disabled", Title: msg.M("Track changes was turned off")})
+		r.change(Change{Kind: "modified", Location: msg.M("Settings"), Before: msg.M("Track changes on"), After: msg.M("Track changes off")})
 	}
 	if oldDoc.protected && !newDoc.protected {
-		r.flag(Finding{Severity: Medium, Rule: "word.protection-removed", Title: "Document protection was removed"})
-		r.change(Change{Kind: "modified", Location: "Settings", Before: "Protected", After: "Not protected"})
+		r.flag(Finding{Severity: Medium, Rule: "word.protection-removed", Title: msg.M("Document protection was removed")})
+		r.change(Change{Kind: "modified", Location: msg.M("Settings"), Before: msg.M("Protected"), After: msg.M("Not protected")})
 	}
 	if newDoc.comments < oldDoc.comments {
 		n := oldDoc.comments - newDoc.comments
-		r.flag(Finding{Severity: Low, Rule: "word.comments-removed", Title: fmt.Sprintf("%d review comment(s) deleted", n)})
-		r.change(Change{Kind: "removed", Location: "Comments", Before: fmt.Sprintf("%d comment(s)", n)})
+		r.flag(Finding{Severity: Low, Rule: "word.comments-removed", Title: fmt.Sprintf(msg.M("%d review comment(s) deleted"), n)})
+		r.change(Change{Kind: "removed", Location: msg.M("Comments"), Before: fmt.Sprintf(msg.M("%d comment(s)"), n)})
 	}
 	return nil
 }

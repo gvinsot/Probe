@@ -16,6 +16,8 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+
+	"github.com/gvinsot/Probe/desktop/internal/msg"
 )
 
 // Kind is the family of a supported document.
@@ -101,7 +103,7 @@ const (
 
 // ErrUnreadable reports a file that is not a valid package yet, typically
 // because it is still being written or synchronized.
-var ErrUnreadable = errors.New("document is not a readable Office package")
+var ErrUnreadable = errors.New(msg.M("document is not a readable Office package"))
 
 // Compare diffs two versions of a document of the given kind.
 func Compare(kind Kind, before, after []byte) (*Report, error) {
@@ -191,7 +193,7 @@ func (r *reportBuilder) build(kind Kind, modifiedBy string) *Report {
 		r.findings = append(r.findings, Finding{
 			Severity: sev,
 			Rule:     rule,
-			Title:    fmt.Sprintf("%s: %d more occurrences not listed", title, n-maxFindingsPerRule),
+			Title:    fmt.Sprintf(msg.M("%s: %d more occurrences not listed"), title, n-maxFindingsPerRule),
 		})
 	}
 	sort.SliceStable(r.findings, func(i, j int) bool {
@@ -318,17 +320,17 @@ func comparePackage(r *reportBuilder, before, after *pkg) {
 		return false
 	}
 	if !macro(before) && macro(after) {
-		r.flag(Finding{Severity: High, Rule: "package.macro-added", Title: "Macros (VBA code) were added to the document"})
-		r.change(Change{Kind: "added", Location: "Macros", After: "vbaProject.bin"})
+		r.flag(Finding{Severity: High, Rule: "package.macro-added", Title: msg.M("Macros (VBA code) were added to the document")})
+		r.change(Change{Kind: "added", Location: msg.M("Macros"), After: "vbaProject.bin"})
 	} else if macro(before) && !macro(after) {
-		r.change(Change{Kind: "removed", Location: "Macros", Before: "vbaProject.bin"})
+		r.change(Change{Kind: "removed", Location: msg.M("Macros"), Before: "vbaProject.bin"})
 	}
 
 	oldLinks, newLinks := externalTargets(before), externalTargets(after)
 	for target := range newLinks {
 		if !oldLinks[target] {
-			r.flag(Finding{Severity: Medium, Rule: "package.external-link-added", Title: "A link to an external file or template was added", After: target})
-			r.change(Change{Kind: "added", Location: "External links", After: target})
+			r.flag(Finding{Severity: Medium, Rule: "package.external-link-added", Title: msg.M("A link to an external file or template was added"), After: target})
+			r.change(Change{Kind: "added", Location: msg.M("External links"), After: target})
 		}
 	}
 
@@ -338,8 +340,8 @@ func comparePackage(r *reportBuilder, before, after *pkg) {
 	}
 	for _, name := range embeddedParts(after) {
 		if !oldEmbeds[name] {
-			r.flag(Finding{Severity: Medium, Rule: "package.embedded-object-added", Title: "An embedded object (file or OLE object) was added", After: filepath.Base(name)})
-			r.change(Change{Kind: "added", Location: "Embedded objects", After: filepath.Base(name)})
+			r.flag(Finding{Severity: Medium, Rule: "package.embedded-object-added", Title: msg.M("An embedded object (file or OLE object) was added"), After: filepath.Base(name)})
+			r.change(Change{Kind: "added", Location: msg.M("Embedded objects"), After: filepath.Base(name)})
 		}
 	}
 }

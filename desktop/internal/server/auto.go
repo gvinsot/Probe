@@ -7,12 +7,13 @@ import (
 	"sync"
 	"time"
 
+	"github.com/gvinsot/Probe/desktop/internal/msg"
 	"github.com/gvinsot/Probe/desktop/internal/reviewer"
 	"github.com/gvinsot/Probe/desktop/internal/watch"
 )
 
 // errKeychain reports an API key that cannot be read.
-var errKeychain = errors.New("cannot read the API key from the keychain")
+var errKeychain = errors.New(msg.M("cannot read the API key from the keychain"))
 
 // explainDocument asks the configured AI provider to explain the report of a
 // document and stores the answer, unless the document changed meanwhile.

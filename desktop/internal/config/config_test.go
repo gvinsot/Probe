@@ -152,3 +152,22 @@ func TestDropboxFolders(t *testing.T) {
 		t.Fatalf("dropbox folders: %+v", got)
 	}
 }
+
+func TestLanguage(t *testing.T) {
+	s := Defaults()
+	if s.Language != SystemLanguage() {
+		t.Fatalf("fresh installation language = %q, want the system's %q", s.Language, SystemLanguage())
+	}
+	for _, lang := range []string{"en", "fr", "es", "de", "pt", "it"} {
+		s.Language = lang
+		s.Normalize()
+		if s.Language != lang {
+			t.Errorf("supported language %q changed to %q", lang, s.Language)
+		}
+	}
+	s.Language = "ja"
+	s.Normalize()
+	if s.Language != SystemLanguage() {
+		t.Errorf("unsupported language kept or not reset: %q", s.Language)
+	}
+}

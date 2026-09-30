@@ -16,6 +16,10 @@ import (
 	"runtime"
 	"strings"
 	"sync"
+
+	"github.com/gvinsot/Probe/desktop/internal/i18n"
+	"github.com/gvinsot/Probe/desktop/internal/msg"
+	"github.com/gvinsot/Probe/desktop/internal/platform"
 )
 
 // Provider identifiers for the optional AI reviewer.
@@ -92,7 +96,9 @@ type Settings struct {
 	// BaseURL overrides the OpenAI endpoint, for a compatible server run
 	// on premises (vLLM, Ollama…).
 	BaseURL string `json:"base_url,omitempty"`
-	// Language of the AI explanations: "en" or "fr".
+	// Language of the interface, the reports, the tray menu and the AI
+	// explanations: one of i18n.Languages. A fresh installation takes the
+	// language of the system.
 	Language string `json:"language"`
 	// ScanSeconds is the delay between two scans of a source.
 	ScanSeconds int `json:"scan_seconds"`
@@ -114,8 +120,19 @@ type Settings struct {
 
 // Defaults returns the settings of a fresh installation.
 func Defaults() Settings {
-	return Settings{Sources: []Source{}, GoogleAccounts: []string{}, Language: "en", ScanSeconds: 60, MaxFileMB: 50}
+	return Settings{Sources: []Source{}, GoogleAccounts: []string{}, Language: SystemLanguage(), ScanSeconds: 60, MaxFileMB: 50}
 }
+
+var systemLanguage = sync.OnceValue(func() string {
+	if l := i18n.Match(platform.Locale()); l != "" {
+		return l
+	}
+	return "en"
+})
+
+// SystemLanguage is the supported language of the system locale, English
+// when the system uses another language.
+func SystemLanguage() string { return systemLanguage() }
 
 // FolderSourceID derives the id of a folder source from its path, so the
 // documents found before sources existed keep their state.
@@ -158,8 +175,8 @@ func (s *Settings) Normalize() {
 	if s.MaxFileMB <= 0 {
 		s.MaxFileMB = d.MaxFileMB
 	}
-	if s.Language != "fr" {
-		s.Language = "en"
+	if !i18n.Supported(s.Language) {
+		s.Language = d.Language
 	}
 	switch s.Provider {
 	case ProviderAnthropic, ProviderOpenAI:
@@ -275,7 +292,7 @@ func (s Settings) Validate(previous ...Settings) error {
 		switch src.Type {
 		case SourceFolder:
 			if !filepath.IsAbs(src.Path) {
-				return fmt.Errorf("folder %q must be an absolute path", src.Path)
+				return fmt.Errorf(msg.M("folder %q must be an absolute path"), src.Path)
 			}
 			if !known[src.ID] {
 				info, err := os.Stat(src.Path)
@@ -283,29 +300,29 @@ func (s Settings) Validate(previous ...Settings) error {
 					return fmt.Errorf("folder %q: %w", src.Path, err)
 				}
 				if !info.IsDir() {
-					return fmt.Errorf("%q is not a folder", src.Path)
+					return fmt.Errorf(msg.M("%q is not a folder"), src.Path)
 				}
 			}
 			for _, other := range folders {
 				if a, b, nested := nestedFolders(other, src.Path); nested {
-					return fmt.Errorf("folder %q is inside %q: watch only one of them", b, a)
+					return fmt.Errorf(msg.M("folder %q is inside %q: watch only one of them"), b, a)
 				}
 			}
 			folders = append(folders, src.Path)
 		case SourceGoogleDrive:
 			if !accounts[src.Account] {
-				return fmt.Errorf("the Google account %q is not connected", src.Account)
+				return fmt.Errorf(msg.M("the Google account %q is not connected"), src.Account)
 			}
 			if src.DriveID != "" && !driveID.MatchString(src.DriveID) {
-				return fmt.Errorf("invalid shared drive id %q", src.DriveID)
+				return fmt.Errorf(msg.M("invalid shared drive id %q"), src.DriveID)
 			}
 			if src.FolderID != "" && !driveID.MatchString(src.FolderID) {
-				return fmt.Errorf("invalid Google Drive folder id %q", src.FolderID)
+				return fmt.Errorf(msg.M("invalid Google Drive folder id %q"), src.FolderID)
 			}
 		}
 	}
 	if s.BaseURL != "" && !strings.HasPrefix(s.BaseURL, "https://") && !strings.HasPrefix(s.BaseURL, "http://") {
-		return errors.New("the endpoint URL must start with https:// or http://")
+		return errors.New(msg.M("the endpoint URL must start with https:// or http://"))
 	}
 	return nil
 }

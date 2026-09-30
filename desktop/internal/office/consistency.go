@@ -5,6 +5,8 @@ import (
 	"regexp"
 	"strings"
 	"unicode"
+
+	"github.com/gvinsot/Probe/desktop/internal/msg"
 )
 
 // The consistency check looks past the changed passage: when an edit replaces
@@ -114,17 +116,17 @@ func mentionFinding(m Mention) Finding {
 	}
 	where := strings.Join(places, ", ")
 	if m.Count > len(m.Elsewhere) {
-		where += fmt.Sprintf(" and %d more", m.Count-len(m.Elsewhere))
+		where = fmt.Sprintf(msg.M("%s and %d more"), where, m.Count-len(m.Elsewhere))
 	}
-	title := fmt.Sprintf("%q was replaced by %q here but is still used elsewhere in the document (%s)", m.Term, m.Replacement, where)
+	title := fmt.Sprintf(msg.M("%q was replaced by %q here but is still used elsewhere in the document (%s)"), m.Term, m.Replacement, where)
 	if m.Replacement == "" {
-		title = fmt.Sprintf("%q was removed here but is still used elsewhere in the document (%s)", m.Term, where)
+		title = fmt.Sprintf(msg.M("%q was removed here but is still used elsewhere in the document (%s)"), m.Term, where)
 	}
 	return Finding{
 		Severity: Medium, Rule: "text.inconsistent-mention", Title: title, Location: m.Location,
 		Before: m.Term, After: m.Replacement,
 		Consistency: Inconsistent,
-		Note:        fmt.Sprintf("%s still reads: %s", m.Elsewhere[0].Location, m.Elsewhere[0].Excerpt),
+		Note:        fmt.Sprintf(msg.M("%s still reads: %s"), m.Elsewhere[0].Location, m.Elsewhere[0].Excerpt),
 	}
 }
 

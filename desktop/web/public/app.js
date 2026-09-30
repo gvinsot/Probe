@@ -7,13 +7,18 @@ const SEVERITIES = ["low", "medium", "high", "critical"];
 const RANK = { none: 0, low: 1, medium: 2, high: 3, critical: 4 };
 const KIND_LETTER = { word: "W", excel: "X", powerpoint: "P" };
 const STATUS_LABEL = {
-  clean: "Reviewed",
-  changed: "Changed",
-  removed: "Deleted",
-  "cloud-only": "Online only",
-  "too-large": "Too large",
-  error: "Unreadable",
+  clean: () => t("Reviewed"),
+  changed: () => t("Changed"),
+  removed: () => t("Deleted"),
+  "cloud-only": () => t("Online only"),
+  "too-large": () => t("Too large"),
+  error: () => t("Unreadable"),
 };
+// Words the engine sends as identifiers, shown translated.
+const SEVERITY_LABEL = { low: () => t("low"), medium: () => t("medium"), high: () => t("high"), critical: () => t("critical") };
+const CHANGE_LABEL = { added: () => t("added"), removed: () => t("removed"), modified: () => t("modified"), recomputed: () => t("recomputed") };
+const IMPACT_LABEL = { legal: () => t("legal"), financial: () => t("financial") };
+const label = (table, key) => (table[key] ? table[key]() : key);
 
 const TABS = ["review", "all", "reviewed"];
 
@@ -50,7 +55,7 @@ window.addEventListener("error", (e) => showError(e.error || e.message));
 
 function showError(err) {
   const s = $("status");
-  s.textContent = `Error: ${(err && err.message) || err}`;
+  s.textContent = t("Error: {0}", tr((err && err.message) || String(err)));
   s.className = "status warn";
 }
 
@@ -102,16 +107,16 @@ function el(tag, attrs, ...children) {
 function ago(iso) {
   if (!iso || iso.startsWith("0001")) return "";
   const s = Math.max(0, (Date.now() - new Date(iso).getTime()) / 1000);
-  if (s < 60) return "just now";
-  if (s < 3600) return `${Math.floor(s / 60)} min ago`;
-  if (s < 86400) return `${Math.floor(s / 3600)} h ago`;
-  if (s < 86400 * 30) return `${Math.floor(s / 86400)} d ago`;
-  return new Date(iso).toLocaleDateString();
+  if (s < 60) return t("just now");
+  if (s < 3600) return t("{0} min ago", Math.floor(s / 60));
+  if (s < 86400) return t("{0} h ago", Math.floor(s / 3600));
+  if (s < 86400 * 30) return t("{0} d ago", Math.floor(s / 86400));
+  return new Date(iso).toLocaleDateString(I18N.lang);
 }
 
 function when(iso) {
   if (!iso || iso.startsWith("0001")) return "";
-  return new Date(iso).toLocaleString();
+  return new Date(iso).toLocaleString(I18N.lang);
 }
 
 function kindBadge(kind) {
@@ -119,15 +124,15 @@ function kindBadge(kind) {
 }
 
 function severityChip(sev) {
-  if (!sev || sev === "none") return el("span", { class: "chip ok" }, el("span", { class: "dot" }), "no finding");
-  return el("span", { class: `chip tone tone-${sev}` }, el("span", { class: "dot" }), sev);
+  if (!sev || sev === "none") return el("span", { class: "chip ok" }, el("span", { class: "dot" }), t("no finding"));
+  return el("span", { class: `chip tone tone-${sev}` }, el("span", { class: "dot" }), label(SEVERITY_LABEL, sev));
 }
 
 function statusChip(doc) {
   if (doc.status === "changed") return severityChip(doc.severity);
-  if (doc.status === "removed") return el("span", { class: "chip tone tone-high" }, el("span", { class: "dot" }), "deleted");
-  if (doc.status === "clean") return el("span", { class: "chip ok" }, "reviewed");
-  return el("span", { class: "chip" }, STATUS_LABEL[doc.status] || doc.status);
+  if (doc.status === "removed") return el("span", { class: "chip tone tone-high" }, el("span", { class: "dot" }), t("deleted"));
+  if (doc.status === "clean") return el("span", { class: "chip ok" }, t("reviewed"));
+  return el("span", { class: "chip" }, label(STATUS_LABEL, doc.status));
 }
 
 // detailSeverity mirrors the watcher: the AI explanation can raise the
@@ -141,7 +146,7 @@ function detailSeverity(d) {
 // sourceLabel mirrors config.Source.Label of the engine.
 function sourceLabel(src) {
   if (src.type !== "gdrive") return src.path;
-  let name = src.drive_name || "My Drive";
+  let name = src.drive_name || t("My Drive");
   if (src.folder_id) name += ` › ${src.folder_name || src.folder_id}`;
   return `Google Drive · ${src.account} · ${name}`;
 }
@@ -167,7 +172,7 @@ async function refresh() {
   try {
     ui.state = await api("GET", "/api/state");
   } catch (err) {
-    $("status").textContent = err.message;
+    $("status").textContent = tr(err.message);
     $("status").className = "status warn";
     return;
   }
@@ -198,17 +203,17 @@ function renderStatus() {
   const st = ui.state;
   const s = $("status");
   if (st.scanning) {
-    s.textContent = "Scanning…";
+    s.textContent = t("Scanning…");
     s.className = "status busy";
   } else if (st.scan_error) {
-    s.textContent = `Source unavailable: ${st.scan_error}`;
+    s.textContent = t("Source unavailable: {0}", st.scan_error);
     s.className = "status warn";
   } else if (st.sources === 0) {
-    s.textContent = "Nothing watched yet";
+    s.textContent = t("Nothing watched yet");
     s.className = "status";
   } else {
     const last = ago(st.last_scan);
-    s.textContent = `${st.total} document${st.total === 1 ? "" : "s"} watched${last ? ` · scanned ${last}` : ""}`;
+    s.textContent = tn(st.total, "{0} document watched", "{0} documents watched") + (last ? " · " + t("scanned {0}", last) : "");
     s.className = "status";
   }
 }
@@ -248,17 +253,17 @@ function renderList() {
       el("div", { class: "doc-name" }, kindBadge(d.kind), el("span", { text: d.name })),
       el("div", { class: "doc-meta" },
         statusChip(d),
-        d.findings ? el("span", { text: `${d.findings} finding${d.findings === 1 ? "" : "s"}` }) : null,
+        d.findings ? el("span", { text: tn(d.findings, "{0} finding", "{0} findings") }) : null,
         el("span", { text: d.folder }),
         d.changed_at && d.status !== "clean" ? el("span", { text: ago(d.changed_at) }) : null,
       )),
     ),
   );
   let empty = "";
-  if (ui.state.sources === 0) empty = "Add a folder or a Google Drive in Settings to start.";
-  else if (!shown.length && q) empty = "No document matches this filter.";
-  else if (!shown.length && ui.tab === "review") empty = "Nothing to review: every watched document matches its reviewed version.";
-  else if (!shown.length) empty = ui.state.scanning ? "First scan in progress…" : "No Word, Excel or PowerPoint document in the watched sources.";
+  if (ui.state.sources === 0) empty = t("Add a folder or a Google Drive in Settings to start.");
+  else if (!shown.length && q) empty = t("No document matches this filter.");
+  else if (!shown.length && ui.tab === "review") empty = t("Nothing to review: every watched document matches its reviewed version.");
+  else if (!shown.length) empty = ui.state.scanning ? t("First scan in progress…") : t("No Word, Excel or PowerPoint document in the watched sources.");
   $("list-empty").textContent = empty;
   $("list-empty").classList.toggle("hidden", !empty);
 }
@@ -279,15 +284,15 @@ function renderHistory() {
       el("div", { class: "doc-name" }, kindBadge(r.kind), el("span", { text: r.name })),
       el("div", { class: "doc-meta" },
         reviewChip(r),
-        r.findings ? el("span", { text: `${r.findings} finding${r.findings === 1 ? "" : "s"}` }) : null,
+        r.findings ? el("span", { text: tn(r.findings, "{0} finding", "{0} findings") }) : null,
         el("span", { text: r.folder }),
-        el("span", { text: `reviewed ${ago(r.reviewed_at)}` }),
+        el("span", { text: t("reviewed {0}", ago(r.reviewed_at)) }),
       )),
     ),
   );
   let empty = "";
-  if (!shown.length && (q || ui.list.kind)) empty = "No review matches this filter.";
-  else if (!shown.length) empty = "No change reviewed yet. Once you mark a change as reviewed, its report stays available here.";
+  if (!shown.length && (q || ui.list.kind)) empty = t("No review matches this filter.");
+  else if (!shown.length) empty = t("No change reviewed yet. Once you mark a change as reviewed, its report stays available here.");
   $("list-empty").textContent = empty;
   $("list-empty").classList.toggle("hidden", !empty);
 }
@@ -295,7 +300,7 @@ function renderHistory() {
 // reviewChip shows what was approved: the severity of the change, or a
 // deletion acknowledged.
 function reviewChip(r) {
-  if (r.status === "removed") return el("span", { class: "chip tone tone-high" }, el("span", { class: "dot" }), "deletion");
+  if (r.status === "removed") return el("span", { class: "chip tone tone-high" }, el("span", { class: "dot" }), t("deletion"));
   return severityChip(r.severity);
 }
 
@@ -366,8 +371,8 @@ function refreshReviewDetail() {
       ui.detail = null;
       ui.detailKey = "reviewed";
       $("detail").replaceChildren(el("div", { class: "welcome" },
-        el("h2", { text: "Read a review again" }),
-        el("p", { text: "Probe keeps the report of the latest changes you marked as reviewed (up to 50), with the AI explanation you saw. Select one to read it again: this changes nothing in the documents or their reviewed versions." }),
+        el("h2", { text: t("Read a review again") }),
+        el("p", { text: t("Probe keeps the report of the latest changes you marked as reviewed (up to 50), with the AI explanation you saw. Select one to read it again: this changes nothing in the documents or their reviewed versions.") }),
       ));
     }
     return;
@@ -384,7 +389,7 @@ async function loadReview(id, key) {
     ui.detailKey = key;
     renderReview(r);
   } catch (err) {
-    renderMessage(err.message, "error");
+    renderMessage(tr(err.message), "error");
   }
 }
 
@@ -396,7 +401,7 @@ async function loadDetail(id, key) {
     ui.detailKey = key;
     renderDetail();
   } catch (err) {
-    renderMessage(err.message, "error");
+    renderMessage(tr(err.message), "error");
   }
 }
 
@@ -413,16 +418,16 @@ async function renderWelcome() {
   const st = ui.state;
   if (st && st.sources > 0) {
     panel.replaceChildren(el("div", { class: "welcome" },
-      el("h2", { text: st.to_review ? "Select a document to review" : "All caught up" }),
+      el("h2", { text: st.to_review ? t("Select a document to review") : t("All caught up") }),
       el("p", { text: st.to_review
-        ? "Each changed document shows what moved since its reviewed version, most risky first."
-        : "Probe keeps watching in the background, even when this window is closed. The icon near the clock shows when something needs a look." }),
+        ? t("Each changed document shows what moved since its reviewed version, most risky first.")
+        : t("Probe keeps watching in the background, even when this window is closed. The icon near the clock shows when something needs a look.") }),
     ));
     return;
   }
   const box = el("div", { class: "welcome" },
-    el("h2", { text: "Watch your shared documents" }),
-    el("p", { text: "Probe follows the Word, Excel and PowerPoint files of a folder or of a Google Drive and tells you which modifications deserve a look: a formula replaced by a number, an amount changed in a contract, a softened obligation, a hidden sheet…" }),
+    el("h2", { text: t("Watch your shared documents") }),
+    el("p", { text: t("Probe follows the Word, Excel and PowerPoint files of a folder or of a Google Drive and tells you which modifications deserve a look: a formula replaced by a number, an amount changed in a contract, a softened obligation, a hidden sheet…") }),
   );
   panel.replaceChildren(box);
   try {
@@ -432,8 +437,8 @@ async function renderWelcome() {
     box.append(
       buttons.length
         ? el("div", { class: "cloud-folders" }, ...buttons)
-        : el("p", { text: "No synchronized folder was detected on this computer. Choose any folder, or connect a Google Drive, in the settings." }),
-      el("div", { class: "actions" }, el("button", { class: "btn", onclick: openSettings }, "Open settings")),
+        : el("p", { text: t("No synchronized folder was detected on this computer. Choose any folder, or connect a Google Drive, in the settings.") }),
+      el("div", { class: "actions" }, el("button", { class: "btn", onclick: openSettings }, t("Open settings"))),
     );
   } catch (_) { /* the settings dialog stays available */ }
 }
@@ -446,7 +451,7 @@ async function quickAdd(path) {
     ui.detail = null;
     await refresh();
   } catch (err) {
-    alert(err.message);
+    alert(tr(err.message));
   }
 }
 
@@ -462,13 +467,13 @@ function renderDetail() {
   );
   const parts = [head];
 
-  if (d.error) parts.push(el("p", { class: "message error", text: d.error }));
+  if (d.error) parts.push(el("p", { class: "message error", text: tr(d.error) }));
   if (d.status === "removed") {
-    parts.push(el("p", { class: "message warn", text: "This document was deleted, moved or renamed since its reviewed version. Acknowledge to stop tracking it; if it was moved inside a watched folder, it is already tracked under its new name." }));
+    parts.push(el("p", { class: "message warn", text: t("This document was deleted, moved or renamed since its reviewed version. Acknowledge to stop tracking it; if it was moved inside a watched folder, it is already tracked under its new name.") }));
   } else if (d.status === "clean") {
-    parts.push(el("p", { class: "message", text: "This document matches its reviewed version." }));
+    parts.push(el("p", { class: "message", text: t("This document matches its reviewed version.") }));
   } else if (d.status === "cloud-only") {
-    parts.push(el("p", { class: "message", text: "This file is only in the cloud: Probe will record its reviewed version once it is downloaded, or enable the download option in Settings." }));
+    parts.push(el("p", { class: "message", text: t("This file is only in the cloud: Probe will record its reviewed version once it is downloaded, or enable the download option in Settings.") }));
   }
 
   parts.push(...reportParts(d));
@@ -481,30 +486,33 @@ function reportParts(d) {
   const parts = [];
   if (d.explanation) {
     if (d.report && RANK[d.explanation.severity] > RANK[d.report.severity]) {
-      const impacts = (d.explanation.impacts || []).join(" and ");
-      parts.push(el("p", { class: `message tone tone-${d.explanation.severity}`, text: `Severity raised from ${d.report.severity} to ${d.explanation.severity}: the model states this modification may have ${impacts} consequences.` }));
+      const impacts = (d.explanation.impacts || []).map((i) => label(IMPACT_LABEL, i));
+      const message = impacts.length > 1
+        ? t("Severity raised from {0} to {1}: the model states this modification may have {2} and {3} consequences.", label(SEVERITY_LABEL, d.report.severity), label(SEVERITY_LABEL, d.explanation.severity), impacts[0], impacts[1])
+        : t("Severity raised from {0} to {1}: the model states this modification may have {2} consequences.", label(SEVERITY_LABEL, d.report.severity), label(SEVERITY_LABEL, d.explanation.severity), impacts[0] || "");
+      parts.push(el("p", { class: `message tone tone-${d.explanation.severity}`, text: message }));
     }
     // The model's own findings come first; its prose explanation follows,
     // collapsed when there are findings to look at.
     const extra = d.explanation.findings || [];
     if (extra.length) {
-      parts.push(el("h3", { class: "section-title", text: `Raised by AI (${extra.length})` }));
+      parts.push(el("h3", { class: "section-title", text: t("Raised by AI ({0})", extra.length) }));
       parts.push(el("ul", { class: "findings ai-findings" }, ...extra.map((f) => findingItem(f))));
-      parts.push(el("p", { class: "note", text: "Suggestions from the model, not rule results: check them in the document." }));
+      parts.push(el("p", { class: "note", text: t("Suggestions from the model, not rule results: check them in the document.") }));
     }
     parts.push(el("details", { class: "explanation", open: !extra.length },
-      el("summary", { text: d.explanation.outdated ? "AI analysis (earlier version)" : "AI analysis" }),
+      el("summary", { text: d.explanation.outdated ? t("AI analysis (earlier version)") : t("AI analysis") }),
       d.explanation.outdated
-        ? el("p", { class: "note", text: "Written for an earlier version of the modifications: the AI findings about elements modified again were removed and the latest changes are not covered. Explain again for a complete analysis." })
+        ? el("p", { class: "note", text: t("Written for an earlier version of the modifications: the AI findings about elements modified again were removed and the latest changes are not covered. Explain again for a complete analysis.") })
         : null,
       el("p", { text: d.explanation.text }),
-      el("span", { class: "note", text: `Explanation by ${d.explanation.model} · ${ago(d.explanation.at)} · the findings below remain the reference` }),
+      el("span", { class: "note", text: t("Explanation by {0} · {1} · the findings below remain the reference", d.explanation.model, ago(d.explanation.at)) }),
     ));
   }
 
   const r = d.report;
   if (r) {
-    parts.push(el("h3", { class: "section-title", text: r.findings.length ? `Findings (${r.findings.length})` : "No risky modification detected" }));
+    parts.push(el("h3", { class: "section-title", text: r.findings.length ? t("Findings ({0})", r.findings.length) : t("No risky modification detected") }));
     if (r.findings.length) {
       parts.push(el("ul", { class: "findings" }, ...r.findings.map((f, i) => findingItem(f, readingFor(d.explanation, f, i)))));
     }
@@ -519,25 +527,25 @@ function renderReview(r) {
   const doc = ui.state && ui.state.documents.find((d) => d.id === r.doc_id);
   const box = el("div", { class: "actions" });
   if (doc && doc.status !== "removed") {
-    box.append(el("button", { class: "btn quiet small", onclick: () => run(doc.id, "open") }, r.link ? "Open in Google Drive" : "Open document"));
+    box.append(el("button", { class: "btn quiet small", onclick: () => run(doc.id, "open") }, r.link ? t("Open in Google Drive") : t("Open document")));
     if (doc.status !== "clean") {
-      box.append(el("button", { class: "btn ghost small", onclick: () => { setTab("review"); select(doc.id); } }, "See its new changes"));
+      box.append(el("button", { class: "btn ghost small", onclick: () => { setTab("review"); select(doc.id); } }, t("See its new changes")));
     }
   }
-  const bits = [`Reviewed ${when(r.reviewed_at)}`];
-  if (r.changed_at) bits.push(`change detected ${when(r.changed_at)}`);
-  if (r.report && r.report.last_modified_by) bits.push(`saved by ${r.report.last_modified_by}`);
-  if (r.baseline_at) bits.push(`compared with the version from ${when(r.baseline_at)}`);
+  const bits = [t("Reviewed {0}", when(r.reviewed_at))];
+  if (r.changed_at) bits.push(t("change detected {0}", when(r.changed_at)));
+  if (r.report && r.report.last_modified_by) bits.push(t("saved by {0}", r.report.last_modified_by));
+  if (r.baseline_at) bits.push(t("compared with the version from {0}", when(r.baseline_at)));
   const parts = [
     el("div", { class: "detail-head" },
-      el("div", { class: "detail-title" }, kindBadge(r.kind), el("h2", { text: r.name }), reviewChip(r), el("span", { class: "chip ok" }, "reviewed")),
+      el("div", { class: "detail-title" }, kindBadge(r.kind), el("h2", { text: r.name }), reviewChip(r), el("span", { class: "chip ok" }, t("reviewed"))),
       el("p", { class: "detail-sub mono", text: r.path }),
       el("p", { class: "detail-sub", text: bits.join(" · ") }),
       box,
     ),
     el("p", { class: "message", text: r.status === "removed"
-      ? "You acknowledged that this document was deleted, moved or renamed."
-      : "Read-only: the report as it was when you marked this change as reviewed. The reviewed version has been the reference for the next changes since then." }),
+      ? t("You acknowledged that this document was deleted, moved or renamed.")
+      : t("Read-only: the report as it was when you marked this change as reviewed. The reviewed version has been the reference for the next changes since then.") }),
   ];
   parts.push(...reportParts(r));
   $("detail").replaceChildren(...parts);
@@ -545,16 +553,16 @@ function renderReview(r) {
 
 function metaLine(d) {
   const bits = [];
-  if (d.changed_at && d.status !== "clean") bits.push(`Change detected ${ago(d.changed_at)}`);
-  if (d.report && d.report.last_modified_by) bits.push(`last saved by ${d.report.last_modified_by}`);
-  if (d.baseline_at) bits.push(`reviewed version from ${when(d.baseline_at)}`);
+  if (d.changed_at && d.status !== "clean") bits.push(t("Change detected {0}", ago(d.changed_at)));
+  if (d.report && d.report.last_modified_by) bits.push(t("last saved by {0}", d.report.last_modified_by));
+  if (d.baseline_at) bits.push(t("reviewed version from {0}", when(d.baseline_at)));
   return bits.join(" · ");
 }
 
 function actions(d) {
   const box = el("div", { class: "actions" });
   if (d.status !== "removed") {
-    box.append(el("button", { class: "btn quiet small", onclick: () => run(d.id, "open") }, d.link ? "Open in Google Drive" : "Open document"));
+    box.append(el("button", { class: "btn quiet small", onclick: () => run(d.id, "open") }, d.link ? t("Open in Google Drive") : t("Open document")));
   }
   if (d.report) {
     const configured = ui.state && ui.state.ai_configured;
@@ -562,16 +570,16 @@ function actions(d) {
     box.append(el("button", {
       class: "btn ghost small",
       disabled: explaining,
-      title: configured ? "Send the findings and changed excerpts to the AI provider" : "Configure an AI provider in Settings",
+      title: configured ? t("Send the findings and changed excerpts to the AI provider") : t("Configure an AI provider in Settings"),
       onclick: () => (configured ? explain(d.id) : openSettings()),
-    }, explaining ? "Explaining…" : d.explanation ? "Explain again" : "Explain with AI"));
+    }, explaining ? t("Explaining…") : d.explanation ? t("Explain again") : t("Explain with AI")));
   }
   if (d.status === "changed" || d.status === "removed") {
     box.append(el("button", {
       class: "btn small",
-      title: d.status === "removed" ? "Stop tracking this document" : "This version becomes the reference for the next changes",
+      title: d.status === "removed" ? t("Stop tracking this document") : t("This version becomes the reference for the next changes"),
       onclick: () => accept(d.id),
-    }, d.status === "removed" ? "Acknowledge" : "Mark as reviewed"));
+    }, d.status === "removed" ? t("Acknowledge") : t("Mark as reviewed")));
   }
   return box;
 }
@@ -584,28 +592,28 @@ function readingFor(explanation, f, i) {
 }
 
 const CONSISTENCY = {
-  inconsistent: "No longer consistent with the rest of the document",
-  consistent: "Consistent with the rest of the document",
+  inconsistent: () => t("No longer consistent with the rest of the document"),
+  consistent: () => t("Consistent with the rest of the document"),
 };
 
 // findingItem renders a finding; reading is the AI reading of a rule
 // finding: a title in the words of the document and its consistency.
 function findingItem(f, reading) {
   const item = el("li", { class: `finding tone-${f.severity}` },
-    el("span", { class: "dot", title: f.severity }),
-    el("span", { class: "finding-title", text: f.title }),
+    el("span", { class: "dot", title: label(SEVERITY_LABEL, f.severity) }),
+    el("span", { class: "finding-title", text: tr(f.title) }),
   );
   if (reading && reading.title) {
-    item.append(el("p", { class: "finding-reading", title: "AI reading of this finding" }, el("span", { class: "ai-tag", text: "AI" }), reading.title));
+    item.append(el("p", { class: "finding-reading", title: t("AI reading of this finding") }, el("span", { class: "ai-tag", text: t("AI") }), reading.title));
   }
-  if (f.location) item.append(el("span", { class: "finding-where mono", text: `${f.location} · ${f.severity}` }));
-  else item.append(el("span", { class: "finding-where", text: f.severity }));
+  if (f.location) item.append(el("span", { class: "finding-where mono", text: `${tr(f.location)} · ${label(SEVERITY_LABEL, f.severity)}` }));
+  else item.append(el("span", { class: "finding-where", text: label(SEVERITY_LABEL, f.severity) }));
   // The AI note, in the reader's language, takes precedence over the rule's.
   const verdict = (reading && reading.consistency) || f.consistency;
-  const note = (reading && reading.note) || f.note;
+  const note = (reading && reading.note) || tr(f.note);
   if (verdict || note) {
     item.append(el("p", { class: `consistency ${verdict || ""}` },
-      verdict ? el("strong", { text: `${CONSISTENCY[verdict] || verdict}.` }) : null,
+      verdict ? el("strong", { text: `${label(CONSISTENCY, verdict)}.` }) : null,
       note ? ` ${note}` : null,
     ));
   }
@@ -634,21 +642,23 @@ function highlighted(before, after) {
 
 function changesTable(r) {
   const rows = r.changes.map((c) => {
-    const d = highlighted(c.before, c.after);
+    // Values the engine wrote itself ("Track changes on") are translated;
+    // document content is not, since it matches no message.
+    const d = highlighted(tr(c.before), tr(c.after));
     return el("tr", {},
-      el("td", { class: "kind-cell", text: c.kind }),
-      el("td", { class: "mono", text: c.location }),
+      el("td", { class: "kind-cell", text: label(CHANGE_LABEL, c.kind) }),
+      el("td", { class: "mono", text: tr(c.location) }),
       el("td", { class: c.before ? "b" : "" }, d.before),
       el("td", { class: c.after ? "a" : "" }, d.after),
     );
   });
-  const label = r.truncated
-    ? `All changes (${r.change_count}, first ${r.changes.length} shown)`
-    : `All changes (${r.change_count})`;
+  const summary = r.truncated
+    ? t("All changes ({0}, first {1} shown)", r.change_count, r.changes.length)
+    : t("All changes ({0})", r.change_count);
   return el("details", { class: "changes" },
-    el("summary", { text: label }),
+    el("summary", { text: summary }),
     el("table", {},
-      el("thead", {}, el("tr", {}, el("th", { text: "Change" }), el("th", { text: "Where" }), el("th", { text: "Before" }), el("th", { text: "After" }))),
+      el("thead", {}, el("tr", {}, el("th", { text: t("Change") }), el("th", { text: t("Where") }), el("th", { text: t("Before") }), el("th", { text: t("After") }))),
       el("tbody", {}, ...rows),
     ),
   );
@@ -658,7 +668,7 @@ async function run(id, action) {
   try {
     await api("POST", `/api/documents/${id}/${action}`);
   } catch (err) {
-    alert(err.message);
+    alert(tr(err.message));
   }
 }
 
@@ -670,7 +680,7 @@ async function accept(id) {
     const next = ui.state.documents.find((d) => d.id !== id && needsReview(d));
     ui.selected = next ? next.id : null;
   } catch (err) {
-    alert(err.message);
+    alert(tr(err.message));
   }
   await refresh();
 }
@@ -682,7 +692,7 @@ async function explain(id) {
     const e = await api("POST", `/api/documents/${id}/explain`);
     if (ui.detail && ui.detail.id === id) ui.detail.explanation = e;
   } catch (err) {
-    alert(err.message);
+    alert(tr(err.message));
   } finally {
     delete ui.busy[id];
     if (ui.detail && ui.detail.id === id) renderDetail();
@@ -696,7 +706,7 @@ async function openSettings() {
   try {
     ui.settings = await getSettings();
   } catch (err) {
-    alert(err.message);
+    alert(tr(err.message));
     return;
   }
   const s = ui.settings;
@@ -712,7 +722,7 @@ async function openSettings() {
   $("provider").value = s.provider || "";
   $("model").value = s.model || "";
   $("base-url").value = s.base_url || "";
-  $("language").value = s.language || "en";
+  $("language").value = s.language || I18N.lang;
   $("api-key").value = "";
   $("clear-key").checked = false;
   $("browse-folder").classList.toggle("hidden", typeof window.probePickFolder !== "function");
@@ -722,19 +732,19 @@ async function openSettings() {
   $("settings").showModal();
 }
 
-const INTERVALS = [[0, "Default pace"], [60, "Every minute"], [300, "Every 5 min"], [900, "Every 15 min"], [3600, "Every hour"]];
+const INTERVALS = [[0, () => t("Default pace")], [60, () => t("Every minute")], [300, () => t("Every 5 min")], [900, () => t("Every 15 min")], [3600, () => t("Every hour")]];
 
 function renderSources() {
   $("source-list").replaceChildren(...ui.draftSources.map((src, i) => {
     const pace = el("select", {
-      title: "How often this source is scanned. A network share or a large drive deserves a slower pace.",
+      title: t("How often this source is scanned. A network share or a large drive deserves a slower pace."),
       onchange: (e) => { src.scan_seconds = Number(e.target.value); },
-    }, ...INTERVALS.map(([v, label]) => el("option", { value: String(v), selected: (src.scan_seconds || 0) === v }, label)));
+    }, ...INTERVALS.map(([v, name]) => el("option", { value: String(v), selected: (src.scan_seconds || 0) === v }, name())));
     return el("li", {},
-      el("span", { class: "source-kind", text: src.type === "gdrive" ? "API" : "Folder" }),
+      el("span", { class: "source-kind", text: src.type === "gdrive" ? t("API") : t("Folder") }),
       el("span", { class: src.type === "gdrive" ? "" : "mono", text: sourceLabel(src) }),
       pace,
-      el("button", { class: "btn quiet small", type: "button", onclick: () => { ui.draftSources.splice(i, 1); renderSources(); } }, "Remove"));
+      el("button", { class: "btn quiet small", type: "button", onclick: () => { ui.draftSources.splice(i, 1); renderSources(); } }, t("Remove")));
   }));
   const candidates = ui.settings.cloud_folders.filter((c) => !hasFolder(c.path));
   $("cloud-folders").replaceChildren(...candidates.map((c) =>
@@ -757,7 +767,7 @@ async function browseFolder() {
     const path = await window.probePickFolder();
     if (path) addFolder(path);
   } catch (err) {
-    $("settings-error").textContent = String((err && err.message) || err);
+    $("settings-error").textContent = tr(String((err && err.message) || err));
   }
 }
 
@@ -769,10 +779,10 @@ function renderGoogle() {
   if (!s.google.available) return;
   $("google-accounts").replaceChildren(...s.google_accounts.map((a) =>
     el("li", {}, el("span", { text: a }),
-      el("button", { class: "btn quiet small", type: "button", onclick: () => disconnectGoogle(a) }, "Disconnect"))));
+      el("button", { class: "btn quiet small", type: "button", onclick: () => disconnectGoogle(a) }, t("Disconnect")))));
   const needsClient = !s.google.builtin_client && !s.google_client_id;
   $("google-client").open = needsClient;
-  $("google-client-secret").placeholder = s.google.secret_saved ? "A secret is saved; type a new one to replace it" : "";
+  $("google-client-secret").placeholder = s.google.secret_saved ? t("A secret is saved; type a new one to replace it") : "";
   $("google-add").classList.toggle("hidden", !s.google_accounts.length);
   const select = $("google-account");
   const current = select.value;
@@ -783,12 +793,12 @@ function renderGoogle() {
 async function loadDrives(account) {
   const select = $("google-drive");
   if (!ui.drives[account]) {
-    select.replaceChildren(el("option", { value: "" }, "Loading…"));
+    select.replaceChildren(el("option", { value: "" }, t("Loading…")));
     try {
       ui.drives[account] = await api("GET", `/api/google/drives?account=${encodeURIComponent(account)}`);
     } catch (err) {
-      select.replaceChildren(el("option", { value: "" }, "My Drive"));
-      $("google-status").textContent = err.message;
+      select.replaceChildren(el("option", { value: "" }, t("My Drive")));
+      $("google-status").textContent = tr(err.message);
       return;
     }
   }
@@ -805,11 +815,11 @@ async function connectGoogle() {
       client_secret: $("google-client-secret").value,
     });
   } catch (err) {
-    status.textContent = err.message;
+    status.textContent = tr(err.message);
     return;
   }
   $("google-client-secret").value = "";
-  status.textContent = "Finish in the browser window that just opened…";
+  status.textContent = t("Finish in the browser window that just opened…");
   const started = Date.now();
   while (Date.now() - started < 5 * 60 * 1000) {
     await new Promise((r) => setTimeout(r, 1500));
@@ -817,7 +827,7 @@ async function connectGoogle() {
     try {
       st = await api("GET", "/api/google/connect");
     } catch (err) {
-      status.textContent = err.message;
+      status.textContent = tr(err.message);
       return;
     }
     if (st.state === "pending") continue;
@@ -825,13 +835,13 @@ async function connectGoogle() {
       status.textContent = st.error;
       return;
     }
-    status.textContent = `Connected: ${st.account}`;
+    status.textContent = t("Connected: {0}", st.account);
     await reloadGoogle();
     $("google-account").value = st.account;
     loadDrives(st.account);
     return;
   }
-  status.textContent = "The connection was not completed.";
+  status.textContent = t("The connection was not completed.");
 }
 
 // reloadGoogle refreshes the accounts without losing the sources being edited.
@@ -844,13 +854,13 @@ async function reloadGoogle() {
 }
 
 async function disconnectGoogle(account) {
-  if (!confirm(`Disconnect ${account}? Probe forgets its Google token.`)) return;
+  if (!confirm(t("Disconnect {0}? Probe forgets its Google token.", account))) return;
   try {
     await api("DELETE", `/api/google/accounts/${encodeURIComponent(account)}`);
     delete ui.drives[account];
     await reloadGoogle();
   } catch (err) {
-    $("settings-error").textContent = err.message;
+    $("settings-error").textContent = tr(err.message);
   }
 }
 
@@ -866,7 +876,7 @@ async function addGoogleSource() {
       const f = await api("GET", `/api/google/folder?account=${encodeURIComponent(account)}&ref=${encodeURIComponent(ref)}`);
       Object.assign(src, { folder_id: f.id, folder_name: f.name, drive_id: f.drive_id, drive_name: f.drive_name });
     } catch (err) {
-      $("settings-error").textContent = err.message;
+      $("settings-error").textContent = tr(err.message);
       return;
     }
   }
@@ -882,9 +892,9 @@ function renderProvider() {
   document.querySelectorAll(".ai-only").forEach((n) => n.classList.toggle("hidden", !p));
   document.querySelectorAll(".openai-only").forEach((n) => n.classList.toggle("hidden", p !== "openai"));
   const s = ui.settings;
-  $("model").placeholder = p && s.default_models[p] ? `Default: ${s.default_models[p]}` : "";
+  $("model").placeholder = p && s.default_models[p] ? t("Default: {0}", s.default_models[p]) : "";
   const saved = p && s.keys[p];
-  $("api-key").placeholder = saved ? "A key is saved; type a new one to replace it" : p === "openai" ? "sk-… (optional for a local server)" : "sk-ant-…";
+  $("api-key").placeholder = saved ? t("A key is saved; type a new one to replace it") : p === "openai" ? t("sk-… (optional for a local server)") : "sk-ant-…";
   $("clear-key-label").classList.toggle("hidden", !saved);
 }
 
@@ -912,11 +922,16 @@ async function saveSettings() {
   try {
     ui.settings = await api("PUT", "/api/settings", body);
     $("settings").close();
+    // A new language needs the page in that language: reload it.
+    if (ui.settings.language && ui.settings.language !== I18N.lang) {
+      location.reload();
+      return;
+    }
     await refresh();
   } catch (err) {
     if (typed) ui.draftSources.pop();
     renderSources();
-    $("settings-error").textContent = err.message;
+    $("settings-error").textContent = tr(err.message);
   }
 }
 
@@ -925,7 +940,7 @@ async function saveSettings() {
 function setThreshold(value) {
   ui.threshold = Number(value) + 1;
   $("severity").value = String(ui.threshold - 1);
-  $("severity-value").textContent = SEVERITIES[ui.threshold - 1];
+  $("severity-value").textContent = label(SEVERITY_LABEL, SEVERITIES[ui.threshold - 1]);
   try { localStorage.setItem("probe.threshold", String(ui.threshold)); } catch (_) { /* optional */ }
 }
 
@@ -955,7 +970,7 @@ $("reset-filters").addEventListener("click", () => {
   setListOption("sort", "risk");
 });
 $("severity").addEventListener("input", (e) => { setThreshold(e.target.value); if (ui.state) renderList(); });
-$("scan").addEventListener("click", async () => { await api("POST", "/api/scan").catch((e) => alert(e.message)); setTimeout(refresh, 400); });
+$("scan").addEventListener("click", async () => { await api("POST", "/api/scan").catch((e) => alert(tr(e.message))); setTimeout(refresh, 400); });
 $("open-settings").addEventListener("click", openSettings);
 $("provider").addEventListener("change", renderProvider);
 $("save-settings").addEventListener("click", saveSettings);
@@ -968,13 +983,20 @@ $("google-connect").addEventListener("click", connectGoogle);
 $("google-account").addEventListener("change", (e) => loadDrives(e.target.value));
 $("add-google").addEventListener("click", addGoogleSource);
 
-setThreshold(Math.min(Math.max(ui.threshold - 1, 0), 3));
-renderFilters();
-refresh();
-// Poll faster while a scan runs, so the first results appear quickly.
-(function loop() {
-  setTimeout(async () => {
-    if (!document.hidden) await refresh();
-    loop();
-  }, ui.state && ui.state.scanning ? 1500 : 4000);
+// Start in the language of the settings, then poll: faster while a scan
+// runs, so the first results appear quickly.
+(async function start() {
+  try {
+    const st = await api("GET", "/api/state");
+    await loadLanguage(st.language);
+  } catch (_) { /* refresh reports the engine error */ }
+  setThreshold(Math.min(Math.max(ui.threshold - 1, 0), 3));
+  renderFilters();
+  refresh();
+  (function loop() {
+    setTimeout(async () => {
+      if (!document.hidden) await refresh();
+      loop();
+    }, ui.state && ui.state.scanning ? 1500 : 4000);
+  })();
 })();

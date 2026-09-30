@@ -4,12 +4,14 @@
 package tray
 
 import (
-	"fmt"
 	"runtime"
+	"sync"
 
 	"fyne.io/systray"
 
+	"github.com/gvinsot/Probe/desktop/internal/i18n"
 	"github.com/gvinsot/Probe/desktop/internal/icon"
+	"github.com/gvinsot/Probe/desktop/internal/msg"
 )
 
 // Actions are the engine operations the menu triggers.
@@ -20,12 +22,26 @@ type Actions struct {
 	AutoStart    func() bool
 	SetAutoStart func(bool) error
 	Quit         func()
+	// Language returns the language of the menu, from the settings.
+	Language func() string
 }
 
 // Tray is the running tray icon.
 type Tray struct {
+	mu       sync.Mutex
+	lang     string
+	items    []labelled
 	status   *systray.MenuItem
 	alerting bool
+	total    int
+	toReview int
+}
+
+// labelled is a menu item with its English title and tooltip, relabelled
+// when the language changes.
+type labelled struct {
+	item           *systray.MenuItem
+	title, tooltip string
 }
 
 // Run shows the icon and blocks until Quit. It must run on the main thread.
@@ -38,7 +54,10 @@ func Run(a Actions, ready func(*Tray)) {
 func Quit() { systray.Quit() }
 
 func setup(a Actions) *Tray {
-	t := &Tray{}
+	t := &Tray{lang: "en"}
+	if a.Language != nil {
+		t.lang = a.Language()
+	}
 	t.setIcon(false)
 	systray.SetTooltip("Probe Desktop")
 	if runtime.GOOS == "windows" {
@@ -47,15 +66,21 @@ func setup(a Actions) *Tray {
 		systray.SetOnTapped(a.Open)
 	}
 
-	open := systray.AddMenuItem("Open Probe Desktop", "Show the documents to review")
-	t.status = systray.AddMenuItem("Starting…", "")
+	add := func(item *systray.MenuItem, title, tooltip string) *systray.MenuItem {
+		t.items = append(t.items, labelled{item, title, tooltip})
+		item.SetTitle(i18n.T(t.lang, title))
+		item.SetTooltip(i18n.T(t.lang, tooltip))
+		return item
+	}
+	open := add(systray.AddMenuItem("", ""), msg.M("Open Probe Desktop"), msg.M("Show the documents to review"))
+	t.status = systray.AddMenuItem(i18n.T(t.lang, msg.M("Starting…")), "")
 	t.status.Disable()
 	systray.AddSeparator()
-	scan := systray.AddMenuItem("Scan now", "Look for modified documents now")
-	browser := systray.AddMenuItem("Open in the browser", "Show the interface in the default browser")
-	autostart := systray.AddMenuItemCheckbox("Start at login", "Start watching when you log in", a.AutoStart())
+	scan := add(systray.AddMenuItem("", ""), msg.M("Scan now"), msg.M("Look for modified documents now"))
+	browser := add(systray.AddMenuItem("", ""), msg.M("Open in the browser"), msg.M("Show the interface in the default browser"))
+	autostart := add(systray.AddMenuItemCheckbox("", "", a.AutoStart()), msg.M("Start at login"), msg.M("Start watching when you log in"))
 	systray.AddSeparator()
-	quit := systray.AddMenuItem("Quit", "Stop watching the documents")
+	quit := add(systray.AddMenuItem("", ""), msg.M("Quit"), msg.M("Stop watching the documents"))
 
 	go func() {
 		for {
@@ -86,18 +111,39 @@ func setup(a Actions) *Tray {
 	return t
 }
 
+// SetLanguage relabels the menu, after the settings changed.
+func (t *Tray) SetLanguage(lang string) {
+	t.mu.Lock()
+	if lang == t.lang {
+		t.mu.Unlock()
+		return
+	}
+	t.lang = lang
+	total, toReview := t.total, t.toReview
+	t.mu.Unlock()
+	for _, l := range t.items {
+		l.item.SetTitle(i18n.T(lang, l.title))
+		l.item.SetTooltip(i18n.T(lang, l.tooltip))
+	}
+	t.SetCounts(total, toReview)
+}
+
 // SetCounts updates the icon, the tooltip and the status line.
 func (t *Tray) SetCounts(total, toReview int) {
+	t.mu.Lock()
+	t.total, t.toReview = total, toReview
+	lang := t.lang
+	t.mu.Unlock()
 	var line string
 	switch {
 	case total == 0:
-		line = "No document watched"
+		line = i18n.T(lang, msg.M("No document watched"))
 	case toReview == 0:
-		line = fmt.Sprintf("%d documents · nothing to review", total)
+		line = i18n.Tf(lang, msg.M("%d documents · nothing to review"), total)
 	case toReview == 1:
-		line = fmt.Sprintf("%d documents · 1 to review", total)
+		line = i18n.Tf(lang, msg.M("%d documents · 1 to review"), total)
 	default:
-		line = fmt.Sprintf("%d documents · %d to review", total, toReview)
+		line = i18n.Tf(lang, msg.M("%d documents · %d to review"), total, toReview)
 	}
 	t.status.SetTitle(line)
 	systray.SetTooltip("Probe Desktop · " + line)
