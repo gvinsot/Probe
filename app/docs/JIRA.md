@@ -81,6 +81,7 @@ On success Probe prints `Jira: SHOP-123 "summary" joins the intent.` on standard
 
 ## See also
 
+- [Linear issues as review context](LINEAR.md): the same for Linear; `--jira` and `--linear` can be combined.
 - [Intent criteria and candidate-only intent tests](INTENT.md).
 - [Plans and scope drift](PLAN.md).
 - [CI integration](CI.md) and [security boundaries](SECURITY.md).

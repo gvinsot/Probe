@@ -39,7 +39,7 @@ Usage:
   probe review --read-only [--base main] [--ci]
   probe review [flags] BASE..HEAD
   probe plan --intent-file FILE [--base main] [--ci]
-  probe plan --jira PROJ-123 [--base main] [--ci]
+  probe plan --jira PROJ-123 | --linear ENG-123 [--base main] [--ci]
   probe review --plan .probe/PLAN.json [flags]
   probe knowledge build [--base main] [--focus TEXT]
   probe knowledge apply [--from .probe/knowledge-updates.json]
@@ -63,9 +63,10 @@ Review --read-only inspects the diff with the deployment's LLM, without Docker
 or code execution. Its suspicions stay unverified; execution flags are refused.
 Plan asks the provider for an implementation plan (read-only, nothing runs) and
 evaluates it with fixed rules; review or lint --plan check the diff against it.
---jira KEY (or --jira auto: the key in the branch name or commit messages)
-adds that Jira issue to the intent of review, lint and plan; configure the site
-with PROBE_JIRA_URL and PROBE_JIRA_EMAIL/PROBE_JIRA_TOKEN.
+--jira KEY and --linear KEY (or auto: the key in the branch name or commit
+messages) add that Jira or Linear issue to the intent of review, lint and plan;
+configure PROBE_JIRA_URL and PROBE_JIRA_EMAIL/PROBE_JIRA_TOKEN, or
+PROBE_LINEAR_API_KEY.
 The codebase knowledge base (PROBE_KNOWLEDGE.md, editable Markdown) is read at
 the tip of the base branch and given to the reviewer, which proposes updates in
 .probe/knowledge-updates.json; knowledge build proposes entries from a
@@ -185,7 +186,7 @@ func analyze(ctx context.Context, mode string, args []string, out, errOut io.Wri
 	maxIterations := f.Int("max-iterations", 0, "override LLM iteration budget (1..100)")
 	intent := f.String("intent", "", "PR intent or acceptance criteria")
 	intentFile := f.String("intent-file", "", "UTF-8 file containing PR intent")
-	jiraIssue := addJiraFlag(f)
+	issues := addIssueFlags(f)
 	rules := f.String("rules", "", "review: team coding rules the reviewer checks the changed code against")
 	rulesFile := f.String("rules-file", "", "review: UTF-8 file containing team coding rules")
 	contextOptions := addContextFlags(f)
@@ -259,7 +260,7 @@ func analyze(ctx context.Context, mode string, args []string, out, errOut io.Wri
 	if len(*intent) > maxIntentBytes {
 		return fail(errOut, 3, "intent exceeds 64 KiB")
 	}
-	if err := checkJiraFlag(*jiraIssue); err != nil {
+	if err := issues.check(); err != nil {
 		return fail(errOut, 3, "%v", err)
 	}
 	codingRules, err := loadCodingRules(*rules, *rulesFile)
@@ -294,9 +295,9 @@ func analyze(ctx context.Context, mode string, args []string, out, errOut io.Wri
 	if err != nil {
 		return fail(errOut, 3, "%v", err)
 	}
-	if *jiraIssue != "" {
-		text, err := jiraIntent(ctx, errOut, *jiraIssue, *intent, func() []string {
-			return jiraKeySources(ctx, repo, change.HeadRef, change.BaseCommit, change.HeadCommit)
+	if issues.any() {
+		text, err := issueIntent(ctx, errOut, issues, *intent, func() []string {
+			return issueKeySources(ctx, repo, change.HeadRef, change.BaseCommit, change.HeadCommit)
 		})
 		if err != nil {
 			return fail(errOut, 3, "%v", err)

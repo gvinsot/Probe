@@ -22,7 +22,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"io/fs"
 	"net/http"
 	"net/url"
 	"regexp"
@@ -30,6 +29,8 @@ import (
 	"strings"
 	"time"
 	"unicode/utf8"
+
+	"github.com/gvinsot/Probe/app/internal/issuetext"
 )
 
 // Environment variables read by FromEnv.
@@ -39,8 +40,6 @@ const (
 	TokenEnv             = "PROBE_JIRA_TOKEN"
 	CriteriaFieldEnv     = "PROBE_JIRA_CRITERIA_FIELD"
 	AllowInsecureHTTPEnv = "PROBE_JIRA_ALLOW_INSECURE_HTTP"
-	secretsDir           = "/run/secrets"
-	fileEnvSuffix        = "_FILE"
 )
 
 // Auto is the --jira value that detects the issue key from the branch name
@@ -50,7 +49,6 @@ const Auto = "auto"
 // Limits of one fetch.
 const (
 	maxResponseBytes = 4 << 20
-	maxSecretBytes   = 8192
 	defaultTimeout   = 30 * time.Second
 )
 
@@ -146,49 +144,15 @@ func FromEnv(getenv func(string) string, readFile func(string) ([]byte, error)) 
 	if strings.ContainsAny(c.Email, "\r\n\x00:") {
 		return Config{}, fmt.Errorf("%s must be a single-line account without ':'", EmailEnv)
 	}
-	if token := getenv(TokenEnv); token != "" {
-		if strings.ContainsAny(strings.TrimSpace(token), "\r\n\x00") {
-			return Config{}, fmt.Errorf("%s must be a single line", TokenEnv)
-		}
-		c.Token, c.TokenSource = strings.TrimSpace(token), TokenEnv
-	} else {
-		file, explicit := strings.TrimSpace(getenv(TokenEnv+fileEnvSuffix)), true
-		if file == "" {
-			file, explicit = secretsDir+"/"+TokenEnv, false
-		}
-		token, err := readSecret(file, readFile)
-		switch {
-		case err == nil:
-			c.Token, c.TokenSource = token, file
-		case explicit || !errors.Is(err, fs.ErrNotExist):
-			return Config{}, fmt.Errorf("Jira token secret %s: %w", file, err)
-		}
+	token, source, err := issuetext.Secret(TokenEnv, getenv, readFile)
+	if err != nil {
+		return Config{}, fmt.Errorf("Jira token: %w", err)
 	}
+	c.Token, c.TokenSource = token, source
 	if c.Email != "" && c.Token == "" {
 		return Config{}, fmt.Errorf("%s is set but no %s is available", EmailEnv, TokenEnv)
 	}
 	return c, nil
-}
-
-func readSecret(file string, readFile func(string) ([]byte, error)) (string, error) {
-	if readFile == nil {
-		return "", fs.ErrNotExist
-	}
-	data, err := readFile(file)
-	if err != nil {
-		return "", err
-	}
-	if len(data) > maxSecretBytes {
-		return "", errors.New("secret exceeds 8 KiB")
-	}
-	token := strings.TrimSpace(string(data))
-	if token == "" {
-		return "", errors.New("secret is empty")
-	}
-	if strings.ContainsAny(token, "\r\n\x00") {
-		return "", errors.New("secret must be a single line")
-	}
-	return token, nil
 }
 
 // Issue is the part of a Jira issue that describes the intended change.
@@ -396,7 +360,7 @@ func (i Issue) Intent() string {
 		// Description headings nest under "Description"; with a configured
 		// criteria field, the description's own criteria headings are renamed
 		// so that only the field supplies criteria.
-		d = nestHeadings(d, i.Criteria != "")
+		d = issuetext.NestHeadings(d, i.Criteria != "")
 		b.WriteString("\n## Description\n\n" + d + "\n")
 	}
 	if c := strings.TrimSpace(i.Criteria); c != "" {
@@ -405,43 +369,4 @@ func (i Issue) Intent() string {
 	return b.String()
 }
 
-var headingLine = regexp.MustCompile(`^ {0,3}(#{1,6})([ \t].*|)$`)
-
-// nestHeadings moves every ATX heading of s two levels down (at most level
-// 6) and, with rename, turns "acceptance criteria" / "acceptance criterion"
-// in a heading into "criteria" / "criterion". Fenced code is left alone.
-func nestHeadings(s string, rename bool) string {
-	lines := strings.Split(s, "\n")
-	fenced := ""
-	for n, line := range lines {
-		trimmed := strings.TrimLeft(line, " ")
-		if fenced != "" {
-			if strings.HasPrefix(trimmed, fenced) {
-				fenced = ""
-			}
-			continue
-		}
-		if strings.HasPrefix(trimmed, "```") || strings.HasPrefix(trimmed, "~~~") {
-			fenced = trimmed[:3]
-			continue
-		}
-		m := headingLine.FindStringSubmatch(line)
-		if m == nil {
-			continue
-		}
-		level := len(m[1]) + 2
-		if level > 6 {
-			level = 6
-		}
-		title := m[2]
-		if rename {
-			title = acceptanceWord.ReplaceAllString(title, "$1")
-		}
-		lines[n] = strings.Repeat("#", level) + title
-	}
-	return strings.Join(lines, "\n")
-}
-
-var acceptanceWord = regexp.MustCompile(`(?i)acceptance\s+(criteri)`)
-
-func oneLine(s string) string { return strings.Join(strings.Fields(s), " ") }
+func oneLine(s string) string { return issuetext.OneLine(s) }

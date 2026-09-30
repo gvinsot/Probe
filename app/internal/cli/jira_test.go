@@ -114,11 +114,11 @@ func TestJiraErrorsExit3(t *testing.T) {
 
 func TestFitJiraIntent(t *testing.T) {
 	text := strings.Repeat("é", 100)
-	got := fitJiraIntent(text, 120)
-	if len(got) > 120 || !strings.HasSuffix(got, jiraTruncated) || !strings.HasPrefix(got, "é") {
+	got := fitIssueIntent(text, 120, "Jira")
+	if len(got) > 120 || !strings.HasSuffix(got, issueTruncated("Jira")) || !strings.HasPrefix(got, "é") {
 		t.Fatalf("%q", got)
 	}
-	if fitJiraIntent(text, 10) != "" || fitJiraIntent("short", 10) != "short" {
+	if fitIssueIntent(text, 10, "Jira") != "" || fitIssueIntent("short", 10, "Jira") != "short" {
 		t.Fatal("limits")
 	}
 }
