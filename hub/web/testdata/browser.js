@@ -347,6 +347,7 @@ window.addEventListener('DOMContentLoaded', async () => {
     await settle();
     assert(commitActions.classList.contains('hidden') && !document.getElementById('run-analysis'), 'an analyzed commit shows its report only');
     assert(!document.getElementById('filters').classList.contains('hidden'), 'cached report shown on commit click');
+    assert(document.getElementById('filters').firstElementChild.textContent === 'Details' && document.getElementById('filters').firstElementChild.nextElementSibling.querySelector('#kinds'), 'a Details title precedes the alert filters');
     const commitLine = document.querySelector('#report-head .report-commit-line');
     assert(commitLine.querySelector('#selected-commit') && commitLine.querySelector('a').textContent === 'Open the commit', 'Open the commit beside the commit title');
     assert(!document.getElementById('report-head').textContent.includes('never approves'), 'no disclaimer line');
