@@ -1278,7 +1278,7 @@ function openLanguageDialog() {
 // endpoint. A token is shown once, right after it is created.
 async function openAgentDialog() {
   closeModal();
-  el('modal-title').textContent = 'Agent access (MCP)';
+  el('modal-title').textContent = 'MCP';
   const body = el('modal-body');
   body.textContent = '';
   const intro = document.createElement('p');
@@ -1449,7 +1449,7 @@ function closeModal() {
 function openActivityDialog() {
   closeModal();
   activityOpen = true;
-  el('modal-title').textContent = 'Analyses · last 48 hours';
+  el('modal-title').textContent = 'Jobs queue · last 48 hours';
   el('modal-body').textContent = '';
   const note = document.createElement('p');
   note.className = 'note';

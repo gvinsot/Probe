@@ -114,7 +114,7 @@ func (s *Server) handleMCP(w http.ResponseWriter, r *http.Request) {
 	token, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
 	if !ok {
 		w.Header().Set("WWW-Authenticate", `Bearer realm="probe-hub"`)
-		writeError(w, http.StatusUnauthorized, "create an agent token in the hub (Agent access) and send it as Authorization: Bearer")
+		writeError(w, http.StatusUnauthorized, "create an agent token in the hub (Settings → MCP) and send it as Authorization: Bearer")
 		return
 	}
 	principal, err := s.authenticateAgent(strings.TrimSpace(token), time.Now())

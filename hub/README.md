@@ -450,7 +450,7 @@ directly: find a repository, trigger a review, wait for it, read the
 findings, give feedback on them, rerun an analysis, and manage the review
 context (coding rules, learning from feedback).
 
-**Connect.** In the dashboard, open **Settings → Agent access**, name a token, pick its
+**Connect.** In the dashboard, open **Settings → MCP**, name a token, pick its
 scope and lifetime, and copy it: it is shown once. Then:
 
 ```sh
@@ -521,7 +521,7 @@ The CLI then receives an agent token of scope `llm` (90 days), stored in its
 user configuration directory, readable by the user only. A new login from
 the same machine replaces its previous token. The CLI uses the gateway only
 when no provider endpoint or key is configured: a deployment's own provider
-always wins. For CI, create an **LLM gateway** token under **Settings → Agent access**
+always wins. For CI, create an **LLM gateway** token under **Settings → MCP**
 and set `PROBE_HUB_TOKEN` (and `PROBE_HUB_URL` for another hub) as secrets.
 
 **What the gateway enforces.** No secret ships in the CLI: every request is
@@ -533,7 +533,7 @@ completion length, relays only the fields of a chat completion (`messages`,
 bounds a request to 4 MiB. Each account has a per-minute rate, at most 4
 requests in flight and a daily token quota, counted from the provider's
 `usage` (or estimated when the provider reports none); the dashboard shows
-the day's consumption under **Agent access**. Tokens are revoked like any
+the day's consumption under **Settings → MCP**. Tokens are revoked like any
 agent token, from the dashboard or with `probe logout`. The source context
 the CLI sends reaches the hub and its provider, as the hub's own read-only
 reviews do. Pending logins live in memory for ten minutes: the shipped stack
@@ -588,7 +588,7 @@ for both variants and a dashboard interaction test. The latter uses an installed
 its API fixtures need no forge or model credentials.
 
 The **Settings** menu of the top bar gathers the
-account-wide dialogs: **Analyses**, **Agent access** and **Language**.
+account-wide dialogs: **Jobs queue**, **MCP** and **Language**.
 
 **Language** chooses the language the AI reviewer writes this account's reports
 in (findings, the AI report and plans), among the languages `/api/me` lists in
@@ -598,7 +598,7 @@ or plan in which the AI reviewer runs; English, the default, passes nothing.
 It applies to analyses queued afterwards: earlier reports keep their language
 until rerun. Probe's own labels, verdicts and check results stay in English.
 
-**Settings → Analyses** opens the account's
+**Settings → Jobs queue** opens the account's
 queued and running analyses and completed/failed attempts from the last 48
 hours. Each rerun is listed separately, including plan analyses, with timestamps
 and failure details. The modal refreshes on live updates and every five seconds.
