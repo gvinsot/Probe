@@ -245,6 +245,29 @@ type Report struct {
 	ReviewerSummary   string             `json:"reviewer_summary,omitempty"`
 	// PRSummary is the model-written pull request summary, never evidence.
 	PRSummary *PRSummary `json:"pr_summary,omitempty"`
+	// Audit is read only for why the CLI wrote no PR summary.
+	Audit []AuditEvent `json:"audit"`
+}
+
+// AuditEvent is the part of a CLI audit event the hub reads.
+type AuditEvent struct {
+	Tool      string `json:"tool"`
+	Arguments string `json:"arguments"`
+	Status    string `json:"status"`
+}
+
+// prSummaryError is why the CLI wrote no PR summary, from its audit; empty
+// when it wrote one or did not try.
+func (r *Report) prSummaryError() string {
+	if r.PRSummary != nil {
+		return ""
+	}
+	for _, e := range r.Audit {
+		if e.Tool == "pr_summary" && e.Status == "ERROR" {
+			return e.Arguments
+		}
+	}
+	return ""
 }
 
 // PRSummary is the CLI's pr_summary, passed through to the dashboard. Its
@@ -472,6 +495,8 @@ type View struct {
 	ReviewerSummary string `json:"reviewer_summary,omitempty"`
 	// PRSummary is the model-written pull request summary, never evidence.
 	PRSummary *PRSummary `json:"pr_summary,omitempty"`
+	// PRSummaryError is why the CLI wrote no PR summary, when it tried.
+	PRSummaryError string `json:"pr_summary_error,omitempty"`
 }
 
 // Summarize computes the compact result without building the full view.
@@ -888,6 +913,7 @@ func (r *Report) BuildView() View {
 		SeverityLevels:  Levels,
 		ReviewerSummary: strings.TrimSpace(r.ReviewerSummary),
 		PRSummary:       r.PRSummary,
+		PRSummaryError:  r.prSummaryError(),
 	}
 	v.Alerts, v.Dismissed = r.alertLists()
 	if v.Dismissed == nil {

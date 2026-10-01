@@ -55,6 +55,9 @@ const state = {
   settled: new Map(),
   loadID: 0,
   reportID: 0,
+  // pendingKey of the selected commit when its stored report could not be
+  // loaded, so "Run analysis" stays offered to replace it.
+  unreadable: null,
   // Team feedback on the findings of the open report: { commit, learning, entries }.
   feedback: null,
   replyTo: null,
@@ -908,11 +911,14 @@ function renderRated(holder, s) {
     }
     const li = document.createElement('li');
     li.className = 'rated ' + severityClass(item.severity);
-    const level = dotChip(item.severity || 'unrated', item.severity);
-    level.title = rated.title;
     const text = document.createElement('span');
     text.textContent = item.text;
-    li.append(level, text, summaryCitations(li, item.refs, rated.alerts(item)));
+    if (item.severity) {
+      const level = dotChip(item.severity, item.severity);
+      level.title = rated.title;
+      li.append(level);
+    }
+    li.append(text, summaryCitations(li, item.refs, rated.alerts(item)));
     list.appendChild(li);
   }
   if (list.children.length) holder.appendChild(list);
@@ -1109,9 +1115,9 @@ function prSummaryMarkdown(s) {
   list('Risks', (s.risks || []).map((r) => {
     const alerts = (r.hypothesis_ids || []).map((id) => findAlert('issue:' + id)).concat((r.signal_ids || []).map((id) => findAlert('signal:' + id))).filter(Boolean);
     const where = (r.refs || []).map(refText).concat([...new Set(alerts)].map((a) => (a.title || a.id) + ' — ' + alertLocation(a) + ' (' + (a.status ? a.status.toLowerCase() + ' ' : '') + a.kind + ')'));
-    return '**' + (r.severity || 'unrated') + '** ' + r.text + (where.length ? ' — ' + where.join(', ') : '');
+    return (r.severity ? '**' + r.severity + '** ' : '') + r.text + (where.length ? ' — ' + where.join(', ') : '');
   }));
-  list('Where to look first', (s.review_focus || []).map((f) => '**' + (f.severity || 'unrated') + '** ' + f.text + cites(f.refs)));
+  list('Where to look first', (s.review_focus || []).map((f) => (f.severity ? '**' + f.severity + '** ' : '') + f.text + cites(f.refs)));
   lines.push('', '## Testing', '');
   for (const item of points(s.testing)) lines.push('- ' + item);
   if (s.testing && s.testing.length) lines.push('');
@@ -1713,14 +1719,15 @@ function renderGraph() {
 }
 
 // renderCommitActions offers "Run analysis" while the selected commit has no
-// analysis result; once one exists, the report below is the whole view.
+// readable analysis result; once one exists, the report below is the whole view.
 function renderCommitActions() {
   const repo = state.repos.get(state.repoKey);
   const holder = el('commit-actions');
   holder.textContent = '';
   if (!repo || !state.commit) return;
   const run = displayedRun(state.commit, 'normal');
-  const available = run && !isPending(run) && !['failed', 'cancelled'].includes(run.status);
+  const available = run && !isPending(run) && !['failed', 'cancelled'].includes(run.status)
+    && state.unreadable !== pendingKey(state.repoKey, state.commit, 'normal');
   holder.classList.toggle('hidden', Boolean(available));
   if (available) return;
   const launch = button(!run || !isPending(run) ? 'Run analysis' : run.status === 'running' ? 'Analysis running…' : 'Analysis queued…', 'btn', () => analyzeCommit());
@@ -1781,7 +1788,7 @@ function renderReportCommit(repo, run) {
 }
 
 function clearReport(repo) {
-  state.view = null; state.run = null; state.feedback = null; state.replyTo = null;
+  state.view = null; state.run = null; state.feedback = null; state.replyTo = null; state.unreadable = null;
   el('report-head').textContent = '';
   const title = document.createElement('h2'); title.id = 'report-repo'; title.textContent = repo?.full_name || 'Select a repository';
   el('report-head').appendChild(title);
@@ -1814,6 +1821,8 @@ async function loadReport() {
   } catch (err) {
     if (reportID !== state.reportID || repo.key !== state.repoKey || commit !== state.commit) return;
     el('report-empty').textContent = run.error || err.message;
+    state.unreadable = pendingKey(repo.key, commit, 'normal');
+    renderCommitActions();
   }
 }
 
@@ -1870,6 +1879,12 @@ function renderReport() {
   }
 
   if (view.pr_summary) head.appendChild(renderPRSummary(view.pr_summary));
+  else if (view.pr_summary_error) {
+    const missing = document.createElement('p');
+    missing.className = 'report-sub';
+    missing.textContent = 'AI report not written: ' + view.pr_summary_error + '. The alerts below are complete.';
+    head.appendChild(missing);
+  }
 
   if (view.reviewer_summary) {
     const summary = document.createElement('div');

@@ -44,3 +44,17 @@ func TestAlertsCarryTheirArea(t *testing.T) {
 		}
 	}
 }
+
+func TestViewSaysWhyThereIsNoPRSummary(t *testing.T) {
+	r, err := Decode([]byte(`{"version":1,"change":{"files":[]},"audit":[{"time":"2026-10-01T00:00:00Z","tool":"pr_summary_completion","arguments":"iteration=1","status":"OK","duration_ms":1},{"time":"2026-10-01T00:00:00Z","tool":"pr_summary","arguments":"the change is too large for the reviewer input budget","status":"ERROR","duration_ms":0}]}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := r.BuildView().PRSummaryError; got != "the change is too large for the reviewer input budget" {
+		t.Fatalf("pr_summary_error %q", got)
+	}
+	plain, _ := Decode([]byte(`{"version":1,"change":{"files":[]},"audit":[]}`))
+	if plain.BuildView().PRSummaryError != "" {
+		t.Fatal("an error appeared from nowhere")
+	}
+}

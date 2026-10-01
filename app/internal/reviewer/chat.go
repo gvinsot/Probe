@@ -2,6 +2,7 @@ package reviewer
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -29,6 +30,7 @@ type chat struct {
 	endpoint  string
 	transport *http.Transport
 	client    *http.Client
+	maxTokens int // max_completion_tokens; 0: 4096
 }
 
 // newChat builds the session's client. The response-header wait is the whole
@@ -119,7 +121,7 @@ func (c *chat) complete(ctx context.Context, messages []message, tools []map[str
 		Tools               []map[string]any `json:"tools,omitempty"`
 		MaxCompletionTokens int              `json:"max_completion_tokens"`
 		ParallelToolCalls   *bool            `json:"parallel_tool_calls,omitempty"`
-	}{c.o.Model, messages, tools, 4096, parallel})
+	}{c.o.Model, messages, tools, cmp.Or(c.maxTokens, 4096), parallel})
 	if err != nil {
 		return completionChoice{}, model.AuditEvent{}, err
 	}

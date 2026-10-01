@@ -15,6 +15,7 @@ import (
 	"fmt"
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
 	"unicode"
 
@@ -34,6 +35,8 @@ const (
 	maxSummaryQuote    = 300 // bytes, after collapsing whitespace
 	minSummaryQuote    = 8
 	maxSummaryMisses   = 10
+	summaryMaxTokens   = 8192     // the structured answer, with its quotes, outgrows the reviewer's 4096
+	summaryReserve     = 8 * 1024 // room left in the request beyond the prompt and the payload
 	maxSummaryItems    = 8
 	maxSummaryItem     = 400
 	maxSummaryTesting  = 4
@@ -106,19 +109,32 @@ func Summarize(ctx context.Context, o Options, r *model.Report, in SummaryInput)
 			known.located = append(known.located, located{h.Path, h.Line, h.Line, "", h.Severity})
 		}
 	}
-	// A valid answer whose citations did not all check out gets one
-	// correction; it is kept if the correction fails.
+	// The answer is repaired before it is judged (parseSummary). A valid
+	// answer whose citations did not all check out, or that the token limit
+	// cut off, gets one correction and is kept if the correction fails; an
+	// invalid one gets one correction too.
+	c.maxTokens = summaryMaxTokens
 	var events []model.AuditEvent
 	var best *model.PRSummary
+	problem := "the provider did not return a valid summary"
 	for attempt := 0; attempt < summaryAttempts; attempt++ {
 		choice, event, err := c.complete(ctx, messages, nil, attempt)
-		if errors.Is(err, errInputBudget) && best == nil {
+		if errors.Is(err, errInputBudget) && len(messages) > 3 {
+			// The correction does not fit with the previous answer: it is
+			// sent alone, after the original request.
+			messages = []message{messages[0], messages[1], messages[len(messages)-1]}
+			choice, event, err = c.complete(ctx, messages, nil, attempt)
+		}
+		if errors.Is(err, errInputBudget) {
+			if best != nil {
+				return best, events, nil
+			}
 			return nil, events, errors.New("the change is too large for the reviewer input budget")
 		}
 		event.Tool = "pr_summary_completion"
 		events = append(events, event)
-		if err == nil && (choice.FinishReason == "length" || choice.FinishReason == "content_filter") {
-			err = errors.New("the summary was truncated or filtered by the provider")
+		if err == nil && choice.FinishReason == "content_filter" {
+			err = errors.New("the summary was filtered by the provider")
 		}
 		if err != nil {
 			if best != nil {
@@ -126,22 +142,31 @@ func Summarize(ctx context.Context, o Options, r *model.Report, in SummaryInput)
 			}
 			return nil, events, err
 		}
-		summary, misses, problem := parseSummary(choice.Message.Content, known)
-		correction := "That answer was rejected: " + problem + ". Answer again with only the JSON object described."
-		if problem == "" {
+		truncated := choice.FinishReason == "length"
+		summary, misses, rejected := parseSummary(choice.Message.Content, known)
+		if rejected == "" {
 			summary.Model = o.Model
-			if len(misses) == 0 || attempt == summaryAttempts-1 {
+			if (len(misses) == 0 && !truncated) || attempt == summaryAttempts-1 {
 				return summary, events, nil
 			}
 			best = summary
-			correction = "Some citations did not match the diff and were dropped:\n- " + strings.Join(limit(misses, maxSummaryMisses), "\n- ") + "\nAnswer again with the complete JSON object: copy each quote verbatim from the cited hunk lines, or remove the citation and any statement that relied on it."
+		} else {
+			problem = rejected
 		}
-		messages = append(messages, message{Role: "assistant", Content: choice.Message.Content}, message{Role: "user", Content: correction})
+		switch {
+		case truncated:
+			// The cut-off answer is not sent back: it would only take room.
+			messages = append(messages[:2:2], message{Role: "user", Content: "Your answer was cut off by the length limit. Answer again with the complete JSON object, shorter: fewer and shorter statements and quotes."})
+		case rejected != "":
+			messages = append(messages, message{Role: "assistant", Content: choice.Message.Content}, message{Role: "user", Content: "That answer was rejected: " + rejected + ". Answer again with only the JSON object described, as valid JSON."})
+		default:
+			messages = append(messages, message{Role: "assistant", Content: choice.Message.Content}, message{Role: "user", Content: "Some citations did not match the diff and were dropped:\n- " + strings.Join(limit(misses, maxSummaryMisses), "\n- ") + "\nAnswer again with the complete JSON object: copy each quote verbatim from the cited hunk lines, or remove the citation and any statement that relied on it."})
+		}
 	}
 	if best != nil {
 		return best, events, nil
 	}
-	return nil, events, errors.New("the provider did not return a valid summary")
+	return nil, events, errors.New(problem)
 }
 
 // summaryPayload builds the input: the change (hunks omitted when they would
@@ -230,7 +255,13 @@ func summaryPayload(r *model.Report, in SummaryInput, budget int) ([]byte, error
 	if err != nil {
 		return nil, err
 	}
-	if len(data) > budget/2 {
+	// The payload travels as a JSON string inside the request, where quotes
+	// and backslashes are escaped again: its size is measured that way.
+	escaped, err := json.Marshal(string(data))
+	if err != nil {
+		return nil, err
+	}
+	if len(escaped)+len(summaryPrompt)+summaryReserve > budget {
 		input.Change.Files = make([]model.ChangedFile, len(r.Change.Files))
 		for i, f := range r.Change.Files {
 			f.Hunks = nil
@@ -310,6 +341,48 @@ type rawRef struct {
 	EndLine   int    `json:"end_line"`
 	Side      string `json:"side"`
 	Quote     string `json:"quote"`
+}
+
+// UnmarshalJSON reads a ref leniently: line numbers may be numbers or
+// numeric strings, and a ref may be written as a string "path", "path:12" or
+// "path:12-14". What it cannot read becomes a ref to the whole file or no
+// ref, never an error that would reject the whole answer.
+func (r *rawRef) UnmarshalJSON(data []byte) error {
+	var text string
+	if json.Unmarshal(data, &text) == nil {
+		path, lines, found := strings.Cut(strings.TrimSpace(text), ":")
+		*r = rawRef{Path: path}
+		if found {
+			start, end, _ := strings.Cut(lines, "-")
+			r.StartLine, r.EndLine = lineNumber(start), lineNumber(end)
+		}
+		return nil
+	}
+	var aux struct {
+		Path      string          `json:"path"`
+		StartLine json.RawMessage `json:"start_line"`
+		EndLine   json.RawMessage `json:"end_line"`
+		Side      string          `json:"side"`
+		Quote     string          `json:"quote"`
+	}
+	if json.Unmarshal(data, &aux) != nil {
+		*r = rawRef{}
+		return nil
+	}
+	*r = rawRef{Path: aux.Path, StartLine: lineNumber(string(aux.StartLine)), EndLine: lineNumber(string(aux.EndLine)), Side: aux.Side, Quote: aux.Quote}
+	return nil
+}
+
+// lineNumber reads 12, "12", "L12" or 12.0; anything else is 0.
+func lineNumber(s string) int {
+	s = strings.TrimPrefix(strings.Trim(strings.TrimSpace(s), `"`), "L")
+	if n, err := strconv.Atoi(s); err == nil && n > 0 {
+		return n
+	}
+	if f, err := strconv.ParseFloat(s, 64); err == nil && f >= 1 && f < 1e9 {
+		return int(f)
+	}
+	return 0
 }
 
 // rawPoint is a statement and the code it cites, as the model wrote it.
@@ -519,15 +592,6 @@ func ids(in []string, valid map[string]bool) []string {
 // hypotheses.
 func parseSummary(content string, known summaryRefs) (*model.PRSummary, []string, string) {
 	known.misses, known.rejected = nil, 0
-	text := strings.TrimSpace(content)
-	if strings.HasPrefix(text, "```") {
-		text = strings.TrimPrefix(strings.TrimPrefix(text, "```json"), "```")
-		text = strings.TrimSuffix(strings.TrimSpace(text), "```")
-	}
-	start, end := strings.Index(text, "{"), strings.LastIndex(text, "}")
-	if start < 0 || end < start {
-		return nil, nil, "no JSON object"
-	}
 	var raw struct {
 		Title    string `json:"title"`
 		Overview string `json:"overview"`
@@ -549,8 +613,29 @@ func parseSummary(content string, known summaryRefs) (*model.PRSummary, []string
 		ReviewFocus []rawPoint `json:"review_focus"`
 		Testing     []rawPoint `json:"testing"`
 	}
-	if err := json.Unmarshal([]byte(text[start:end+1]), &raw); err != nil {
-		return nil, nil, "the JSON object does not match the fields described"
+	// The first object that parses once repaired is the answer: prose
+	// around it may hold braces of its own.
+	parsed, found := false, false
+	var decodeErr error
+	for i, tries := strings.IndexByte(content, '{'), 0; i >= 0 && tries < 5; tries++ {
+		if object, ok := repairJSON(content[i:]); ok {
+			found = true
+			if decodeErr = json.Unmarshal([]byte(object), &raw); decodeErr == nil {
+				parsed = true
+				break
+			}
+		}
+		next := strings.IndexByte(content[i+1:], '{')
+		if next < 0 {
+			break
+		}
+		i += 1 + next
+	}
+	if !parsed {
+		if !found || decodeErr == nil {
+			return nil, nil, "no JSON object"
+		}
+		return nil, nil, "the JSON object does not parse (" + redact.TruncateUTF8(decodeErr.Error(), 200) + ")"
 	}
 	s := &model.PRSummary{
 		Title:    oneLineBounded(raw.Title, maxSummaryTitle),

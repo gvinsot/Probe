@@ -3,6 +3,8 @@ package reviewer
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"reflect"
@@ -246,5 +248,97 @@ func TestSummaryQuotesAnchorRefs(t *testing.T) {
 		if ok == c.rejected || got != c.want || (known.rejected == 1) != c.rejected || len(known.misses) != known.rejected {
 			t.Errorf("ref(%+v) = %+v %v (rejected %d, misses %v), want %+v rejected %v", c.in, got, ok, known.rejected, known.misses, c.want, c.rejected)
 		}
+	}
+}
+
+// finishProvider answers with the given contents and finish reasons in turn,
+// and records the size and messages of each request.
+func finishProvider(t *testing.T, answers ...[2]string) (string, *[]map[string]any, *[]int) {
+	t.Helper()
+	var mu sync.Mutex
+	var requests []map[string]any
+	var sizes []int
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		data, _ := io.ReadAll(r.Body)
+		var body map[string]any
+		_ = json.Unmarshal(data, &body)
+		mu.Lock()
+		requests = append(requests, body)
+		sizes = append(sizes, len(data))
+		n := len(requests)
+		mu.Unlock()
+		answer := answers[min(n, len(answers))-1]
+		m := message{Role: "assistant", Content: answer[0]}
+		_ = json.NewEncoder(w).Encode(map[string]any{"choices": []any{map[string]any{"message": m, "finish_reason": answer[1]}}})
+	}))
+	t.Cleanup(server.Close)
+	return server.URL + "/v1", &requests, &sizes
+}
+
+func TestSummarizeRepairsTheAnswerBeforeCorrecting(t *testing.T) {
+	// Code quoted with a backslash JSON does not allow, a raw newline, a
+	// trailing comma, line numbers as strings and a ref as a string: all
+	// repaired, so no correction is asked.
+	answer := "Sure:\n```json\n{\"title\":\"Allow every user\",\"overview\":\"Line one\nline two\",\"changes\":[{\"area\":\"Simplify the admin check\",\"summary\":\"No role test.\",\"refs\":[\"auth.go:2-3\"],\"signal_ids\":[],\"hypothesis_ids\":[],}],\"risks\":[{\"text\":\"Every user passes\",\"severity\":\"high\",\"refs\":[{\"path\":\"auth.go\",\"start_line\":\"3\",\"quote\":\"return true\"}]}],\"review_focus\":[{\"text\":\"The \\_ check\",\"severity\":\"low\",\"refs\":[{\"path\":\"auth.go\",\"start_line\":\"L3\",\"quote\":\"return true\"}]}],\"testing\":[]}\n```"
+	endpoint, requests, _ := finishProvider(t, [2]string{answer, "stop"})
+	s, events, err := Summarize(context.Background(), Options{Endpoint: endpoint, Model: "m"}, summaryReport(), SummaryInput{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(*requests) != 1 || len(events) != 1 {
+		t.Fatalf("%d requests for a repairable answer", len(*requests))
+	}
+	if s.Overview != "Line one\nline two" || s.ReviewFocus[0].Text != `The \_ check` {
+		t.Fatalf("summary %+v", s)
+	}
+	if want := []model.CodeRef{{Path: "auth.go", StartLine: 2, EndLine: 3}}; !reflect.DeepEqual(s.Changes[0].Refs, want) {
+		t.Fatalf("string ref %+v", s.Changes[0].Refs)
+	}
+	if s.Risks[0].Refs[0].StartLine != 3 || s.Risks[0].Refs[0].Quote != "return true" {
+		t.Fatalf("string line %+v", s.Risks[0].Refs)
+	}
+	if got := (*requests)[0]["max_completion_tokens"]; got != float64(summaryMaxTokens) {
+		t.Fatalf("max_completion_tokens %v", got)
+	}
+}
+
+func TestSummarizeSalvagesACutOffAnswer(t *testing.T) {
+	// Cut off in its second risk: the first answer is repaired and kept,
+	// the model is asked once for a shorter one, without the cut-off text.
+	cut := `{"title":"Allow every user","overview":"The admin check returns true.","changes":[],"risks":[{"text":"Every user passes","severity":"high","refs":[{"path":"auth.go","start_line":3,"quote":"return true"}]},{"text":"Second ris`
+	endpoint, requests, _ := finishProvider(t, [2]string{cut, "length"}, [2]string{"not JSON at all", "stop"})
+	s, events, err := Summarize(context.Background(), Options{Endpoint: endpoint, Model: "m"}, summaryReport(), SummaryInput{})
+	if err != nil || len(events) != 2 {
+		t.Fatalf("salvage: %v, %d events", err, len(events))
+	}
+	if len(s.Risks) != 1 || s.Risks[0].Text != "Every user passes" {
+		t.Fatalf("salvaged risks %+v", s.Risks)
+	}
+	retry := (*requests)[1]["messages"].([]any)
+	if len(retry) != 3 || !strings.Contains(retry[2].(map[string]any)["content"].(string), "cut off by the length limit") {
+		t.Fatalf("retry messages %v", retry)
+	}
+}
+
+func TestSummarizeCorrectionFitsTheBudget(t *testing.T) {
+	// A report without hunks, so that the budget does not change the
+	// payload; a long answer whose quote is wrong asks for a correction.
+	r := summaryReport()
+	r.Change.Files[0].Hunks = nil
+	r.Change.Files = append(r.Change.Files, model.ChangedFile{Path: "big.go", Status: "M", Hunks: []model.Hunk{authHunk}})
+	answer := fmt.Sprintf(`{"title":"t","overview":%q,"changes":[],"risks":[{"text":"r","severity":"low","refs":[{"path":"big.go","start_line":3,"quote":"return isAdmin(u)"}]}],"review_focus":[],"testing":[]}`, strings.Repeat("overview ", 1500))
+	endpoint, requests, sizes := finishProvider(t, [2]string{answer, "stop"})
+	if _, _, err := Summarize(context.Background(), Options{Endpoint: endpoint, Model: "m"}, r, SummaryInput{}); err != nil {
+		t.Fatal(err)
+	}
+	first := (*sizes)[0]
+	// Room for the request and a correction, not for the answer as well.
+	endpoint, requests, sizes = finishProvider(t, [2]string{answer, "stop"})
+	if _, _, err := Summarize(context.Background(), Options{Endpoint: endpoint, Model: "m", MaxInputBytes: first + summaryReserve + 1500}, r, SummaryInput{}); err != nil {
+		t.Fatal(err)
+	}
+	retry := (*requests)[1]["messages"].([]any)
+	if len(*requests) != 2 || len(retry) != 3 || !strings.Contains(retry[2].(map[string]any)["content"].(string), "did not match the diff") {
+		t.Fatalf("correction without the previous answer expected: %d requests, %d messages, sizes %v", len(*requests), len(retry), *sizes)
 	}
 }

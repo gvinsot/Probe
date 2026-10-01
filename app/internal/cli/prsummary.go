@@ -4,9 +4,11 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"time"
 
 	"github.com/gvinsot/Probe/app/internal/gitrepo"
 	"github.com/gvinsot/Probe/app/internal/model"
+	"github.com/gvinsot/Probe/app/internal/redact"
 	"github.com/gvinsot/Probe/app/internal/reviewer"
 )
 
@@ -25,6 +27,9 @@ func writePRSummary(ctx context.Context, repo *gitrepo.Repository, options revie
 	r.Audit = append(r.Audit, events...)
 	if err != nil {
 		fmt.Fprintln(errOut, "Pull request summary not written: "+err.Error())
+		// Recorded in the report too, so that a reader of the report, or of
+		// the hub, sees why the summary is missing.
+		r.Audit = append(r.Audit, model.AuditEvent{Time: time.Now().UTC(), Tool: "pr_summary", Arguments: redact.TruncateUTF8(err.Error(), 300), Status: "ERROR"})
 		return
 	}
 	r.PRSummary = summary
