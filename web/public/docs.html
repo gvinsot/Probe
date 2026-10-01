@@ -74,6 +74,7 @@
           <li><a href="#context">context</a></li>
           <li><a href="#graph">graph</a></li>
           <li><a href="#report">report</a></li>
+          <li><a href="#login">login &amp; logout</a></li>
           <li><a href="#version">version &amp; help</a></li>
           <li class="group">Behaviour</li>
           <li><a href="#exit-codes">Exit codes</a></li>
@@ -123,6 +124,8 @@ probe context check [--context-dir DIR] [--context-repo NAME=PATH] [--clusters F
 probe graph build [--commit HEAD] [--out FILE]
 probe graph query search|neighbors|path ARGS [--commit HEAD]
 probe report [--input .probe/confidence-report.json] [--out DIR] [--format LIST] [--report-url URL]
+probe login [--hub URL] [--status]
+probe logout
 probe version</code></pre>
           </div>
           <ul>
@@ -130,6 +133,7 @@ probe version</code></pre>
             <li><strong>review</strong> adds sandboxed checks in Docker, the opt-in evidence stages (changed baseline tests, impacted tests, differential fuzzing, mutation, dependency preparation) and, when a model is configured, an AI investigation. <code>review --read-only</code> keeps only the AI investigation, with read-only tools and no Docker.</li>
             <li><strong>plan</strong> asks the configured provider for an implementation plan before any code is written, evaluates it with fixed rules, and turns it into a contract that <code>lint --plan</code> and <code>review --plan</code> check the diff against.</li>
             <li><strong>knowledge</strong>, <strong>context</strong> and <strong>graph</strong> manage what the AI reviewer reads besides the diff: the <a href="#knowledge">codebase knowledge base</a>, the <a href="#context">other repositories</a> and the <a href="#graph">repository graph</a>.</li>
+            <li><strong>login</strong> connects the machine to a Probe Hub account, so that the AI reviewer uses the hub's LLM when no provider is configured; <strong>logout</strong> revokes that access. See <a href="#login"><code>probe login</code></a>.</li>
             <li>Only <strong>committed</strong> files are analyzed; uncommitted edits and untracked files are ignored.</li>
             <li>Reports are written to <code>.probe/</code> in the repository by default. Console output stays short.</li>
             <li>Flags accept one or two dashes (<code>-ci</code> or <code>--ci</code>). Booleans are set with <code>--ci</code> or <code>--ci=true</code> and cleared with <code>--checks=false</code>. A value is given as <code>--base main</code> or <code>--base=main</code>.</li>
@@ -209,7 +213,7 @@ probe lint --base main --plan .probe/PLAN.json   <span class="c"># scope drift a
                 <tr id="review-report-url"><td><code>--report-url URL</code> <span class="tag">v0.4</span></td><td>—</td><td class="desc">An <code>https</code> link to the full report, cited in <code>PR_COMMENT.md</code>. Requires the <code>pr-comment</code> format.</td></tr>
                 <tr id="review-ci"><td><code>--ci</code></td><td><code>false</code></td><td class="desc">Exit with code <code>2</code> when human review is required, including high-risk signals, unverified areas or incomplete checks.</td></tr>
                 <tr id="review-checks"><td><code>--checks</code></td><td><code>true</code></td><td class="desc">Run the configured checks in the sandbox. <code>--checks=false</code> skips them; a configured reviewer may still run sandbox experiments.</td></tr>
-                <tr id="review-reviewer"><td><code>--reviewer</code></td><td>auto</td><td class="desc">AI investigation. Enabled automatically when a model is set in the trusted policy or <code>PROBE_REVIEWER_MODEL</code>. <code>--reviewer=false</code> disables every provider call; <code>--reviewer</code> fails with exit <code>3</code> if no model is configured.</td></tr>
+                <tr id="review-reviewer"><td><code>--reviewer</code></td><td>auto</td><td class="desc">AI investigation. Enabled automatically when a model is set in the trusted policy or <code>PROBE_REVIEWER_MODEL</code>, or when no provider is configured and the machine is <a href="#login">logged in to a Probe Hub</a>. <code>--reviewer=false</code> disables every provider call; <code>--reviewer</code> fails with exit <code>3</code> if no model is configured.</td></tr>
                 <tr id="review-read-only"><td><code>--read-only</code></td><td><code>false</code></td><td class="desc">Investigate with the deployment's model and read-only tools only, without Docker or code execution. See <a href="#read-only">Read-only review</a>.</td></tr>
                 <tr id="review-ai-impacts-criticality"><td><code>--ai-impacts-criticality</code></td><td><code>true</code></td><td class="desc">A linter signal the reviewer read as <code>no_risk</code>, citing a recorded source read, drops one severity level; a low one is set aside. <code>--ai-impacts-criticality=false</code> keeps the linter's severities. See <a href="#signal-assessments">signal assessments</a>.</td></tr>
                 <tr id="review-swarm"><td><code>--swarm</code>, <code>--swarm-agents LIST</code></td><td>policy <code>reviewer.swarm</code></td><td class="desc">Investigate with specialized agents in parallel instead of one reviewer; <code>--swarm-agents</code> picks them and implies <code>--swarm</code>. Refused with <code>--reviewer=false</code>. See <a href="#swarm">Reviewer swarm</a>.</td></tr>
@@ -398,6 +402,32 @@ probe graph query path api.Handle Cart.Total [--undirected]</code></pre>
           </div>
         </section>
 
+        <section id="login">
+          <h2><code>probe login</code> and <code>probe logout</code></h2>
+          <p class="synopsis">Use the LLM of a Probe Hub instead of a provider account of your own. <code>probe login</code> prints a link and a code; open it in a browser where you are signed in to the hub, check that the code matches and approve. The CLI then receives a token that reaches only the hub's LLM gateway, valid 90 days, and stores it in your user configuration directory, readable by you only. No secret is shipped in the binary: the token stands for your hub account, within its daily quota, and is revoked like any agent token.</p>
+          <div class="code">
+<pre><code>probe login                      <span class="c"># https://app.probe.technology by default</span>
+probe review --base main         <span class="c"># the reviewer now uses the hub's LLM</span>
+probe login --status             <span class="c"># account, model, tokens used today</span>
+probe logout                     <span class="c"># revoke the token on the hub and delete it here</span></code></pre>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Flag</th><th>Default</th><th>Description</th></tr></thead>
+              <tbody>
+                <tr id="login-hub"><td><code>--hub URL</code></td><td><code>PROBE_HUB_URL</code>, else <code>https://app.probe.technology</code></td><td class="desc">The hub to log in to. HTTPS only, except on the loopback interface. The hub must lend its LLM; otherwise login stops with exit <code>3</code>.</td></tr>
+                <tr id="login-status"><td><code>--status</code></td><td><code>false</code></td><td class="desc">Show the hub, the account, the model and the tokens used today. Exits <code>1</code> when not logged in, or when the login expired or was revoked.</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <ul>
+            <li>The login is used only when nothing else selects a provider: no <code>PROBE_REVIEWER_ENDPOINT</code>, no API key, and a policy endpoint that is OpenAI's default. A configured provider, including a keyless local one, always wins.</li>
+            <li>While it applies, <code>review</code> enables the reviewer automatically, and <code>review --read-only</code>, <code>plan</code> and <code>knowledge build</code> work. The hub's model replaces the policy's, and the console names the hub and the account.</li>
+            <li>Bounded, redacted source context then goes to the hub and its provider. Use <code>--reviewer=false</code> or <code>probe logout</code> to keep it local.</li>
+            <li>In CI, create an <strong>LLM gateway</strong> token under <strong>Agent access</strong> in the hub and set it as the <code>PROBE_HUB_TOKEN</code> secret.</li>
+          </ul>
+        </section>
+
         <section id="version">
           <h2><code>probe version</code> and help</h2>
           <div class="table-wrap">
@@ -442,6 +472,9 @@ probe graph query path api.Handle Cart.Total [--undirected]</code></pre>
                 <tr id="env-api-key-file"><td><code>PROBE_API_KEY_FILE</code></td><td class="desc">Path of a file containing the key, used when the variable above is unset. The file must be readable, or the run fails with exit <code>3</code>.</td></tr>
                 <tr id="env-secret"><td><code>/run/secrets/PROBE_API_KEY</code></td><td class="desc">Docker secret read last, when neither variable is set. Absence is not an error.</td></tr>
                 <tr id="env-insecure-http"><td><code>PROBE_REVIEWER_ALLOW_INSECURE_HTTP</code></td><td class="desc"><code>true</code> permits an explicitly configured <code>http</code> <code>PROBE_REVIEWER_ENDPOINT</code> on a trusted network. Source and key then travel unencrypted.</td></tr>
+                <tr id="env-hub-token"><td><code>PROBE_HUB_TOKEN</code></td><td class="desc">An LLM gateway token created in a Probe Hub, for machines that cannot open a browser, such as CI. It takes precedence over a stored <a href="#login"><code>probe login</code></a> and applies under the same conditions.</td></tr>
+                <tr id="env-hub-url"><td><code>PROBE_HUB_URL</code></td><td class="desc">The hub of <code>probe login</code> and <code>PROBE_HUB_TOKEN</code>. Default <code>https://app.probe.technology</code>.</td></tr>
+                <tr id="env-credentials-file"><td><code>PROBE_CREDENTIALS_FILE</code></td><td class="desc">Where <code>probe login</code> stores its token, instead of <code>probe/credentials.json</code> in the user configuration directory. <code>off</code> ignores any login.</td></tr>
                 <tr id="env-jira"><td><code>PROBE_JIRA_URL</code>, <code>PROBE_JIRA_EMAIL</code>, <code>PROBE_JIRA_TOKEN</code></td><td class="desc">Jira site for <code>--jira</code>; the e-mail is for Jira Cloud (API token), without it the token is a Server/Data Center personal access token. <code>PROBE_JIRA_CRITERIA_FIELD</code> names an optional acceptance-criteria field.</td></tr>
                 <tr id="env-linear"><td><code>PROBE_LINEAR_API_KEY</code></td><td class="desc">Linear key for <code>--linear</code>; a read-only key is enough. <code>PROBE_LINEAR_TEAMS</code> limits the team keys <code>auto</code> accepts.</td></tr>
                 <tr id="env-notion"><td><code>PROBE_NOTION_TOKEN</code></td><td class="desc">Secret of a Notion integration the pages are shared with, for <code>--notion</code>.</td></tr>
@@ -794,6 +827,7 @@ probe review --base main --reviewer=false            <span class="c"># turn it o
           </div>
           <ul>
             <li>Only the trusted policy, <code>--config</code> or the deployment environment can enable the reviewer; a pull request cannot.</li>
+            <li>No provider account? <a href="#login"><code>probe login</code></a> lets the reviewer use the LLM of a Probe Hub, within your account's daily quota.</li>
             <li>Bounded, redacted source context is sent to the provider. Masking of secrets is best effort; use a local provider (for example <code>http://127.0.0.1:1234/v1</code>) if source must stay local.</li>
             <li>API keys never enter test containers. <code>lint</code> never calls a provider.</li>
             <li>Provider failures and exhausted budgets keep the deterministic results and mark the investigation incomplete; with <code>--ci</code> that requires human review.</li>
@@ -806,7 +840,7 @@ probe review --base main --reviewer=false            <span class="c"># turn it o
           <h2>Read-only review</h2>
           <p><code>probe review --read-only --base main --ci</code> analyzes the diff and the relevant source with the deployment's model, without Docker and without executing repository code. Preparation, checks, coverage, fuzzing and mutation are skipped, and execution flags are refused. The model can read files, get the diff, search code and look up references, symbols, callers and the graph; any write or execution call is rejected.</p>
           <ul>
-            <li>The provider comes from <code>PROBE_REVIEWER_MODEL</code> and <code>PROBE_REVIEWER_ENDPOINT</code> (OpenAI by default); the policy's <code>reviewer</code> settings are ignored and built-in budgets apply.</li>
+            <li>The provider comes from <code>PROBE_REVIEWER_MODEL</code> and <code>PROBE_REVIEWER_ENDPOINT</code> (OpenAI by default), or from a <a href="#login">Probe Hub login</a> when neither they nor an API key are set; the policy's <code>reviewer</code> settings are ignored and built-in budgets apply.</li>
             <li>Suspicions stay <code>UNVERIFIED</code>: no reproduced issue can come from this mode. An unresolved hypothesis still requests human review (exit <code>2</code> with <code>--ci</code>).</li>
             <li>The report records <code>analysis_mode: "review-read-only"</code> and states that no code or test ran.</li>
           </ul>

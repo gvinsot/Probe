@@ -165,7 +165,7 @@ probe review HEAD~1..HEAD --reviewer=false</code></pre>
 <pre><code>/plugin marketplace add gvinsot/Probe
 /plugin install probe@probe</code></pre>
               </div>
-              <p>Next steps: every flag, exit code and policy key is in the <a href="docs.html">reference</a>. To let an AI reviewer try to reproduce issues, configure a provider as described in <a href="docs.html#reviewer">AI reviewer</a>; give it the requirement with <a href="docs.html#intent-sources"><code>--jira</code>, <code>--linear</code>, <code>--notion</code> or <code>--gdoc</code></a>, and your team's <a href="docs.html#rules">coding rules</a>. For GitHub Actions, see the <a href="https://github.com/gvinsot/Probe/blob/main/app/docs/CI.md">CI integration guide</a>.</p>
+              <p>Next steps: every flag, exit code and policy key is in the <a href="docs.html">reference</a>. To let an AI reviewer try to reproduce issues, configure a provider as described in <a href="docs.html#reviewer">AI reviewer</a>, or run <a href="docs.html#login"><code>probe login</code></a> to use the LLM of your Probe Hub account; give it the requirement with <a href="docs.html#intent-sources"><code>--jira</code>, <code>--linear</code>, <code>--notion</code> or <code>--gdoc</code></a>, and your team's <a href="docs.html#rules">coding rules</a>. For GitHub Actions, see the <a href="https://github.com/gvinsot/Probe/blob/main/app/docs/CI.md">CI integration guide</a>.</p>
             </div>
           </li>
 
@@ -195,7 +195,7 @@ probe review HEAD~1..HEAD --reviewer=false</code></pre>
               <tr><td>The report misses your latest edits</td><td class="desc">They are not committed yet. Probe only analyzes commits; commit them, then run it again.</td></tr>
               <tr><td>Exit code <code>2</code></td><td class="desc">Not an error: with <code>--ci</code>, it means human review is required. See <a href="docs.html#exit-codes">exit codes</a>.</td></tr>
               <tr><td>Exit code <code>4</code> during <code>review</code></td><td class="desc">Docker is not running or the sandbox image is not present locally. Pull it first, or use <code>lint</code>.</td></tr>
-              <tr><td><code>reviewer.model must be configured…</code></td><td class="desc"><code>--reviewer</code> was requested without a model. Drop it, or configure a provider.</td></tr>
+              <tr><td><code>reviewer.model must be configured…</code></td><td class="desc"><code>--reviewer</code> was requested without a model. Drop it, configure a provider, or run <code>probe login</code>.</td></tr>
             </tbody>
           </table>
         </div>

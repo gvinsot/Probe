@@ -395,6 +395,7 @@ probe review --base main --ci</code></pre>
           <p>The hub is the companion Docker image. Run one container, sign in with GitHub or GitLab, and every repository still missing a <code>.probe.json</code> gets a policy proposed in one click, previewed before it is committed to the default branch.</p>
           <p>Repositories that have a policy can be watched: each new commit is analyzed and its report opens on its own, with an AI-written pull request summary when a reviewer model is configured. A severity slider filters the alerts from low to critical, and clicking one unfolds every modification it concerns, with the flagged lines highlighted in the diff.</p>
           <p>The team shapes the reviewer: each repository keeps its coding rules, and votes, comments and replies on findings teach it what the team finds useful. Coding agents such as Claude Code or Cursor connect to the hub's MCP server to trigger reviews, read findings and give feedback.</p>
+          <p>The hub can also lend its LLM to the command-line tool: <code>probe login</code> connects a workstation to your account in the browser, and <code>probe review</code> then investigates with the hub's model, within a daily quota, without a provider key of your own.</p>
           <p>One Docker container, no external service required, with its state on a volume or in PostgreSQL — so a company can deploy it internally against its own GitHub Enterprise or GitLab instance. In its default mode it never executes the analyzed code.</p>
           <div class="cta">
             <a class="btn" href="https://app.probe.technology">Open the web app</a>
@@ -448,7 +449,7 @@ Reports open by themselves, filtered by severity.</span></code></pre>
           </article>
           <article class="card">
             <h3>Bounded AI reviewer</h3>
-            <p>Bring any OpenAI-compatible provider. Tools are bounded: redacted file reads, search and test runs. No shell, no URL fetcher. It also drafts the pull request description, never the verdict.</p>
+            <p>Bring any OpenAI-compatible provider, or borrow your Probe Hub's with <code>probe login</code>. Tools are bounded: redacted file reads, search and test runs. No shell, no URL fetcher. It also drafts the pull request description, never the verdict.</p>
           </article>
           <article class="card">
             <h3>Reviewer swarm</h3>
