@@ -833,7 +833,7 @@ async function renderReviewHistory(repo, panel) {
     return;
   }
   if (!reviews.length) {
-    status.textContent = 'No review recorded yet: “Reviewed”, at the top of a report that asks for a human review, records one.';
+    status.textContent = 'No review recorded yet: “Mark as reviewed”, at the top of a report that asks for a human review, records one.';
     return;
   }
   status.textContent = 'The latest ' + reviews.length + ' review actions, newest first. Marking a commit reviewed never changes its analysis.';
@@ -2147,7 +2147,7 @@ function renderVerdictLine(line) {
     by.textContent = 'by ' + mark.by + ' · ' + timeAgo(mark.at);
     line.appendChild(by);
   }
-  const toggle = button(mark ? 'Mark as not reviewed' : 'Reviewed', mark ? 'btn quiet small' : 'btn small', () => setReviewed(!mark, toggle));
+  const toggle = button(mark ? 'Mark as not reviewed' : 'Mark as reviewed', mark ? 'btn quiet small' : 'btn small', () => setReviewed(!mark, toggle));
   toggle.id = 'mark-reviewed';
   toggle.title = mark ? 'Withdraw the review mark: the commit asks for a human review again' : 'Record that you reviewed this commit';
   line.appendChild(toggle);

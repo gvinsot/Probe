@@ -353,19 +353,19 @@ window.addEventListener('DOMContentLoaded', async () => {
     assert(!document.getElementById('report-head').textContent.includes('never approves'), 'no disclaimer line');
     assert(document.querySelector('#report-head .verdict').textContent === 'Human review required', 'report verdict rendered');
     assert(document.querySelector('#report-head .verdict').classList.contains('tone-high'), 'report verdict tinted by the most severe alert');
-    // "Reviewed" turns the request into a recorded human review, everywhere.
+    // "Mark as reviewed" turns the request into a recorded human review, everywhere.
     const reviewCountBefore = el('review-count').textContent;
-    assert(el('mark-reviewed').textContent === 'Reviewed', 'a review report offers the Reviewed button');
+    assert(el('mark-reviewed').textContent === 'Mark as reviewed', 'a review report offers the Mark as reviewed button');
     el('mark-reviewed').click();
     await settle();
     const reviewCall = fixtureCalls.find((call) => call.path === '/api/repos/repo/reports/' + fixtureSHA('a') + '/review');
-    assert(reviewCall && reviewCall.init.method === 'PUT' && JSON.parse(reviewCall.init.body).reviewed === true && reviewCall.init.headers['X-Probe-CSRF'] === 'csrf', 'Reviewed puts the mark with CSRF');
+    assert(reviewCall && reviewCall.init.method === 'PUT' && JSON.parse(reviewCall.init.body).reviewed === true && reviewCall.init.headers['X-Probe-CSRF'] === 'csrf', 'Mark as reviewed puts the mark with CSRF');
     assert(document.querySelector('#report-head .verdict').textContent === 'Reviewed' && document.getElementById('report-verdict').textContent.includes('by octocat') && el('mark-reviewed').textContent === 'Mark as not reviewed', 'the report reads Reviewed, by whom');
     assert(document.querySelector('.commit-row.selected .commit-meta .chip').textContent === 'reviewed' && !document.querySelector('.commit-row.selected').textContent.includes('Human review required'), 'the tree badge reads reviewed');
     assert(el('review-count').textContent !== reviewCountBefore, 'the review count drops');
     el('mark-reviewed').click();
     await settle();
-    assert(document.querySelector('#report-head .verdict').textContent === 'Human review required' && el('mark-reviewed').textContent === 'Reviewed' && el('review-count').textContent === reviewCountBefore, 'withdrawing the mark asks for a review again');
+    assert(document.querySelector('#report-head .verdict').textContent === 'Human review required' && el('mark-reviewed').textContent === 'Mark as reviewed' && el('review-count').textContent === reviewCountBefore, 'withdrawing the mark asks for a review again');
     assert(document.getElementById('mode-label').textContent.includes('AI review (read-only)'), 'deployment mode shown');
     assert(document.getElementById('report-head').textContent.includes('no code or tests were executed'), 'read-only report scope shown');
     const actualMode = state.run.mode;
