@@ -65,7 +65,7 @@
         <h2>Repositories</h2>
         <span class="spacer"></span>
         <span class="chip" id="repo-count">0</span>
-        <button class="btn quiet small" id="sync" title="List the repositories of your account again">Refresh</button>
+        <button class="btn quiet small icon-btn" id="sync" aria-label="Refresh" title="Refresh: list the repositories of your account again"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg></button>
         <button class="btn quiet small jump-next" id="jump-from-repos" aria-label="Scroll to the next panel" title="Next panel">↓</button>
       </div>
       <div class="panel-body">
@@ -78,14 +78,14 @@
       </div>
       <div class="notice hidden" id="hooks-outdated" role="alert"></div>
       <ul class="repo-list" id="repos"></ul>
-      <div class="empty hidden" id="repos-empty">No repository yet. Use “Refresh”.</div>
+      <div class="empty hidden" id="repos-empty">No repository yet. Use the refresh button above.</div>
     </section>
 
     <section class="panel" id="report-panel" aria-label="Report">
       <!-- Commit tree on the left; the selected commit and its report on the right. -->
       <div class="workspace">
         <section class="commit-column hidden" id="commit-browser" aria-label="Commit history">
-          <div class="row"><h3>Commit tree</h3><span class="spacer"></span><button class="btn quiet small" id="refresh-commits">Refresh</button><button class="btn quiet small jump-next" id="jump-from-commits" aria-label="Scroll to the report" title="Next panel">↓</button></div>
+          <div class="row"><h3>Commit tree</h3><span class="spacer"></span><button class="btn quiet small icon-btn" id="refresh-commits" aria-label="Refresh" title="Refresh: reload the commit tree"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg></button><button class="btn quiet small jump-next" id="jump-from-commits" aria-label="Scroll to the report" title="Next panel">↓</button></div>
           <p class="note" id="graph-note" role="status"></p>
           <div class="row branch-list" id="branches"></div>
           <div class="commit-tree" id="commit-tree"></div>

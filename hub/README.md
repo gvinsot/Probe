@@ -127,8 +127,8 @@ shows up to 300 commits in topological order, with a fetch depth of 100 per
 branch; a notice identifies truncated history. A branch button above the tree
 reloads it with that branch only (`GET /api/repos/{repo}/commits?branch=NAME`,
 `404` for a branch that no longer exists), so its own history fills the window;
-**All branches**, or the same button again, shows every branch. “Refresh”
-reloads the tree; simply browsing never launches an analysis.
+**All branches**, or the same button again, shows every branch. The refresh
+button (circular arrow) reloads the tree; simply browsing never launches an analysis.
 
 Each commit shows the status of its cached analysis, respecting the selected
 severity threshold; plans have no badge in the tree. A gray **?** means no

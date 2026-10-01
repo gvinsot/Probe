@@ -530,6 +530,15 @@ function button(label, className, onClick) {
   return b;
 }
 
+// refreshIcon draws the circular arrow of the refresh buttons; the static
+// ones in app.html carry the same drawing inline.
+function refreshIcon() {
+  const svg = svgElement('svg', { width: 14, height: 14, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', 'stroke-width': 2, 'stroke-linecap': 'round', 'stroke-linejoin': 'round', 'aria-hidden': 'true' });
+  svg.appendChild(svgElement('polyline', { points: '23 4 23 10 17 10' }));
+  svg.appendChild(svgElement('path', { d: 'M20.49 15a9 9 0 1 1-2.12-9.36L23 10' }));
+  return svg;
+}
+
 // gearIcon draws the cog of the review settings button.
 function gearIcon() {
   const svg = svgElement('svg', { width: 14, height: 14, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', 'stroke-width': 2, 'stroke-linecap': 'round', 'stroke-linejoin': 'round', 'aria-hidden': 'true' });
@@ -1459,7 +1468,12 @@ function openActivityDialog() {
   const list = document.createElement('div');
   list.id = 'activity-list';
   el('modal-body').append(note, status, list);
-  el('modal-footer').replaceChildren(button('Refresh', 'btn small', refreshActivity));
+  const refresh = button('', 'btn quiet small icon-btn', refreshActivity);
+  refresh.id = 'activity-refresh';
+  refresh.setAttribute('aria-label', 'Refresh');
+  refresh.title = 'Refresh the jobs queue';
+  refresh.appendChild(refreshIcon());
+  el('modal-footer').replaceChildren(refresh);
   el('modal').classList.remove('hidden');
   el('modal-close').focus();
   refreshActivity();
@@ -3064,14 +3078,16 @@ async function boot() {
     if (event.key === 'Escape' && settingsMenu.open) { settingsMenu.open = false; el('settings').focus(); }
   });
   el('sync').addEventListener('click', async (event) => {
-    event.target.disabled = true;
+    // currentTarget: the click may land on the icon inside the button.
+    const sync = event.currentTarget;
+    sync.disabled = true;
     try {
       await api('/api/repos/sync', { method: 'POST' });
       toast('Refreshing the repository list…');
     } catch (err) {
       toast(err.message, true);
     }
-    setTimeout(() => { event.target.disabled = false; }, 3000);
+    setTimeout(() => { sync.disabled = false; }, 3000);
   });
   el('repo-search').addEventListener('input', (event) => {
     state.query = event.target.value;

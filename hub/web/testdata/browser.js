@@ -122,7 +122,7 @@ window.addEventListener('DOMContentLoaded', async () => {
     await settle();
     // Jobs queue, MCP and Language share the Settings menu.
     const settingsMenu = document.getElementById('settings-menu');
-    assert([...settingsMenu.querySelectorAll('.menu-item')].map((b) => b.textContent).join('|') === 'Jobs queue|MCP|Language' && !document.querySelector('.topbar #sync') && document.querySelector('.repo-panel .panel-head #sync').textContent === 'Refresh', 'settings menu in the top bar, repository refresh at the head of the Repositories column');
+    assert([...settingsMenu.querySelectorAll('.menu-item')].map((b) => b.textContent).join('|') === 'Jobs queue|MCP|Language' && !document.querySelector('.topbar #sync') && document.querySelector('.repo-panel .panel-head #sync').getAttribute('aria-label') === 'Refresh' && el('sync').querySelector('svg') && el('refresh-commits').querySelector('svg') && !el('sync').textContent.trim(), 'settings menu in the top bar, repository refresh at the head of the Repositories column');
     document.getElementById('settings').click();
     await settle();
     assert(settingsMenu.open, 'the menu opens');
