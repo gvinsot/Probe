@@ -345,6 +345,8 @@
     "Effect": "Efecto",
     "Overrides <code>reviewer.endpoint</code>. Same URL rules as the policy.": "Sustituye <code>reviewer.endpoint</code>. Mismas reglas de URL que la política.",
     "Overrides <code>reviewer.model</code>, and on its own enables the reviewer during <code>review</code>.": "Sustituye <code>reviewer.model</code> y, por sí sola, activa el revisor durante <code>review</code>.",
+    "Provider routing, sent as the request's <code>provider</code> field (OpenRouter). Comma-separated names restrict the request to those providers, in that order; a JSON object is sent as is.": "Enrutamiento del proveedor, enviado en el campo <code>provider</code> de la solicitud (OpenRouter). Nombres separados por comas limitan la solicitud a esos proveedores, en ese orden; un objeto JSON se envía tal cual.",
+    "Sampling temperature, <code>0</code> to <code>2</code>. Unset leaves the provider's default.": "Temperatura de muestreo, de <code>0</code> a <code>2</code>. Sin definir, se usa la del proveedor.",
     "API key. The name is set by <code>reviewer.api_key_env</code>; this is the default.": "Clave de API. El nombre lo define <code>reviewer.api_key_env</code>; este es el predeterminado.",
     "Path of a file containing the key, used when the variable above is unset. The file must be readable, or the run fails with exit <code>3</code>.": "Ruta de un archivo que contiene la clave, usada cuando la variable anterior no está definida. El archivo debe poder leerse o la ejecución termina con el código <code>3</code>.",
     "Docker secret read last, when neither variable is set. Absence is not an error.": "Secreto de Docker que se lee en último lugar, cuando no está definida ninguna de las dos variables. Su ausencia no es un error.",

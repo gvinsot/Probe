@@ -486,6 +486,8 @@ The provider belongs to the deployment rather than to the reviewed repository, s
 |---------|--------|-------|
 | `reviewer.endpoint` | `PROBE_REVIEWER_ENDPOINT` | Overrides the policy value; the same URL rules apply. |
 | `reviewer.model` | `PROBE_REVIEWER_MODEL` | Overrides the policy value and enables `review` on its own. |
+| Provider routing (deployment only) | `PROBE_REVIEWER_PROVIDER` | Sent as the request's `provider` field, [OpenRouter's provider routing](https://openrouter.ai/docs/features/provider-routing). A comma-separated list of names (`anthropic,google-vertex`) restricts the request to those providers in that order: `{"order": [...], "allow_fallbacks": false}`. A JSON object is sent as is. Not sent through a Probe Hub login. |
+| Temperature (deployment only) | `PROBE_REVIEWER_TEMPERATURE` | Sampling temperature, `0` to `2`. Unset leaves the provider's default. |
 | HTTP exception (deployment only) | `PROBE_REVIEWER_ALLOW_INSECURE_HTTP=false` | Set `true` for an explicitly configured HTTP endpoint on a trusted network. Requires `PROBE_REVIEWER_ENDPOINT`; source and API key travel unencrypted. Applies to review and plan. |
 | API key | `PROBE_API_KEY`, else `PROBE_API_KEY_FILE`, else `/run/secrets/PROBE_API_KEY` | The variable name is `reviewer.api_key_env`; `<NAME>_FILE` and `/run/secrets/<NAME>` follow it. |
 

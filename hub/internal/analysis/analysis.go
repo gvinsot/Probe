@@ -711,7 +711,7 @@ func cliEnv(work, cache string) []string {
 	if cache != "" {
 		env = append(env, "XDG_CACHE_HOME="+cache)
 	}
-	for _, name := range []string{"DOCKER_HOST", "DOCKER_CERT_PATH", "DOCKER_TLS_VERIFY", config.EndpointEnvName, config.ModelEnvName, config.AllowInsecureHTTPEnvName, "PROBE_API_KEY", "PROBE_API_KEY_FILE"} {
+	for _, name := range []string{"DOCKER_HOST", "DOCKER_CERT_PATH", "DOCKER_TLS_VERIFY", config.EndpointEnvName, config.ModelEnvName, config.AllowInsecureHTTPEnvName, config.ProviderEnvName, config.TemperatureEnvName, "PROBE_API_KEY", "PROBE_API_KEY_FILE"} {
 		if v := os.Getenv(name); v != "" {
 			env = append(env, name+"="+v)
 		}

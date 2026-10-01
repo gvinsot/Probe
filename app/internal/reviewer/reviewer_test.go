@@ -395,3 +395,39 @@ func TestHTTPErrorDoesNotEchoProviderBody(t *testing.T) {
 		t.Fatalf("bad error: %v", err)
 	}
 }
+
+// Provider routing and temperature reach the request only when configured.
+func TestRequestCarriesModelTuning(t *testing.T) {
+	var bodies []map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		bodies = append(bodies, body)
+		complete(w)
+	}))
+	defer server.Close()
+	zero := 0.0
+	tuned := Options{Endpoint: server.URL, Model: "test", Provider: json.RawMessage(`{"order":["anthropic"],"allow_fallbacks":false}`), Temperature: &zero}
+	for _, o := range []Options{tuned, {Endpoint: server.URL, Model: "test"}} {
+		if err := Run(context.Background(), o, &model.Report{}, &fakeHarness{}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	routing, _ := json.Marshal(bodies[0]["provider"])
+	if string(routing) != `{"allow_fallbacks":false,"order":["anthropic"]}` || bodies[0]["temperature"] != 0.0 {
+		t.Fatalf("tuned request: provider %s temperature %v", routing, bodies[0]["temperature"])
+	}
+	last := bodies[len(bodies)-1]
+	if _, ok := last["provider"]; ok {
+		t.Fatal("provider sent without configuration")
+	}
+	if _, ok := last["temperature"]; ok {
+		t.Fatal("temperature sent without configuration")
+	}
+	hot := 3.0
+	for _, o := range []Options{{Endpoint: server.URL, Model: "test", Provider: json.RawMessage(`["a"]`)}, {Endpoint: server.URL, Model: "test", Temperature: &hot}} {
+		if err := Validate(o); err == nil {
+			t.Errorf("accepted %+v", o)
+		}
+	}
+}

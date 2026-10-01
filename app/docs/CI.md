@@ -328,7 +328,8 @@ GitHub-hosted runners do not automatically acquire its internal credentials.
 
 A runner or container may instead supply the provider through the environment:
 `PROBE_REVIEWER_ENDPOINT` and `PROBE_REVIEWER_MODEL` override the
-policy values, and the key is taken from `PROBE_API_KEY`, then
+policy values, `PROBE_REVIEWER_PROVIDER` and `PROBE_REVIEWER_TEMPERATURE`
+tune the requests (provider routing and sampling temperature), and the key is taken from `PROBE_API_KEY`, then
 `PROBE_API_KEY_FILE`, then the Docker secret mounted at
 `/run/secrets/PROBE_API_KEY`. A deployed model activates `review` exactly
 as a policy model does, so keep these variables out of any job that runs

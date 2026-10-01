@@ -468,6 +468,8 @@ probe logout                     <span class="c"># revoke the token on the hub a
               <tbody>
                 <tr id="env-endpoint"><td><code>PROBE_REVIEWER_ENDPOINT</code></td><td class="desc">Overrides <code>reviewer.endpoint</code>. Same URL rules as the policy.</td></tr>
                 <tr id="env-model"><td><code>PROBE_REVIEWER_MODEL</code></td><td class="desc">Overrides <code>reviewer.model</code>, and on its own enables the reviewer during <code>review</code>.</td></tr>
+                <tr id="env-provider"><td><code>PROBE_REVIEWER_PROVIDER</code></td><td class="desc">Provider routing, sent as the request's <code>provider</code> field (OpenRouter). Comma-separated names restrict the request to those providers, in that order; a JSON object is sent as is.</td></tr>
+                <tr id="env-temperature"><td><code>PROBE_REVIEWER_TEMPERATURE</code></td><td class="desc">Sampling temperature, <code>0</code> to <code>2</code>. Unset leaves the provider's default.</td></tr>
                 <tr id="env-api-key"><td><code>PROBE_API_KEY</code></td><td class="desc">API key. The name is set by <code>reviewer.api_key_env</code>; this is the default.</td></tr>
                 <tr id="env-api-key-file"><td><code>PROBE_API_KEY_FILE</code></td><td class="desc">Path of a file containing the key, used when the variable above is unset. The file must be readable, or the run fails with exit <code>3</code>.</td></tr>
                 <tr id="env-secret"><td><code>/run/secrets/PROBE_API_KEY</code></td><td class="desc">Docker secret read last, when neither variable is set. Absence is not an error.</td></tr>

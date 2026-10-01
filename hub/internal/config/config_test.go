@@ -1,6 +1,7 @@
 package config
 
 import (
+	"maps"
 	"os"
 	"path/filepath"
 	"strings"
@@ -380,5 +381,29 @@ func TestGatewaySettings(t *testing.T) {
 	env["PROBE_HUB_LLM_DAILY_TOKENS"] = "10"
 	if _, err := Load(envOf(env)); err == nil || !strings.Contains(err.Error(), "PROBE_HUB_LLM_DAILY_TOKENS") {
 		t.Fatalf("a tiny quota must be refused, got %v", err)
+	}
+}
+
+func TestModelTuningSettings(t *testing.T) {
+	env := baseEnv(t.TempDir())
+	env["PROBE_HUB_LLM_GATEWAY"] = "true"
+	env[EndpointEnvName] = "https://llm.example/v1"
+	env[ModelEnvName] = "served-model"
+	env[ProviderEnvName] = "anthropic, google-vertex"
+	env[TemperatureEnvName] = "0.2"
+	c, err := Load(envOf(env))
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if g := c.Gateway; string(g.Provider) != `{"allow_fallbacks":false,"order":["anthropic","google-vertex"]}` || g.Temperature == nil || *g.Temperature != 0.2 {
+		t.Fatalf("gateway provider %s temperature %v", g.Provider, g.Temperature)
+	}
+	for name, value := range map[string]string{ProviderEnvName: "not a name", TemperatureEnvName: "hot"} {
+		bad := maps.Clone(env)
+		bad["PROBE_HUB_LLM_GATEWAY"] = "false"
+		bad[name] = value
+		if _, err := Load(envOf(bad)); err == nil || !strings.Contains(err.Error(), name) {
+			t.Errorf("%s=%q: error %v", name, value, err)
+		}
 	}
 }

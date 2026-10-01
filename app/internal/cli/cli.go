@@ -60,6 +60,9 @@ Review runs configured checks in Docker. Lint never executes repository code.
 Review automatically uses the LLM when reviewer.model is configured in trusted policy.
 PROBE_REVIEWER_ENDPOINT and PROBE_REVIEWER_MODEL override that policy, and
 the API key comes from the api_key_env variable or its /run/secrets/<NAME> Docker secret.
+PROBE_REVIEWER_PROVIDER routes the request to named providers (OpenRouter's
+"provider" field: a comma-separated list, or a JSON object sent as is), and
+PROBE_REVIEWER_TEMPERATURE (0 to 2) sets the sampling temperature.
 The reviewer sends bounded, redacted source context to its configured API.
 Use --reviewer=false to disable it. Lint never calls a provider.
 Without a configured endpoint or API key, the provider is the LLM of the Probe
@@ -366,7 +369,7 @@ func analyze(ctx context.Context, mode string, args []string, out, errOut io.Wri
 		}
 		return fail(errOut, 3, "reviewer.model must be configured in policy or %s before using --reviewer", config.ModelEnv)
 	}
-	reviewerOptions := reviewer.Options{Endpoint: provider.Endpoint, Model: provider.Model, APIKey: provider.APIKey, MaxIterations: cfg.Reviewer.MaxIterations, Timeout: time.Duration(cfg.Reviewer.TimeoutSeconds) * time.Second, MaxInputBytes: cfg.Reviewer.MaxInputBytes}
+	reviewerOptions := reviewer.Options{Endpoint: provider.Endpoint, Model: provider.Model, APIKey: provider.APIKey, Provider: provider.Provider, Temperature: provider.Temperature, MaxIterations: cfg.Reviewer.MaxIterations, Timeout: time.Duration(cfg.Reviewer.TimeoutSeconds) * time.Second, MaxInputBytes: cfg.Reviewer.MaxInputBytes}
 	reviewerOptions.ReadOnly = *readOnly
 	reviewerOptions.AllowInsecureHTTP = provider.AllowInsecureHTTP
 	if reviewerOptions.Swarm, err = resolveSwarm(mode, explicit, swarmOptions, cfg.Reviewer.Swarm, *useReviewer); err != nil {

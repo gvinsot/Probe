@@ -134,7 +134,7 @@ func planCommand(ctx context.Context, args []string, out, errOut io.Writer, vers
 	if provider.Model == "" {
 		return fail(errOut, 3, "plan needs a provider: configure reviewer.model in policy or %s", config.ModelEnv)
 	}
-	options := reviewer.Options{Endpoint: provider.Endpoint, Model: provider.Model, APIKey: provider.APIKey, MaxIterations: cfg.Reviewer.MaxIterations, Timeout: time.Duration(cfg.Reviewer.TimeoutSeconds) * time.Second, MaxInputBytes: cfg.Reviewer.MaxInputBytes}
+	options := reviewer.Options{Endpoint: provider.Endpoint, Model: provider.Model, APIKey: provider.APIKey, Provider: provider.Provider, Temperature: provider.Temperature, MaxIterations: cfg.Reviewer.MaxIterations, Timeout: time.Duration(cfg.Reviewer.TimeoutSeconds) * time.Second, MaxInputBytes: cfg.Reviewer.MaxInputBytes}
 	options.AllowInsecureHTTP = provider.AllowInsecureHTTP
 	if err := reviewer.Validate(options); err != nil {
 		return fail(errOut, 3, "%v", err)

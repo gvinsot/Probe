@@ -238,6 +238,14 @@ func gatewayPayload(body []byte, g config.Gateway) ([]byte, error) {
 		}
 	}
 	out["model"] = g.Model
+	// A client cannot pick the upstream provider ("provider" is not relayed);
+	// the deployment's routing and temperature, when set, are imposed.
+	if g.Provider != nil {
+		out["provider"] = g.Provider
+	}
+	if g.Temperature != nil {
+		out["temperature"] = *g.Temperature
+	}
 	capped := false
 	for _, key := range []string{"max_completion_tokens", "max_tokens"} {
 		raw, ok := in[key]

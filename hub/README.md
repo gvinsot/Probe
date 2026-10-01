@@ -224,6 +224,8 @@ webhooks there.
 | `PROBE_HUB_MODE` | `auto` | `auto`, `lint`, `review-read-only`, or `review` on a private instance only. |
 | `PROBE_REVIEWER_ENDPOINT` / `PROBE_REVIEWER_MODEL` | — | Set both to enable read-only AI review in `auto`. Endpoint follows the CLI's HTTPS rules (HTTP only on loopback). |
 | `PROBE_API_KEY` / `PROBE_API_KEY_FILE` | — | Optional provider credential; mounted `/run/secrets/PROBE_API_KEY` is also supported. |
+| `PROBE_REVIEWER_PROVIDER` | — | Provider routing sent as the request's `provider` field (OpenRouter): comma-separated names, restricted to those providers in that order, or a JSON object sent as is. Forwarded to the CLI and imposed on gateway requests. |
+| `PROBE_REVIEWER_TEMPERATURE` | — | Sampling temperature, `0` to `2`. Forwarded to the CLI and imposed on gateway requests; unset leaves the provider's default. |
 | `PROBE_REVIEWER_ALLOW_INSECURE_HTTP` | `false` | Explicitly permit the deployment-configured HTTP endpoint, for example on a trusted internal network. Source and API key travel unencrypted. Applies to normal analysis and plan. |
 | `PROBE_HUB_REVIEW_POLICIES` | — | Required with `review`. Entries `<github\|gitlab>:<owner/repo>@sha256:<digest>`, separated by commas or white space: the repositories and base-branch `.probe.json` digests (`sha256sum .probe.json`) the operator validated. Every other repository, and any other version of a listed policy, is analyzed in lint mode. |
 | `PROBE_HUB_WORKERS` | `2` | Concurrent analyses. |

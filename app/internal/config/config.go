@@ -41,10 +41,15 @@ type Sandbox struct {
 // secret. The HTTP exception is deployment-only. Execution settings stay with
 // trusted baseline policy; read-only review uses built-in reviewer budgets.
 // These names remain ordinary environment variables in the Swarm deployment.
+// The provider routing (OpenRouter's "provider" request field) and the
+// sampling temperature tune the model behind that endpoint; they have no
+// policy counterpart.
 const (
 	EndpointEnv          = "PROBE_REVIEWER_ENDPOINT"
 	ModelEnv             = "PROBE_REVIEWER_MODEL"
 	AllowInsecureHTTPEnv = "PROBE_REVIEWER_ALLOW_INSECURE_HTTP"
+	ProviderEnv          = "PROBE_REVIEWER_PROVIDER"
+	TemperatureEnv       = "PROBE_REVIEWER_TEMPERATURE"
 )
 
 // The credential follows the cluster's secret convention: the deployment turns
@@ -303,7 +308,12 @@ type Runtime struct {
 	Endpoint          string
 	Model             string
 	APIKey            string
-	Sources           []string
+	// Provider is the JSON object sent as the request's "provider" field;
+	// nil sends none.
+	Provider json.RawMessage
+	// Temperature is the sampling temperature; nil leaves the provider's.
+	Temperature *float64
+	Sources     []string
 }
 
 // ResolveReviewer applies the deployment environment over the trusted policy.
@@ -350,8 +360,9 @@ func withHubGateway(r Runtime, getenv func(string) string, readFile func(string)
 	if !found {
 		return r, nil
 	}
-	// The gateway imposes the hub's model; the policy's has no meaning there.
-	r.Endpoint, r.Model, r.APIKey = gateway.Endpoint, gateway.Model, gateway.Token
+	// The gateway imposes the hub's model and routing; the policy's model and
+	// a local provider routing have no meaning there.
+	r.Endpoint, r.Model, r.APIKey, r.Provider = gateway.Endpoint, gateway.Model, gateway.Token, nil
 	r.Sources = append(r.Sources, gateway.Source)
 	return r, nil
 }
@@ -396,6 +407,22 @@ func (c Config) resolveProvider(getenv func(string) string, readFile func(string
 	if v := strings.TrimSpace(getenv(ModelEnv)); v != "" {
 		r.Model = v
 		r.Sources = append(r.Sources, "model from "+ModelEnv)
+	}
+	if v := strings.TrimSpace(getenv(ProviderEnv)); v != "" {
+		provider, err := ParseProvider(v)
+		if err != nil {
+			return Runtime{}, fmt.Errorf("%s: %w", ProviderEnv, err)
+		}
+		r.Provider = provider
+		r.Sources = append(r.Sources, "provider routing from "+ProviderEnv)
+	}
+	if v := strings.TrimSpace(getenv(TemperatureEnv)); v != "" {
+		t, err := ParseTemperature(v)
+		if err != nil {
+			return Runtime{}, fmt.Errorf("%s: %w", TemperatureEnv, err)
+		}
+		r.Temperature = &t
+		r.Sources = append(r.Sources, "temperature from "+TemperatureEnv)
 	}
 	name := strings.TrimSpace(c.Reviewer.APIKeyEnv)
 	if name == "" {

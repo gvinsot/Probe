@@ -28,6 +28,11 @@ type Options struct {
 	Endpoint      string
 	Model         string
 	APIKey        string
+	// Provider is sent as the request's "provider" field (OpenRouter's
+	// provider routing); nil sends none.
+	Provider json.RawMessage
+	// Temperature is the sampling temperature; nil leaves the provider's.
+	Temperature   *float64
 	MaxIterations int
 	Timeout       time.Duration
 	MaxInputBytes int
@@ -129,6 +134,12 @@ func normalize(o Options) (Options, string, error) {
 	}
 	if strings.ContainsAny(o.APIKey, "\r\n") {
 		return o, "", errors.New("reviewer API key contains invalid characters")
+	}
+	if len(o.Provider) > 0 && (!json.Valid(o.Provider) || !bytes.HasPrefix(bytes.TrimSpace(o.Provider), []byte("{"))) {
+		return o, "", errors.New("reviewer provider routing must be a JSON object")
+	}
+	if t := o.Temperature; t != nil && !(*t >= 0 && *t <= 2) {
+		return o, "", errors.New("reviewer temperature must be between 0 and 2")
 	}
 	return o, u.String(), nil
 }

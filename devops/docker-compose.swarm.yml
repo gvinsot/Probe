@@ -95,6 +95,9 @@ services:
       PROBE_HUB_MODE: auto
       PROBE_REVIEWER_ENDPOINT: "${PROBE_REVIEWER_ENDPOINT:-}"
       PROBE_REVIEWER_MODEL: "${PROBE_REVIEWER_MODEL:-}"
+      # Optional model tuning: OpenRouter provider routing and temperature.
+      PROBE_REVIEWER_PROVIDER: "${PROBE_REVIEWER_PROVIDER:-}"
+      PROBE_REVIEWER_TEMPERATURE: "${PROBE_REVIEWER_TEMPERATURE:-}"
       # PulsarCD mounts _KEY variables as secrets for the CLI to read.
       PROBE_API_KEY: "${PROBE_API_KEY:-}"
       PROBE_REVIEWER_ALLOW_INSECURE_HTTP: "${PROBE_REVIEWER_ALLOW_INSECURE_HTTP:-false}"

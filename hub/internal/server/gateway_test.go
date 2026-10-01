@@ -338,3 +338,34 @@ func TestDeviceClient(t *testing.T) {
 		t.Fatalf("%d runes", len([]rune(got)))
 	}
 }
+
+// The deployment's routing and temperature win over the client's; without
+// them the client's temperature is relayed and its routing never is.
+func TestGatewayImposesDeploymentTuning(t *testing.T) {
+	body, err := json.Marshal(completion(map[string]any{"temperature": 1.5, "provider": map[string]any{"order": []string{"cheap"}}}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	relay := func(g config.Gateway) map[string]any {
+		t.Helper()
+		out, err := gatewayPayload(body, g)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var sent map[string]any
+		if err := json.Unmarshal(out, &sent); err != nil {
+			t.Fatal(err)
+		}
+		return sent
+	}
+	temperature := 0.1
+	sent := relay(config.Gateway{Model: "m", MaxCompletionTokens: 512, Provider: json.RawMessage(`{"order":["anthropic"],"allow_fallbacks":false}`), Temperature: &temperature})
+	routing, _ := json.Marshal(sent["provider"])
+	if sent["temperature"] != 0.1 || string(routing) != `{"allow_fallbacks":false,"order":["anthropic"]}` {
+		t.Fatalf("relayed temperature %v provider %s", sent["temperature"], routing)
+	}
+	sent = relay(config.Gateway{Model: "m", MaxCompletionTokens: 512})
+	if _, ok := sent["provider"]; ok || sent["temperature"] != 1.5 {
+		t.Fatalf("relayed %v", sent)
+	}
+}

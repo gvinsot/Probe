@@ -9,6 +9,7 @@ package config
 import (
 	"crypto/rand"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"net/url"
 	"os"
@@ -124,6 +125,10 @@ type Gateway struct {
 	Endpoint string
 	Model    string
 	APIKey   string
+	// Provider (the "provider" request field) and Temperature are imposed on
+	// every relayed request when set.
+	Provider    json.RawMessage
+	Temperature *float64
 	// DailyTokens bounds the tokens one account consumes per UTC day.
 	DailyTokens int64
 	// Rate bounds the requests of one account per minute.
@@ -192,6 +197,13 @@ func Load(getenv func(string) string) (Config, error) {
 	}
 	if c.Mode == ModeReadOnly && (strings.TrimSpace(getenv(EndpointEnvName)) == "" || strings.TrimSpace(getenv(ModelEnvName)) == "") {
 		return c, fmt.Errorf("read-only AI review requires deployment-configured %s and %s", EndpointEnvName, ModelEnvName)
+	}
+	// The CLI reads both again for each analysis; a typo fails here instead.
+	if _, err := parseProvider(getenv(ProviderEnvName)); err != nil {
+		return c, err
+	}
+	if _, err := parseTemperature(getenv(TemperatureEnvName)); err != nil {
+		return c, err
 	}
 	if c.Instance != InstancePublic && c.Instance != InstancePrivate {
 		return c, fmt.Errorf("PROBE_HUB_INSTANCE must be %q or %q, got %q", InstancePublic, InstancePrivate, c.Instance)
@@ -445,8 +457,9 @@ const (
 )
 
 // gateway reads PROBE_HUB_LLM_GATEWAY and its budgets. The provider is the
-// one the hub's own reviews use: PROBE_REVIEWER_ENDPOINT, PROBE_REVIEWER_MODEL
-// and the PROBE_API_KEY secret.
+// one the hub's own reviews use: PROBE_REVIEWER_ENDPOINT, PROBE_REVIEWER_MODEL,
+// the PROBE_API_KEY secret, and PROBE_REVIEWER_PROVIDER and
+// PROBE_REVIEWER_TEMPERATURE when set.
 func gateway(getenv func(string) string) (Gateway, error) {
 	g := Gateway{
 		Enabled:             envBool(getenv, "PROBE_HUB_LLM_GATEWAY", false),
@@ -476,6 +489,12 @@ func gateway(getenv func(string) string) (Gateway, error) {
 	}
 	g.Endpoint = u.String()
 	g.APIKey = secret(getenv, "PROBE_API_KEY")
+	if g.Provider, err = parseProvider(getenv(ProviderEnvName)); err != nil {
+		return g, err
+	}
+	if g.Temperature, err = parseTemperature(getenv(TemperatureEnvName)); err != nil {
+		return g, err
+	}
 	switch {
 	case g.DailyTokens < 1000 || g.DailyTokens > 1000000000:
 		return g, fmt.Errorf("PROBE_HUB_LLM_DAILY_TOKENS must be between 1000 and 1000000000")
