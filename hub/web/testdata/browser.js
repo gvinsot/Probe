@@ -522,7 +522,7 @@ window.addEventListener('DOMContentLoaded', async () => {
     refLinks[0].click();
     assert(prBox.querySelectorAll('.summary-diff').length === 1 && refLinks[0].getAttribute('aria-expanded') === 'false', 'a second click folds it');
     refLinks[1].click();
-    assert(state.expanded.has('issue:h1#1') && el('alerts').querySelector('.alert-head').getAttribute('aria-expanded') === 'true', 'a cited alert opens in the list');
+    assert(refLinks[1].tagName === 'SPAN' && !state.expanded.has('issue:h1#1') && !prBox.querySelector('.summary-diff .alert-body'), 'an alert the list shows is only named, not a link to the list');
     assert(![...el('alerts').querySelectorAll('.alert-title')].some((t) => t.textContent === 'Errors are logged') && !el('alerts').querySelector('.area.other'), 'an alert a risk cites is not repeated under Other alerts');
     refLinks[2].click();
     assert(prBox.querySelector('.summary-diff .alert-body') && prBox.textContent.includes('The error is only logged.'), 'it unfolds whole under the risk');

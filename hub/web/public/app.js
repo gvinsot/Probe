@@ -969,8 +969,9 @@ function otherAreaItem(shown) {
 // summaryCitations renders the links of one summary statement: the code it
 // cites, then the alerts (by alert ID prefix) a risk cites. A code link
 // unfolds its diff under the statement held by li; a second click folds it.
-// An alert the list shows opens there; any other alert unfolds whole under
-// the statement, which is then its only place in the report.
+// An alert the list shows is only named: jumping down to the list lost the
+// reader's place. Any other alert unfolds whole under the statement, which
+// is then its only place in the report.
 function summaryCitations(li, refs, alertIDs) {
   const links = document.createElement('span');
   links.className = 'summary-refs';
@@ -998,12 +999,17 @@ function summaryCitations(li, refs, alertIDs) {
     links.appendChild(link);
   }
   for (const alert of new Set(alertIDs.map(findAlert).filter(Boolean))) {
+    if (inAlertList(alert)) {
+      const mention = document.createElement('span');
+      mention.className = 'ref-link alert-ref mention';
+      mention.textContent = alert.title || alert.id;
+      mention.title = alertLocation(alert);
+      links.appendChild(mention);
+      continue;
+    }
     const link = refLink(alert.title || alert.id, alertLocation(alert));
     link.classList.add('alert-ref');
-    link.addEventListener('click', () => {
-      if (listedAlert(alert.id)) revealAlert(alert.id);
-      else toggle(link, (holder) => holder.appendChild(alertBody(alert)));
-    });
+    link.addEventListener('click', () => toggle(link, (holder) => holder.appendChild(alertBody(alert))));
     links.appendChild(link);
   }
   return links;
@@ -1059,9 +1065,16 @@ function findAlert(id) {
   return null;
 }
 
-// listedAlert returns the item of the alert list that shows an alert.
-function listedAlert(id) {
-  return [...document.querySelectorAll('#alerts .alert')].find((li) => li.dataset.alertId === id) || null;
+// inAlertList reports whether renderAlerts lists an alert: one the filters
+// keep, under its change area or, when no risk cites it, under the others.
+// The summary is drawn before the list, so this follows its rules rather
+// than looking for the item.
+function inAlertList(alert) {
+  if (!filteredAlerts().includes(alert)) return false;
+  const summary = state.view.pr_summary;
+  const areas = (summary && summary.changes) || [];
+  if (areas.length === 0 || (alert.area && alert.area <= areas.length)) return true;
+  return !riskCitedAlerts(summary).has(alert.id);
 }
 
 // riskCitedAlerts returns the IDs of the alerts the summary's risks cite.
@@ -1074,14 +1087,6 @@ function riskCitedAlerts(s) {
     }
   }
   return ids;
-}
-
-// revealAlert unfolds an alert of the list and scrolls to it.
-function revealAlert(id) {
-  state.expanded.add(id);
-  renderAlerts();
-  const item = listedAlert(id);
-  if (item) requestAnimationFrame(() => item.scrollIntoView({ block: 'start', behavior: 'smooth' }));
 }
 
 // checksSentence states, from the report, what Probe executed: the testing

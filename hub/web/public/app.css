@@ -323,6 +323,7 @@ h1, h2, h3 { line-height: 1.25; }
 .pr-rated ul { padding-left: 0; }
 .ref-link.verified { border-color: color-mix(in srgb, var(--ok) 45%, var(--line)); }
 .ref-link.alert-ref { font-family: inherit; color: var(--tone, var(--medium)); }
+.ref-link.mention, .ref-link.mention:hover { cursor: default; border-color: var(--line); background: var(--surface); }
 .summary-diff { margin: 6px 0 8px; font-size: 0.8rem; }
 .chip.lowered { color: var(--muted); border-style: dashed; text-decoration: line-through; }
 .dismissed { border: 1px dashed var(--line); border-radius: 8px; padding: 8px 10px; margin-bottom: 10px; }
