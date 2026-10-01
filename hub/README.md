@@ -117,11 +117,10 @@ branch; a notice identifies truncated history. Branch buttons and parent links
 can select commits outside the displayed window. “Refresh commits” reloads the
 tree; simply browsing never launches an analysis.
 
-Each commit shows the cached analysis and plan statuses. When both request
-human review, the tree shows one badge at the higher severity, respecting the
-selected severity threshold; hovering shows both severities. Other statuses
-keep separate badges. A gray **?** means no cached result; **Human review
-required** reflects the trusted CLI's exit code 2.
+Each commit shows the status of its cached analysis, respecting the selected
+severity threshold; plans have no badge in the tree. A gray **?** means no
+cached analysis; **Human review required** reflects the trusted CLI's exit
+code 2.
 The two result cards show the actual mode, baseline and result age. Normal
 analysis uses the deployment's selected mode; full review additionally validates the policy. Plan
 runs `probe plan --ci` at the commit's first parent (the commit itself for

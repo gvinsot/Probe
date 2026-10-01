@@ -1670,17 +1670,6 @@ async function syncPending() {
   if (finished.size) refreshDashboard(finished.has(state.repoKey));
 }
 
-// Combine review requests in the tree, keeping the most severe report's
-// presentation. Other statuses remain visible for each variant.
-function commitVerdictChips(normal, plan) {
-  if ([normal, plan].every((run) => run && run.status === 'done' && run.summary?.verdict === 'review')) {
-    const result = verdictChip(statusRank(plan) > statusRank(normal) ? plan : normal);
-    result.title = ['Analysis: ' + reviewLevel(normal.summary), 'Plan: ' + reviewLevel(plan.summary), result.title].filter(Boolean).join('\n');
-    return [result];
-  }
-  return [verdictChip(normal), verdictChip(plan)];
-}
-
 function svgElement(tag, attrs) {
   const node = document.createElementNS('http://www.w3.org/2000/svg', tag);
   for (const [key, value] of Object.entries(attrs)) node.setAttribute(key, String(value));
@@ -1758,9 +1747,9 @@ function renderGraph() {
     line.appendChild(open);
     row.appendChild(line);
     const meta = document.createElement('div'); meta.className = 'row commit-meta';
-    for (const result of commitVerdictChips(displayedRun(commit.sha, 'normal'), displayedRun(commit.sha, 'plan'))) {
-      meta.appendChild(result);
-    }
+    // Only the analysis has a badge: a plan is rarely run, and its gray
+    // "no result" badge cluttered every commit.
+    meta.appendChild(verdictChip(displayedRun(commit.sha, 'normal')));
     const who = document.createElement('span'); who.className = 'note';
     who.textContent = [commit.author, commit.date ? timeAgo(commit.date) : ''].filter(Boolean).join(' · ');
     meta.appendChild(who);
