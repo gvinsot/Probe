@@ -142,7 +142,7 @@ type PRSummary struct {
 	Changes         []PRSummaryChange `json:"changes"`          // always an array
 	BehaviorChanges []PRSummaryPoint  `json:"behavior_changes"` // always an array
 	Risks           []PRSummaryRisk   `json:"risks"`            // always an array
-	ReviewFocus     []PRSummaryPoint  `json:"review_focus"`     // always an array; each point has a ref
+	ReviewFocus     []PRSummaryFocus  `json:"review_focus"`     // always an array; each point has a quoted ref and a severity, most severe first
 	Testing         []PRSummaryPoint  `json:"testing"`          // always an array; tests the change adds or modifies
 	Model           string            `json:"model"`
 	// RejectedCitations counts the refs the CLI dropped because their quote
@@ -182,10 +182,20 @@ type PRSummaryPoint struct {
 	Refs []CodeRef `json:"refs"` // always an array
 }
 
+// PRSummaryFocus is where a human reviewer should look first. Its Severity is
+// rated like a risk's: the model's estimate, raised by the CLI to the most
+// severe signal or hypothesis on the lines it cites. A reading, never
+// evidence; it changes no exit code.
+type PRSummaryFocus struct {
+	Text     string    `json:"text"`
+	Severity string    `json:"severity"`
+	Refs     []CodeRef `json:"refs"` // always an array, with at least one quoted ref
+}
+
 // PRSummaryRisk is one risk of a PR summary. A risk the review recorded cites
 // its signals and hypotheses by ID; a risk read from the diff cites code.
 // Severity is the model's estimate, raised by the CLI to the highest severity
-// of the findings the risk cites: a reading, never evidence, and it changes
+// of the findings the risk cites or that sit on the lines it cites: a reading, never evidence, and it changes
 // no exit code. Risks are ordered from the most severe.
 type PRSummaryRisk struct {
 	Text          string    `json:"text"`

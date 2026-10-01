@@ -256,7 +256,7 @@ type PRSummary struct {
 	Changes         []PRSummaryChange `json:"changes"`
 	BehaviorChanges []PRSummaryPoint  `json:"behavior_changes"`
 	Risks           []PRSummaryRisk   `json:"risks"`
-	ReviewFocus     []PRSummaryPoint  `json:"review_focus"`
+	ReviewFocus     []PRSummaryFocus  `json:"review_focus"`
 	Testing         []PRSummaryPoint  `json:"testing"`
 	Model           string            `json:"model"`
 	// RejectedCitations counts the refs the CLI dropped because their quote
@@ -288,6 +288,14 @@ type PRSummaryChange struct {
 type PRSummaryPoint struct {
 	Text string    `json:"text"`
 	Refs []CodeRef `json:"refs"`
+}
+
+// PRSummaryFocus is where a human reviewer should look first, with the
+// severity the CLI rated.
+type PRSummaryFocus struct {
+	Text     string    `json:"text"`
+	Severity string    `json:"severity"`
+	Refs     []CodeRef `json:"refs"`
 }
 
 // PRSummaryRisk is one risk of a PR summary, citing recorded signals and

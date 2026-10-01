@@ -112,7 +112,13 @@ func writePRSummaryBody(b *bytes.Buffer, r *model.Report, level string, overview
 		}
 		line(b, "")
 	}
-	points("Where to look first", s.ReviewFocus)
+	if len(s.ReviewFocus) > 0 {
+		line(b, level+" Where to look first"+"\n")
+		for _, f := range s.ReviewFocus {
+			line(b, "- **"+inline(f.Severity)+"** "+inline(f.Text)+citing(refTexts(f.Refs)))
+		}
+		line(b, "")
+	}
 	points("Testing", s.Testing)
 	if len(s.Testing) == 0 {
 		line(b, level+" Testing\n")
@@ -170,10 +176,13 @@ func citationsNote(s *model.PRSummary) string {
 	for _, c := range s.Changes {
 		check(c.Refs)
 	}
-	for _, list := range [][]model.PRSummaryPoint{s.BehaviorChanges, s.ReviewFocus, s.Testing} {
+	for _, list := range [][]model.PRSummaryPoint{s.BehaviorChanges, s.Testing} {
 		for _, p := range list {
 			check(p.Refs)
 		}
+	}
+	for _, f := range s.ReviewFocus {
+		check(f.Refs)
 	}
 	for _, r := range s.Risks {
 		check(r.Refs)

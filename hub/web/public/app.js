@@ -807,15 +807,18 @@ function renderPRSummary(s) {
     li.append(text, summaryCitations(li, p.refs, []));
   };
   section('Behavior changes', s.behavior_changes, point);
-  if (s.risks && s.risks.length) {
+  // Risks and review focus points carry a severity and follow the filters.
+  for (const [key, title] of [['risks', 'Risks'], ['focus', 'Where to look first']]) {
+    if (!(RATED[key].items(s) || []).length) continue;
     const h = document.createElement('b');
-    h.textContent = 'Risks';
-    const risks = document.createElement('div');
-    risks.id = 'pr-risks';
-    box.append(h, risks);
-    renderSummaryRisks(risks, s);
+    h.textContent = title;
+    const holder = document.createElement('div');
+    holder.className = 'pr-rated';
+    holder.id = 'pr-' + key;
+    holder.dataset.section = key;
+    box.append(h, holder);
+    renderRated(holder, s);
   }
-  section('Where to look first', s.review_focus, point);
   const h = document.createElement('b');
   h.textContent = 'Testing';
   box.appendChild(h);
@@ -859,37 +862,64 @@ function riskShown(risk) {
   return LEVELS.indexOf(risk.severity) >= state.minSeverity || riskAlerts(risk).some(aboveThreshold);
 }
 
-function riskFilterKey() {
+// focusShown applies the alert filters to a review focus point, whose
+// severity the CLI raised to the findings on the lines it cites.
+function focusShown(focus) {
+  return state.kind === 'everything' || LEVELS.indexOf(focus.severity) >= state.minSeverity;
+}
+
+// RATED describes the sections of the summary head whose statements carry a
+// severity: the model's estimate, never below the findings they cite.
+const RATED = {
+  risks: {
+    items: (s) => s.risks,
+    shown: riskShown,
+    alerts: (risk) => riskAlerts(risk).map((a) => a.id),
+    nouns: ['risk is', 'risks are'],
+    title: 'Severity estimated by the AI reviewer, at least that of the findings it cites. Model output, not evidence.',
+  },
+  focus: {
+    items: (s) => s.review_focus,
+    shown: focusShown,
+    alerts: () => [],
+    nouns: ['place to look is', 'places to look are'],
+    title: 'Severity estimated by the AI reviewer, at least that of the findings on the cited lines. Model output, not evidence.',
+  },
+};
+
+function ratedFilterKey() {
   return state.kind + ':' + state.minSeverity + ':' + ((state.view && state.view.alerts) || []).length;
 }
 
-// renderSummaryRisks fills the risks of the summary head, most severe first
-// as the CLI ordered them, each led by its severity in its color. It runs
-// again whenever the alert filters change.
-function renderSummaryRisks(holder, s) {
+// renderRated fills a rated section of the summary head, most severe first as
+// the CLI ordered it, each statement led by its severity in its color. The
+// filters hide what is below the review threshold, as for the alerts; it runs
+// again whenever they change.
+function renderRated(holder, s) {
+  const rated = RATED[holder.dataset.section];
   holder.textContent = '';
-  holder.dataset.filter = riskFilterKey();
+  holder.dataset.filter = ratedFilterKey();
   const list = document.createElement('ul');
   let hidden = 0;
-  for (const risk of s.risks || []) {
-    if (!riskShown(risk)) {
+  for (const item of rated.items(s) || []) {
+    if (!rated.shown(item)) {
       hidden++;
       continue;
     }
     const li = document.createElement('li');
-    li.className = 'risk ' + severityClass(risk.severity);
-    const level = dotChip(risk.severity || 'unrated', risk.severity);
-    level.title = 'Severity estimated by the AI reviewer, at least that of the findings it cites. Model output, not evidence.';
+    li.className = 'rated ' + severityClass(item.severity);
+    const level = dotChip(item.severity || 'unrated', item.severity);
+    level.title = rated.title;
     const text = document.createElement('span');
-    text.textContent = risk.text;
-    li.append(level, text, summaryCitations(li, risk.refs, riskAlerts(risk).map((a) => a.id)));
+    text.textContent = item.text;
+    li.append(level, text, summaryCitations(li, item.refs, rated.alerts(item)));
     list.appendChild(li);
   }
   if (list.children.length) holder.appendChild(list);
   if (hidden) {
     const note = document.createElement('p');
     note.className = 'note';
-    note.textContent = hidden + (hidden === 1 ? ' risk is' : ' risks are') + ' below the selected severity. Lower the filter or choose Everything to see ' + (hidden === 1 ? 'it.' : 'them.');
+    note.textContent = hidden + ' ' + rated.nouns[hidden === 1 ? 0 : 1] + ' below the selected severity. Lower the filter or choose Everything to see ' + (hidden === 1 ? 'it.' : 'them.');
     holder.appendChild(note);
   }
 }
@@ -1081,7 +1111,7 @@ function prSummaryMarkdown(s) {
     const where = (r.refs || []).map(refText).concat([...new Set(alerts)].map((a) => (a.title || a.id) + ' — ' + alertLocation(a) + ' (' + (a.status ? a.status.toLowerCase() + ' ' : '') + a.kind + ')'));
     return '**' + (r.severity || 'unrated') + '** ' + r.text + (where.length ? ' — ' + where.join(', ') : '');
   }));
-  list('Where to look first', points(s.review_focus));
+  list('Where to look first', (s.review_focus || []).map((f) => '**' + (f.severity || 'unrated') + '** ' + f.text + cites(f.refs)));
   lines.push('', '## Testing', '');
   for (const item of points(s.testing)) lines.push('- ' + item);
   if (s.testing && s.testing.length) lines.push('');
@@ -2009,8 +2039,11 @@ function renderAlerts() {
   list.textContent = '';
   // The summary's risks follow the same filters as the alerts; they are
   // rebuilt only when the filters changed, so that their open diffs stay.
-  const risks = document.getElementById('pr-risks');
-  if (risks && state.view && state.view.pr_summary && risks.dataset.filter !== riskFilterKey()) renderSummaryRisks(risks, state.view.pr_summary);
+  if (state.view && state.view.pr_summary) {
+    for (const holder of document.querySelectorAll('.pr-rated')) {
+      if (holder.dataset.filter !== ratedFilterKey()) renderRated(holder, state.view.pr_summary);
+    }
+  }
   const alerts = filteredAlerts();
   const total = state.view ? (state.view.alerts || []).length : 0;
   el('alert-count').textContent = alerts.length + ' of ' + total + ' alerts shown';

@@ -323,7 +323,16 @@
             "refs": {"$ref": "#/$defs/prSummaryRefs"}
           }
         }},
-        "review_focus": {"type": "array", "maxItems": 8, "items": {"$ref": "#/$defs/prSummaryPoint"}, "description": "Each point cites at least one ref with lines."},
+        "review_focus": {"type": "array", "maxItems": 8, "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["text", "severity", "refs"],
+          "properties": {
+            "text": {"type": "string", "minLength": 1},
+            "severity": {"$ref": "#/$defs/severity", "description": "The model's estimate, raised to the most severe signal or hypothesis on the cited lines. Not evidence; it changes no exit code."},
+            "refs": {"$ref": "#/$defs/prSummaryRefs"}
+          }
+        }, "description": "Each point cites at least one ref with lines and has a severity; most severe first."},
         "testing": {"type": "array", "maxItems": 4, "items": {"$ref": "#/$defs/prSummaryPoint"}, "description": "The tests the change adds or modifies. What Probe executed is in checks."},
         "model": {"type": "string", "minLength": 1},
         "rejected_citations": {"type": "integer", "minimum": 1, "description": "Refs the CLI dropped because their quote is not in the diff."}

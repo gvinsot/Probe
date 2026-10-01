@@ -17,7 +17,7 @@ const validSummary = `{"title":"Allow every user through the admin check","overv
 "changes":[{"area":"Simplify the admin check","summary":"Allowed no longer compares the user.","refs":[{"path":"auth.go","start_line":3},{"path":"/etc/passwd"},{"path":"auth.go","start_line":3}],"signal_ids":["signal-1","signal-9"],"hypothesis_ids":["hypothesis-1"]},{"area":"Cover the admin check","summary":"A test follows.","signal_ids":["signal-1","signal-2"]},{"area":"","summary":"dropped","signal_ids":["signal-2"]}],
 "behavior_changes":[{"text":"Non-admin users are allowed","refs":[{"path":"auth.go","start_line":2,"end_line":40}]}],
 "risks":[{"text":"The role test is gone","severity":" Medium","refs":[{"path":"auth.go","start_line":9,"side":"old","quote":"if u.Role  != \"admin\" {"}]},{"text":"Unverified: every user becomes admin","severity":"low","hypothesis_ids":["hypothesis-1","hypothesis-9"]},{"text":"Nothing backs this","signal_ids":["signal-9"]},{"text":"Invented code","refs":[{"path":"auth.go","start_line":3,"quote":"return isAdmin(u)"}]}],
-"review_focus":[{"text":"The return statement","refs":[{"path":"auth.go","start_line":3,"quote":"return true"}]},{"text":"No lines","refs":[{"path":"auth.go"}]}],
+"review_focus":[{"text":"The return statement","severity":"low","refs":[{"path":"auth.go","start_line":3,"quote":"return true"}]},{"text":"No lines","refs":[{"path":"auth.go"}]}],
 "testing":[]}`
 
 // summaryProvider answers with the given contents in turn and records the
@@ -100,6 +100,11 @@ func TestSummarizeValidatesTheAnswer(t *testing.T) {
 	// A focus point needs a verified quote.
 	if want := []model.CodeRef{{Path: "auth.go", StartLine: 3, Quote: "return true"}}; len(s.ReviewFocus) != 1 || !reflect.DeepEqual(s.ReviewFocus[0].Refs, want) || s.Testing == nil || len(s.Testing) != 0 {
 		t.Fatalf("focus %+v testing %+v", s.ReviewFocus, s.Testing)
+	}
+	// It is rated like a risk: the critical hypothesis on its line raises the
+	// model's "low".
+	if s.ReviewFocus[0].Severity != "critical" {
+		t.Fatalf("focus severity %q", s.ReviewFocus[0].Severity)
 	}
 	if s.RejectedCitations != 1 {
 		t.Fatalf("rejected citations %d", s.RejectedCitations)
