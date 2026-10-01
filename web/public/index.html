@@ -263,7 +263,7 @@ Plan gate: no human review required (low-risk plan, conforming change, checks pa
             <ol>
               <li>Checks already ran in an isolated container, with logs and hashes.</li>
               <li>Open the report: 18 flagged lines, ranked by severity, with reasons.</li>
-              <li>Start with the critical risk of the AI report: the refund cap removed from <code>payment/refund.go</code>, quoted and checked against the diff.</li>
+              <li>Start with the top risk of the AI report: the refund bound removed from <code>payment/refund.go</code>, reproduced by a test the reviewer wrote.</li>
               <li>Let the optional reviewer try to reproduce the issue on base and candidate.</li>
               <li>Keep the Markdown and JSON reports as the review record.</li>
             </ol>
@@ -297,51 +297,55 @@ Plan gate: no human review required (low-risk plan, conforming change, checks pa
             <button type="button" role="tab" id="tab-noai" aria-controls="panel-noai">Without AI</button>
           </div>
           <div class="tabpanel" role="tabpanel" id="panel-ai" aria-labelledby="tab-ai">
-            <p class="note">Excerpt of <code>.probe/PR_SUMMARY.md</code>, written by <code>probe review HEAD~1..HEAD --ci</code> (v0.5.71) with the reviewer model of Probe Hub. In the hub, the same report heads the alert list, and every citation unfolds its diff.</p>
+            <p class="note">Excerpt of <code>.probe/PR_SUMMARY.md</code>, written by <code>probe review HEAD~1..HEAD --ci</code> with the reviewer model of Probe Hub. The run exits with code 1: a reproduced issue. In the hub, the same report heads the alert list, and every citation unfolds its diff.</p>
             <div class="annotated">
               <figure class="report" aria-label="Generated AI report">
                 <figcaption><span class="dot"></span><span class="dot"></span><span class="dot"></span> .probe/PR_SUMMARY.md</figcaption>
-<pre><code><span class="h"># Let support agents refund orders and add a restocking fee</span>
+<pre><code><span class="h"># Let support issue refunds, add a restocking fee and catalog helpers</span>
 
 <span class="h">## Risks</span><span class="m">1</span>
-- <b class="crit">critical</b> The guard that rejected refunds exceeding the
-  paid amount was removed, so cumulative refunds can now
-  exceed what the order paid.
-  — payment/refund.go:23 (old) <b class="ok">✓</b>, payment/refund.go:24 (old) <b class="ok">✓</b>
-- <b class="hi">high</b> Refund permission is widened to the support role
-  in a sensitive file; … — auth/auth.go:17 <b class="ok">✓</b>
-- <b class="lo">low</b> The restocking fee uses integer division, …
-  — payment/refund.go:34 <b class="ok">✓</b>
-<i>  … 2 more high risks</i>
+- <b class="hi">high</b> The bound on refunds was deleted rather than adapted,
+  so an order can be refunded more than it was paid, from
+  both payment.Refund and the public api.RefundOrder.
+  — payment/refund.go:23-24 (old) <b class="ok">✓</b>, payment/refund.go:28-29 <b class="ok">✓</b>,
+  Refund no longer checks the amount against what the order
+  was paid — payment/refund.go:24 <b class="crit">(reproduced finding)</b>, …
+- <b class="hi">high</b> The new lines of api.RefundOrder were not executed
+  by any instrumented package, so the removed refund bound
+  is not covered through the public entry point.
+  — api/refund.go:17 <b class="ok">✓</b>, …
+<i>  … 1 more high risk, 1 low</i>
 
 <span class="h">## Changes</span><span class="m">2</span>
-- <b>Add restocking fee to payment refunds</b>: Refund takes a
-  restock flag, subtracts RestockingFee from the amount when
-  goods come back to stock, records the net amount and
-  returns it. … — payment/refund.go:20 <b class="ok">✓</b>, …
+- <b>Add restocking fee and return value to refunds</b>: payment.Refund
+  now takes a restock flag, subtracts RestockingFee from the
+  amount when restocking, and returns the refunded amount; …
+  — payment/refund.go:20 <b class="ok">✓</b>, …
+  - <b class="crit">REPRODUCED / high</b> Refund no longer checks the amount
+    against what the order was paid — payment/refund.go:24
   - Payment-sensitive function body changed — payment/refund.go:20
-  - Exported Go declaration added — payment/refund.go:33
-<i>  … 5 more areas; each of the 19 signals sits under one area</i>
+<i>    … 6 more signals</i>
+<i>  … 3 more areas; each of the 19 signals sits under one area</i>
 
 <span class="h">## Where to look first</span><span class="m">3</span>
-- <b class="crit">critical</b> Confirm that dropping the exceeds-paid check
-  is intended, since refunds can now be recorded beyond
-  what the order paid. — payment/refund.go:23 (old) <b class="ok">✓</b>,
-  payment/refund_test.go:16 (old) <b class="ok">✓</b>
+- <b class="hi">high</b> Check that dropping the paid-amount guard is intended
+  and that the refund total still cannot exceed what was
+  captured, since the sentinel and its test assertion are
+  gone. — payment/refund.go:23-24 (old) <b class="ok">✓</b>, payment/refund.go:15 <b class="ok">✓</b>
 
 <span class="h">## Testing</span><span class="m">4</span>
-<i>Probe executed 4 checks for this review: 4 PASS.</i></code></pre>
+<i>Probe executed 10 checks for this review: 6 PASS, 3 FAIL, 1 ERROR.</i></code></pre>
               </figure>
               <ol class="notes">
-                <li><strong>The bug comes first.</strong> The reviewer rates every risk; Probe raises it to the most severe finding it cites and sorts the list. The removed refund cap leads, although every test passes.</li>
+                <li><strong>The bug comes first, reproduced.</strong> The removed refund bound leads the risks, although every test passes. The reviewer wrote a test that passes on the base and fails on the candidate: Probe ran both and recorded the issue as reproduced.</li>
                 <li><strong>Every citation is checked.</strong> ✓ means the code the model quoted is at those lines of the diff: Probe searched for it, without a model, and drops a citation it cannot find. It proves where the statement points, not that the statement is right.</li>
-                <li><strong>Findings grouped by intent.</strong> The signals Probe computed are listed under the change they belong to, with their own severity and location. A signal no area cites is still listed, at the end.</li>
-                <li><strong>What ran is Probe's, not the model's.</strong> The checks line counts what actually executed in the sandbox, and the verdict comes from evidence: the model describes the change and changes nothing in the result.</li>
+                <li><strong>Findings grouped by intent.</strong> The reproduced issue and the signals Probe computed are listed under the change they belong to, with their recorded status, severity and location. A finding no area cites is still listed, at the end.</li>
+                <li><strong>What ran is Probe's, not the model's.</strong> The checks line counts what actually executed in the sandbox, the reviewer's tests included, and the verdict comes from evidence. The model rates and describes; it changes nothing in the result.</li>
               </ol>
             </div>
           </div>
           <div class="tabpanel" role="tabpanel" id="panel-noai" aria-labelledby="tab-noai">
-            <p class="note">Excerpt of <code>.probe/CONFIDENCE_REPORT.md</code>, produced by <code>probe review HEAD~1..HEAD --reviewer=false --ci</code> (v0.5.71) on the same commit. No AI provider was used.</p>
+            <p class="note">Excerpt of <code>.probe/CONFIDENCE_REPORT.md</code>, produced by <code>probe review HEAD~1..HEAD --reviewer=false --ci</code> on the same commit. No AI provider was used.</p>
             <div class="annotated">
               <figure class="report" aria-label="Generated confidence report">
                 <figcaption><span class="dot"></span><span class="dot"></span><span class="dot"></span> .probe/CONFIDENCE_REPORT.md</figcaption>
