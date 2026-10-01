@@ -1491,10 +1491,13 @@ async function refreshActivity() {
   }
 }
 
+// renderActivity lays the jobs out in three lists: queued, running and
+// completed (done, failed or cancelled). Each job takes two lines: what it
+// is with its status and actions, then when it happened and how long it took.
 function renderActivity(items) {
   const list = el('activity-list');
   list.textContent = '';
-  for (const [label, statuses] of [['Queued', ['queued']], ['Running', ['running']], ['Past analyses', ['done', 'failed', 'cancelled']]]) {
+  for (const [label, statuses] of [['Queued', ['queued']], ['Running', ['running']], ['Completed', ['done', 'failed', 'cancelled']]]) {
     const group = items.filter((item) => statuses.includes(item.status));
     const section = document.createElement('section');
     const heading = document.createElement('h4');
@@ -1505,50 +1508,84 @@ function renderActivity(items) {
       empty.className = 'note';
       empty.textContent = 'No analyses.';
       section.appendChild(empty);
-    }
-    for (const item of group) {
-      const row = document.createElement('article');
-      row.className = 'activity-row';
-      const title = document.createElement('div');
-      title.className = 'row';
-      const repo = state.repos.get(item.repo_key);
-      const name = document.createElement('strong');
-      name.textContent = (repo ? repo.full_name : item.repo_key) + ' · ' + shortSha(item.commit);
-      name.title = item.commit;
-      const statusLabel = { queued: 'Queued', running: 'Running', done: 'Completed', failed: 'Failed', cancelled: 'Cancelled' }[item.status];
-      title.append(name, chip(item.variant === 'plan' ? 'Plan' : 'Analysis'), chip(statusLabel, item.status === 'failed' ? 'bad' : ''));
-      const dates = document.createElement('p');
-      dates.className = 'note';
-      dates.textContent = [['Queued', item.queued_at], ['Started', item.started_at], ['Finished', item.finished_at]]
-        .filter(([, value]) => value && !value.startsWith('0001-'))
-        .map(([label, value]) => label + ' ' + new Date(value).toLocaleString()).join(' · ');
-      row.append(title, dates);
-      if (item.mode || item.trigger) {
-        const detail = document.createElement('p');
-        detail.className = 'note';
-        detail.textContent = [item.mode ? analysisModeLabel(item.mode) : '', item.trigger].filter(Boolean).join(' · ');
-        row.appendChild(detail);
-      }
-      if (item.error) {
-        const error = document.createElement('p');
-        error.className = 'activity-error';
-        error.textContent = item.error;
-        row.appendChild(error);
-      }
-      const actions = document.createElement('div');
-      actions.className = 'row';
-      if (item.status === 'queued') actions.appendChild(button('Cancel', 'btn quiet small', (e) => cancelAnalysis(item, e.currentTarget)));
-      // A cancelled attempt left no stored parameters to run again with.
-      if (item.status === 'done' || item.status === 'failed') actions.appendChild(button('Run again', 'btn quiet small', (e) => rerunAnalysis(item, e.currentTarget)));
-      if (repo) actions.appendChild(button('Open commit', 'btn quiet small', () => {
-        closeModal();
-        selectRepo(item.repo_key, item.commit);
-      }));
-      if (actions.childElementCount) row.appendChild(actions);
-      section.appendChild(row);
+    } else {
+      const rows = document.createElement('ul');
+      rows.className = 'activity-jobs';
+      for (const item of group) rows.appendChild(activityRow(item));
+      section.appendChild(rows);
     }
     list.appendChild(section);
   }
+}
+
+const ACTIVITY_STATUS = { queued: 'Queued', running: 'Running', done: 'Completed', failed: 'Failed', cancelled: 'Cancelled' };
+
+// activityRow renders one job on two lines.
+function activityRow(item) {
+  const row = document.createElement('li');
+  row.className = 'activity-row';
+  const repo = state.repos.get(item.repo_key);
+  const statusLabel = ACTIVITY_STATUS[item.status] || item.status;
+
+  // First line: repository · commit · status, the variant and trigger, actions.
+  const head = document.createElement('div');
+  head.className = 'activity-line';
+  const title = (repo ? repo.full_name : item.repo_key) + ' · ' + shortSha(item.commit) + ' · ' + statusLabel;
+  const name = repo
+    ? button(title, 'activity-name', () => { closeModal(); selectRepo(item.repo_key, item.commit); })
+    : document.createElement('strong');
+  if (!repo) name.textContent = title;
+  name.title = repo ? 'Open the commit ' + item.commit : item.commit;
+  name.classList.add('activity-name', 'activity-' + item.status);
+  head.appendChild(name);
+  if (item.variant === 'plan') head.appendChild(chip('Plan'));
+  if (item.trigger) head.appendChild(chip(item.trigger.charAt(0).toUpperCase() + item.trigger.slice(1)));
+  const spacer = document.createElement('span');
+  spacer.className = 'spacer';
+  head.appendChild(spacer);
+  if (item.status === 'queued') head.appendChild(button('Cancel', 'btn quiet small', (e) => cancelAnalysis(item, e.currentTarget)));
+  // A cancelled attempt left no stored parameters to run again with.
+  if (item.status === 'done' || item.status === 'failed') head.appendChild(button('Run again', 'btn quiet small', (e) => rerunAnalysis(item, e.currentTarget)));
+  row.appendChild(head);
+
+  // Second line: the moment that matters for the status and the time spent,
+  // then the failure, cut to the line; the full details are in its tooltip.
+  const when = document.createElement('p');
+  when.className = 'note activity-line activity-when';
+  const at = (value) => (value && !value.startsWith('0001-') ? new Date(value) : null);
+  const queued = at(item.queued_at), started = at(item.started_at), finished = at(item.finished_at);
+  const parts = [];
+  if (item.status === 'queued') {
+    if (queued) parts.push('Queued ' + queued.toLocaleString(), 'waiting ' + formatDuration(Date.now() - queued));
+  } else if (item.status === 'running') {
+    if (started) parts.push('Started ' + started.toLocaleString(), 'running for ' + formatDuration(Date.now() - started));
+  } else if (finished) {
+    parts.push(statusLabel + ' ' + finished.toLocaleString());
+    const from = started || queued;
+    if (from) parts.push(formatDuration(finished - from));
+  }
+  when.textContent = parts.join(' · ');
+  when.title = [['Queued', queued], ['Started', started], ['Finished', finished]]
+    .filter(([, value]) => value).map(([label, value]) => label + ' ' + value.toLocaleString())
+    .concat(item.mode ? [analysisModeLabel(item.mode)] : []).join('\n');
+  if (item.error) {
+    const error = document.createElement('span');
+    error.className = 'activity-error';
+    error.textContent = (parts.length ? ' · ' : '') + item.error;
+    error.title = item.error;
+    when.appendChild(error);
+  }
+  row.appendChild(when);
+  return row;
+}
+
+// formatDuration writes a span of milliseconds as "12 min 5 sec".
+function formatDuration(ms) {
+  const seconds = Math.max(0, Math.round(ms / 1000));
+  if (seconds < 60) return seconds + ' sec';
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return minutes + ' min ' + (seconds % 60) + ' sec';
+  return Math.floor(minutes / 60) + ' h ' + (minutes % 60) + ' min';
 }
 
 // cancelAnalysis withdraws an attempt still waiting in the hub queue.

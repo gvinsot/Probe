@@ -600,8 +600,11 @@ until rerun. Probe's own labels, verdicts and check results stay in English.
 
 **Settings → Jobs queue** opens the account's
 queued and running analyses and completed/failed attempts from the last 48
-hours. Each rerun is listed separately, including plan analyses, with timestamps
-and failure details. The modal refreshes on live updates and every five seconds.
+hours, in three lists: Queued, Running and Completed. Each job takes two lines:
+the repository, commit and status with its trigger and actions, then when it was
+queued, started or finished and how long it waited or took (a failure follows,
+cut to the line; its tooltip carries every timestamp and the analysis mode).
+Each rerun is listed separately, including plan analyses; the name opens the commit. The modal refreshes on live updates and every five seconds.
 This activity history is kept only in server memory and resets on restart;
 existing cached report storage is unchanged. Active attempts remain visible
 regardless of age; completed attempts expire 48 hours after finishing.

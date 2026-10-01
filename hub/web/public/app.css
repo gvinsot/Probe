@@ -496,10 +496,22 @@ body.resizing { cursor: col-resize; user-select: none; }
   .layout { padding: 12px 10px 30px; }
 }
 
-.activity-row { padding: 12px 0; border-bottom: 1px solid var(--line); overflow-wrap: anywhere; }
-.activity-row .row { flex-wrap: wrap; }
-.activity-row p { margin: 6px 0; }
-.activity-error { white-space: pre-wrap; }
+/* Jobs queue: one list per status, each job on two lines at most. */
+#activity-list { min-width: 0; }
+#activity-list section { min-width: 0; }
+#activity-list h4 { margin: 14px 0 4px; }
+#activity-list h4 + .note { margin: 0; }
+.activity-jobs { margin: 0; padding: 0; list-style: none; }
+.activity-row { padding: 8px 0; border-bottom: 1px solid var(--line); }
+.activity-row:last-child { border-bottom: 0; }
+.activity-line { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.activity-row .btn.small { padding-block: 1px; }
+.activity-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: inherit; font-size: 0.86rem; font-weight: 600; color: var(--text); background: none; border: 0; padding: 0; text-align: left; }
+button.activity-name { cursor: pointer; }
+button.activity-name:hover { color: var(--accent); text-decoration: underline; }
+.activity-name.activity-failed { color: var(--critical); }
+.activity-when { display: block; margin: 2px 0 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.activity-error { color: var(--critical); }
 
 /* Team feedback on a finding. */
 .feedback { border-top: 1px solid var(--line); margin-top: 8px; padding-top: 8px; display: grid; gap: 6px; }
