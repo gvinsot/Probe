@@ -471,6 +471,7 @@ body.resizing { cursor: col-resize; user-select: none; }
 .commit-meta .chip { font-size: 0.7rem; padding: 0 6px; }
 .commit-meta .note { white-space: nowrap; font-size: 0.72rem; }
 .branch-list { gap: 4px; margin-bottom: 8px; max-height: 84px; overflow: auto; }
+.branch-list .btn[aria-pressed="true"] { color: var(--accent); border-color: var(--accent); background: var(--accent-soft); }
 @media (max-width: 1180px) {
   .workspace { flex-direction: column; align-items: stretch; }
   .commit-column { position: static; flex: none; border-right: 0; border-bottom: 1px solid var(--line); }

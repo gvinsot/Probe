@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -45,11 +46,16 @@ type CommitGraph struct {
 	Limited  bool         `json:"limited"`
 }
 
+// ErrUnknownBranch reports a branch the repository does not have.
+var ErrUnknownBranch = errors.New("unknown branch")
+
 // Graph reads history only; it never checks out or executes repository files.
-func (r *Runner) Graph(ctx context.Context, userKey, repoKey string) (graph *CommitGraph, resultErr error) {
+// With a branch, only that branch is fetched, so its own history fills the
+// window, while Branches still lists every branch.
+func (r *Runner) Graph(ctx context.Context, userKey, repoKey, branch string) (graph *CommitGraph, resultErr error) {
 	var secrets []string
 	defer func() {
-		if resultErr != nil {
+		if resultErr != nil && !errors.Is(resultErr, ErrUnknownBranch) {
 			resultErr = errors.New(store.SafeError(resultErr.Error(), secrets...))
 		}
 	}()
@@ -87,12 +93,54 @@ func (r *Runner) Graph(ctx context.Context, userKey, repoKey string) (graph *Com
 		return nil, err
 	}
 	if refs == "" {
+		if branch != "" {
+			return nil, ErrUnknownBranch
+		}
 		return &CommitGraph{Commits: []CommitNode{}, Branches: []Branch{}}, nil
 	}
-	if _, err := g.run(ctx, "fetch", "--quiet", "--no-tags", "--depth=100", "origin", "+refs/heads/*:refs/remotes/origin/*"); err != nil {
+	if branch == "" {
+		if _, err := g.run(ctx, "fetch", "--quiet", "--no-tags", "--depth=100", "origin", "+refs/heads/*:refs/remotes/origin/*"); err != nil {
+			return nil, err
+		}
+		return g.graph(ctx)
+	}
+	heads := remoteHeads(refs)
+	if !slices.ContainsFunc(heads, func(b Branch) bool { return b.Name == branch }) {
+		return nil, ErrUnknownBranch
+	}
+	// The name is one ls-remote listed, so it is a valid ref name.
+	if _, err := g.run(ctx, "fetch", "--quiet", "--no-tags", "--depth=100", "origin", "+refs/heads/"+branch+":refs/remotes/origin/"+branch); err != nil {
 		return nil, err
 	}
-	return g.graph(ctx)
+	graph, err = g.graph(ctx)
+	if err != nil {
+		return nil, err
+	}
+	// Label every branch tip the fetched history holds, not only the branch's.
+	graph.Branches = heads
+	tips := map[string][]string{}
+	for _, b := range heads {
+		tips[b.SHA] = append(tips[b.SHA], b.Name)
+	}
+	for i := range graph.Commits {
+		graph.Commits[i].Branches = tips[graph.Commits[i].SHA]
+	}
+	return graph, nil
+}
+
+// remoteHeads reads the branches of git ls-remote --heads, sorted by name as
+// for-each-ref sorts them.
+func remoteHeads(refs string) []Branch {
+	var heads []Branch
+	for _, line := range strings.Split(refs, "\n") {
+		sha, ref, ok := strings.Cut(strings.TrimSpace(line), "\t")
+		name, isHead := strings.CutPrefix(ref, "refs/heads/")
+		if ok && isHead && commitPattern.MatchString(sha) {
+			heads = append(heads, Branch{Name: name, SHA: sha})
+		}
+	}
+	slices.SortFunc(heads, func(a, b Branch) int { return strings.Compare(a.Name, b.Name) })
+	return heads
 }
 
 func (g *gitRunner) graph(ctx context.Context) (*CommitGraph, error) {

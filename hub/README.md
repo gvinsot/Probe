@@ -113,9 +113,11 @@ requests are not collected.
 
 Click a repository to fetch its branch topology from GitHub or GitLab. The tree
 shows up to 300 commits in topological order, with a fetch depth of 100 per
-branch; a notice identifies truncated history. Branch buttons and parent links
-can select commits outside the displayed window. “Refresh commits” reloads the
-tree; simply browsing never launches an analysis.
+branch; a notice identifies truncated history. A branch button above the tree
+reloads it with that branch only (`GET /api/repos/{repo}/commits?branch=NAME`,
+`404` for a branch that no longer exists), so its own history fills the window;
+**All branches**, or the same button again, shows every branch. “Refresh”
+reloads the tree; simply browsing never launches an analysis.
 
 Each commit shows the status of its cached analysis, respecting the selected
 severity threshold; plans have no badge in the tree. A gray **?** means no

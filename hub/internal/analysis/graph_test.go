@@ -1,11 +1,21 @@
 package analysis
 
 import (
+	"bytes"
 	"context"
+	"errors"
+	"net/http/cgi"
+	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/gvinsot/Probe/hub/internal/accounts"
+	"github.com/gvinsot/Probe/hub/internal/forge"
+	"github.com/gvinsot/Probe/hub/internal/secrets"
+	"github.com/gvinsot/Probe/hub/internal/store"
 )
 
 func TestGraphIncludesBranchesAndBothMergeParents(t *testing.T) {
@@ -145,5 +155,71 @@ func TestParseShortstat(t *testing.T) {
 	got := parseShortstat(" 1 file changed, 2 deletions(-)")
 	if *got != (CommitStats{Files: 1, Deletions: 2}) {
 		t.Fatalf("got %+v", got)
+	}
+}
+
+// A branch's graph holds that branch's history only, still lists every
+// branch, and labels the other tips it holds; an unknown branch is refused.
+func TestGraphOfOneBranch(t *testing.T) {
+	g, commits := repoWithCommits(t, 2)
+	ctx := context.Background()
+	git := func(args ...string) string {
+		t.Helper()
+		out, err := g.run(ctx, args...)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return out
+	}
+	git("checkout", "--quiet", "-b", "feature")
+	git("commit", "--quiet", "--allow-empty", "-m", "feature work")
+	feature := git("rev-parse", "HEAD")
+	git("checkout", "--quiet", "main")
+	git("commit", "--quiet", "--allow-empty", "-m", "main work")
+	gitPath, err := exec.LookPath("git")
+	if err != nil {
+		t.Fatal(err)
+	}
+	remote := httptest.NewServer(&cgi.Handler{Path: gitPath, Args: []string{"http-backend"}, Env: []string{"GIT_PROJECT_ROOT=" + g.dir, "GIT_HTTP_EXPORT_ALL=1"}})
+	defer remote.Close()
+	runner, st := testRunner(t, "/must-not-run")
+	keys, err := secrets.New(bytes.Repeat([]byte{1}, 32))
+	if err != nil {
+		t.Fatal(err)
+	}
+	token, err := keys.Seal("access")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.PutUser(&store.User{Key: "user", Provider: "github", Token: token}); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.PutRepo("user", &store.Repo{Key: "repo", Provider: "github", DefaultBranch: "main", CloneURL: remote.URL + "/.git"}); err != nil {
+		t.Fatal(err)
+	}
+	runner.accounts = accounts.New(st, keys, map[string]forge.Provider{"github": gitOnlyProvider{}})
+
+	graph, err := runner.Graph(ctx, "user", "repo", "feature")
+	if err != nil {
+		t.Fatal(err)
+	}
+	messages := []string{}
+	for _, c := range graph.Commits {
+		messages = append(messages, c.Message)
+	}
+	if strings.Join(messages, "|") != "feature work|change|change" || graph.Commits[0].SHA != feature {
+		t.Fatalf("feature history = %v", messages)
+	}
+	if len(graph.Branches) != 2 || graph.Branches[0].Name != "feature" || graph.Branches[1].Name != "main" {
+		t.Fatalf("branches = %+v", graph.Branches)
+	}
+	if strings.Join(graph.Commits[0].Branches, ",") != "feature" || graph.Commits[1].SHA != commits[1] {
+		t.Fatalf("tips = %+v", graph.Commits)
+	}
+	if _, err := runner.Graph(ctx, "user", "repo", "missing"); !errors.Is(err, ErrUnknownBranch) {
+		t.Fatalf("unknown branch: %v", err)
+	}
+	if _, err := runner.Graph(ctx, "user", "repo", "../main"); !errors.Is(err, ErrUnknownBranch) {
+		t.Fatalf("crafted branch: %v", err)
 	}
 }

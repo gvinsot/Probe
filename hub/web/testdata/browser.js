@@ -53,6 +53,11 @@ window.fetch = async (path, init) => {
     const key = path.split('/')[3];
     data = { repo: { ...state.repos.get(key), monitored: init.method === 'POST' } };
   }
+  else if (path.endsWith('/commits?branch=feature%2Fui')) data = { limited: false, branches: [{name:'main',sha:fixtureSHA('a')},{name:'feature/ui',sha:fixtureSHA('c')}], commits: [
+    { sha: fixtureSHA('c'), parents: [fixtureSHA('d')], branches: ['feature/ui'], message: '<img src=x onerror=alert(1)>', author: 'Grace' },
+    { sha: fixtureSHA('d'), parents: [], branches: [], message: 'Initial commit', author: 'Ada' },
+  ] };
+  else if (path.includes('/commits?branch=')) throw new Error('this branch no longer exists');
   else if (path.endsWith('/commits')) data = { limited: false, branches: [{name:'main',sha:fixtureSHA('a')},{name:'feature/ui',sha:fixtureSHA('c')}], commits: [
     ...fixtureNewCommits,
     { sha: fixtureSHA('a'), parents: [fixtureSHA('b'), fixtureSHA('c')], branches: ['main'], message: 'Merge feature', author: 'Ada' },
@@ -256,6 +261,18 @@ window.addEventListener('DOMContentLoaded', async () => {
     assert(!firstCommit.textContent.includes('aaaaaaaa') && firstCommit.title.includes(fixtureSHA('a')), 'commit id only on hover');
     assert(!document.getElementById('commit-tree').textContent.includes('Parents'), 'parents are drawn, not listed');
     assert(document.querySelector('.commit-row .chip.branch').textContent === 'main', 'branch name in the tree');
+    // A branch button reloads the tree with that branch only.
+    const branchButton = (name) => [...document.querySelectorAll('#branches button')].find((b) => b.textContent === name);
+    branchButton('feature/ui').click();
+    await settle();
+    assert(fixtureCalls.some((call) => call.path === '/api/repos/repo/commits?branch=feature%2Fui'), 'the branch is requested alone');
+    assert(document.querySelectorAll('.commit-row').length === 2 && branchButton('feature/ui').getAttribute('aria-pressed') === 'true' && document.getElementById('graph-note').textContent.startsWith('Branch feature/ui only'), 'the tree shows one branch');
+    branchButton('All branches').click();
+    await settle();
+    assert(document.querySelectorAll('.commit-row').length === 4 && !branchButton('All branches') && branchButton('feature/ui').getAttribute('aria-pressed') === 'false', 'All branches restores the whole tree');
+    await selectBranch('gone');
+    await settle();
+    assert(state.branch === null && document.querySelectorAll('.commit-row').length === 4, 'a deleted branch falls back to every branch');
     const repoHead = document.querySelector('.repo-head');
     assert(repoHead.textContent.includes('Analyze now') && repoHead.textContent.includes('Activate monitoring'), 'repository actions next to the name');
     assert(!document.getElementById('repos').textContent.includes('.probe.json'), 'no policy tag');

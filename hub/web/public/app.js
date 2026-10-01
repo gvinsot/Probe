@@ -42,6 +42,9 @@ const state = {
   csrf: '',
   repos: new Map(),
   repoKey: null,
+  // branch limits the commit tree to one branch of the selected repository;
+  // null shows them all.
+  branch: null,
   commit: null,
   view: null,
   run: null,
@@ -1516,6 +1519,11 @@ function upsertRepo(repo) {
 
 async function selectRepo(repoKey, commit) {
   const changed = state.repoKey !== repoKey || state.commit !== (commit || null);
+  if (state.repoKey !== repoKey && state.branch) {
+    // The cached tree holds one branch only: the next visit loads them all.
+    state.graphs.delete(state.repoKey);
+    state.branch = null;
+  }
   state.repoKey = repoKey;
   state.commit = commit || null;
   state.expanded.clear();
@@ -1539,7 +1547,7 @@ async function loadHistory() {
   // History remains useful if fetching Git temporarily fails.
   const results = await Promise.allSettled([
     state.graphs.has(repo.key) ? Promise.resolve(state.graphs.get(repo.key))
-      : api('/api/repos/' + encodeURIComponent(repo.key) + '/commits'),
+      : api(commitsPath(repo)),
     api('/api/repos/' + encodeURIComponent(repo.key) + '/runs'),
   ]);
   if (loadID !== state.loadID || repo.key !== state.repoKey) return;
@@ -1701,18 +1709,46 @@ function graphLayout(commits) {
   return { positions, width: width * 18 + 6 };
 }
 
+// commitsPath is where the commit tree of a repository is read, limited to
+// the selected branch, if any.
+function commitsPath(repo) {
+  return '/api/repos/' + encodeURIComponent(repo.key) + '/commits'
+    + (state.branch ? '?branch=' + encodeURIComponent(state.branch) : '');
+}
+
+// selectBranch reloads the tree with one branch only, its whole fetched
+// history in the window; selecting it again, or "All branches", shows them
+// all. A branch deleted meanwhile falls back to every branch.
+async function selectBranch(name) {
+  const repo = state.repos.get(state.repoKey);
+  if (!repo) return;
+  state.branch = state.branch === name ? null : name;
+  state.graphs.delete(repo.key);
+  await loadHistory();
+  if (state.branch && state.repoKey === repo.key && !state.graphs.has(repo.key)) {
+    toast('Branch ' + name + ' could not be loaded; showing every branch.', true);
+    state.branch = null;
+    await loadHistory();
+  }
+}
+
 function renderGraph() {
   renderReviewCount();
   const graph = state.graphs.get(state.repoKey);
   if (!graph) return;
   const commits = graph.commits || [];
+  const scope = state.branch ? 'Branch ' + state.branch + ' only' : 'All branches';
   el('graph-note').textContent = !commits.length ? 'This repository has no commits yet.'
-    : graph.limited ? 'Recent history: up to 300 commits, fetched to a depth of 100 per branch. Older parents may be outside this view.'
-      : 'All branches · select a commit · ? means no cached result.';
+    : graph.limited ? scope + ' · recent history: up to 300 commits, fetched to a depth of 100. Older parents may be outside this view.'
+      : scope + ' · select a commit · ? means no cached result.';
   const branches = el('branches');
   branches.textContent = '';
+  if (state.branch) branches.appendChild(button('All branches', 'btn quiet small', () => selectBranch(state.branch)));
   for (const branch of graph.branches || []) {
-    branches.appendChild(button(branch.name, 'btn quiet small', () => selectRepo(state.repoKey, branch.sha)));
+    const pick = button(branch.name, 'btn quiet small', () => selectBranch(branch.name));
+    pick.setAttribute('aria-pressed', String(branch.name === state.branch));
+    pick.title = branch.name === state.branch ? 'Show every branch' : 'Show only the history of ' + branch.name;
+    branches.appendChild(pick);
   }
   const tree = el('commit-tree');
   tree.textContent = '';
@@ -2815,15 +2851,16 @@ async function refreshCommitTree() {
   const repo = state.repos.get(state.repoKey);
   if (!repo || !state.graphs.has(repo.key)) return;
   const loadID = state.loadID;
+  const graphBranch = state.branch;
   const base = '/api/repos/' + encodeURIComponent(repo.key);
   let graph, runs;
   try {
-    [graph, runs] = await Promise.all([api(base + '/commits'), api(base + '/runs')]);
+    [graph, runs] = await Promise.all([api(commitsPath(repo)), api(base + '/runs')]);
   } catch (err) {
     return;
   }
   // A repository or commit selected meanwhile has loaded its own history.
-  if (loadID !== state.loadID || repo.key !== state.repoKey) return;
+  if (loadID !== state.loadID || repo.key !== state.repoKey || graphBranch !== state.branch) return;
   state.graphs.set(repo.key, graph);
   state.runs = runs.runs || [];
   settleFromHistory(repo.key);

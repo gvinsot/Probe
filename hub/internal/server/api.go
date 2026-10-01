@@ -838,7 +838,11 @@ func (s *Server) handleCommits(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	graph, err := s.runner.Graph(r.Context(), sess.UserKey, repo.Key)
+	graph, err := s.runner.Graph(r.Context(), sess.UserKey, repo.Key, r.URL.Query().Get("branch"))
+	if errors.Is(err, analysis.ErrUnknownBranch) {
+		writeError(w, http.StatusNotFound, "this branch no longer exists")
+		return
+	}
 	if err != nil {
 		writeError(w, http.StatusBadGateway, store.SafeError("could not load commit history: "+err.Error()))
 		return

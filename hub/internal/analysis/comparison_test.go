@@ -87,7 +87,7 @@ exit 2
 		t.Fatal(err)
 	}
 	runner.accounts = accounts.New(st, keys, map[string]forge.Provider{"github": gitOnlyProvider{}})
-	graph, err := runner.Graph(context.Background(), user.Key, repo.Key)
+	graph, err := runner.Graph(context.Background(), user.Key, repo.Key, "")
 	if err != nil || len(graph.Commits) != 3 {
 		t.Fatalf("remote graph: %+v %v", graph, err)
 	}
