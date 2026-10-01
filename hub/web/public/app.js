@@ -6,8 +6,11 @@
 'use strict';
 
 const LEVELS = ['low', 'medium', 'high', 'critical'];
+// "Filtered" shows every kind at or above the review threshold; "Everything"
+// ignores the threshold. The kind tabs apply it.
 const KINDS = [
-  { key: 'all', label: 'Everything' },
+  { key: 'all', label: 'Filtered' },
+  { key: 'everything', label: 'Everything' },
   { key: 'issue', label: 'Issues' },
   { key: 'check', label: 'Checks' },
   { key: 'signal', label: 'Signals' },
@@ -1653,10 +1656,11 @@ function renderKindFilter() {
   holder.textContent = '';
   const alerts = state.view ? state.view.alerts || [] : [];
   for (const kind of KINDS) {
-    const count = kind.key === 'all'
-      ? alerts.length
-      : alerts.filter((a) => a.kind === kind.key).length;
-    if (kind.key !== 'all' && count === 0) continue;
+    let count;
+    if (kind.key === 'all') count = alerts.filter(aboveThreshold).length;
+    else if (kind.key === 'everything') count = alerts.length;
+    else count = alerts.filter((a) => a.kind === kind.key).length;
+    if (kind.key !== 'all' && kind.key !== 'everything' && count === 0) continue;
     const b = button(kind.label + ' (' + count + ')', state.kind === kind.key ? 'on' : '', () => {
       state.kind = kind.key;
       renderKindFilter();
@@ -1668,11 +1672,17 @@ function renderKindFilter() {
 
 function filteredAlerts() {
   if (!state.view) return [];
-  return (state.view.alerts || []).filter((alert) => {
-    if (LEVELS.indexOf(alert.severity) < state.minSeverity) return false;
+  const alerts = state.view.alerts || [];
+  if (state.kind === 'everything') return alerts;
+  return alerts.filter((alert) => {
+    if (!aboveThreshold(alert)) return false;
     if (state.kind !== 'all' && alert.kind !== state.kind) return false;
     return true;
   });
+}
+
+function aboveThreshold(alert) {
+  return LEVELS.indexOf(alert.severity) >= state.minSeverity;
 }
 
 // loadMinSeverity restores the shared review threshold, defaulting to low.
@@ -1751,7 +1761,38 @@ function renderAlerts() {
     return;
   }
 
-  for (const alert of alerts) list.appendChild(alertItem(alert, renderAlerts));
+  for (const group of intentGroups(alerts)) {
+    if (group.intent !== null) list.appendChild(intentHeader(group));
+    for (const alert of group.alerts) list.appendChild(alertItem(alert, renderAlerts));
+  }
+}
+
+// intentGroups splits the ranked alerts by the intent the PR summary read
+// behind them, in the summary's order, then everything no intent cites.
+// Without intents it is one unnamed group: the list renders as before.
+function intentGroups(alerts) {
+  const intents = (state.view && state.view.pr_summary && state.view.pr_summary.intents) || [];
+  if (!alerts.some((alert) => alert.intent_group)) return [{ intent: null, alerts }];
+  const groups = new Map(intents.map((i) => [i.intent, { intent: i.intent, alerts: [] }]));
+  const other = { intent: 'Other alerts', other: true, alerts: [] };
+  for (const alert of alerts) {
+    const group = alert.intent_group && groups.get(alert.intent_group);
+    (group || other).alerts.push(alert);
+  }
+  return [...groups.values(), other].filter((g) => g.alerts.length > 0);
+}
+
+function intentHeader(group) {
+  const item = document.createElement('li');
+  item.className = 'intent-group';
+  const name = document.createElement('span');
+  name.textContent = group.intent;
+  const count = document.createElement('span');
+  count.className = 'note';
+  count.textContent = group.alerts.length + (group.alerts.length === 1 ? ' alert' : ' alerts');
+  item.append(name, count);
+  if (!group.other) item.title = 'Intent read by the AI reviewer from the change. Model output, not evidence.';
+  return item;
 }
 
 // alertItem renders one alert, folded or unfolded; rerender redraws the list
@@ -2229,8 +2270,8 @@ function cellText(text, className) {
   return cell;
 }
 
-// renderExtras shows what is deliberately not an alert: coverage, the review
-// surface, and everything the run left unverified.
+// renderExtras shows what is deliberately not an alert: coverage and
+// everything the run left unverified.
 function renderExtras() {
   const holder = el('extras');
   holder.textContent = '';
@@ -2259,11 +2300,6 @@ function renderExtras() {
     box.appendChild(list);
     holder.appendChild(box);
   }
-
-  const surface = document.createElement('p');
-  surface.className = 'note';
-  surface.textContent = view.review_surface && view.review_surface.note ? view.review_surface.note : '';
-  if (surface.textContent) holder.appendChild(surface);
 
   if (view.coverage) {
     const coverage = document.createElement('div');

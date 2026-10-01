@@ -286,6 +286,16 @@
         "risks": {"type": "array", "maxItems": 8, "items": {"type": "string", "minLength": 1}},
         "review_focus": {"type": "array", "maxItems": 8, "items": {"type": "string", "minLength": 1}},
         "testing": {"type": "string"},
+        "intents": {"type": "array", "maxItems": 12, "description": "The linter signals and hypotheses of this report grouped by the developer intention that produced the code they point at. Each ID is cited by at most one intent; signals and hypotheses no intent cites stay ungrouped. A reading of the change, not evidence.", "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["intent", "signal_ids", "hypothesis_ids"],
+          "properties": {
+            "intent": {"type": "string", "minLength": 1, "maxLength": 100},
+            "signal_ids": {"type": "array", "items": {"$ref": "#/$defs/id"}, "description": "IDs from linter."},
+            "hypothesis_ids": {"type": "array", "items": {"$ref": "#/$defs/id"}, "description": "IDs from hypotheses."}
+          }
+        }},
         "model": {"type": "string", "minLength": 1}
       }
     },
@@ -533,11 +543,11 @@
     "reviewSurface": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["changed_lines", "focused_lines", "note"],
+      "required": ["changed_lines", "focused_lines"],
       "properties": {
         "changed_lines": {"$ref": "#/$defs/count", "description": "Distinct changed path/side/line coordinates; deletions and additions count separately."},
         "focused_lines": {"$ref": "#/$defs/count", "description": "Distinct changed coordinates covered by prioritized targets; a prioritization count, never a coverage or confidence percentage. Changed-line execution is reported separately in coverage and is not expressed as a percentage."},
-        "note": {"type": "string"}
+        "note": {"type": "string", "description": "A fixed caveat written by older versions; no longer written."}
       }
     },
     "coverage": {

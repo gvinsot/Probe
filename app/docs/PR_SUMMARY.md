@@ -24,7 +24,10 @@ probe report --input .probe/confidence-report.json --format pr-summary   # re-re
 | `risks` | Up to 8 risks: those the review recorded (reproduced issues, findings, review targets, unverified areas) or that the diff plainly shows. Anything the review did not reproduce is called unverified. |
 | `review_focus` | Up to 8 pointers to where a human reviewer should look first. |
 | `testing` | The tests the change adds or modifies and what the review executed; it says so when nothing was executed. |
+| `intents` | Up to 12 developer intentions ("Add agent sorting", "Test agent sorting"), each citing the linter signals (`signal_ids`) and hypotheses (`hypothesis_ids`) it explains. Unknown IDs are dropped, an ID belongs to the first intent that cites it, and an intent left empty is dropped. Signals and hypotheses no intent cites stay ungrouped. |
 | `model` | The model that wrote it. |
+
+`CONFIDENCE_REPORT.md` lists the intents under **Findings by intent**, each with the titles and locations of the signals and hypotheses it cites; [Probe Hub](../../hub/README.md) groups its alert list the same way, with the uncited alerts last under **Other alerts**. The grouping is a reading aid: it changes no severity, status or exit code.
 
 `PR_SUMMARY.md` renders these fields as a title, an overview and the sections Changes, Behavior changes, Risks, Where to look first and Testing. It ends with a line naming the model and the review verdict, and the marker `<!-- probe:pr-summary v1 -->`.
 

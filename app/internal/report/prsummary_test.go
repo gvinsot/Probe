@@ -51,6 +51,35 @@ func TestPRSummaryIsWrittenWithMarkdown(t *testing.T) {
 	}
 }
 
+func TestPRSummaryGroupsFindingsByIntent(t *testing.T) {
+	r := summarizedReport()
+	r.Signals = []model.Signal{
+		{ID: "signal-1", Path: "auth.go", Line: 1, Scope: model.SignalScopeFile, Severity: "low", Summary: "More branching constructs appear in the diff"},
+		{ID: "signal-2", Path: "auth.go", Line: 12, Side: "new", Severity: "low", Summary: "Possible public declaration added"},
+		{ID: "signal-3", Path: "auth_test.go", Line: 7, Side: "new", Severity: "medium", Summary: "Type or safety checking suppression added"},
+	}
+	r.Hypotheses = []model.Hypothesis{{ID: "hypothesis-1", Title: "Every user is admin", Severity: "critical", Status: "UNVERIFIED", Path: "auth.go", Line: 3}}
+	r.PRSummary.Intents = []model.PRSummaryIntent{
+		{Intent: "Add the admin shortcut", SignalIDs: []string{"signal-1", "signal-2"}, HypothesisIDs: []string{"hypothesis-1"}},
+		{Intent: "Test the admin shortcut", SignalIDs: []string{"signal-3"}},
+		{Intent: "Gone since", SignalIDs: []string{"signal-9"}},
+	}
+	md := string(Markdown(r))
+	want := "### Findings by intent\n\n" +
+		"- **Add the admin shortcut**\n" +
+		"  - More branching constructs appear in the diff — auth.go (whole file)\n" +
+		"  - Possible public declaration added — auth.go:12\n" +
+		"  - **UNVERIFIED / critical** Every user is admin — auth.go:3\n" +
+		"- **Test the admin shortcut**\n" +
+		"  - Type or safety checking suppression added — auth\\_test.go:7\n\n"
+	if !strings.Contains(md, want) || strings.Contains(md, "Gone since") {
+		t.Fatalf("intent groups:\n%s", md)
+	}
+	if strings.Index(md, "### Findings by intent") > strings.Index(md, "## Change Summary") {
+		t.Fatal("intent groups outside the summary section")
+	}
+}
+
 func TestPRSummaryAbsentOrExplicit(t *testing.T) {
 	dir := t.TempDir()
 	r := summarizedReport()

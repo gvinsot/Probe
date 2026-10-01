@@ -140,6 +140,7 @@ type PRSummary struct {
 	Risks           []string          `json:"risks"`            // always an array
 	ReviewFocus     []string          `json:"review_focus"`     // always an array
 	Testing         string            `json:"testing,omitempty"`
+	Intents         []PRSummaryIntent `json:"intents,omitempty"`
 	Model           string            `json:"model"`
 }
 
@@ -148,6 +149,16 @@ type PRSummaryChange struct {
 	Area    string   `json:"area"`
 	Summary string   `json:"summary"`
 	Files   []string `json:"files"` // changed files only; always an array
+}
+
+// PRSummaryIntent groups the report's linter signals and hypotheses under the
+// developer intention that produced the code they point at ("Add agent
+// sorting", "Test agent sorting"). It cites recorded IDs only, and each ID
+// belongs to at most one intent. A reading of the change, never evidence.
+type PRSummaryIntent struct {
+	Intent        string   `json:"intent"`
+	SignalIDs     []string `json:"signal_ids"`     // always an array
+	HypothesisIDs []string `json:"hypothesis_ids"` // always an array
 }
 
 // Reviewer agent statuses.
@@ -241,9 +252,10 @@ type AuditEvent struct {
 	Agent string `json:"agent,omitempty"`
 }
 type ReviewSurface struct {
-	ChangedLines int    `json:"changed_lines"`
-	FocusedLines int    `json:"focused_lines"`
-	Note         string `json:"note"`
+	ChangedLines int `json:"changed_lines"`
+	FocusedLines int `json:"focused_lines"`
+	// Note is no longer written; it is kept so that older reports still read.
+	Note string `json:"note,omitempty"`
 }
 
 // Report is the confidence report. The JSON object of an opt-in feature

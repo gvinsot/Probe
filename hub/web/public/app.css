@@ -275,6 +275,7 @@ h1, h2, h3 { line-height: 1.25; }
 /* Alerts */
 .alerts { list-style: none; margin: 0; padding: 0; }
 .alert { border-bottom: 1px solid var(--line); }
+.intent-group { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; padding: 10px 14px 6px; font-weight: 600; font-size: 0.82rem; background: var(--surface-alt); border-bottom: 1px solid var(--line); }
 .alert-head {
   width: 100%;
   display: grid;

@@ -329,7 +329,7 @@ func targets(r *model.Report) ([]model.ReviewTarget, model.ReviewSurface) {
 		merged = append(merged, t)
 	}
 	sort.SliceStable(merged, func(i, j int) bool { return rank(merged[i].Severity) > rank(merged[j].Severity) })
-	return merged, model.ReviewSurface{ChangedLines: len(changed), FocusedLines: focused, Note: "Distinct changed coordinates; removed and added lines count separately. Focused review is a prioritization aid, not proof that the remaining diff is correct. NOT_REPRODUCED means only that the recorded experiment did not reproduce the concern."}
+	return merged, model.ReviewSurface{ChangedLines: len(changed), FocusedLines: focused}
 }
 
 func rank(s string) int {
@@ -519,7 +519,7 @@ func renderMarkdown(r *model.Report) []byte {
 		}
 		fmt.Fprintf(&b, "- **%s** %s:%d–%d (%s): %s\n", inline(t.Severity), inline(t.Path), t.StartLine, t.EndLine, inline(t.Side), inline(strings.Join(t.Reasons, "; ")))
 	}
-	fmt.Fprintf(&b, "\n## Review Surface\n\nFocused review: **%d / %d changed lines**.\n\n%s\n", r.ReviewSurface.FocusedLines, r.ReviewSurface.ChangedLines, inline(r.ReviewSurface.Note))
+	fmt.Fprintf(&b, "\n## Review Surface\n\nFocused review: **%d / %d changed lines**.\n", r.ReviewSurface.FocusedLines, r.ReviewSurface.ChangedLines)
 	line(&b, "\n## Changed-line Execution\n")
 	switch r.Coverage.Status {
 	case coverage.StatusMeasured:

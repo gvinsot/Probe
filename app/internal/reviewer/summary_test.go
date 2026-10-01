@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"sync"
 	"testing"
@@ -14,7 +15,8 @@ import (
 
 const validSummary = `{"title":"Allow every user through the admin check","overview":"The admin check now returns true for any user.\nThis removes the role test.",
 "changes":[{"area":"Authorization","summary":"Allowed no longer compares the user.","files":["auth.go","/etc/passwd"]},{"area":"","summary":"dropped"}],
-"behavior_changes":["Non-admin users are allowed"],"risks":["Unverified: every user becomes admin"],"review_focus":["auth.go line 3"],"testing":"No test was executed."}`
+"behavior_changes":["Non-admin users are allowed"],"risks":["Unverified: every user becomes admin"],"review_focus":["auth.go line 3"],"testing":"No test was executed.",
+"intents":[{"intent":"Simplify the admin check","signal_ids":["signal-1","signal-9"],"hypothesis_ids":["hypothesis-1"]},{"intent":"Cover the admin check","signal_ids":["signal-1","signal-2"]},{"intent":"Nothing recorded","signal_ids":["signal-9"]},{"intent":"","signal_ids":["signal-2"]}]}`
 
 // summaryProvider answers with the given contents in turn and records the
 // requests.
@@ -46,6 +48,10 @@ func summaryReport() *model.Report {
 		ExitCode:   2,
 		Change:     model.Change{Files: []model.ChangedFile{{Path: "auth.go", Status: "M", Additions: 1, Deletions: 1}}},
 		Hypotheses: []model.Hypothesis{{ID: "hypothesis-1", Title: "Every user is admin", Severity: "critical", Status: "UNVERIFIED", Path: "auth.go", Line: 3}},
+		Signals: []model.Signal{
+			{ID: "signal-1", Kind: "branch_growth", Path: "auth.go", Line: 1, Scope: model.SignalScopeFile, Severity: "low", Summary: "More branching constructs appear in the diff"},
+			{ID: "signal-2", Kind: "test_suppression", Path: "auth_test.go", Line: 7, Severity: "medium", Summary: "Type or safety checking suppression added"},
+		},
 		Unverified: []string{"Reviewer iteration budget exhausted"},
 		Checks:     []model.Check{{ID: "check-1", Kind: "test", Status: "PASS"}},
 	}
@@ -74,7 +80,16 @@ func TestSummarizeValidatesTheAnswer(t *testing.T) {
 		t.Fatal("parallel_tool_calls sent without tools")
 	}
 	user := body["messages"].([]any)[1].(map[string]any)["content"].(string)
-	for _, want := range []string{"Simplify admin check", "Every user is admin", "human review required", `"kind":"test","status":"PASS"`} {
+	// Unknown IDs are dropped, an ID joins the first intent citing it, and an
+	// intent left empty or unnamed disappears.
+	wantIntents := []model.PRSummaryIntent{
+		{Intent: "Simplify the admin check", SignalIDs: []string{"signal-1"}, HypothesisIDs: []string{"hypothesis-1"}},
+		{Intent: "Cover the admin check", SignalIDs: []string{"signal-2"}, HypothesisIDs: []string{}},
+	}
+	if !reflect.DeepEqual(s.Intents, wantIntents) {
+		t.Fatalf("intents %+v", s.Intents)
+	}
+	for _, want := range []string{"Simplify admin check", "Every user is admin", "human review required", `"kind":"test","status":"PASS"`, `"id":"hypothesis-1"`, `"id":"signal-2","kind":"test_suppression","severity":"medium","path":"auth_test.go","line":7`, `"id":"signal-1","kind":"branch_growth","severity":"low","path":"auth.go","summary"`} {
 		if !strings.Contains(user, want) {
 			t.Fatalf("input lacks %q:\n%s", want, user)
 		}

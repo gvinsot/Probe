@@ -204,9 +204,8 @@ type ReviewTarget struct {
 
 // ReviewSurface mirrors the prioritization counters.
 type ReviewSurface struct {
-	ChangedLines int    `json:"changed_lines"`
-	FocusedLines int    `json:"focused_lines"`
-	Note         string `json:"note"`
+	ChangedLines int `json:"changed_lines"`
+	FocusedLines int `json:"focused_lines"`
 }
 
 // Coverage mirrors changed-line execution, never expressed as a percentage.
@@ -257,6 +256,7 @@ type PRSummary struct {
 	Risks           []string          `json:"risks"`
 	ReviewFocus     []string          `json:"review_focus"`
 	Testing         string            `json:"testing,omitempty"`
+	Intents         []PRSummaryIntent `json:"intents,omitempty"`
 	Model           string            `json:"model"`
 }
 
@@ -265,6 +265,14 @@ type PRSummaryChange struct {
 	Area    string   `json:"area"`
 	Summary string   `json:"summary"`
 	Files   []string `json:"files"`
+}
+
+// PRSummaryIntent is the developer intention the CLI's summary reads behind
+// some signals and hypotheses, cited by ID.
+type PRSummaryIntent struct {
+	Intent        string   `json:"intent"`
+	SignalIDs     []string `json:"signal_ids"`
+	HypothesisIDs []string `json:"hypothesis_ids"`
 }
 
 // Decode parses a confidence report. Size is bounded by the caller.
@@ -320,6 +328,10 @@ type Alert struct {
 	// Members preserves each source signal when equivalent file changes are
 	// presented together. The group is a display convenience, not a verdict.
 	Members []Alert `json:"members,omitempty"`
+	// IntentGroup is the intent of the PR summary that cites this signal or
+	// hypothesis (for a group, its first cited member). Model reading, used
+	// to group the list; it changes no severity.
+	IntentGroup string `json:"intent_group,omitempty"`
 }
 
 // Counts holds how many alerts each severity carries.
@@ -495,7 +507,51 @@ func (r *Report) alertLists() (active, dismissed []Alert) {
 		}
 		active = append(active, a)
 	}
-	return r.groupFileSignals(dedupeLines(active)), dismissed
+	active = r.groupFileSignals(dedupeLines(active))
+	r.assignIntents(active)
+	r.assignIntents(dismissed)
+	return active, dismissed
+}
+
+// assignIntents sets IntentGroup from the intents of the PR summary. A
+// signal alert is "signal:<id>" and an issue "issue:<id>", with a "#n"
+// suffix when dedupeLines split it.
+func (r *Report) assignIntents(alerts []Alert) {
+	if r.PRSummary == nil || len(r.PRSummary.Intents) == 0 {
+		return
+	}
+	intents := map[string]string{}
+	for _, in := range r.PRSummary.Intents {
+		for _, id := range in.SignalIDs {
+			if _, dup := intents["signal:"+id]; !dup {
+				intents["signal:"+id] = in.Intent
+			}
+		}
+		for _, id := range in.HypothesisIDs {
+			if _, dup := intents["issue:"+id]; !dup {
+				intents["issue:"+id] = in.Intent
+			}
+		}
+	}
+	lookup := func(id string) string {
+		if intent, ok := intents[id]; ok {
+			return intent
+		}
+		if i := strings.LastIndexByte(id, '#'); i > 0 {
+			return intents[id[:i]]
+		}
+		return ""
+	}
+	for i := range alerts {
+		a := &alerts[i]
+		a.IntentGroup = lookup(a.ID)
+		for j := range a.Members {
+			a.Members[j].IntentGroup = lookup(a.Members[j].ID)
+			if a.IntentGroup == "" {
+				a.IntentGroup = a.Members[j].IntentGroup
+			}
+		}
+	}
 }
 
 // allAlerts builds every alert, ranked and not deduplicated.

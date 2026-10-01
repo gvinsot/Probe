@@ -73,7 +73,11 @@ not re-run earlier analyses.
 natural-language summary of the change after the verdict (see
 [PR summary](../app/docs/PR_SUMMARY.md)). The report view shows it folded
 above the alerts, labelled as model output, with a button that copies it as
-Markdown for a pull request description. It never changes the verdict.
+Markdown for a pull request description. When the summary names the
+developer intentions behind the signals and hypotheses, the alert list is
+grouped under them ("Add agent sorting", "Test agent sorting"), in the
+summary's order, with the uncited alerts last under "Other alerts". It never
+changes the verdict.
 
 **Reviewer swarm.** Set `PROBE_HUB_SWARM=true` (or a list such as
 `security,correctness,tests`) to run every AI review as a swarm of

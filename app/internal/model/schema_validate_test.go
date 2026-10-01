@@ -377,6 +377,7 @@ func populatedReport() Report {
 			Risks:           []string{"Reproduced: a discount of 33% on 5 returns 2 instead of 3."},
 			ReviewFocus:     []string{"calc/calc.go line 3"},
 			Testing:         "A generated differential test ran on both revisions.",
+			Intents:         []PRSummaryIntent{{Intent: "Round discounts up", SignalIDs: []string{"signal-1"}, HypothesisIDs: []string{"hypothesis-1"}}},
 			Model:           "test-model",
 		},
 		ReviewerAgents: []ReviewerAgent{

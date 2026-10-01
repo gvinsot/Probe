@@ -30,6 +30,64 @@ func writePRSummarySection(b *bytes.Buffer, r *model.Report) {
 	line(b, "## Pull Request Summary\n")
 	line(b, "Model output, not evidence: written by the reviewer model after the review, from its report. It changes no status, severity or exit code.\n")
 	writePRSummaryBody(b, s, "###")
+	writeIntentGroups(b, r)
+}
+
+// writeIntentGroups lists the signals and hypotheses each intent of the
+// summary cites, with their recorded title and location. An ID the report
+// does not hold is skipped, and so is an intent left without any.
+func writeIntentGroups(b *bytes.Buffer, r *model.Report) {
+	signals := make(map[string]model.Signal, len(r.Signals))
+	for _, s := range r.Signals {
+		signals[s.ID] = s
+	}
+	hypotheses := make(map[string]model.Hypothesis, len(r.Hypotheses))
+	for _, h := range r.Hypotheses {
+		hypotheses[h.ID] = h
+	}
+	heading := false
+	for _, intent := range r.PRSummary.Intents {
+		var items []string
+		for _, id := range intent.SignalIDs {
+			if s, ok := signals[id]; ok {
+				items = append(items, fmt.Sprintf("%s — %s", inline(s.Summary), signalLocation(s)))
+			}
+		}
+		for _, id := range intent.HypothesisIDs {
+			if h, ok := hypotheses[id]; ok {
+				where := inline(h.Path)
+				if h.Line > 0 {
+					where += fmt.Sprintf(":%d", h.Line)
+				}
+				items = append(items, fmt.Sprintf("**%s / %s** %s — %s", inline(h.Status), inline(h.Severity), inline(h.Title), where))
+			}
+		}
+		if len(items) == 0 {
+			continue
+		}
+		if !heading {
+			line(b, "### Findings by intent\n")
+			heading = true
+		}
+		fmt.Fprintf(b, "- **%s**\n", inline(intent.Intent))
+		for _, item := range items {
+			line(b, "  - "+item)
+		}
+	}
+	if heading {
+		line(b, "")
+	}
+}
+
+func signalLocation(s model.Signal) string {
+	if s.Scope == model.SignalScopeFile {
+		return inline(s.Path) + " (whole file)"
+	}
+	where := fmt.Sprintf("%s:%d", inline(s.Path), s.Line)
+	if s.Side == "old" {
+		where += " (old)"
+	}
+	return where
 }
 
 // writePRSummaryBody renders the fields of a summary; level is the heading

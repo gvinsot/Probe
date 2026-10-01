@@ -500,10 +500,31 @@ window.addEventListener('DOMContentLoaded', async () => {
     }
     state.minSeverity = 3; renderAlerts();
     assert(el('alert-count').textContent === '0 of 1 alerts shown', 'group obeys severity filter');
+    renderKindFilter();
+    assert(el('kinds').textContent.includes('Filtered (0)') && el('kinds').textContent.includes('Everything (1)'), 'filtered tab counts above the threshold');
+    state.kind = 'everything'; renderAlerts();
+    assert(el('alert-count').textContent === '1 of 1 alerts shown', 'everything ignores the severity filter');
+    state.kind = 'all'; state.minSeverity = 0;
     state.view.files = [diffFile];
     assert(alertBody(grouped).textContent.includes('no diff for docker-compose.yml'), 'missing group diffs are explicit');
     const duplicate = { ...grouped, members: [grouped.members[0], { ...grouped.members[0], id: 'duplicate' }] };
     assert(alertBody(duplicate).querySelectorAll('.alert-detail').length === 1, 'identical explanations are displayed once');
+    // Alerts are listed under the intent the PR summary read behind them, in
+    // its order, and what no intent cites comes last.
+    state.view = { files: [diffFile], pr_summary: { intents: [{ intent: 'Add agent sorting' }, { intent: 'Test agent sorting' }, { intent: 'Nothing shown' }] }, alerts: [
+      { ...lineAlert, id: 'signal:a', severity: 'high', intent_group: 'Test agent sorting', title: 'Type or safety checking suppression added' },
+      { ...lineAlert, id: 'signal:b', intent_group: 'Add agent sorting', title: 'More branching constructs appear in the diff' },
+      { ...lineAlert, id: 'focus:0', kind: 'focus', title: 'hub/api.go:2-2' },
+      { ...lineAlert, id: 'signal:c', severity: 'low', intent_group: 'Add agent sorting', title: 'Possible public declaration added' },
+    ] };
+    renderAlerts();
+    const headers = [...el('alerts').querySelectorAll('.intent-group')].map((h) => h.firstChild.textContent);
+    assert(headers.join('|') === 'Add agent sorting|Test agent sorting|Other alerts', 'intent headers in summary order: ' + headers.join('|'));
+    const order = [...el('alerts').querySelectorAll('.alert-title')].map((t) => t.textContent);
+    assert(order.join('|') === 'More branching constructs appear in the diff|Possible public declaration added|Type or safety checking suppression added|hub/api.go:2-2', 'alerts follow their intent: ' + order.join('|'));
+    state.view.alerts = state.view.alerts.map(({ intent_group, ...rest }) => rest);
+    renderAlerts();
+    assert(!el('alerts').querySelector('.intent-group'), 'no header without intents');
     state.view = savedView; state.minSeverity = 0; state.expanded.delete(grouped.id);
     // A partial SSE payload must not erase the known queue date or verdict.
     const liveCommit = fixtureSHA('f');

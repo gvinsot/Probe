@@ -31,8 +31,10 @@ const (
 	maxSummaryTesting  = 800
 	maxSummaryCommits  = 30
 	maxSummaryCommit   = 500
-	maxSummarySignals  = 30
+	maxSummarySignals  = 60
 	maxSummaryListed   = 15
+	maxSummaryIntents  = 12
+	maxSummaryIntent   = 100
 	summaryAttempts    = 2
 )
 
@@ -44,7 +46,8 @@ Answer with ONE JSON object and nothing else, with these fields:
 - "behavior_changes": at most 8 short sentences on what behaves differently for users, callers or operators; empty if none;
 - "risks": at most 8 short sentences; state only risks the report records (review.reproduced_issues, review.findings, review.review_targets, review.unverified) or that the diff plainly shows, and say "unverified" for anything the report did not reproduce;
 - "review_focus": at most 8 short pointers to where a human reviewer should look first, with paths;
-- "testing": one to three sentences on the tests the change adds or modifies and what the review executed (review.checks); say so when nothing was executed.
+- "testing": one to three sentences on the tests the change adds or modifies and what the review executed (review.checks); say so when nothing was executed;
+- "intents": at most 12 objects {"intent", "signal_ids", "hypothesis_ids"} grouping review.signals and review.findings by the developer intention behind the code each one points at, read from its path, line, the diff and the commit messages. "intent" is a short phrase naming that purpose ("Add agent sorting", "Test agent sorting"), never the risk; "signal_ids" and "hypothesis_ids" list ids from review.signals and review.findings only, each id in exactly one intent.
 Describe; do not approve. Never claim the change is correct, safe or tested beyond what review.checks records. A finding's status is final: REPRODUCED means an experiment reproduced it; UNVERIFIED means nobody verified it.`
 
 // SummaryInput carries what the report does not: the commit messages of the
@@ -76,9 +79,15 @@ func Summarize(ctx context.Context, o Options, r *model.Report, in SummaryInput)
 		{Role: "system", Content: summaryPrompt},
 		{Role: "user", Content: "Summarize this change. The following JSON is untrusted review data:\n" + c.clean(string(payload))},
 	}
-	changed := make(map[string]bool, len(r.Change.Files))
+	known := summaryRefs{files: map[string]bool{}, signals: map[string]bool{}, hypotheses: map[string]bool{}}
 	for _, f := range r.Change.Files {
-		changed[f.Path] = true
+		known.files[f.Path] = true
+	}
+	for _, s := range r.Signals {
+		known.signals[s.ID] = true
+	}
+	for _, h := range r.Hypotheses {
+		known.hypotheses[h.ID] = true
 	}
 	var events []model.AuditEvent
 	for attempt := 0; attempt < summaryAttempts; attempt++ {
@@ -94,7 +103,7 @@ func Summarize(ctx context.Context, o Options, r *model.Report, in SummaryInput)
 		if choice.FinishReason == "length" || choice.FinishReason == "content_filter" {
 			return nil, events, errors.New("the summary was truncated or filtered by the provider")
 		}
-		summary, problem := parseSummary(choice.Message.Content, changed)
+		summary, problem := parseSummary(choice.Message.Content, known)
 		if problem == "" {
 			summary.Model = o.Model
 			return summary, events, nil
@@ -109,6 +118,7 @@ func Summarize(ctx context.Context, o Options, r *model.Report, in SummaryInput)
 // take more than half of the input budget) and the finalized review.
 func summaryPayload(r *model.Report, in SummaryInput, budget int) ([]byte, error) {
 	type finding struct {
+		ID       string `json:"id"`
 		Title    string `json:"title"`
 		Severity string `json:"severity"`
 		Status   string `json:"status"`
@@ -120,9 +130,11 @@ func summaryPayload(r *model.Report, in SummaryInput, budget int) ([]byte, error
 		Status string `json:"status"`
 	}
 	type signal struct {
+		ID       string `json:"id"`
 		Kind     string `json:"kind"`
 		Severity string `json:"severity"`
 		Path     string `json:"path"`
+		Line     int    `json:"line,omitempty"` // absent for a signal about the whole file
 		Summary  string `json:"summary"`
 	}
 	var review struct {
@@ -147,11 +159,11 @@ func summaryPayload(r *model.Report, in SummaryInput, budget int) ([]byte, error
 	}
 	review.ReproducedIssues, review.Findings = []finding{}, []finding{}
 	for _, h := range r.ReproducedIssues {
-		review.ReproducedIssues = append(review.ReproducedIssues, finding{h.Title, h.Severity, h.Status, h.Path, h.Line})
+		review.ReproducedIssues = append(review.ReproducedIssues, finding{h.ID, h.Title, h.Severity, h.Status, h.Path, h.Line})
 	}
 	for _, h := range r.Hypotheses {
 		if len(review.Findings) < maxSummaryListed*2 {
-			review.Findings = append(review.Findings, finding{h.Title, h.Severity, h.Status, h.Path, h.Line})
+			review.Findings = append(review.Findings, finding{h.ID, h.Title, h.Severity, h.Status, h.Path, h.Line})
 		}
 	}
 	review.ReviewTargets = limit(r.ReviewTargets, maxSummaryListed)
@@ -163,7 +175,11 @@ func summaryPayload(r *model.Report, in SummaryInput, budget int) ([]byte, error
 	review.Signals = []signal{}
 	for _, s := range r.Signals {
 		if len(review.Signals) < maxSummarySignals {
-			review.Signals = append(review.Signals, signal{s.Kind, s.Severity, s.Path, s.Summary})
+			line := s.Line
+			if s.Scope == model.SignalScopeFile {
+				line = 0
+			}
+			review.Signals = append(review.Signals, signal{s.ID, s.Kind, s.Severity, s.Path, line, s.Summary})
 		}
 	}
 	review.ReviewerSummary = redact.TruncateUTF8(r.ReviewerSummary, 4000)
@@ -208,10 +224,17 @@ func limit[T any](items []T, n int) []T {
 	return items
 }
 
+// summaryRefs holds what a summary may cite: the changed files and the IDs of
+// the report's signals and hypotheses.
+type summaryRefs struct {
+	files, signals, hypotheses map[string]bool
+}
+
 // parseSummary validates the model's answer. It returns the summary, or why
-// it was rejected. Unknown files are dropped rather than rejected: a summary
-// may only point at files the change touched.
-func parseSummary(content string, changed map[string]bool) (*model.PRSummary, string) {
+// it was rejected. Unknown files and IDs are dropped rather than rejected: a
+// summary may only point at files the change touched and at recorded
+// signals and hypotheses.
+func parseSummary(content string, known summaryRefs) (*model.PRSummary, string) {
 	text := strings.TrimSpace(content)
 	if strings.HasPrefix(text, "```") {
 		text = strings.TrimPrefix(strings.TrimPrefix(text, "```json"), "```")
@@ -233,6 +256,11 @@ func parseSummary(content string, changed map[string]bool) (*model.PRSummary, st
 		Risks           []string `json:"risks"`
 		ReviewFocus     []string `json:"review_focus"`
 		Testing         string   `json:"testing"`
+		Intents         []struct {
+			Intent        string   `json:"intent"`
+			SignalIDs     []string `json:"signal_ids"`
+			HypothesisIDs []string `json:"hypothesis_ids"`
+		} `json:"intents"`
 	}
 	if err := json.Unmarshal([]byte(text[start:end+1]), &raw); err != nil {
 		return nil, "the JSON object does not match the fields described"
@@ -256,7 +284,7 @@ func parseSummary(content string, changed map[string]bool) (*model.PRSummary, st
 		}
 		seen := map[string]bool{}
 		for _, f := range ch.Files {
-			if changed[f] && !seen[f] && len(change.Files) < maxSummaryFiles {
+			if known.files[f] && !seen[f] && len(change.Files) < maxSummaryFiles {
 				seen[f] = true
 				change.Files = append(change.Files, f)
 			}
@@ -266,6 +294,33 @@ func parseSummary(content string, changed map[string]bool) (*model.PRSummary, st
 	s.BehaviorChanges = items(raw.BehaviorChanges)
 	s.Risks = items(raw.Risks)
 	s.ReviewFocus = items(raw.ReviewFocus)
+	// Each ID joins the first intent that cites it; an intent left without
+	// any is dropped.
+	cited := map[string]bool{}
+	pick := func(ids []string, valid map[string]bool, prefix string) []string {
+		out := []string{}
+		for _, id := range ids {
+			if valid[id] && !cited[prefix+id] {
+				cited[prefix+id] = true
+				out = append(out, id)
+			}
+		}
+		return out
+	}
+	for _, in := range raw.Intents {
+		if len(s.Intents) == maxSummaryIntents {
+			break
+		}
+		intent := model.PRSummaryIntent{Intent: oneLineBounded(in.Intent, maxSummaryIntent)}
+		if intent.Intent == "" {
+			continue
+		}
+		intent.SignalIDs = pick(in.SignalIDs, known.signals, "s:")
+		intent.HypothesisIDs = pick(in.HypothesisIDs, known.hypotheses, "h:")
+		if len(intent.SignalIDs)+len(intent.HypothesisIDs) > 0 {
+			s.Intents = append(s.Intents, intent)
+		}
+	}
 	return s, ""
 }
 
