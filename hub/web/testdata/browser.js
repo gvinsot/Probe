@@ -458,36 +458,48 @@ window.addEventListener('DOMContentLoaded', async () => {
     assert(alertBody(grouped).textContent.includes('no diff for docker-compose.yml'), 'missing group diffs are explicit');
     const duplicate = { ...grouped, members: [grouped.members[0], { ...grouped.members[0], id: 'duplicate' }] };
     assert(alertBody(duplicate).querySelectorAll('.alert-detail').length === 1, 'identical explanations are displayed once');
-    // Alerts are listed under the intent the PR summary read behind them, in
-    // its order, and what no intent cites comes last.
-    state.view = { files: [diffFile], pr_summary: { intents: [{ intent: 'Add agent sorting' }, { intent: 'Test agent sorting' }, { intent: 'Nothing shown' }] }, alerts: [
-      { ...lineAlert, id: 'signal:a', severity: 'high', intent_group: 'Test agent sorting', title: 'Type or safety checking suppression added' },
-      { ...lineAlert, id: 'signal:b', intent_group: 'Add agent sorting', title: 'More branching constructs appear in the diff' },
+    // With a PR summary, the list is laid out by its change areas, in its
+    // order, each with the alerts it cites; what no area cites comes last.
+    const areaChanges = [
+      { area: 'Add agent sorting', summary: 'Agents sort by name.', refs: [{ path: 'hub/api.go', start_line: 2 }] },
+      { area: 'Test agent sorting', summary: 'A test covers it.', refs: [] },
+      { area: 'Nothing shown', summary: 'Docs.', refs: [] },
+    ];
+    state.view = { files: [diffFile], pr_summary: { changes: areaChanges }, alerts: [
+      { ...lineAlert, id: 'signal:a', severity: 'high', area: 2, title: 'Type or safety checking suppression added' },
+      { ...lineAlert, id: 'signal:b', area: 1, title: 'More branching constructs appear in the diff' },
       { ...lineAlert, id: 'focus:0', kind: 'focus', title: 'hub/api.go:2-2' },
-      { ...lineAlert, id: 'signal:c', severity: 'low', intent_group: 'Add agent sorting', title: 'Possible public declaration added' },
+      { ...lineAlert, id: 'signal:c', severity: 'low', area: 1, title: 'Possible public declaration added' },
     ] };
     renderAlerts();
-    const headers = [...el('alerts').querySelectorAll('.intent-group')].map((h) => h.firstChild.textContent);
-    assert(headers.join('|') === 'Add agent sorting|Test agent sorting|Other alerts', 'intent headers in summary order: ' + headers.join('|'));
+    const areaHeads = [...el('alerts').querySelectorAll('.area')].map((h) => h.querySelector('b').textContent + ':' + h.querySelector('.note').textContent);
+    assert(areaHeads.join('|') === 'Add agent sorting:2 alerts|Test agent sorting:1 alert|Nothing shown:no alert|Other alerts:1 alert no change area cites', 'areas in summary order: ' + areaHeads.join('|'));
     const order = [...el('alerts').querySelectorAll('.alert-title')].map((t) => t.textContent);
-    assert(order.join('|') === 'More branching constructs appear in the diff|Possible public declaration added|Type or safety checking suppression added|hub/api.go:2-2', 'alerts follow their intent: ' + order.join('|'));
-    state.view.alerts = state.view.alerts.map(({ intent_group, ...rest }) => rest);
+    assert(order.join('|') === 'More branching constructs appear in the diff|Possible public declaration added|Type or safety checking suppression added|hub/api.go:2-2', 'alerts follow their area: ' + order.join('|'));
+    const areaLink = el('alerts').querySelector('.area .ref-link');
+    areaLink.click();
+    assert(el('alerts').querySelector('.area .summary-diff tr.focus'), 'an area unfolds the code it cites');
+    state.minSeverity = 2; renderAlerts();
+    assert(el('alerts').querySelector('.area .note').textContent === '0 of 2 alerts' && el('alerts').querySelectorAll('.area').length === 3, 'areas stay while the filter hides their alerts');
+    state.minSeverity = 0;
+    state.view.pr_summary = null;
     renderAlerts();
-    assert(!el('alerts').querySelector('.intent-group'), 'no header without intents');
-    // The PR summary links each statement to the code it cites: a link
+    assert(!el('alerts').querySelector('.area') && el('alerts').querySelectorAll('.alert').length === 4, 'a plain list without a summary');
+    // The summary head links each statement to the code it cites: a link
     // unfolds that diff under it, and a cited alert the list shows opens there.
     state.view = { files: [diffFile], checks: [{ id: 'c1', kind: 'test', status: 'PASS' }], dismissed: [],
-      alerts: [{ ...lineAlert, id: 'issue:h1#1', kind: 'issue', status: 'UNVERIFIED' }] };
-    renderAlerts();
+      alerts: [{ ...lineAlert, id: 'issue:h1#1', kind: 'issue', status: 'UNVERIFIED', area: 1 }] };
     const prSummary = { title: 'Check errors', overview: 'Errors are checked.', model: 'm',
-      changes: [{ area: 'API', summary: 'Adds a check.', refs: [{ path: 'hub/api.go', start_line: 2 }] }],
-      behavior_changes: [],
+      changes: [{ area: 'API', summary: 'Adds a check.', refs: [{ path: 'hub/api.go', start_line: 2 }], signal_ids: [], hypothesis_ids: ['h1'] }],
+      behavior_changes: [{ text: 'Errors stop the request', refs: [{ path: 'hub/api.go', start_line: 2 }] }],
       risks: [{ text: 'Unverified: errors are swallowed', signal_ids: ['gone'], hypothesis_ids: ['h1'], refs: [] }],
       review_focus: [{ text: 'The new branch', refs: [{ path: 'hub/api.go', start_line: 1, end_line: 2, quote: 'if err != nil {}' }] }],
       testing: [], rejected_citations: 2 };
+    state.view.pr_summary = prSummary;
+    renderAlerts();
     const prBox = renderPRSummary(prSummary);
-    prBox.open = true;
     document.body.appendChild(prBox);
+    assert(!prBox.textContent.includes('Adds a check.'), 'change areas live in the list, not in the head');
     const refLinks = [...prBox.querySelectorAll('.ref-link')];
     assert(refLinks.map((l) => l.textContent).join('|') === 'api.go:2|Error handling changed|✓ api.go:1-2' && refLinks[2].classList.contains('verified') && refLinks[2].title.includes('if err != nil {}'), 'summary links: ' + refLinks.map((l) => l.textContent).join('|'));
     refLinks[0].click();
@@ -501,7 +513,7 @@ window.addEventListener('DOMContentLoaded', async () => {
     assert(prBox.textContent.includes('Probe executed 1 check for this review: 1 PASS.'), 'testing states what Probe executed');
     assert(prBox.textContent.includes('✓ marks a citation') && prBox.textContent.includes('2 citations quoted code that is not in the diff'), 'the caveat explains checked and dropped citations');
     const prMarkdown = prSummaryMarkdown(prSummary);
-    assert(prMarkdown.includes('- **API**: Adds a check. — hub/api.go:2\n') && prMarkdown.includes('- Unverified: errors are swallowed — hub/api.go:2 (unverified issue)\n') && prMarkdown.includes('- The new branch — hub/api.go:1-2 ✓\n'), 'markdown cites code:\n' + prMarkdown);
+    assert(prMarkdown.includes('- **API**: Adds a check. — hub/api.go:2\n  - **UNVERIFIED / medium** Error handling changed — hub/api.go:2\n') && prMarkdown.includes('- Unverified: errors are swallowed — hub/api.go:2 (unverified issue)\n') && prMarkdown.includes('- The new branch — hub/api.go:1-2 ✓\n'), 'markdown cites code:\n' + prMarkdown);
     prBox.remove(); state.expanded.delete('issue:h1#1');
     state.view = savedView; state.minSeverity = 0; state.expanded.delete(grouped.id);
     // A partial SSE payload must not erase the known queue date or verdict.

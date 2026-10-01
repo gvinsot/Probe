@@ -71,13 +71,14 @@ not re-run earlier analyses.
 
 **Pull request summary.** When the AI reviewer runs, the CLI also writes a
 natural-language summary of the change after the verdict (see
-[PR summary](../app/docs/PR_SUMMARY.md)). The report view shows it folded
-above the alerts, labelled as model output, with a button that copies it as
-Markdown for a pull request description. When the summary names the
-developer intentions behind the signals and hypotheses, the alert list is
-grouped under them ("Add agent sorting", "Test agent sorting"), in the
-summary's order, with the uncited alerts last under "Other alerts". It never
-changes the verdict.
+[PR summary](../app/docs/PR_SUMMARY.md)). The report view is built from it:
+its title, overview, behavior changes, risks, review focus and testing head
+the report, labelled as model output, with a button that copies it as
+Markdown for a pull request description. The alert list is laid out by the
+summary's change areas ("Add agent sorting", "Test agent sorting"), each with
+what changed, links that unfold the code it cites, and the alerts it groups,
+with the uncited alerts last under "Other alerts". The alerts, checks and
+verdict stay what Probe computed: the summary never changes them.
 
 **Reviewer swarm.** Set `PROBE_HUB_SWARM=true` (or a list such as
 `security,correctness,tests`) to run every AI review as a swarm of

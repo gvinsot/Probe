@@ -133,7 +133,9 @@ type ReviewerAgent struct {
 // a pull request description. It is generated after the verdict and changes
 // nothing in it: model output, never evidence. Every location it gives is a
 // CodeRef the CLI checked against the diff, so a reader can open the code a
-// sentence is about.
+// sentence is about. Its change areas also group the report's linter signals
+// and hypotheses by ID, so that the summary and the computed findings read as
+// one report; the grouping changes no status, severity or exit code.
 type PRSummary struct {
 	Title           string            `json:"title"`
 	Overview        string            `json:"overview"`
@@ -142,7 +144,6 @@ type PRSummary struct {
 	Risks           []PRSummaryRisk   `json:"risks"`            // always an array
 	ReviewFocus     []PRSummaryPoint  `json:"review_focus"`     // always an array; each point has a ref
 	Testing         []PRSummaryPoint  `json:"testing"`          // always an array; tests the change adds or modifies
-	Intents         []PRSummaryIntent `json:"intents,omitempty"`
 	Model           string            `json:"model"`
 	// RejectedCitations counts the refs the CLI dropped because their quote
 	// is not in the diff.
@@ -163,11 +164,16 @@ type CodeRef struct {
 	Quote     string `json:"quote,omitempty"`
 }
 
-// PRSummaryChange is one area of a PR summary.
+// PRSummaryChange is one area of a PR summary: what changed for one purpose,
+// the code it covers, and the linter signals and hypotheses that point at
+// that code. It cites recorded IDs only, and each ID belongs to at most one
+// area. A reading of the change, never evidence.
 type PRSummaryChange struct {
-	Area    string    `json:"area"`
-	Summary string    `json:"summary"`
-	Refs    []CodeRef `json:"refs"` // always an array
+	Area          string    `json:"area"`
+	Summary       string    `json:"summary"`
+	Refs          []CodeRef `json:"refs"`           // always an array
+	SignalIDs     []string  `json:"signal_ids"`     // always an array
+	HypothesisIDs []string  `json:"hypothesis_ids"` // always an array
 }
 
 // PRSummaryPoint is one statement of a PR summary and the code it is about.
@@ -183,16 +189,6 @@ type PRSummaryRisk struct {
 	SignalIDs     []string  `json:"signal_ids"`     // always an array
 	HypothesisIDs []string  `json:"hypothesis_ids"` // always an array
 	Refs          []CodeRef `json:"refs"`           // always an array
-}
-
-// PRSummaryIntent groups the report's linter signals and hypotheses under the
-// developer intention that produced the code they point at ("Add agent
-// sorting", "Test agent sorting"). It cites recorded IDs only, and each ID
-// belongs to at most one intent. A reading of the change, never evidence.
-type PRSummaryIntent struct {
-	Intent        string   `json:"intent"`
-	SignalIDs     []string `json:"signal_ids"`     // always an array
-	HypothesisIDs []string `json:"hypothesis_ids"` // always an array
 }
 
 // Reviewer agent statuses.

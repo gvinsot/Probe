@@ -14,12 +14,11 @@ import (
 )
 
 const validSummary = `{"title":"Allow every user through the admin check","overview":"The admin check now returns true for any user.\nThis removes the role test.",
-"changes":[{"area":"Authorization","summary":"Allowed no longer compares the user.","refs":[{"path":"auth.go","start_line":3},{"path":"/etc/passwd"},{"path":"auth.go","start_line":3}]},{"area":"","summary":"dropped"}],
+"changes":[{"area":"Simplify the admin check","summary":"Allowed no longer compares the user.","refs":[{"path":"auth.go","start_line":3},{"path":"/etc/passwd"},{"path":"auth.go","start_line":3}],"signal_ids":["signal-1","signal-9"],"hypothesis_ids":["hypothesis-1"]},{"area":"Cover the admin check","summary":"A test follows.","signal_ids":["signal-1","signal-2"]},{"area":"","summary":"dropped","signal_ids":["signal-2"]}],
 "behavior_changes":[{"text":"Non-admin users are allowed","refs":[{"path":"auth.go","start_line":2,"end_line":40}]}],
 "risks":[{"text":"Unverified: every user becomes admin","hypothesis_ids":["hypothesis-1","hypothesis-9"]},{"text":"The role test is gone","refs":[{"path":"auth.go","start_line":9,"side":"old","quote":"if u.Role  != \"admin\" {"}]},{"text":"Nothing backs this","signal_ids":["signal-9"]},{"text":"Invented code","refs":[{"path":"auth.go","start_line":3,"quote":"return isAdmin(u)"}]}],
 "review_focus":[{"text":"The return statement","refs":[{"path":"auth.go","start_line":3,"quote":"return true"}]},{"text":"No lines","refs":[{"path":"auth.go"}]}],
-"testing":[],
-"intents":[{"intent":"Simplify the admin check","signal_ids":["signal-1","signal-9"],"hypothesis_ids":["hypothesis-1"]},{"intent":"Cover the admin check","signal_ids":["signal-1","signal-2"]},{"intent":"Nothing recorded","signal_ids":["signal-9"]},{"intent":"","signal_ids":["signal-2"]}]}`
+"testing":[]}`
 
 // summaryProvider answers with the given contents in turn and records the
 // requests.
@@ -76,7 +75,7 @@ func TestSummarizeValidatesTheAnswer(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if s.Title != "Allow every user through the admin check" || s.Model != "test-model" || len(s.Changes) != 1 {
+	if s.Title != "Allow every user through the admin check" || s.Model != "test-model" || len(s.Changes) != 2 {
 		t.Fatalf("summary %+v", s)
 	}
 	// Unknown files and duplicates are dropped; lines are clamped to the hunks.
@@ -122,14 +121,10 @@ func TestSummarizeValidatesTheAnswer(t *testing.T) {
 		t.Fatal("parallel_tool_calls sent without tools")
 	}
 	user := body["messages"].([]any)[1].(map[string]any)["content"].(string)
-	// Unknown IDs are dropped, an ID joins the first intent citing it, and an
-	// intent left empty or unnamed disappears.
-	wantIntents := []model.PRSummaryIntent{
-		{Intent: "Simplify the admin check", SignalIDs: []string{"signal-1"}, HypothesisIDs: []string{"hypothesis-1"}},
-		{Intent: "Cover the admin check", SignalIDs: []string{"signal-2"}, HypothesisIDs: []string{}},
-	}
-	if !reflect.DeepEqual(s.Intents, wantIntents) {
-		t.Fatalf("intents %+v", s.Intents)
+	// Unknown IDs are dropped, and an ID joins the first area citing it.
+	if c := s.Changes; !reflect.DeepEqual(c[0].SignalIDs, []string{"signal-1"}) || !reflect.DeepEqual(c[0].HypothesisIDs, []string{"hypothesis-1"}) ||
+		!reflect.DeepEqual(c[1].SignalIDs, []string{"signal-2"}) || !reflect.DeepEqual(c[1].HypothesisIDs, []string{}) || !reflect.DeepEqual(c[1].Refs, []model.CodeRef{}) {
+		t.Fatalf("areas %+v", c)
 	}
 	for _, want := range []string{"Simplify admin check", "Every user is admin", "human review required", `"kind":"test","status":"PASS"`, `"id":"hypothesis-1"`, `"id":"signal-2","kind":"test_suppression","severity":"medium","path":"auth_test.go","line":7`, `"id":"signal-1","kind":"branch_growth","severity":"low","path":"auth.go","summary"`} {
 		if !strings.Contains(user, want) {

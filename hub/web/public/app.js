@@ -732,18 +732,23 @@ function openRulesDialog(repo) {
 
 /* ----------------------------------------------------- PR summary -- */
 
-// The pull request summary the reviewer model wrote after the review: a
-// folded narrative, rendered as text only. Every statement ends with links to
-// the code it cites, which unfold the diff under it, and a risk with the
-// alerts it cites. A button copies it as Markdown for a pull request
-// description.
+// The pull request summary the reviewer model wrote after the review is the
+// report itself: this head carries its title, overview and the statements
+// that span the change, and the alert list below is laid out by its change
+// areas (renderAlerts). Every statement ends with links to the code it cites,
+// which unfold the diff under it, and a risk with the alerts it cites. The
+// text is rendered as text only; what Probe computed (alerts, checks, the
+// verdict) never comes from the model. A button copies it as Markdown for a
+// pull request description.
 function renderPRSummary(s) {
-  const box = document.createElement('details');
+  const box = document.createElement('section');
   box.className = 'reviewer-summary pr-summary';
-  const head = document.createElement('summary');
-  const label = document.createElement('b');
-  label.textContent = 'AI pull request summary: ';
-  head.append(label, document.createTextNode(s.title || ''));
+  box.setAttribute('aria-label', 'AI report');
+  const head = document.createElement('div');
+  head.className = 'pr-summary-title';
+  const title = document.createElement('b');
+  title.textContent = s.title || '';
+  head.append(title, chip('AI report', 'busy'));
   box.appendChild(head);
   const overview = document.createElement('p');
   overview.textContent = s.overview || '';
@@ -769,11 +774,6 @@ function renderPRSummary(s) {
     text.textContent = p.text;
     li.append(text, summaryCitations(li, p.refs, []));
   };
-  section('Changes', s.changes, (li, c) => {
-    const area = document.createElement('b');
-    area.textContent = c.area + ': ';
-    li.append(area, document.createTextNode(c.summary), summaryCitations(li, c.refs, []));
-  });
   section('Behavior changes', s.behavior_changes, point);
   section('Risks', s.risks, (li, r) => {
     const text = document.createElement('span');
@@ -795,7 +795,7 @@ function renderPRSummary(s) {
   footer.className = 'row';
   const caveat = document.createElement('span');
   caveat.className = 'note';
-  caveat.textContent = 'Written by ' + (s.model || 'the reviewer model') + ' after the review. Model output, not evidence.'
+  caveat.textContent = 'Written by ' + (s.model || 'the reviewer model') + ' after the review, which groups the alerts below by change area. Model output, not evidence: alerts, checks and the verdict come from Probe.'
     + (summaryQuoted(s) ? ' ✓ marks a citation whose quoted code Probe found at those lines; what the summary says about it remains model output.' : '')
     + (s.rejected_citations ? ' ' + s.rejected_citations + (s.rejected_citations === 1 ? ' citation quoted code that is not in the diff and was dropped.' : ' citations quoted code that is not in the diff and were dropped.') : '');
   const copy = button('Copy as Markdown', 'btn quiet small', async () => {
@@ -809,6 +809,42 @@ function renderPRSummary(s) {
   footer.append(caveat, copy);
   box.appendChild(footer);
   return box;
+}
+
+// areaItem heads the alerts of one change area of the summary: its purpose,
+// what changed, the code it cites, and how many of its alerts the filters
+// show.
+function areaItem(change, shown, total) {
+  const item = document.createElement('li');
+  item.className = 'area';
+  const head = document.createElement('div');
+  head.className = 'area-head';
+  const name = document.createElement('b');
+  name.textContent = change.area;
+  const count = document.createElement('span');
+  count.className = 'note';
+  count.textContent = total === 0 ? 'no alert' : (shown === total ? '' : shown + ' of ') + total + (total === 1 ? ' alert' : ' alerts');
+  head.append(name, count);
+  const summary = document.createElement('p');
+  summary.textContent = change.summary;
+  summary.appendChild(summaryCitations(item, change.refs, []));
+  item.append(head, summary);
+  return item;
+}
+
+function otherAreaItem(shown) {
+  const item = document.createElement('li');
+  item.className = 'area other';
+  const head = document.createElement('div');
+  head.className = 'area-head';
+  const name = document.createElement('b');
+  name.textContent = 'Other alerts';
+  const count = document.createElement('span');
+  count.className = 'note';
+  count.textContent = shown + (shown === 1 ? ' alert' : ' alerts') + ' no change area cites';
+  head.append(name, count);
+  item.appendChild(head);
+  return item;
 }
 
 // summaryCitations renders the links of one summary statement: the code it
@@ -932,7 +968,14 @@ function prSummaryMarkdown(s) {
     for (const item of items) lines.push('- ' + item);
   };
   const points = (items) => (items || []).map((p) => p.text + cites(p.refs));
-  list('Changes', (s.changes || []).map((c) => '**' + c.area + '**: ' + c.summary + cites(c.refs)));
+  // Each area lists the alerts it groups, once each, as Probe recorded them.
+  list('Changes', (s.changes || []).map((c) => {
+    const ids = (c.hypothesis_ids || []).map((id) => 'issue:' + id).concat((c.signal_ids || []).map((id) => 'signal:' + id));
+    const alerts = [...new Set(ids.map(findAlert).filter(Boolean))];
+    return ['**' + c.area + '**: ' + c.summary + cites(c.refs)]
+      .concat(alerts.map((a) => '  - ' + (a.status ? '**' + a.status + ' / ' + a.severity + '** ' : '') + (a.title || a.id) + ' — ' + alertLocation(a)))
+      .join('\n');
+  }));
   list('Behavior changes', points(s.behavior_changes));
   list('Risks', (s.risks || []).map((r) => {
     const alerts = (r.hypothesis_ids || []).map((id) => findAlert('issue:' + id)).concat((r.signal_ids || []).map((id) => findAlert('signal:' + id))).filter(Boolean);
@@ -1869,48 +1912,35 @@ function renderAlerts() {
   const total = state.view ? (state.view.alerts || []).length : 0;
   el('alert-count').textContent = alerts.length + ' of ' + total + ' alerts shown';
 
-  if (alerts.length === 0) {
-    const empty = document.createElement('li');
-    empty.className = 'empty';
-    empty.textContent = total === 0
+  const empty = () => {
+    const item = document.createElement('li');
+    item.className = 'empty';
+    item.textContent = total === 0
       ? 'This run recorded no alert.'
       : 'No alert at this severity. Lower the filter to see the rest.';
-    list.appendChild(empty);
+    return item;
+  };
+
+  // With a summary, the list is the report laid out by change area: each
+  // area with the alerts it cites, then the alerts no area cites.
+  const areas = (state.view && state.view.pr_summary && state.view.pr_summary.changes) || [];
+  if (areas.length === 0) {
+    if (alerts.length === 0) list.appendChild(empty());
+    for (const alert of alerts) list.appendChild(alertItem(alert, renderAlerts));
     return;
   }
-
-  for (const group of intentGroups(alerts)) {
-    if (group.intent !== null) list.appendChild(intentHeader(group));
-    for (const alert of group.alerts) list.appendChild(alertItem(alert, renderAlerts));
+  const all = state.view.alerts || [];
+  areas.forEach((change, i) => {
+    const own = alerts.filter((alert) => alert.area === i + 1);
+    list.appendChild(areaItem(change, own.length, all.filter((alert) => alert.area === i + 1).length));
+    for (const alert of own) list.appendChild(alertItem(alert, renderAlerts));
+  });
+  const other = alerts.filter((alert) => !alert.area || alert.area > areas.length);
+  if (other.length) {
+    list.appendChild(otherAreaItem(other.length));
+    for (const alert of other) list.appendChild(alertItem(alert, renderAlerts));
   }
-}
-
-// intentGroups splits the ranked alerts by the intent the PR summary read
-// behind them, in the summary's order, then everything no intent cites.
-// Without intents it is one unnamed group: the list renders as before.
-function intentGroups(alerts) {
-  const intents = (state.view && state.view.pr_summary && state.view.pr_summary.intents) || [];
-  if (!alerts.some((alert) => alert.intent_group)) return [{ intent: null, alerts }];
-  const groups = new Map(intents.map((i) => [i.intent, { intent: i.intent, alerts: [] }]));
-  const other = { intent: 'Other alerts', other: true, alerts: [] };
-  for (const alert of alerts) {
-    const group = alert.intent_group && groups.get(alert.intent_group);
-    (group || other).alerts.push(alert);
-  }
-  return [...groups.values(), other].filter((g) => g.alerts.length > 0);
-}
-
-function intentHeader(group) {
-  const item = document.createElement('li');
-  item.className = 'intent-group';
-  const name = document.createElement('span');
-  name.textContent = group.intent;
-  const count = document.createElement('span');
-  count.className = 'note';
-  count.textContent = group.alerts.length + (group.alerts.length === 1 ? ' alert' : ' alerts');
-  item.append(name, count);
-  if (!group.other) item.title = 'Intent read by the AI reviewer from the change. Model output, not evidence.';
-  return item;
+  if (alerts.length === 0 && total > 0) list.appendChild(empty());
 }
 
 // alertItem renders one alert, folded or unfolded; rerender redraws the list

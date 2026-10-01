@@ -278,7 +278,12 @@ h1, h2, h3 { line-height: 1.25; }
 /* Alerts */
 .alerts { list-style: none; margin: 0; padding: 0; }
 .alert { border-bottom: 1px solid var(--line); }
-.intent-group { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; padding: 10px 14px 6px; font-weight: 600; font-size: 0.82rem; background: var(--surface-alt); border-bottom: 1px solid var(--line); }
+.area { padding: 12px 14px 8px; background: var(--surface-alt); border-bottom: 1px solid var(--line); border-left: 3px solid var(--accent); font-size: 0.85rem; }
+.area.other { border-left-color: var(--line); }
+.area-head { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; }
+.area-head b { font-size: 0.9rem; }
+.area p { margin: 4px 0 0; color: var(--muted); word-break: break-word; }
+.pr-summary-title { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; font-size: 1rem; }
 .alert-head {
   width: 100%;
   display: grid;
@@ -307,7 +312,6 @@ h1, h2, h3 { line-height: 1.25; }
 .ai-reading, .reviewer-summary { border: 1px solid var(--line); border-left: 3px solid var(--accent); border-radius: 8px; padding: 10px; font-size: 0.85rem; display: grid; gap: 4px; background: var(--accent-soft); }
 .ai-reading p, .reviewer-summary p { margin: 0; white-space: pre-wrap; word-break: break-word; }
 .reviewer-summary { margin-top: 4px; }
-.pr-summary summary { cursor: pointer; }
 .pr-summary ul { margin: 0; padding-left: 18px; }
 .pr-summary li { margin: 2px 0; }
 .summary-refs { display: inline-flex; flex-wrap: wrap; gap: 4px; margin-left: 6px; vertical-align: baseline; }

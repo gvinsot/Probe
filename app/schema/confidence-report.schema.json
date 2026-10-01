@@ -299,11 +299,14 @@
         "changes": {"type": "array", "maxItems": 12, "items": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["area", "summary", "refs"],
+          "description": "One purpose of the change, the code it covers, and the linter signals and hypotheses that point at that code. Each ID is cited by at most one area; signals and hypotheses no area cites stay ungrouped. A reading of the change, not evidence.",
+          "required": ["area", "summary", "refs", "signal_ids", "hypothesis_ids"],
           "properties": {
             "area": {"type": "string", "minLength": 1},
             "summary": {"type": "string", "minLength": 1},
-            "refs": {"$ref": "#/$defs/prSummaryRefs"}
+            "refs": {"$ref": "#/$defs/prSummaryRefs"},
+            "signal_ids": {"type": "array", "items": {"$ref": "#/$defs/id"}, "description": "IDs from linter."},
+            "hypothesis_ids": {"type": "array", "items": {"$ref": "#/$defs/id"}, "description": "IDs from hypotheses."}
           }
         }},
         "behavior_changes": {"type": "array", "maxItems": 8, "items": {"$ref": "#/$defs/prSummaryPoint"}},
@@ -321,16 +324,6 @@
         }},
         "review_focus": {"type": "array", "maxItems": 8, "items": {"$ref": "#/$defs/prSummaryPoint"}, "description": "Each point cites at least one ref with lines."},
         "testing": {"type": "array", "maxItems": 4, "items": {"$ref": "#/$defs/prSummaryPoint"}, "description": "The tests the change adds or modifies. What Probe executed is in checks."},
-        "intents": {"type": "array", "maxItems": 12, "description": "The linter signals and hypotheses of this report grouped by the developer intention that produced the code they point at. Each ID is cited by at most one intent; signals and hypotheses no intent cites stay ungrouped. A reading of the change, not evidence.", "items": {
-          "type": "object",
-          "additionalProperties": false,
-          "required": ["intent", "signal_ids", "hypothesis_ids"],
-          "properties": {
-            "intent": {"type": "string", "minLength": 1, "maxLength": 100},
-            "signal_ids": {"type": "array", "items": {"$ref": "#/$defs/id"}, "description": "IDs from linter."},
-            "hypothesis_ids": {"type": "array", "items": {"$ref": "#/$defs/id"}, "description": "IDs from hypotheses."}
-          }
-        }},
         "model": {"type": "string", "minLength": 1},
         "rejected_citations": {"type": "integer", "minimum": 1, "description": "Refs the CLI dropped because their quote is not in the diff."}
       }

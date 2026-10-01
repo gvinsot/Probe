@@ -19,12 +19,11 @@ probe report --input .probe/confidence-report.json --format pr-summary   # re-re
 | --- | --- |
 | `title` | A specific pull request title, in the imperative (at most 120 characters). |
 | `overview` | Two to four sentences: what the change does and why, as far as the intent, the commit messages and the diff show it. |
-| `changes` | Up to 12 areas, each with a summary and the code it covers (`refs`). |
+| `changes` | Up to 12 areas, one per purpose of the change ("Add agent sorting", "Test agent sorting"), each with a summary, the code it covers (`refs`), and the linter signals (`signal_ids`) and hypotheses (`hypothesis_ids`) that point at that code. Unknown IDs are dropped, an ID belongs to the first area that cites it, and signals and hypotheses no area cites stay ungrouped. |
 | `behavior_changes` | Up to 8 statements (`text`, `refs`) of what behaves differently for users, callers or operators, with the code that causes it. |
 | `risks` | Up to 8 risks (`text`, `signal_ids`, `hypothesis_ids`, `refs`). A risk the review recorded cites its linter signals and hypotheses by ID, and is called unverified unless it was reproduced; a risk the diff shows cites the code. A risk citing neither is dropped. The review's own state (checks run, budget, unverified areas, verdict) is not restated: the report holds it. |
 | `review_focus` | Up to 8 pointers (`text`, `refs`) to where a human reviewer should look first, each with a quoted citation. |
 | `testing` | Up to 4 statements (`text`, `refs`) on the tests the change adds or modifies. What Probe executed is never model output: the renderings state it from the report's checks. |
-| `intents` | Up to 12 developer intentions ("Add agent sorting", "Test agent sorting"), each citing the linter signals (`signal_ids`) and hypotheses (`hypothesis_ids`) it explains. Unknown IDs are dropped, an ID belongs to the first intent that cites it, and an intent left empty is dropped. Signals and hypotheses no intent cites stay ungrouped. |
 | `model` | The model that wrote it. |
 | `rejected_citations` | How many refs were dropped because their quote is not in the diff; absent when none. |
 
@@ -44,7 +43,7 @@ When a valid answer loses citations or statements this way, the reasons are sent
 
 A checked citation proves that the cited code is at those lines, not that what the summary says about it is right: the statement remains model output. The renderings say so: `✓` marks a checked citation in `PR_SUMMARY.md`, `CONFIDENCE_REPORT.md` and the hub, next to a note on the citations dropped.
 
-`CONFIDENCE_REPORT.md` lists the intents under **Findings by intent**, each with the titles and locations of the signals and hypotheses it cites; [Probe Hub](../../hub/README.md) groups its alert list the same way, with the uncited alerts last under **Other alerts**. The grouping is a reading aid: it changes no severity, status or exit code.
+The areas make the summary and the computed findings one report: `CONFIDENCE_REPORT.md` and `PR_SUMMARY.md` list, under each area of **Changes**, the signals and hypotheses it cites with their recorded status, severity, title and location, and [Probe Hub](../../hub/README.md) lays its alert list out by area, with the uncited alerts last under **Other alerts**. The model only groups and describes: every alert keeps what Probe recorded, the severity filter still applies, and the grouping changes no severity, status or exit code.
 
 `PR_SUMMARY.md` renders these fields as a title, an overview and the sections Changes, Behavior changes, Risks, Where to look first and Testing. Each statement ends with the code it cites as `path:start-end`, and a risk with the location and status of the findings it cites; the Testing section ends with the checks Probe executed, counted from the report. It ends with a line naming the model and the review verdict, and the marker `<!-- probe:pr-summary v1 -->`.
 
@@ -63,7 +62,7 @@ A checked citation proves that the cited code is at those lines, not that what t
 | `--pr-summary` | on when the reviewer runs | `--pr-summary=false` skips the extra provider call. An explicit `--pr-summary` exits 3 on `lint` and with `--reviewer=false`, because only the reviewer model writes it. |
 | `--format pr-summary` | written with `markdown` when a summary exists | Writes `PR_SUMMARY.md` even without `markdown`. Without a summary it states that none was generated. |
 
-The summary uses the reviewer's provider settings (`reviewer.model` or `PROBE_REVIEWER_MODEL`, endpoint, credential, timeout) and costs one or two completions per review. [Probe Hub](../../hub/README.md) shows it as a folded **AI pull request summary** above each report. Each cited ref is a link that unfolds the diff of that file under the statement, with the cited lines highlighted; a checked citation is marked `✓` and shows its quote on hover; a risk links to the alerts it cites, which open in the alert list. A button copies the summary as Markdown, and its [MCP](../../hub/README.md#mcp-server-for-coding-agents) `get_findings` tool returns it.
+The summary uses the reviewer's provider settings (`reviewer.model` or `PROBE_REVIEWER_MODEL`, endpoint, credential, timeout) and costs one or two completions per review. [Probe Hub](../../hub/README.md) shows it as the report: its title, overview, behavior changes, risks, review focus and testing above the alerts, and its change areas heading the alert list. Each cited ref is a link that unfolds the diff of that file under the statement, with the cited lines highlighted; a checked citation is marked `✓` and shows its quote on hover; a risk links to the alerts it cites, which open in the alert list. A button copies the summary as Markdown, and its [MCP](../../hub/README.md#mcp-server-for-coding-agents) `get_findings` tool returns it.
 
 ## What it is not
 

@@ -41,8 +41,6 @@ const (
 	maxSummaryCommit   = 500
 	maxSummarySignals  = 60
 	maxSummaryListed   = 15
-	maxSummaryIntents  = 12
-	maxSummaryIntent   = 100
 	summaryAttempts    = 2
 )
 
@@ -50,12 +48,11 @@ const summaryPrompt = `You write the description of a pull request for its human
 Answer with ONE JSON object and nothing else. Readers see each statement next to links that open the code it cites, so cite code instead of describing where it is. A ref is {"path", "start_line", "end_line", "side", "quote"}: "path" from change.files only; "start_line" and "end_line" are line numbers shown in that file's hunks (new_line, or old_line with "side": "old" for removed code); omit the lines to cite the whole file, and cite whole files when hunks_omitted is true. "quote" copies, verbatim, a short distinctive piece of the code at those lines (one to three lines, at most 200 characters, not a lone brace or keyword): the content of the hunk lines, without the diff's +/- markers. Probe searches the quote in the diff, sets the lines to where it really is, and drops the ref when it is not there, so never paraphrase or complete code in a quote. Quote every ref with lines that a statement relies on. Never write paths or line numbers in the text itself. The fields:
 - "title": a specific pull-request title, at most 100 characters, in the imperative ("Add retry to payment webhooks");
 - "overview": two to four plain sentences: what the change does and why, as far as the intent, commit messages and diff show it;
-- "changes": at most 12 objects {"area", "summary", "refs"}, grouping the changes by purpose; "area" is a short name, "summary" one or two sentences, "refs" the code of that area (at most 6);
+- "changes": at most 12 objects {"area", "summary", "refs", "signal_ids", "hypothesis_ids"}, grouping the changes by the developer's purpose; "area" is a short name of that purpose ("Add agent sorting", "Test agent sorting"), never a risk; "summary" one or two sentences; "refs" the code of that area (at most 6). The report shows each area with the findings it lists, so "signal_ids" and "hypothesis_ids" put every entry of review.signals and review.findings under the area whose code it points at, read from its path, line, the diff and the commit messages: ids from review.signals and review.findings only, each id in exactly one area;
 - "behavior_changes": at most 8 objects {"text", "refs"}: one short sentence each on what behaves differently for users, callers or operators, citing the code that causes it; empty if none;
 - "risks": at most 8 objects {"text", "signal_ids", "hypothesis_ids", "refs"}. A risk the report records cites its ids from review.signals and review.findings and says "unverified" unless its status is REPRODUCED; a risk the diff plainly shows cites the code in "refs", with a quote. A risk with neither is dropped. Do not restate the review's own state (checks run, budget, unverified areas, verdict): the report shows it next to the summary;
 - "review_focus": at most 8 objects {"text", "refs"}: where a human reviewer should look first and why, in one short sentence, each with at least one ref with lines and a quote;
 - "testing": at most 4 objects {"text", "refs"} on the tests the change adds or modifies, citing them; empty if the change touches no test. Do not describe what the review executed: the report shows it;
-- "intents": at most 12 objects {"intent", "signal_ids", "hypothesis_ids"} grouping review.signals and review.findings by the developer intention behind the code each one points at, read from its path, line, the diff and the commit messages. "intent" is a short phrase naming that purpose ("Add agent sorting", "Test agent sorting"), never the risk; "signal_ids" and "hypothesis_ids" list ids from review.signals and review.findings only, each id in exactly one intent.
 Describe; do not approve. Never claim the change is correct, safe or tested beyond what review.checks records. A finding's status is final: REPRODUCED means an experiment reproduced it; UNVERIFIED means nobody verified it.`
 
 // SummaryInput carries what the report does not: the commit messages of the
@@ -483,9 +480,11 @@ func parseSummary(content string, known summaryRefs) (*model.PRSummary, []string
 		Title    string `json:"title"`
 		Overview string `json:"overview"`
 		Changes  []struct {
-			Area    string   `json:"area"`
-			Summary string   `json:"summary"`
-			Refs    []rawRef `json:"refs"`
+			Area          string   `json:"area"`
+			Summary       string   `json:"summary"`
+			Refs          []rawRef `json:"refs"`
+			SignalIDs     []string `json:"signal_ids"`
+			HypothesisIDs []string `json:"hypothesis_ids"`
 		} `json:"changes"`
 		BehaviorChanges []rawPoint `json:"behavior_changes"`
 		Risks           []struct {
@@ -496,11 +495,6 @@ func parseSummary(content string, known summaryRefs) (*model.PRSummary, []string
 		} `json:"risks"`
 		ReviewFocus []rawPoint `json:"review_focus"`
 		Testing     []rawPoint `json:"testing"`
-		Intents     []struct {
-			Intent        string   `json:"intent"`
-			SignalIDs     []string `json:"signal_ids"`
-			HypothesisIDs []string `json:"hypothesis_ids"`
-		} `json:"intents"`
 	}
 	if err := json.Unmarshal([]byte(text[start:end+1]), &raw); err != nil {
 		return nil, nil, "the JSON object does not match the fields described"
@@ -514,6 +508,18 @@ func parseSummary(content string, known summaryRefs) (*model.PRSummary, []string
 	if s.Title == "" || s.Overview == "" {
 		return nil, nil, "title and overview are required"
 	}
+	// Each finding ID joins the first area that cites it.
+	cited := map[string]bool{}
+	pick := func(ids []string, valid map[string]bool, prefix string) []string {
+		out := []string{}
+		for _, id := range ids {
+			if valid[id] && !cited[prefix+id] {
+				cited[prefix+id] = true
+				out = append(out, id)
+			}
+		}
+		return out
+	}
 	for _, ch := range raw.Changes {
 		if len(s.Changes) == maxSummaryChanges {
 			break
@@ -523,6 +529,8 @@ func parseSummary(content string, known summaryRefs) (*model.PRSummary, []string
 			continue
 		}
 		change.Refs = known.refs(ch.Refs)
+		change.SignalIDs = pick(ch.SignalIDs, known.signals, "s:")
+		change.HypothesisIDs = pick(ch.HypothesisIDs, known.hypotheses, "h:")
 		s.Changes = append(s.Changes, change)
 	}
 	s.BehaviorChanges = known.points(raw.BehaviorChanges, maxSummaryItems, "behavior_changes", false)
@@ -546,33 +554,6 @@ func parseSummary(content string, known summaryRefs) (*model.PRSummary, []string
 			continue
 		}
 		s.Risks = append(s.Risks, risk)
-	}
-	// Each ID joins the first intent that cites it; an intent left without
-	// any is dropped.
-	cited := map[string]bool{}
-	pick := func(ids []string, valid map[string]bool, prefix string) []string {
-		out := []string{}
-		for _, id := range ids {
-			if valid[id] && !cited[prefix+id] {
-				cited[prefix+id] = true
-				out = append(out, id)
-			}
-		}
-		return out
-	}
-	for _, in := range raw.Intents {
-		if len(s.Intents) == maxSummaryIntents {
-			break
-		}
-		intent := model.PRSummaryIntent{Intent: oneLineBounded(in.Intent, maxSummaryIntent)}
-		if intent.Intent == "" {
-			continue
-		}
-		intent.SignalIDs = pick(in.SignalIDs, known.signals, "s:")
-		intent.HypothesisIDs = pick(in.HypothesisIDs, known.hypotheses, "h:")
-		if len(intent.SignalIDs)+len(intent.HypothesisIDs) > 0 {
-			s.Intents = append(s.Intents, intent)
-		}
 	}
 	s.RejectedCitations = known.rejected
 	return s, known.misses, ""

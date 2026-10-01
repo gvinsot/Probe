@@ -258,7 +258,6 @@ type PRSummary struct {
 	Risks           []PRSummaryRisk   `json:"risks"`
 	ReviewFocus     []PRSummaryPoint  `json:"review_focus"`
 	Testing         []PRSummaryPoint  `json:"testing"`
-	Intents         []PRSummaryIntent `json:"intents,omitempty"`
 	Model           string            `json:"model"`
 	// RejectedCitations counts the refs the CLI dropped because their quote
 	// is not in the diff.
@@ -275,11 +274,14 @@ type CodeRef struct {
 	Quote     string `json:"quote,omitempty"`
 }
 
-// PRSummaryChange is one area of a PR summary.
+// PRSummaryChange is one area of a PR summary: a purpose of the change, the
+// code it covers, and the signals and hypotheses it groups, cited by ID.
 type PRSummaryChange struct {
-	Area    string    `json:"area"`
-	Summary string    `json:"summary"`
-	Refs    []CodeRef `json:"refs"`
+	Area          string    `json:"area"`
+	Summary       string    `json:"summary"`
+	Refs          []CodeRef `json:"refs"`
+	SignalIDs     []string  `json:"signal_ids"`
+	HypothesisIDs []string  `json:"hypothesis_ids"`
 }
 
 // PRSummaryPoint is one statement of a PR summary and the code it cites.
@@ -295,14 +297,6 @@ type PRSummaryRisk struct {
 	SignalIDs     []string  `json:"signal_ids"`
 	HypothesisIDs []string  `json:"hypothesis_ids"`
 	Refs          []CodeRef `json:"refs"`
-}
-
-// PRSummaryIntent is the developer intention the CLI's summary reads behind
-// some signals and hypotheses, cited by ID.
-type PRSummaryIntent struct {
-	Intent        string   `json:"intent"`
-	SignalIDs     []string `json:"signal_ids"`
-	HypothesisIDs []string `json:"hypothesis_ids"`
 }
 
 // Decode parses a confidence report. Size is bounded by the caller.
@@ -358,10 +352,11 @@ type Alert struct {
 	// Members preserves each source signal when equivalent file changes are
 	// presented together. The group is a display convenience, not a verdict.
 	Members []Alert `json:"members,omitempty"`
-	// IntentGroup is the intent of the PR summary that cites this signal or
-	// hypothesis (for a group, its first cited member). Model reading, used
-	// to group the list; it changes no severity.
-	IntentGroup string `json:"intent_group,omitempty"`
+	// Area is the 1-based index of the PR summary's change area that cites
+	// this signal or hypothesis (for a group, its first cited member); 0:
+	// none. Model reading, used to lay the report out; it changes no
+	// severity.
+	Area int `json:"area,omitempty"`
 }
 
 // Counts holds how many alerts each severity carries.
@@ -538,47 +533,50 @@ func (r *Report) alertLists() (active, dismissed []Alert) {
 		active = append(active, a)
 	}
 	active = r.groupFileSignals(dedupeLines(active))
-	r.assignIntents(active)
-	r.assignIntents(dismissed)
+	r.assignAreas(active)
+	r.assignAreas(dismissed)
 	return active, dismissed
 }
 
-// assignIntents sets IntentGroup from the intents of the PR summary. A
-// signal alert is "signal:<id>" and an issue "issue:<id>", with a "#n"
-// suffix when dedupeLines split it.
-func (r *Report) assignIntents(alerts []Alert) {
-	if r.PRSummary == nil || len(r.PRSummary.Intents) == 0 {
+// assignAreas sets Area from the change areas of the PR summary. A signal
+// alert is "signal:<id>" and an issue "issue:<id>", with a "#n" suffix when
+// dedupeLines split it; an ID belongs to the first area citing it.
+func (r *Report) assignAreas(alerts []Alert) {
+	if r.PRSummary == nil {
 		return
 	}
-	intents := map[string]string{}
-	for _, in := range r.PRSummary.Intents {
-		for _, id := range in.SignalIDs {
-			if _, dup := intents["signal:"+id]; !dup {
-				intents["signal:"+id] = in.Intent
+	areas := map[string]int{}
+	for i, c := range r.PRSummary.Changes {
+		for _, id := range c.SignalIDs {
+			if _, dup := areas["signal:"+id]; !dup {
+				areas["signal:"+id] = i + 1
 			}
 		}
-		for _, id := range in.HypothesisIDs {
-			if _, dup := intents["issue:"+id]; !dup {
-				intents["issue:"+id] = in.Intent
+		for _, id := range c.HypothesisIDs {
+			if _, dup := areas["issue:"+id]; !dup {
+				areas["issue:"+id] = i + 1
 			}
 		}
 	}
-	lookup := func(id string) string {
-		if intent, ok := intents[id]; ok {
-			return intent
+	if len(areas) == 0 {
+		return
+	}
+	lookup := func(id string) int {
+		if area, ok := areas[id]; ok {
+			return area
 		}
 		if i := strings.LastIndexByte(id, '#'); i > 0 {
-			return intents[id[:i]]
+			return areas[id[:i]]
 		}
-		return ""
+		return 0
 	}
 	for i := range alerts {
 		a := &alerts[i]
-		a.IntentGroup = lookup(a.ID)
+		a.Area = lookup(a.ID)
 		for j := range a.Members {
-			a.Members[j].IntentGroup = lookup(a.Members[j].ID)
-			if a.IntentGroup == "" {
-				a.IntentGroup = a.Members[j].IntentGroup
+			a.Members[j].Area = lookup(a.Members[j].ID)
+			if a.Area == 0 {
+				a.Area = a.Members[j].Area
 			}
 		}
 	}

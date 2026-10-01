@@ -20,7 +20,7 @@ func TestViewCarriesThePRSummary(t *testing.T) {
 	}
 }
 
-func TestAlertsCarryTheirIntent(t *testing.T) {
+func TestAlertsCarryTheirArea(t *testing.T) {
 	r, err := Decode([]byte(`{"version":1,"exit_code":2,"change":{"files":[]},
 "linter":[
  {"id":"s1","kind":"branch_growth","path":"sort.ts","line":1,"scope":"file","severity":"low","summary":"More branching constructs appear in the diff"},
@@ -28,19 +28,19 @@ func TestAlertsCarryTheirIntent(t *testing.T) {
  {"id":"s3","kind":"suppression","path":"sort.test.ts","line":7,"side":"new","severity":"medium","summary":"Type or safety checking suppression added"},
  {"id":"s4","kind":"todo","path":"other.ts","line":3,"side":"new","severity":"low","summary":"TODO added"}],
 "hypotheses":[{"id":"h1","title":"Sort is unstable","severity":"medium","status":"UNVERIFIED","path":"sort.ts","line":20}],
-"pr_summary":{"title":"t","overview":"o","changes":[],"behavior_changes":[],"risks":[],"review_focus":[],"testing":[],"model":"m",
- "intents":[{"intent":"Add agent sorting","signal_ids":["s1","s2"],"hypothesis_ids":["h1"]},{"intent":"Test agent sorting","signal_ids":["s3","s1"],"hypothesis_ids":[]}]}}`))
+"pr_summary":{"title":"t","overview":"o","behavior_changes":[],"risks":[],"review_focus":[],"testing":[],"model":"m",
+ "changes":[{"area":"Add agent sorting","summary":"s","refs":[],"signal_ids":["s1","s2"],"hypothesis_ids":["h1"]},{"area":"Test agent sorting","summary":"s","refs":[],"signal_ids":["s3","s1"],"hypothesis_ids":[]}]}}`))
 	if err != nil {
 		t.Fatal(err)
 	}
-	got := map[string]string{}
+	got := map[string]int{}
 	for _, a := range r.BuildView().Alerts {
-		got[a.ID] = a.IntentGroup
+		got[a.ID] = a.Area
 	}
-	want := map[string]string{"signal:s1": "Add agent sorting", "signal:s2": "Add agent sorting", "issue:h1": "Add agent sorting", "signal:s3": "Test agent sorting", "signal:s4": ""}
-	for id, intent := range want {
-		if got[id] != intent {
-			t.Errorf("%s intent = %q, want %q (all: %v)", id, got[id], intent, got)
+	want := map[string]int{"signal:s1": 1, "signal:s2": 1, "issue:h1": 1, "signal:s3": 2, "signal:s4": 0}
+	for id, area := range want {
+		if got[id] != area {
+			t.Errorf("%s area = %d, want %d (all: %v)", id, got[id], area, got)
 		}
 	}
 }

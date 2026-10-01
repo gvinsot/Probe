@@ -53,33 +53,42 @@ func TestPRSummaryIsWrittenWithMarkdown(t *testing.T) {
 	}
 }
 
-func TestPRSummaryGroupsFindingsByIntent(t *testing.T) {
+func TestPRSummaryNestsFindingsUnderAreas(t *testing.T) {
 	r := summarizedReport()
 	r.Signals = []model.Signal{
 		{ID: "signal-1", Path: "auth.go", Line: 1, Scope: model.SignalScopeFile, Severity: "low", Summary: "More branching constructs appear in the diff"},
 		{ID: "signal-2", Path: "auth.go", Line: 12, Side: "new", Severity: "low", Summary: "Possible public declaration added"},
 		{ID: "signal-3", Path: "auth_test.go", Line: 7, Side: "new", Severity: "medium", Summary: "Type or safety checking suppression added"},
 	}
-	r.Hypotheses = []model.Hypothesis{{ID: "hypothesis-1", Title: "Every user is admin", Severity: "critical", Status: "UNVERIFIED", Path: "auth.go", Line: 3}}
-	r.PRSummary.Intents = []model.PRSummaryIntent{
-		{Intent: "Add the admin shortcut", SignalIDs: []string{"signal-1", "signal-2"}, HypothesisIDs: []string{"hypothesis-1"}},
-		{Intent: "Test the admin shortcut", SignalIDs: []string{"signal-3"}},
-		{Intent: "Gone since", SignalIDs: []string{"signal-9"}},
+	r.PRSummary.Changes = []model.PRSummaryChange{
+		{Area: "Add the admin shortcut", Summary: "Allowed returns true.", Refs: []model.CodeRef{}, SignalIDs: []string{"signal-1", "signal-2"}, HypothesisIDs: []string{"hypothesis-1"}},
+		{Area: "Test the admin shortcut", Summary: "A test follows.", Refs: []model.CodeRef{}, SignalIDs: []string{"signal-3", "signal-9"}, HypothesisIDs: []string{}},
 	}
 	md := string(Markdown(r))
-	want := "### Findings by intent\n\n" +
-		"- **Add the admin shortcut**\n" +
+	want := "### Changes\n\n" +
+		"- **Add the admin shortcut**: Allowed returns true.\n" +
+		"  - **UNVERIFIED / critical** Every user is admin — auth.go:3\n" +
 		"  - More branching constructs appear in the diff — auth.go (whole file)\n" +
 		"  - Possible public declaration added — auth.go:12\n" +
-		"  - **UNVERIFIED / critical** Every user is admin — auth.go:3\n" +
-		"- **Test the admin shortcut**\n" +
+		"- **Test the admin shortcut**: A test follows.\n" +
 		"  - Type or safety checking suppression added — auth\\_test.go:7\n\n"
-	if !strings.Contains(md, want) || strings.Contains(md, "Gone since") {
-		t.Fatalf("intent groups:\n%s", md)
+	if !strings.Contains(md, want) {
+		t.Fatalf("areas:\n%s", md)
 	}
-	if strings.Index(md, "### Findings by intent") > strings.Index(md, "## Change Summary") {
-		t.Fatal("intent groups outside the summary section")
+	summary, _ := os.ReadFile(writeSummary(t, r))
+	if !strings.Contains(string(summary), strings.Replace(want, "### Changes", "## Changes", 1)) {
+		t.Fatalf("PR_SUMMARY.md areas:\n%s", summary)
 	}
+}
+
+// writeSummary writes PR_SUMMARY.md for r and returns its path.
+func writeSummary(t *testing.T, r *model.Report) string {
+	t.Helper()
+	dir := t.TempDir()
+	if err := Write(dir, r, []string{FormatPRSummary}); err != nil {
+		t.Fatal(err)
+	}
+	return filepath.Join(dir, "PR_SUMMARY.md")
 }
 
 func TestPRSummaryAbsentOrExplicit(t *testing.T) {

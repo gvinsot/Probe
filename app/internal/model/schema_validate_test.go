@@ -372,12 +372,11 @@ func populatedReport() Report {
 		ReviewerSummary:    "Two signals read; one rounding concern remains.",
 		PRSummary: &PRSummary{
 			Title: "Round discounts up", Overview: "Discounts now round up to the next cent.",
-			Changes:           []PRSummaryChange{{Area: "Pricing", Summary: "Discount rounding changed.", Refs: []CodeRef{{Path: "calc/calc.go", StartLine: 3, EndLine: 5}, {Path: "calc/calc_test.go"}, {Path: "calc/calc.go", StartLine: 2, EndLine: 4, Side: "old", Quote: "return math.Ceil(x)"}}}},
+			Changes:           []PRSummaryChange{{Area: "Pricing", Summary: "Discount rounding changed.", Refs: []CodeRef{{Path: "calc/calc.go", StartLine: 3, EndLine: 5}, {Path: "calc/calc_test.go"}, {Path: "calc/calc.go", StartLine: 2, EndLine: 4, Side: "old", Quote: "return math.Ceil(x)"}}, SignalIDs: []string{"signal-1"}, HypothesisIDs: []string{"hypothesis-1"}}},
 			BehaviorChanges:   []PRSummaryPoint{{Text: "Discounts can be one cent larger.", Refs: []CodeRef{{Path: "calc/calc.go", StartLine: 2, EndLine: 4, Side: "old", Quote: "return math.Ceil(x)"}}}},
 			Risks:             []PRSummaryRisk{{Text: "Reproduced: a discount of 33% on 5 returns 2 instead of 3.", SignalIDs: []string{}, HypothesisIDs: []string{"hypothesis-1"}, Refs: []CodeRef{{Path: "calc/calc.go", StartLine: 2, EndLine: 4, Side: "old", Quote: "return math.Ceil(x)"}}}},
 			ReviewFocus:       []PRSummaryPoint{{Text: "The rounding mode.", Refs: []CodeRef{{Path: "calc/calc.go", StartLine: 2, EndLine: 4, Side: "old", Quote: "return math.Ceil(x)"}}}},
 			Testing:           []PRSummaryPoint{{Text: "A rounding case is added.", Refs: []CodeRef{{Path: "calc/calc.go", StartLine: 2, EndLine: 4, Side: "old", Quote: "return math.Ceil(x)"}}}},
-			Intents:           []PRSummaryIntent{{Intent: "Round discounts up", SignalIDs: []string{"signal-1"}, HypothesisIDs: []string{"hypothesis-1"}}},
 			Model:             "test-model",
 			RejectedCitations: 1,
 		},
