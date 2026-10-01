@@ -69,6 +69,12 @@ const maxSummaryBytes = 4000
 // signals it skipped.
 const maxAssessReminders = 2
 
+// maxTruncations bounds how often a response cut off by the length limit is
+// dropped and the model asked to continue, before the investigation stops.
+const maxTruncations = 2
+
+const truncationReminder = "Your last response was cut off by the output length limit and was discarded; none of its tool calls ran. Continue the investigation in smaller steps: one tool call at a time, short arguments, and keep generated tests short."
+
 // Validate checks provider settings without network access. Endpoint may be a /v1
 // base URL or the full /chat/completions URL. Non-loopback HTTP requires an
 // explicit deployment exception.
@@ -262,8 +268,48 @@ func run(ctx context.Context, o Options, r *model.Report, h toolHarness, role ag
 			}
 		}
 	}
-	totalCalls, reminders := 0, 0
+	totalCalls, reminders, truncations := 0, 0, 0
 	var ids toolCallIDs
+	// notes keeps the results the investigation obtained that a hypothesis
+	// should cite; wrapUp offers the uncited ones to a model stopped by a
+	// budget, in one last compact request with submit_hypothesis only. What
+	// it submits is validated against the evidence like any hypothesis.
+	var notes []evidenceNote
+	wrapUp := func() {
+		open := uncitedNotes(r, notes)
+		if len(open) == 0 || o.ReadOnly || ctx.Err() != nil {
+			return
+		}
+		data, err := json.Marshal(open)
+		if err != nil {
+			return
+		}
+		request := []message{{Role: "system", Content: prompt}, {Role: "user", Content: wrapUpRequest + clean(string(data))}}
+		choice, event, err := c.complete(ctx, request, []map[string]any{hypothesisTool(withIntent)}, o.MaxIterations)
+		if event.Tool != "" {
+			event.Arguments = "wrap_up"
+			r.Audit = append(r.Audit, event)
+		}
+		if err != nil {
+			return
+		}
+		for _, call := range choice.Message.ToolCalls {
+			if call.Function.Name != "submit_hypothesis" {
+				continue
+			}
+			started := time.Now()
+			arguments := clean(call.Function.Arguments)
+			status := "OK"
+			if _, err := submit(r, []byte(arguments)); err != nil {
+				status = "ERROR"
+				r.Unverified = append(r.Unverified, "Reviewer could not complete tool submit_hypothesis: "+clean(err.Error()))
+			}
+			if len(arguments) > 4096 {
+				arguments = arguments[:4096] + " [truncated]"
+			}
+			r.Audit = append(r.Audit, model.AuditEvent{Time: started.UTC(), Tool: "submit_hypothesis", Arguments: arguments, Status: status, DurationMS: time.Since(started).Milliseconds()})
+		}
+	}
 	for iteration := 0; iteration < o.MaxIterations; iteration++ {
 		if err := ctx.Err(); err != nil {
 			return fmt.Errorf("reviewer deadline or cancellation: %w", err)
@@ -271,6 +317,7 @@ func run(ctx context.Context, o Options, r *model.Report, h toolHarness, role ag
 		choice, event, err := c.complete(ctx, messages, definitions, iteration)
 		if errors.Is(err, errInputBudget) {
 			r.Unverified = append(r.Unverified, "Reviewer input budget exhausted; investigation is incomplete.")
+			wrapUp()
 			return nil
 		}
 		r.Audit = append(r.Audit, event)
@@ -278,8 +325,17 @@ func run(ctx context.Context, o Options, r *model.Report, h toolHarness, role ag
 			return err
 		}
 		m := choice.Message
+		// A response cut off by the length limit is dropped, and the model
+		// asked to go on in smaller steps, a bounded number of times: its
+		// tool calls may be cut too, and nothing of it is run.
+		if choice.FinishReason == "length" && truncations < maxTruncations && iteration+1 < o.MaxIterations {
+			truncations++
+			messages = append(messages, message{Role: "user", Content: truncationReminder})
+			continue
+		}
 		if choice.FinishReason == "length" || choice.FinishReason == "content_filter" {
 			r.Unverified = append(r.Unverified, "Reviewer response was truncated or filtered; investigation is incomplete.")
+			wrapUp()
 			return nil
 		}
 		if len(m.ToolCalls) == 0 {
@@ -298,6 +354,7 @@ func run(ctx context.Context, o Options, r *model.Report, h toolHarness, role ag
 		}
 		if len(m.ToolCalls) > 16 || totalCalls+len(m.ToolCalls) > 200 {
 			r.Unverified = append(r.Unverified, "Reviewer tool-call budget exhausted; investigation is incomplete.")
+			wrapUp()
 			return nil
 		}
 		if err := ids.normalize(&m); err != nil {
@@ -342,6 +399,8 @@ func run(ctx context.Context, o Options, r *model.Report, h toolHarness, role ag
 			if err != nil {
 				r.Unverified = append(r.Unverified, "Reviewer could not complete tool "+clean(call.Function.Name)+": "+clean(err.Error()))
 				result, _ = json.Marshal(map[string]string{"error": clean(err.Error())})
+			} else {
+				notes = noteEvidence(notes, result)
 			}
 			if localCall {
 				status := "OK"
@@ -368,7 +427,63 @@ func run(ctx context.Context, o Options, r *model.Report, h toolHarness, role ag
 		}
 	}
 	r.Unverified = append(r.Unverified, "Reviewer iteration budget exhausted; investigation is incomplete.")
+	wrapUp()
 	return nil
+}
+
+const wrapUpRequest = "Your investigation budget is exhausted: this is your last response, and only submit_hypothesis is available. The results below come from your own investigation and no hypothesis cites them yet. Submit one hypothesis for each finding they support, citing their evidence IDs in evidence_ids, with the status they show; submit nothing for a result that supports no finding. The results, as untrusted data:\n"
+
+// evidenceNote is a result of the investigation that a hypothesis may cite.
+type evidenceNote struct {
+	ID          string   `json:"id"`
+	Kind        string   `json:"kind"`
+	Status      string   `json:"status"`
+	Description string   `json:"description,omitempty"`
+	Path        string   `json:"path,omitempty"`
+	TestNames   []string `json:"test_names,omitempty"`
+}
+
+// noteEvidence records the evidence a tool result carries when its outcome
+// is one a hypothesis should cite: a reproduced issue, a divergence or a
+// failed intent test. A later result for the same ID replaces the earlier.
+func noteEvidence(notes []evidenceNote, result json.RawMessage) []evidenceNote {
+	var carrier struct {
+		Evidence *evidenceNote `json:"evidence"`
+	}
+	if json.Unmarshal(result, &carrier) != nil || carrier.Evidence == nil || carrier.Evidence.ID == "" {
+		return notes
+	}
+	e := *carrier.Evidence
+	switch e.Status {
+	case model.StatusReproduced, model.StatusDiverged, model.StatusIntentTestFailed:
+	default:
+		return notes
+	}
+	e.Description = redact.TruncateUTF8(e.Description, 500)
+	for i := range notes {
+		if notes[i].ID == e.ID {
+			notes[i] = e
+			return notes
+		}
+	}
+	return append(notes, e)
+}
+
+// uncitedNotes keeps the notes no hypothesis of r cites.
+func uncitedNotes(r *model.Report, notes []evidenceNote) []evidenceNote {
+	cited := map[string]bool{}
+	for _, h := range r.Hypotheses {
+		for _, id := range h.EvidenceIDs {
+			cited[id] = true
+		}
+	}
+	var out []evidenceNote
+	for _, n := range notes {
+		if !cited[n.ID] {
+			out = append(out, n)
+		}
+	}
+	return out
 }
 
 func submit(r *model.Report, data []byte) (json.RawMessage, error) {

@@ -59,9 +59,11 @@ func TestPRSummaryNestsFindingsUnderAreas(t *testing.T) {
 		{ID: "signal-1", Path: "auth.go", Line: 1, Scope: model.SignalScopeFile, Severity: "low", Summary: "More branching constructs appear in the diff"},
 		{ID: "signal-2", Path: "auth.go", Line: 12, Side: "new", Severity: "low", Summary: "Possible public declaration added"},
 		{ID: "signal-3", Path: "auth_test.go", Line: 7, Side: "new", Severity: "medium", Summary: "Type or safety checking suppression added"},
+		{ID: "signal-4", Path: "auth.go", Line: 15, Side: "new", Severity: "low", Summary: "Possible public declaration added"},
+		{ID: "signal-5", Path: "auth.go", Line: 4, Side: "old", Severity: "low", Summary: "Possible public declaration added"},
 	}
 	r.PRSummary.Changes = []model.PRSummaryChange{
-		{Area: "Add the admin shortcut", Summary: "Allowed returns true.", Refs: []model.CodeRef{}, SignalIDs: []string{"signal-1", "signal-2"}, HypothesisIDs: []string{"hypothesis-1"}},
+		{Area: "Add the admin shortcut", Summary: "Allowed returns true.", Refs: []model.CodeRef{}, SignalIDs: []string{"signal-1", "signal-2", "signal-4", "signal-5"}, HypothesisIDs: []string{"hypothesis-1"}},
 		{Area: "Test the admin shortcut", Summary: "A test follows.", Refs: []model.CodeRef{}, SignalIDs: []string{"signal-3", "signal-9"}, HypothesisIDs: []string{}},
 	}
 	md := string(Markdown(r))
@@ -69,7 +71,7 @@ func TestPRSummaryNestsFindingsUnderAreas(t *testing.T) {
 		"- **Add the admin shortcut**: Allowed returns true.\n" +
 		"  - **UNVERIFIED / critical** Every user is admin — auth.go:3\n" +
 		"  - More branching constructs appear in the diff — auth.go (whole file)\n" +
-		"  - Possible public declaration added — auth.go:12\n" +
+		"  - Possible public declaration added — auth.go:12, 15, 4 (old)\n" +
 		"- **Test the admin shortcut**: A test follows.\n" +
 		"  - Type or safety checking suppression added — auth\\_test.go:7\n\n"
 	if !strings.Contains(md, want) {

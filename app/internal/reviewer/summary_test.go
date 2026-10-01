@@ -297,7 +297,7 @@ func TestSummarizeRepairsTheAnswerBeforeCorrecting(t *testing.T) {
 	if s.Risks[0].Refs[0].StartLine != 3 || s.Risks[0].Refs[0].Quote != "return true" {
 		t.Fatalf("string line %+v", s.Risks[0].Refs)
 	}
-	if got := (*requests)[0]["max_completion_tokens"]; got != float64(summaryMaxTokens) {
+	if got := (*requests)[0]["max_completion_tokens"]; got != float64(defaultMaxTokens) {
 		t.Fatalf("max_completion_tokens %v", got)
 	}
 }

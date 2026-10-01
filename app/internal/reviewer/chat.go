@@ -30,8 +30,17 @@ type chat struct {
 	endpoint  string
 	transport *http.Transport
 	client    *http.Client
-	maxTokens int // max_completion_tokens; 0: 4096
+	maxTokens int // max_completion_tokens; 0: defaultMaxTokens
 }
+
+// Output budget of a completion. Structured answers (a summary with its
+// quotes, a generated test in a tool call) outgrow 4096 tokens; a provider
+// that rejects 8192, such as a local model with a short context, gets one
+// retry with 4096, kept for the rest of the session.
+const (
+	defaultMaxTokens  = 8192
+	fallbackMaxTokens = 4096
+)
 
 // newChat builds the session's client. The response-header wait is the whole
 // reviewer timeout: a non-streaming completion sends its headers only once the
@@ -108,6 +117,17 @@ type completionChoice struct {
 // event worth recording, when the request exceeds the input budget. The
 // returned message is redacted and has the assistant role.
 func (c *chat) complete(ctx context.Context, messages []message, tools []map[string]any, iteration int) (completionChoice, model.AuditEvent, error) {
+	choice, event, status, err := c.send(ctx, messages, tools, iteration)
+	if status == http.StatusBadRequest && cmp.Or(c.maxTokens, defaultMaxTokens) > fallbackMaxTokens {
+		c.maxTokens = fallbackMaxTokens
+		choice, event, _, err = c.send(ctx, messages, tools, iteration)
+	}
+	return choice, event, err
+}
+
+// send is one attempt of complete; it also returns the HTTP status, 0 when no
+// response was received.
+func (c *chat) send(ctx context.Context, messages []message, tools []map[string]any, iteration int) (completionChoice, model.AuditEvent, int, error) {
 	// A request without tools omits both tool fields: providers reject
 	// parallel_tool_calls, and some an empty tools array, when no tool is
 	// offered.
@@ -121,16 +141,16 @@ func (c *chat) complete(ctx context.Context, messages []message, tools []map[str
 		Tools               []map[string]any `json:"tools,omitempty"`
 		MaxCompletionTokens int              `json:"max_completion_tokens"`
 		ParallelToolCalls   *bool            `json:"parallel_tool_calls,omitempty"`
-	}{c.o.Model, messages, tools, cmp.Or(c.maxTokens, 4096), parallel})
+	}{c.o.Model, messages, tools, cmp.Or(c.maxTokens, defaultMaxTokens), parallel})
 	if err != nil {
-		return completionChoice{}, model.AuditEvent{}, err
+		return completionChoice{}, model.AuditEvent{}, 0, err
 	}
 	if len(body) > c.o.MaxInputBytes {
-		return completionChoice{}, model.AuditEvent{}, errInputBudget
+		return completionChoice{}, model.AuditEvent{}, 0, errInputBudget
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.endpoint, bytes.NewReader(body))
 	if err != nil {
-		return completionChoice{}, model.AuditEvent{}, errors.New("cannot construct reviewer request")
+		return completionChoice{}, model.AuditEvent{}, 0, errors.New("cannot construct reviewer request")
 	}
 	req.Header.Set("Content-Type", "application/json")
 	if c.o.APIKey != "" {
@@ -140,21 +160,21 @@ func (c *chat) complete(ctx context.Context, messages []message, tools []map[str
 	res, err := c.client.Do(req)
 	event := model.AuditEvent{Time: started.UTC(), Tool: "reviewer_completion", Arguments: fmt.Sprintf("iteration=%d", iteration+1), Status: "ERROR", DurationMS: time.Since(started).Milliseconds()}
 	if err != nil {
-		return completionChoice{}, event, requestError(err, time.Since(started), c.o.Timeout)
+		return completionChoice{}, event, 0, requestError(err, time.Since(started), c.o.Timeout)
 	}
 	data, readErr := io.ReadAll(io.LimitReader(res.Body, 1024*1024+1))
 	res.Body.Close()
 	if res.StatusCode < 200 || res.StatusCode >= 300 {
-		return completionChoice{}, event, fmt.Errorf("reviewer endpoint returned HTTP %d", res.StatusCode)
+		return completionChoice{}, event, res.StatusCode, fmt.Errorf("reviewer endpoint returned HTTP %d", res.StatusCode)
 	}
 	if readErr != nil || len(data) > 1024*1024 {
-		return completionChoice{}, event, errors.New("reviewer response exceeded size limit or could not be read")
+		return completionChoice{}, event, res.StatusCode, errors.New("reviewer response exceeded size limit or could not be read")
 	}
 	var response struct {
 		Choices []completionChoice `json:"choices"`
 	}
 	if err := json.Unmarshal(data, &response); err != nil || len(response.Choices) != 1 {
-		return completionChoice{}, event, errors.New("reviewer returned an invalid completion")
+		return completionChoice{}, event, res.StatusCode, errors.New("reviewer returned an invalid completion")
 	}
 	event.Status = "OK"
 	event.DurationMS = time.Since(started).Milliseconds()
@@ -162,5 +182,5 @@ func (c *chat) complete(ctx context.Context, messages []message, tools []map[str
 	choice.Message.Role = "assistant"
 	choice.Message.ToolCallID = ""
 	choice.Message.Content = c.clean(choice.Message.Content)
-	return choice, event, nil
+	return choice, event, res.StatusCode, nil
 }

@@ -48,15 +48,46 @@ func areaFindings(r *model.Report, c model.PRSummaryChange) []string {
 			}
 		}
 	}
-	for _, id := range c.SignalIDs {
+	return append(items, groupSignals(r, c.SignalIDs)...)
+}
+
+// groupSignals renders the signals of a list that the report holds, in order,
+// one line per summary and file: the same finding on several lines of a file
+// reads "summary — path:17, 19, 21". An ID the report does not hold is
+// skipped.
+func groupSignals(r *model.Report, ids []string) []string {
+	type group struct {
+		summary, path string
+		where         []string
+	}
+	var groups []*group
+	byKey := map[string]*group{}
+	for _, id := range ids {
 		for _, sig := range r.Signals {
-			if sig.ID == id {
-				items = append(items, fmt.Sprintf("%s — %s", inline(sig.Summary), signalLocation(sig)))
-				break
+			if sig.ID != id {
+				continue
 			}
+			key := sig.Summary + "\x00" + sig.Path
+			g := byKey[key]
+			if g == nil {
+				g = &group{summary: sig.Summary, path: sig.Path}
+				byKey[key] = g
+				groups = append(groups, g)
+			}
+			where := signalLocation(sig)
+			if len(g.where) > 0 {
+				// Later locations of the same file drop the repeated path.
+				where = strings.TrimPrefix(where, inline(sig.Path)+":")
+			}
+			g.where = append(g.where, where)
+			break
 		}
 	}
-	return items
+	out := make([]string, len(groups))
+	for i, g := range groups {
+		out[i] = inline(g.summary) + " — " + strings.Join(g.where, ", ")
+	}
+	return out
 }
 
 func signalLocation(s model.Signal) string {
@@ -219,13 +250,8 @@ func findingTexts(r *model.Report, risk model.PRSummaryRisk) []string {
 			}
 		}
 	}
-	for _, id := range risk.SignalIDs {
-		for _, sig := range r.Signals {
-			if sig.ID == id {
-				out = append(out, inline(sig.Summary)+" — "+signalLocation(sig)+" (signal)")
-				break
-			}
-		}
+	for _, g := range groupSignals(r, risk.SignalIDs) {
+		out = append(out, g+" (signal)")
 	}
 	return out
 }

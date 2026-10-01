@@ -35,7 +35,6 @@ const (
 	maxSummaryQuote    = 300 // bytes, after collapsing whitespace
 	minSummaryQuote    = 8
 	maxSummaryMisses   = 10
-	summaryMaxTokens   = 8192     // the structured answer, with its quotes, outgrows the reviewer's 4096
 	summaryReserve     = 8 * 1024 // room left in the request beyond the prompt and the payload
 	maxSummaryItems    = 8
 	maxSummaryItem     = 400
@@ -113,7 +112,6 @@ func Summarize(ctx context.Context, o Options, r *model.Report, in SummaryInput)
 	// answer whose citations did not all check out, or that the token limit
 	// cut off, gets one correction and is kept if the correction fails; an
 	// invalid one gets one correction too.
-	c.maxTokens = summaryMaxTokens
 	var events []model.AuditEvent
 	var best *model.PRSummary
 	problem := "the provider did not return a valid summary"

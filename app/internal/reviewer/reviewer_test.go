@@ -48,7 +48,7 @@ func TestToolLoopDoesNotTrustFabricatedProof(t *testing.T) {
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 			t.Error(err)
 		}
-		if body["max_completion_tokens"] != float64(4096) {
+		if body["max_completion_tokens"] != float64(defaultMaxTokens) {
 			t.Error("missing token bound")
 		}
 		switch requests {
@@ -163,6 +163,142 @@ func TestBudgetsFailClosed(t *testing.T) {
 			t.Fatal("timeout ignored")
 		}
 	})
+}
+
+func TestTruncatedResponsesAreRetriedInSmallerSteps(t *testing.T) {
+	// Two responses cut off by the length limit are dropped, with a reminder
+	// each; the third goes on. A tool call of a cut-off response never runs.
+	var requests int
+	var reminders []int
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests++
+		var body struct {
+			Messages []message `json:"messages"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		last := body.Messages[len(body.Messages)-1]
+		if last.Content == truncationReminder {
+			reminders = append(reminders, requests)
+		}
+		if requests <= 2 {
+			m := message{Role: "assistant", ToolCalls: []toolCall{call("cut", "run_build", `{"pa`)}}
+			_ = json.NewEncoder(w).Encode(map[string]any{"choices": []any{map[string]any{"message": m, "finish_reason": "length"}}})
+			return
+		}
+		if requests == 3 {
+			complete(w, call("a", "run_build", `{}`))
+			return
+		}
+		complete(w)
+	}))
+	defer server.Close()
+	r := &model.Report{}
+	h := &fakeHarness{}
+	if err := Run(context.Background(), Options{Endpoint: server.URL, Model: "test"}, r, h); err != nil {
+		t.Fatal(err)
+	}
+	if len(reminders) != 2 || reminders[0] != 2 || reminders[1] != 3 || len(h.calls) != 1 || len(r.Unverified) != 0 {
+		t.Fatalf("reminders %v, harness calls %v, unverified %v", reminders, h.calls, r.Unverified)
+	}
+
+	// A third cut-off response ends the investigation, recorded as incomplete.
+	requests = 0
+	server2 := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests++
+		_ = json.NewEncoder(w).Encode(map[string]any{"choices": []any{map[string]any{"message": message{Role: "assistant", Content: "cut"}, "finish_reason": "length"}}})
+	}))
+	defer server2.Close()
+	r = &model.Report{}
+	if err := Run(context.Background(), Options{Endpoint: server2.URL, Model: "test"}, r, &fakeHarness{}); err != nil {
+		t.Fatal(err)
+	}
+	if requests != maxTruncations+1 || len(r.Unverified) != 1 || !strings.Contains(r.Unverified[0], "truncated") {
+		t.Fatalf("%d requests, unverified %v", requests, r.Unverified)
+	}
+}
+
+func TestOutputBudgetFallsBackOnABadRequest(t *testing.T) {
+	// A provider that rejects 8192 output tokens gets one retry with 4096,
+	// kept for the next requests.
+	var budgets []float64
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		budget := body["max_completion_tokens"].(float64)
+		budgets = append(budgets, budget)
+		if budget > fallbackMaxTokens {
+			http.Error(w, `{"error":"max_tokens exceeds the context"}`, http.StatusBadRequest)
+			return
+		}
+		if len(budgets) == 2 {
+			complete(w, call("a", "run_build", `{}`))
+			return
+		}
+		complete(w)
+	}))
+	defer server.Close()
+	if err := Run(context.Background(), Options{Endpoint: server.URL, Model: "test"}, &model.Report{}, &fakeHarness{}); err != nil {
+		t.Fatal(err)
+	}
+	if fmt.Sprint(budgets) != fmt.Sprint([]float64{defaultMaxTokens, fallbackMaxTokens, fallbackMaxTokens}) {
+		t.Fatalf("budgets %v", budgets)
+	}
+}
+
+// evidenceHarness answers run_generated_test with a reproduced issue.
+type evidenceHarness struct{}
+
+func (evidenceHarness) Call(_ context.Context, name string, _ json.RawMessage) (json.RawMessage, error) {
+	return json.RawMessage(`{"evidence":{"id":"evidence-9","kind":"differential_test","status":"REPRODUCED","description":"Refund must not exceed the paid amount","path":"payment/x_test.go","test_names":["TestCap"]},"base_check":{},"candidate_check":{}}`), nil
+}
+
+func TestWrapUpLetsAStoppedModelCiteItsEvidence(t *testing.T) {
+	// The iteration budget ends right after a reproduced result: one last
+	// request offers submit_hypothesis only, with the uncited evidence.
+	var requests []map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		requests = append(requests, body)
+		if len(requests) == 1 {
+			complete(w, call("a", "run_generated_test", `{"test_id":"t1"}`))
+			return
+		}
+		complete(w, call("b", "submit_hypothesis", `{"title":"Refunds can exceed the paid amount","severity":"critical","status":"REPRODUCED","rationale":"The cap check was removed.","evidence_ids":["evidence-9"],"path":"payment/refund.go","line":23}`))
+	}))
+	defer server.Close()
+	r := &model.Report{}
+	if err := Run(context.Background(), Options{Endpoint: server.URL, Model: "test", MaxIterations: 1}, r, evidenceHarness{}); err != nil {
+		t.Fatal(err)
+	}
+	if len(requests) != 2 {
+		t.Fatalf("%d requests", len(requests))
+	}
+	tools := requests[1]["tools"].([]any)
+	messages := requests[1]["messages"].([]any)
+	if len(tools) != 1 || tools[0].(map[string]any)["function"].(map[string]any)["name"] != "submit_hypothesis" || len(messages) != 2 || !strings.Contains(messages[1].(map[string]any)["content"].(string), `"id":"evidence-9"`) {
+		t.Fatalf("wrap-up request: tools %v, messages %v", tools, messages)
+	}
+	if len(r.Hypotheses) != 1 || r.Hypotheses[0].EvidenceIDs[0] != "evidence-9" {
+		t.Fatalf("hypotheses %+v", r.Hypotheses)
+	}
+	found := false
+	for _, e := range r.Audit {
+		found = found || (e.Tool == "reviewer_completion" && e.Arguments == "wrap_up")
+	}
+	if !found {
+		t.Fatal("the wrap-up completion is not audited")
+	}
+
+	// Without uncited evidence there is no last request.
+	requests = nil
+	r = &model.Report{}
+	if err := Run(context.Background(), Options{Endpoint: server.URL, Model: "test", MaxIterations: 1}, r, &fakeHarness{}); err != nil {
+		t.Fatal(err)
+	}
+	if len(requests) != 1 {
+		t.Fatalf("%d requests without evidence to cite", len(requests))
+	}
 }
 
 func TestUnknownToolNeverReachesHarness(t *testing.T) {
