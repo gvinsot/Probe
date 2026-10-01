@@ -402,7 +402,7 @@ func TestWriteBaseTestsStatusTexts(t *testing.T) {
 		}
 		return section(t, md, "## Changed Baseline Tests on Candidate Code")
 	}
-	if body := render(&model.BaseTests{Status: model.BaseTestsNoCandidates}); !strings.Contains(body, "No test was selected, so no baseline version was re-run. Only the tests declared in modified, deleted or renamed Go, TypeScript or JavaScript test files are considered; this says nothing about any other test.") || strings.Contains(body, "modified or removed no") {
+	if body := render(&model.BaseTests{Status: model.BaseTestsNoCandidates}); !strings.Contains(body, "No test was selected, so no baseline version was re-run. Only the tests declared in modified, deleted or renamed Go, TypeScript, JavaScript or Python test files are considered; this says nothing about any other test.") || strings.Contains(body, "modified or removed no") {
 		t.Fatalf("no_candidates:\n%s", body)
 	}
 	if body := render(&model.BaseTests{Status: model.BaseTestsNoCandidates, Reason: "no changed files"}); !strings.Contains(body, "Reason: no changed files.") {

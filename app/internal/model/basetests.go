@@ -55,19 +55,37 @@ type BaseTests struct {
 const BaseTestsScriptNote = "A TypeScript or JavaScript entry is the baseline version of one test() or it() call of a changed TypeScript or JavaScript test file, named by its describe titles and title; a test whose file changed outside its calls (imports, helpers, describe titles, hooks) is selected as shared_code_changed. " +
 	"Its hybrid tree reverts only that test file and its snapshot file (__snapshots__/<file>.snap) to the baseline, so the helpers and fixtures it imports are the candidate's; it ran through the Vitest or Jest template, and its results were read from the runner's JSON report."
 
+// BaseTestsPythonNote is added to BaseTestsNote when the section lists a
+// Python test.
+const BaseTestsPythonNote = "A Python entry is the baseline version of one test function of a changed Python test module (test_*.py, *_test.py), named as pytest names it after the path (test_total, TestCart::test_empty); a test whose module changed outside its functions (imports, fixtures, helpers, class-level code) is selected as shared_code_changed. " +
+	"Its hybrid tree reverts only that test module to the baseline, so conftest.py fixtures and the modules it imports are the candidate's; it ran through the pytest template, selected by its node ID, and its results were read from pytest's JUnit XML report."
+
 // ScriptBaseTest reports whether a selected test is a TypeScript or
-// JavaScript test rather than a Go test function.
-func ScriptBaseTest(t BaseTest) bool { return !strings.HasSuffix(t.Path, ".go") }
+// JavaScript test rather than a Go or Python test.
+func ScriptBaseTest(t BaseTest) bool {
+	return !strings.HasSuffix(t.Path, ".go") && !PythonBaseTest(t)
+}
+
+// PythonBaseTest reports whether a selected test is a Python test.
+func PythonBaseTest(t BaseTest) bool { return strings.HasSuffix(t.Path, ".py") }
 
 // BaseTestsNoteFor is the fixed note of a section listing tests: BaseTestsNote,
 // followed by BaseTestsScriptNote when one of them is a TypeScript or
-// JavaScript test. It depends only on the listed paths, so re-rendering a
-// report gives the same note.
+// JavaScript test, and by BaseTestsPythonNote when one of them is a Python
+// test. It depends only on the listed paths, so re-rendering a report gives
+// the same note.
 func BaseTestsNoteFor(tests []BaseTest) string {
+	script, python := false, false
 	for _, t := range tests {
-		if ScriptBaseTest(t) {
-			return BaseTestsNote + " " + BaseTestsScriptNote
-		}
+		script = script || ScriptBaseTest(t)
+		python = python || PythonBaseTest(t)
 	}
-	return BaseTestsNote
+	note := BaseTestsNote
+	if script {
+		note += " " + BaseTestsScriptNote
+	}
+	if python {
+		note += " " + BaseTestsPythonNote
+	}
+	return note
 }

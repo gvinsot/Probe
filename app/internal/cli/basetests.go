@@ -125,7 +125,7 @@ func baseTestsLine(b *model.BaseTests) string {
 	switch b.Status {
 	case model.BaseTestsNoCandidates:
 		if reason == "" {
-			reason = "only the tests declared in modified, deleted or renamed Go, TypeScript or JavaScript test files are considered"
+			reason = "only the tests declared in modified, deleted or renamed Go, TypeScript, JavaScript or Python test files are considered"
 		}
 		return "Changed baseline tests on candidate code: none selected (" + reason + ")."
 	case model.BaseTestsNotRun:

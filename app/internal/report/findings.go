@@ -103,7 +103,7 @@ var findingClasses = []findingClass{
 	{
 		Class: ClassBaseTestFailsOnCandidate, Status: model.StatusFailsOnCandidate, RuleID: "probe/base-test-fails-on-candidate", RuleName: "BaseTestFailsOnCandidate", Rank: 2,
 		Short:        "The baseline version of a test that the change edited passed on the baseline and failed on candidate code.",
-		Full:         "The baseline version of a test that the change modified or removed (a Go test function, or a TypeScript or JavaScript test call) passed on a live baseline run and failed on the candidate tree with its test files reverted to the baseline, under the same command.",
+		Full:         "The baseline version of a test that the change modified or removed (a Go test function, a TypeScript or JavaScript test call, or a Python test function) passed on a live baseline run and failed on the candidate tree with its test files reverted to the baseline, under the same command.",
 		Help:         "The baseline version of a test the change edited failed on candidate code after passing on the baseline; a human judges why. It is not a reproduced issue: the change may intend a different outcome, the baseline assertion may not be the intended behavior, a flaky test can produce it, and it does not show that the test edit is wrong or deliberate. It never produces exit code 1.",
 		Heading:      "Changed baseline tests that fail on candidate code",
 		Caveat:       "The baseline version of a test the change edited passed on the baseline and failed on candidate code. The change may intend this; it does not show that the test edit is wrong or deliberate.",
@@ -148,7 +148,7 @@ var findingClasses = []findingClass{
 	{
 		Class: ClassSurvivingMutant, Status: model.MutantSurvived, RuleID: "probe/surviving-mutant", RuleName: "SurvivingMutant", Rank: 7,
 		Short:        "A single mutation of an added line left the package's tests passing.",
-		Full:         "A deterministic single change to an added line was applied in a private copy of the candidate, and the configured test command of its package (or, for TypeScript and JavaScript, of its source file) passed on it, as it did on the unmodified control run.",
+		Full:         "A deterministic single change to an added line was applied in a private copy of the candidate, and the configured test command of its package (or, for TypeScript and JavaScript, of its source file; for Python, the command's own test selection) passed on it, as it did on the unmodified control run.",
 		Help:         "The mutant may be semantically equivalent to the original code, and the tests of other packages were not run. It is not a defect, dead code or a missing test by itself, and no mutation score is computed. It does not request review on its own.",
 		Heading:      "Surviving mutants",
 		Caveat:       "The package's tests passed with this single change to an added line, as they did without it. The mutant may be equivalent to the original code.",

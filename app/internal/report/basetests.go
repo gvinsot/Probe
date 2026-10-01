@@ -26,7 +26,7 @@ const (
 	// or a reason.
 	baseTestNoResultText = "no recorded run pair gave this test a result"
 	// baseTestsNoneSelectedText is the text of a no_candidates section.
-	baseTestsNoneSelectedText = "No test was selected, so no baseline version was re-run. Only the tests declared in modified, deleted or renamed Go, TypeScript or JavaScript test files are considered; this says nothing about any other test."
+	baseTestsNoneSelectedText = "No test was selected, so no baseline version was re-run. Only the tests declared in modified, deleted or renamed Go, TypeScript, JavaScript or Python test files are considered; this says nothing about any other test."
 	// baseTestsIntentText is rendered when an intent was supplied.
 	baseTestsIntentText = "Intent was supplied; Probe does not decide whether a behavior change matches it."
 	// maxPassesShown caps the PASSES_ON_CANDIDATE lines of the Markdown
@@ -306,25 +306,41 @@ func baseTestLine(t model.BaseTest, evidence map[string]model.Evidence) string {
 }
 
 // baseTestsKind names the tests a section lists: Go tests, TypeScript and
-// JavaScript tests, or both.
+// JavaScript tests, Python tests, or a mix.
 func baseTestsKind(tests []model.BaseTest) string {
-	scripts := 0
+	goTests, scripts, python := 0, 0, 0
 	for _, t := range tests {
-		if model.ScriptBaseTest(t) {
+		switch {
+		case model.PythonBaseTest(t):
+			python++
+		case model.ScriptBaseTest(t):
 			scripts++
+		default:
+			goTests++
 		}
 	}
-	switch scripts {
-	case 0:
+	switch {
+	case python == 0 && scripts == 0:
 		return "Go tests"
-	case len(tests):
+	case python == 0 && goTests == 0:
 		return "TypeScript/JavaScript tests"
+	case python == 0:
+		return "Go, TypeScript and JavaScript tests"
+	case scripts == 0 && goTests == 0:
+		return "Python tests"
+	case scripts == 0:
+		return "Go and Python tests"
+	case goTests == 0:
+		return "TypeScript/JavaScript and Python tests"
 	}
-	return "Go, TypeScript and JavaScript tests"
+	return "Go, TypeScript/JavaScript and Python tests"
 }
 
 // baseTestReverted says what the hybrid tree of a test reverted.
 func baseTestReverted(t model.BaseTest) string {
+	if model.PythonBaseTest(t) {
+		return "its test module"
+	}
 	if model.ScriptBaseTest(t) {
 		return "its test file and snapshot file"
 	}

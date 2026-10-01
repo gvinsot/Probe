@@ -2,6 +2,7 @@ package report
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/gvinsot/Probe/app/internal/model"
@@ -155,5 +156,21 @@ func TestVerifyBaseTestsPytest(t *testing.T) {
 		if _, ok := verifyBaseTests(r, newLedger(r))["evidence-1"]; ok {
 			t.Errorf("%s: verified", name)
 		}
+	}
+}
+
+// A section listing a Python test carries the Python note and names what
+// its hybrid tree reverted; a Go or TS/JS section is unchanged.
+func TestBaseTestsPythonNoteAndMarkdown(t *testing.T) {
+	python := []model.BaseTest{{Name: "test_total", Path: "tests/test_cart.py", Line: 6, Change: model.BaseTestModified, Status: model.StatusUnverified}}
+	note := model.BaseTestsNoteFor(python)
+	if !strings.Contains(note, model.BaseTestsPythonNote) || strings.Contains(note, model.BaseTestsScriptNote) {
+		t.Fatalf("note %q", note)
+	}
+	if model.BaseTestsNoteFor([]model.BaseTest{{Path: "web/a.test.ts"}}) != model.BaseTestsNote+" "+model.BaseTestsScriptNote {
+		t.Fatal("the TS/JS note changed")
+	}
+	if baseTestsKind(python) != "Python tests" || baseTestsKind(append(python, model.BaseTest{Path: "pkg/a_test.go"})) != "Go and Python tests" || baseTestReverted(python[0]) != "its test module" {
+		t.Fatal("Markdown wording")
 	}
 }
