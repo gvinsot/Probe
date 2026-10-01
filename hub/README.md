@@ -69,6 +69,17 @@ reports each violation it finds as an unverified issue. Lint-only analyses
 ignore them. The report records the rules it was given. Saving the rules does
 not re-run earlier analyses.
 
+**Reviewed.** A report whose verdict is **Human review required** offers a
+**Reviewed** button in its head. It records that the signed-in person reviewed
+the commit (`PUT /api/repos/{repo}/reports/{commit}/review` with
+`{"reviewed": true}`, or `false` to withdraw the mark): the report, the commit
+tree and the repository list then read **Reviewed**, and the commit no longer
+counts among the repositories to review. The CLI's verdict, the stored report
+and forge statuses are unchanged; the request stays visible on hover. The
+**Review history** tab of **Review settings**, beside **Coding rules**, lists
+the latest 200 review actions of the repository with the commit, who and when
+(`GET /api/repos/{repo}/reviews`).
+
 **Pull request summary.** When the AI reviewer runs, the CLI also writes a
 natural-language summary of the change after the verdict (see
 [PR summary](../app/docs/PR_SUMMARY.md)). The report view is built from it:

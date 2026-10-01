@@ -171,10 +171,25 @@ function belowThreshold(summary) {
   return LEVELS.indexOf(reviewLevel(summary)) < state.minSeverity;
 }
 
-// needsReview is true for a finished run the current threshold flags.
-function needsReview(run) {
+// reviewMark tells who marked the analysis of a commit as reviewed, and when;
+// null while nobody has.
+function reviewMark(repoKey, commit) {
+  return state.repos.get(repoKey)?.reviewed?.[commit] || null;
+}
+
+// needsReview is true for a finished run the current threshold flags and
+// nobody has marked reviewed yet.
+function needsReview(run, repoKey) {
   const summary = run && run.status === 'done' && run.summary;
-  return Boolean(summary && summary.verdict === 'review' && !belowThreshold(summary));
+  return Boolean(summary && summary.verdict === 'review' && !belowThreshold(summary) && !reviewMark(repoKey, run.commit));
+}
+
+// reviewedChip replaces "Human review required" once a person reviewed the
+// commit; the CLI's request stays in its title.
+function reviewedChip(mark, summary) {
+  const done = chip('reviewed', 'ok');
+  done.title = 'Human review was required at ' + reviewLevel(summary) + ' level; reviewed by ' + mark.by + ' ' + timeAgo(mark.at) + '.';
+  return done;
 }
 
 function belowThresholdChip(summary) {
@@ -183,7 +198,7 @@ function belowThresholdChip(summary) {
   return quiet;
 }
 
-function verdictChip(run) {
+function verdictChip(run, repoKey) {
   if (!run) { const unknown = chip('?', 'unknown'); unknown.title = 'No cached result'; return unknown; }
   if (run.status === 'queued') return chip('queued', 'busy');
   if (run.status === 'running') return chip('analyzing…', 'busy');
@@ -192,9 +207,12 @@ function verdictChip(run) {
   const summary = run.summary || {};
   switch (summary.verdict) {
     case 'blocked': return chip('reproduced issue', 'bad');
-    case 'review':
+    case 'review': {
+      const mark = reviewMark(repoKey, run.commit);
+      if (mark) return reviewedChip(mark, summary);
       if (belowThreshold(summary)) return belowThresholdChip(summary);
       return chip('Human review required', 'warn ' + reviewTone(summary));
+    }
     case 'clear': return chip(run.variant === 'plan' ? 'No plan category flagged' : 'no blocker', 'ok');
     default: return chip(summary.verdict || 'unknown');
   }
@@ -204,14 +222,16 @@ function verdictChip(run) {
 
 // statusRank orders run statuses by gravity so the worst of a period wins:
 // a reproduced issue, then flagged reviews by level, a failed analysis,
-// reviews under the threshold, pending analyses and finally clear results.
-function statusRank(run) {
+// reviews under the threshold, pending analyses, reviewed commits and finally
+// clear results.
+function statusRank(run, repoKey) {
   if (run.status === 'queued' || run.status === 'running') return 1;
   if (run.status === 'failed') return 20;
   const summary = run.summary || {};
   switch (summary.verdict) {
     case 'blocked': return 40;
     case 'review': {
+      if (reviewMark(repoKey, run.commit)) return 0.5;
       const level = LEVELS.indexOf(reviewLevel(summary));
       return belowThreshold(summary) ? 10 + level : 30 + level;
     }
@@ -285,8 +305,8 @@ function periodRuns(repo) {
 function worstRun(repo) {
   let worst = null;
   for (const run of periodRuns(repo)) {
-    if (!worst || statusRank(run) > statusRank(worst) ||
-        (statusRank(run) === statusRank(worst) && runActivity(run) > runActivity(worst))) {
+    if (!worst || statusRank(run, repo.key) > statusRank(worst, repo.key) ||
+        (statusRank(run, repo.key) === statusRank(worst, repo.key) && runActivity(run) > runActivity(worst))) {
       worst = run;
     }
   }
@@ -360,7 +380,7 @@ function renderRepos() {
     const worst = worstRun(repo);
     const period = PERIODS[state.period].label;
     if (worst) {
-      meta.appendChild(verdictChip(worst));
+      meta.appendChild(verdictChip(worst, repo.key));
       if (worst.summary && worst.summary.counts && worst.status === 'done') {
         const counts = worst.summary.counts;
         if (counts.total > 0) meta.appendChild(dotChip(counts.total + ' alerts', worstSeverity(counts)));
@@ -404,7 +424,7 @@ function renderRepos() {
 // the threshold flags in the selected period, and how many commits of the
 // selected repository (among its cached results) do.
 function renderReviewCount() {
-  const repos = Array.from(state.repos.values()).filter((repo) => needsReview(worstRun(repo))).length;
+  const repos = Array.from(state.repos.values()).filter((repo) => needsReview(worstRun(repo), repo.key)).length;
   const parts = [repos + (repos === 1 ? ' repository' : ' repositories')];
   if (state.repoKey && state.graphs.has(state.repoKey)) {
     const commits = new Set(state.runs.filter(needsReview).map((run) => run.commit)).size;
@@ -634,11 +654,40 @@ async function openPolicyDialog(repo) {
 // against them; an empty text removes them.
 function openRulesDialog(repo) {
   closeModal();
-  const body = el('modal-body');
+  const modalBody = el('modal-body');
   const footer = el('modal-footer');
   el('modal-title').textContent = 'Review settings · ' + repo.full_name;
-  body.textContent = '';
+  modalBody.textContent = '';
   footer.textContent = '';
+  // Two tabs: the settings saved with the footer's button, and the history
+  // of the commits people marked reviewed.
+  const body = document.createElement('div');
+  body.id = 'review-settings-panel';
+  body.setAttribute('role', 'tabpanel');
+  const history = document.createElement('div');
+  history.id = 'review-history-panel';
+  history.setAttribute('role', 'tabpanel');
+  history.hidden = true;
+  const tabs = document.createElement('div');
+  tabs.className = 'tabs';
+  tabs.setAttribute('role', 'tablist');
+  const showTab = (panel) => {
+    for (const tab of tabs.children) tab.setAttribute('aria-selected', String(tab.panel === panel));
+    body.hidden = panel !== body;
+    history.hidden = panel !== history;
+    footer.hidden = panel !== body;
+    if (panel === history) renderReviewHistory(repo, history);
+  };
+  for (const [label, panel, id] of [['Coding rules', body, 'tab-coding-rules'], ['Review history', history, 'tab-review-history']]) {
+    const tab = button(label, 'tab', () => showTab(panel));
+    tab.id = id;
+    tab.panel = panel;
+    tab.setAttribute('role', 'tab');
+    tab.setAttribute('aria-selected', String(panel === body));
+    panel.setAttribute('aria-labelledby', id);
+    tabs.appendChild(tab);
+  }
+  modalBody.append(tabs, body, history);
 
   const intro = document.createElement('p');
   intro.className = 'note';
@@ -766,6 +815,48 @@ function openRulesDialog(repo) {
   footer.appendChild(save);
   el('modal').classList.remove('hidden');
   text.focus();
+}
+
+// renderReviewHistory lists, newest first, who marked which commit of a
+// repository reviewed or withdrew the mark. A commit opens its report.
+async function renderReviewHistory(repo, panel) {
+  panel.textContent = '';
+  const status = document.createElement('p');
+  status.className = 'note';
+  status.textContent = 'Loading the review history…';
+  panel.appendChild(status);
+  let reviews;
+  try {
+    reviews = (await api('/api/repos/' + encodeURIComponent(repo.key) + '/reviews')).reviews || [];
+  } catch (err) {
+    status.textContent = err.message;
+    return;
+  }
+  if (!reviews.length) {
+    status.textContent = 'No review recorded yet: “Reviewed”, at the top of a report that asks for a human review, records one.';
+    return;
+  }
+  status.textContent = 'The latest ' + reviews.length + ' review actions, newest first. Marking a commit reviewed never changes its analysis.';
+  const list = document.createElement('ul');
+  list.className = 'review-history';
+  for (const entry of reviews) {
+    const item = document.createElement('li');
+    item.appendChild(entry.reviewed ? chip('reviewed', 'ok') : chip('mark withdrawn'));
+    const open = button(shortSha(entry.commit), 'ref-link mono', () => { closeModal(); selectRepo(repo.key, entry.commit); });
+    open.title = 'Open the report of ' + entry.commit;
+    item.appendChild(open);
+    const message = document.createElement('span');
+    message.className = 'review-message';
+    message.textContent = entry.message || '';
+    item.appendChild(message);
+    const who = document.createElement('span');
+    who.className = 'note';
+    who.textContent = entry.by + ' · ' + timeAgo(entry.at);
+    who.title = new Date(entry.at).toLocaleString();
+    item.appendChild(who);
+    list.appendChild(item);
+  }
+  panel.appendChild(list);
 }
 
 /* ----------------------------------------------------- PR summary -- */
@@ -1348,6 +1439,7 @@ let activityOpen = false;
 
 function closeModal() {
   el('modal').classList.add('hidden');
+  el('modal-footer').hidden = false;
   clearInterval(activityTimer);
   activityDialogID++;
   if (activityOpen) el('settings').focus();
@@ -1785,7 +1877,7 @@ function renderGraph() {
     const meta = document.createElement('div'); meta.className = 'row commit-meta';
     // Only the analysis has a badge: a plan is rarely run, and its gray
     // "no result" badge cluttered every commit.
-    meta.appendChild(verdictChip(displayedRun(commit.sha, 'normal')));
+    meta.appendChild(verdictChip(displayedRun(commit.sha, 'normal'), state.repoKey));
     const who = document.createElement('span'); who.className = 'note';
     who.textContent = [commit.author, commit.date ? timeAgo(commit.date) : ''].filter(Boolean).join(' · ');
     meta.appendChild(who);
@@ -1945,17 +2037,8 @@ function renderReport() {
 
   const title = document.createElement('div');
   title.className = 'report-title';
-  const verdict = document.createElement('span');
-  verdict.className = 'verdict ' + (view.summary.verdict || 'failed');
-  if (view.summary.verdict === 'review') verdict.classList.add(reviewTone(view.summary));
-  verdict.textContent = verdictLabel(view.summary.verdict);
-  if (view.summary.verdict === 'review' && belowThreshold(view.summary)) {
-    verdict.className = 'verdict below-threshold';
-    verdict.textContent = 'Review below ' + LEVELS[state.minSeverity];
-    verdict.title = 'Human review was requested at ' + reviewLevel(view.summary) + ' level, under the selected threshold.';
-  }
-  title.appendChild(verdict);
-  if (run && run.status === 'failed') title.appendChild(chip('analysis failed', 'bad'));
+  title.id = 'report-verdict';
+  renderVerdictLine(title);
   head.appendChild(title);
 
   const sub = document.createElement('p');
@@ -2030,6 +2113,72 @@ function renderReport() {
   renderKindFilter();
   renderAlerts();
   renderExtras();
+}
+
+// renderVerdictLine fills the head's verdict line: the CLI's verdict and,
+// when it asks for a human review, the button that records one. A reviewed
+// commit reads "Reviewed"; the CLI's request stays in the title.
+function renderVerdictLine(line) {
+  const view = state.view;
+  const run = state.run;
+  if (!view) return;
+  line.textContent = '';
+  const summary = view.summary;
+  const verdict = document.createElement('span');
+  verdict.className = 'verdict ' + (summary.verdict || 'failed');
+  if (summary.verdict === 'review') verdict.classList.add(reviewTone(summary));
+  verdict.textContent = verdictLabel(summary.verdict);
+  const mark = summary.verdict === 'review' ? reviewMark(state.repoKey, state.commit) : null;
+  if (mark) {
+    verdict.className = 'verdict reviewed';
+    verdict.textContent = 'Reviewed';
+    verdict.title = 'Human review was required at ' + reviewLevel(summary) + ' level.';
+  } else if (summary.verdict === 'review' && belowThreshold(summary)) {
+    verdict.className = 'verdict below-threshold';
+    verdict.textContent = 'Review below ' + LEVELS[state.minSeverity];
+    verdict.title = 'Human review was requested at ' + reviewLevel(summary) + ' level, under the selected threshold.';
+  }
+  line.appendChild(verdict);
+  if (run && run.status === 'failed') line.appendChild(chip('analysis failed', 'bad'));
+  if (summary.verdict !== 'review' || (run && run.status !== 'done')) return;
+  if (mark) {
+    const by = document.createElement('span');
+    by.className = 'note';
+    by.textContent = 'by ' + mark.by + ' · ' + timeAgo(mark.at);
+    line.appendChild(by);
+  }
+  const toggle = button(mark ? 'Mark as not reviewed' : 'Reviewed', mark ? 'btn quiet small' : 'btn small', () => setReviewed(!mark, toggle));
+  toggle.id = 'mark-reviewed';
+  toggle.title = mark ? 'Withdraw the review mark: the commit asks for a human review again' : 'Record that you reviewed this commit';
+  line.appendChild(toggle);
+}
+
+// setReviewed records, or withdraws, the review of the open report's commit.
+async function setReviewed(reviewed, control) {
+  const repoKey = state.repoKey;
+  const commit = state.commit;
+  control.disabled = true;
+  try {
+    const payload = await api('/api/repos/' + encodeURIComponent(repoKey) + '/reports/' + encodeURIComponent(commit) + '/review', {
+      method: 'PUT',
+      body: { reviewed },
+    });
+    upsertRepo(payload.repo);
+    refreshReviewMarks(repoKey);
+    toast(reviewed ? 'Marked ' + shortSha(commit) + ' as reviewed.' : 'Review mark withdrawn.');
+  } catch (err) {
+    toast(err.message, true);
+    control.disabled = false;
+  }
+}
+
+// refreshReviewMarks redraws what shows the review marks of a repository.
+function refreshReviewMarks(repoKey) {
+  renderReviewCount();
+  if (repoKey !== state.repoKey) return;
+  renderGraph();
+  const line = el('report-verdict');
+  if (line) renderVerdictLine(line);
 }
 
 function verdictLabel(verdict) {
@@ -2754,6 +2903,7 @@ function connectEvents() {
       // A repository snapshot may carry an older attempt than one already seen.
       if (!event.repo.latest || trackRun(event.repo.key, event.repo.latest)) rememberRun(event.repo.key, event.repo.latest);
       renderRepos();
+      if (JSON.stringify(previous?.reviewed || {}) !== JSON.stringify(event.repo.reviewed || {})) refreshReviewMarks(event.repo.key);
       if (event.repo.key === state.repoKey) { renderGraph(); renderCommitActions(); }
     } else if (event.type === 'run') {
       const run = event.run;

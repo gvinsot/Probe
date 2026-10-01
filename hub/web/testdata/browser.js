@@ -53,6 +53,16 @@ window.fetch = async (path, init) => {
     const key = path.split('/')[3];
     data = { repo: { ...state.repos.get(key), monitored: init.method === 'POST' } };
   }
+  else if (path.endsWith('/review') && init && init.method === 'PUT') {
+    const key = path.split('/')[3];
+    const commit = path.split('/')[5];
+    const reviewed = JSON.parse(init.body).reviewed ? { [commit]: { by: 'octocat', at: new Date().toISOString() } } : undefined;
+    data = { repo: { ...state.repos.get(key), reviewed } };
+  }
+  else if (path.endsWith('/reviews')) data = { reviews: [
+    { commit: fixtureSHA('a'), message: 'Merge feature', verdict: 'review', reviewed: false, by: 'octocat', at: new Date().toISOString() },
+    { commit: fixtureSHA('a'), message: 'Merge feature', verdict: 'review', reviewed: true, by: 'octocat', at: new Date().toISOString() },
+  ] };
   else if (path.endsWith('/commits?branch=feature%2Fui')) data = { limited: false, branches: [{name:'main',sha:fixtureSHA('a')},{name:'feature/ui',sha:fixtureSHA('c')}], commits: [
     { sha: fixtureSHA('c'), parents: [fixtureSHA('d')], branches: ['feature/ui'], message: '<img src=x onerror=alert(1)>', author: 'Grace' },
     { sha: fixtureSHA('d'), parents: [], branches: [], message: 'Initial commit', author: 'Ada' },
@@ -342,6 +352,19 @@ window.addEventListener('DOMContentLoaded', async () => {
     assert(!document.getElementById('report-head').textContent.includes('never approves'), 'no disclaimer line');
     assert(document.querySelector('#report-head .verdict').textContent === 'Human review required', 'report verdict rendered');
     assert(document.querySelector('#report-head .verdict').classList.contains('tone-high'), 'report verdict tinted by the most severe alert');
+    // "Reviewed" turns the request into a recorded human review, everywhere.
+    const reviewCountBefore = el('review-count').textContent;
+    assert(el('mark-reviewed').textContent === 'Reviewed', 'a review report offers the Reviewed button');
+    el('mark-reviewed').click();
+    await settle();
+    const reviewCall = fixtureCalls.find((call) => call.path === '/api/repos/repo/reports/' + fixtureSHA('a') + '/review');
+    assert(reviewCall && reviewCall.init.method === 'PUT' && JSON.parse(reviewCall.init.body).reviewed === true && reviewCall.init.headers['X-Probe-CSRF'] === 'csrf', 'Reviewed puts the mark with CSRF');
+    assert(document.querySelector('#report-head .verdict').textContent === 'Reviewed' && document.getElementById('report-verdict').textContent.includes('by octocat') && el('mark-reviewed').textContent === 'Mark as not reviewed', 'the report reads Reviewed, by whom');
+    assert(document.querySelector('.commit-row.selected .commit-meta .chip').textContent === 'reviewed' && !document.querySelector('.commit-row.selected').textContent.includes('Human review required'), 'the tree badge reads reviewed');
+    assert(el('review-count').textContent !== reviewCountBefore, 'the review count drops');
+    el('mark-reviewed').click();
+    await settle();
+    assert(document.querySelector('#report-head .verdict').textContent === 'Human review required' && el('mark-reviewed').textContent === 'Reviewed' && el('review-count').textContent === reviewCountBefore, 'withdrawing the mark asks for a review again');
     assert(document.getElementById('mode-label').textContent.includes('AI review (read-only)'), 'deployment mode shown');
     assert(document.getElementById('report-head').textContent.includes('no code or tests were executed'), 'read-only report scope shown');
     const actualMode = state.run.mode;
@@ -694,6 +717,15 @@ window.addEventListener('DOMContentLoaded', async () => {
     rulesButton().click();
     await settle();
     assert(el('coding-rules').value === '- Never log credentials.', 'the dialog shows the saved rules');
+    // The review history is a tab beside the coding rules.
+    assert(el('tab-coding-rules').getAttribute('aria-selected') === 'true' && el('review-history-panel').hidden, 'the dialog opens on the coding rules');
+    el('tab-review-history').click();
+    await settle();
+    const historyRows = el('review-history-panel').querySelectorAll('.review-history li');
+    assert(el('review-settings-panel').hidden && el('modal-footer').hidden && historyRows.length === 2, 'the history tab lists the review actions');
+    assert(historyRows[0].textContent.includes('mark withdrawn') && historyRows[1].textContent.includes('reviewed') && historyRows[1].textContent.includes('Merge feature') && historyRows[1].textContent.includes('octocat'), 'each action shows what, which commit and who');
+    el('tab-coding-rules').click();
+    assert(!el('review-settings-panel').hidden && !el('modal-footer').hidden, 'back to the coding rules');
     closeModal();
     await settle();
     assert(!document.body.dataset.testResult, document.body.dataset.testResult);

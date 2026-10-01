@@ -185,8 +185,11 @@ type Repo struct {
 	Feedback     []FeedbackEntry          `json:"feedback,omitempty"`
 	Outcomes     map[string]OutcomeCounts `json:"outcomes,omitempty"`
 	OutcomeBases []string                 `json:"outcome_bases,omitempty"`
-	Latest       *Run                     `json:"latest,omitempty"`
-	UpdatedAt    time.Time                `json:"updated_at"`
+	// Reviews logs, oldest first, who marked a commit as reviewed or withdrew
+	// the mark (bounded by MaxReviews). The CLI's verdict is never changed.
+	Reviews   []ReviewEntry `json:"reviews,omitempty"`
+	Latest    *Run          `json:"latest,omitempty"`
+	UpdatedAt time.Time     `json:"updated_at"`
 }
 
 // Bounds of the feedback kept per repository.
@@ -216,6 +219,49 @@ type FeedbackEntry struct {
 	ReplyTo string    `json:"reply_to,omitempty"`
 	Author  string    `json:"author"`
 	At      time.Time `json:"at"`
+}
+
+// MaxReviews bounds the review history kept per repository.
+const MaxReviews = 200
+
+// ReviewEntry is one human review action on a commit's report: marking it
+// reviewed, or withdrawing the mark. Message and Verdict are copied from the
+// report when the action is recorded.
+type ReviewEntry struct {
+	Commit   string    `json:"commit"`
+	Message  string    `json:"message,omitempty"`
+	Verdict  string    `json:"verdict,omitempty"`
+	Reviewed bool      `json:"reviewed"`
+	By       string    `json:"by"`
+	At       time.Time `json:"at"`
+}
+
+// ReviewMark tells who marked a commit as reviewed, and when.
+type ReviewMark struct {
+	By string    `json:"by"`
+	At time.Time `json:"at"`
+}
+
+// Reviewed returns the commits whose latest review action marked them
+// reviewed.
+func (r *Repo) Reviewed() map[string]ReviewMark {
+	marks := map[string]ReviewMark{}
+	for _, e := range r.Reviews {
+		if e.Reviewed {
+			marks[e.Commit] = ReviewMark{By: e.By, At: e.At}
+		} else {
+			delete(marks, e.Commit)
+		}
+	}
+	return marks
+}
+
+// AddReview appends a review action, dropping the oldest beyond MaxReviews.
+func (r *Repo) AddReview(e ReviewEntry) {
+	r.Reviews = append(r.Reviews, e)
+	if extra := len(r.Reviews) - MaxReviews; extra > 0 {
+		r.Reviews = r.Reviews[extra:]
+	}
 }
 
 // OutcomeCounts records what developers did after findings of one kind.
@@ -248,6 +294,8 @@ type PublicRepo struct {
 	// owner has to reinstall the hook to get pushes and a badge back.
 	HookOutdated bool       `json:"hook_outdated,omitempty"`
 	Latest       *RecentRun `json:"latest,omitempty"`
+	// Reviewed maps the commits a person marked as reviewed to that mark.
+	Reviewed map[string]ReviewMark `json:"reviewed,omitempty"`
 	// Recent lists the normal analyses queued within RecentWindow, newest
 	// first, so the dashboard can show the most severe status of a period.
 	Recent           []RecentRun `json:"recent,omitempty"`
@@ -278,6 +326,9 @@ func (r *Repo) Public() PublicRepo {
 		p.BadgeKey = r.BadgeKey
 	}
 	p.HookOutdated = r.HookOutdated()
+	if marks := r.Reviewed(); len(marks) > 0 {
+		p.Reviewed = marks
+	}
 	return p
 }
 

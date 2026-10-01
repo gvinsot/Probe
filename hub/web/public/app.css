@@ -264,6 +264,7 @@ h1, h2, h3 { line-height: 1.25; }
 .verdict.review { color: var(--tone, var(--medium)); border-color: var(--tone, var(--medium)); }
 .verdict.blocked { color: var(--critical); border-color: var(--critical); }
 .verdict.failed { color: var(--muted); border-color: var(--line); }
+.verdict.reviewed { color: var(--ok); border-color: var(--ok); background: var(--accent-soft); }
 .verdict.below-threshold { color: var(--muted); border-color: var(--line); border-style: dashed; }
 .chip.below-threshold { color: var(--muted); border-style: dashed; }
 
@@ -397,6 +398,7 @@ select, .select {
 .modal-card .body .settings-title { margin: 6px 0 -8px; font-size: 0.95rem; }
 .modal-card .body .settings-title + .note { margin-top: 0; }
 .modal-card footer { display: flex; justify-content: flex-end; gap: 8px; padding: 14px; border-top: 1px solid var(--line); }
+.modal-card footer[hidden], [role="tabpanel"][hidden] { display: none; }
 .policy-text { display: block; width: 100%; resize: vertical; background: var(--code-bg); color: var(--code-text); border: 1px solid var(--line); padding: 12px; border-radius: 8px; font-family: ui-monospace, "SFMono-Regular", "Cascadia Code", Menlo, Consolas, monospace; font-size: 0.8rem; white-space: pre; overflow: auto; }
 .note.bad { color: var(--critical); }
 .note.bad:empty { display: none; }
@@ -495,3 +497,11 @@ body.resizing { cursor: col-resize; user-select: none; }
 .feedback .btn.active { font-weight: 600; }
 .feedback-comments { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
 .feedback-text { display: block; width: 100%; resize: vertical; font-family: inherit; }
+
+/* Tabs of the Review settings dialog, and its review history. */
+.tabs { display: flex; gap: 4px; margin-bottom: 12px; border-bottom: 1px solid var(--line); }
+.tab { padding: 6px 12px; border: 0; border-bottom: 2px solid transparent; background: transparent; color: var(--muted); font: inherit; font-size: 0.85rem; cursor: pointer; }
+.tab[aria-selected="true"] { color: var(--text); border-bottom-color: var(--accent); font-weight: 600; }
+.review-history { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.review-history li { display: flex; align-items: baseline; gap: 8px; }
+.review-message { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

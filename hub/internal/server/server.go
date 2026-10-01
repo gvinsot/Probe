@@ -118,6 +118,8 @@ func (s *Server) buildRoutes() http.Handler {
 	mux.HandleFunc("DELETE /api/repos/{repo}/feedback", s.handleResetFeedback)
 	mux.HandleFunc("GET /api/repos/{repo}/reports/{commit}/feedback", s.handleFeedback)
 	mux.HandleFunc("POST /api/repos/{repo}/reports/{commit}/feedback", s.handleAddFeedback)
+	mux.HandleFunc("PUT /api/repos/{repo}/reports/{commit}/review", s.handleReview)
+	mux.HandleFunc("GET /api/repos/{repo}/reviews", s.handleReviews)
 	mux.HandleFunc("POST /api/repos/{repo}/monitor", s.handleMonitorOn)
 	mux.HandleFunc("DELETE /api/repos/{repo}/monitor", s.handleMonitorOff)
 	mux.HandleFunc("POST /api/repos/{repo}/analyze", s.handleAnalyze)
