@@ -24,7 +24,7 @@ import (
 func generatedGoTests(path, source string) ([]string, error) {
 	base := filepath.Base(path)
 	if strings.HasPrefix(base, "_") || strings.HasPrefix(base, ".") {
-		return nil, errors.New("Go ignores test filenames starting with _ or .")
+		return nil, errors.New(`Go ignores test filenames starting with "_" or "."`)
 	}
 	file, err := parser.ParseFile(token.NewFileSet(), path, source, 0)
 	if err != nil {

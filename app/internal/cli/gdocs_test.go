@@ -20,7 +20,7 @@ func googleDocsServer(t *testing.T) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/drive/v3/files/"+googleDoc, func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("Authorization") != "Bearer ya29.test" {
-			http.Error(w, `{"error":{"message":"unauthenticated"}}`, 401)
+			http.Error(w, `{"error":{"message":"unauthenticated"}}`, http.StatusUnauthorized)
 			return
 		}
 		fmt.Fprint(w, `{"name":"Auth design","mimeType":"application/vnd.google-apps.document","webViewLink":"https://docs.google.com/document/d/`+googleDoc+`/edit"}`)

@@ -98,13 +98,6 @@ func (m *memoryCache) keys() []string {
 	return keys
 }
 
-// seed stores e as is (a pre-existing entry, possibly tampered).
-func (m *memoryCache) seed(e CacheEntry) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.entries[e.Key] = copyEntry(e)
-}
-
 // promote sets LiveRuns on every stored entry, so an entry recorded by one live
 // run becomes servable (liveRuns >= 2) without a second run.
 func (m *memoryCache) promote(liveRuns int) {

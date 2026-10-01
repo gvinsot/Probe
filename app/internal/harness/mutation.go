@@ -18,9 +18,8 @@ import (
 	"github.com/gvinsot/Probe/app/internal/model"
 )
 
-// mutationState is the harness's mutation state slot. A mutation stage keeps
-// its state in its MutationWorkspace, so the harness holds nothing for it.
-type mutationState struct{}
+// A mutation stage keeps its state in its MutationWorkspace, so the harness
+// holds nothing for it.
 
 // Audit names of the mutation stage (reserved "stage:" prefix, §1.2).
 const (

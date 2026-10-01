@@ -94,14 +94,12 @@ type Harness struct {
 	// cacheCounts holds the execution-cache counters the harness observes
 	// itself (run.go); the summary adds ExecutionCache.Stats().
 	cacheCounts model.ExecutionCache
-	// Per-feature state; each type lives in its owner's file.
+	// Per-feature state; each type lives in its owner's file. Observations
+	// (F1), impacted tests (F6b) and mutation (F4) keep no per-harness state.
 	exec      execState     // cache.go (F7a)
 	intent    intentState   // intent.go (F5)
-	observe   observeState  // observations.go (F1)
 	fuzz      fuzzState     // fuzzrun.go (F2)
 	baseTests baseTestState // basetests.go (F3)
-	impacted  impactedState // impacted.go (F6b)
-	mutation  mutationState // mutation.go (F4)
 }
 
 // New is NewContext without a caller context.

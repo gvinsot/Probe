@@ -30,7 +30,7 @@ import (
 // Markdown renderer escapes as entities.
 const (
 	// parallelOneNote is the note when one initial check at a time was
-	// requested. It equals the note newExecState (cache.go) records before
+	// requested. It equals the note newExecStateContext (cache.go) records before
 	// RunChecks runs.
 	parallelOneNote = "Initial checks run one at a time."
 	// parallelSerialNote opens the note when more were requested but the

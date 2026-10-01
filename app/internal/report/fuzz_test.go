@@ -474,7 +474,7 @@ func TestFuzzMarkdownSection(t *testing.T) {
 	for _, want := range []string{
 		"Seeded inputs (probe-fuzz/v1) were planned for 2 changed Go functions, 2 of them with recorded fuzz checks on the baseline and the candidate: 1 diverged, 1 not diverged, 0 inconclusive.",
 		"- **diverged** calc.Discount (calc/calc.go:7): 1 of 64 compared inputs recorded different values",
-		"Smallest divergent input tried: Discount\\(Cents\\(1000\\)\\); baseline v:Discount\\(Cents\\(1000\\)\\); candidate \\*\\*bold\\*\\* \\[link\\]\\(https:​//example.invalid\\) &lt;script&gt;",
+		"Smallest divergent input tried: Discount\\(Cents\\(1000\\)\\); baseline v:Discount\\(Cents\\(1000\\)\\); candidate \\*\\*bold\\*\\* \\[link\\]\\(https:\u200b//example.invalid\\) &lt;script&gt;",
 		"- **not diverged** calc.Twice (calc/calc.go:15): 64 of 64 inputs compared",
 		"Not fuzzed (2):",
 		"- web/price.ts:1 price: " + inline(fuzz.ReasonScriptTemplate),

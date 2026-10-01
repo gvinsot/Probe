@@ -74,7 +74,7 @@ func TestFetchRendersPage(t *testing.T) {
 	mux.HandleFunc("/v1/pages/"+pageDashed, func(w http.ResponseWriter, r *http.Request) {
 		versions = append(versions, r.Header.Get("Notion-Version"))
 		if r.Header.Get("Authorization") != "Bearer ntn_secret" {
-			http.Error(w, `{"message":"API token is invalid."}`, 401)
+			http.Error(w, `{"message":"API token is invalid."}`, http.StatusUnauthorized)
 			return
 		}
 		fmt.Fprint(w, `{"object":"page","url":"https://www.notion.so/Checkout-`+page+`","last_edited_time":"2026-09-01T10:00:00.000Z",

@@ -48,13 +48,6 @@ func (f *repoFixture) put(p, content string) {
 	}
 }
 
-func (f *repoFixture) remove(p string) {
-	f.t.Helper()
-	if err := os.Remove(filepath.Join(f.dir, filepath.FromSlash(p))); err != nil {
-		f.t.Fatal(err)
-	}
-}
-
 func (f *repoFixture) commit() string {
 	f.t.Helper()
 	f.git("add", "-A")

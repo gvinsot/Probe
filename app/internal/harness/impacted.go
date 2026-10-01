@@ -36,10 +36,8 @@ import (
 	"github.com/gvinsot/Probe/app/internal/model"
 )
 
-// impactedState is the per-harness state of the stage. The stage keeps no
-// state between calls: every call plans and records its own runs.
-type impactedState struct{}
-
+// The stage keeps no state between calls: every call plans and records its
+// own runs.
 const (
 	// auditRunImpactedTests is the audit tool name of one unit of the stage.
 	auditRunImpactedTests = model.AuditStagePrefix + "run_impacted_tests"

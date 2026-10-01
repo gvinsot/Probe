@@ -97,12 +97,6 @@ func (e treeEntry) tuple(path string) []string {
 type toolIdentity interface{ ToolVersion() string }
 type disabledCache interface{ DisabledReason() string }
 
-// newExecState is newExecStateContext without a caller context: the probe is
-// bounded by probeTimeout alone. New calls it; see newExecStateContext.
-func newExecState(opts Options) (execState, error) {
-	return newExecStateContext(context.Background(), opts)
-}
-
 // newExecStateContext stores opts.Cache and validates opts.Parallel (0 means
 // 1). It makes no Docker call without a cache. With one, it probes the sandbox
 // image and the Docker server (probeDocker, at most probeTimeout in total and
@@ -209,7 +203,7 @@ func baseCommitOf(diff string) string {
 // NewContext already pins h.opts.Image to the probed image ID, so that every
 // run of the harness executes exactly the keyed image; keyFor pins it again
 // only for a harness whose state was installed after creation (tests). A
-// cache installed on a harness without newExecState (tests only) has no
+// cache installed on a harness without newExecStateContext (tests only) has no
 // probed identity: its keys use the configured image reference.
 func (s *execState) keyFor(h *Harness, kind, dir string, argv []string, script string, timeout time.Duration) (key, uncacheableReason string) {
 	image := s.imageID
@@ -537,23 +531,15 @@ func (h *Harness) evictContradicted(key string, executed model.Check) bool {
 	return true
 }
 
-// settleReplayedGoBaseline completes the live re-run of a replayed F3 or F6b
+// settleReplayedBaseline completes the live re-run of a replayed F3 or F6b
 // baseline (§1.11), as confirmBaseline does for generated tests. When the
 // re-run completed (PASS or FAIL) and did not reproduce the replay (its
 // status, exit code or truncation differs, or one of names has another
-// outcome in its log), the entry that was replayed is removed as
-// contradicted, so that no later review is served from it. A live check whose
-// write-through extended that entry then loses the cache provenance it no
-// longer describes. It returns live, updated in the ledger. Caller holds h.mu.
-func (h *Harness) settleReplayedGoBaseline(replayed, live model.Check, names []string) model.Check {
-	return h.settleReplayedBaseline(replayed, live, names, func(c model.Check, n string) string {
-		action, _ := GoTestOutcome(c.Output, n)
-		return action
-	})
-}
-
-// settleReplayedBaseline is settleReplayedGoBaseline with the per-name
-// outcome read by outcome, for runners other than go test.
+// outcome in its log, as read by outcome), the entry that was replayed is
+// removed as contradicted, so that no later review is served from it. A live
+// check whose write-through extended that entry then loses the cache
+// provenance it no longer describes. It returns live, updated in the ledger.
+// Caller holds h.mu.
 func (h *Harness) settleReplayedBaseline(replayed, live model.Check, names []string, outcome func(model.Check, string) string) model.Check {
 	if replayed.Cache == nil || live.Status != "PASS" && live.Status != "FAIL" {
 		return live
@@ -615,7 +601,7 @@ func sha256Hex(b []byte) string {
 
 // DiskCache adapts the on-disk store to ExecutionCache; it returns nil for a
 // nil store. It also exposes the store's tool identity and disabled reason to
-// newExecState and Execution.
+// newExecStateContext and Execution.
 func DiskCache(s *execcache.Store) ExecutionCache {
 	if s == nil {
 		return nil

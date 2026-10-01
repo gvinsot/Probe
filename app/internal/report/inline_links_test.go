@@ -11,7 +11,7 @@ import (
 // every bidirectional formatting character the exports remove.
 func TestInlineBreaksAutolinksAndBidi(t *testing.T) {
 	in := "see https://evil.example/x, HTTP://evil.example, WWW.evil.example, ftp://h and mail me@evil.example or @octocat " +
-		"‪‫‬‭‮⁦⁧⁨⁩‎‏؜ end"
+		"\u202a\u202b\u202c\u202d\u202e\u2066\u2067\u2068\u2069\u200e\u200f\u061c end"
 	got := inline(in)
 	for _, bad := range []string{"://", "www.", "WWW."} {
 		if strings.Contains(got, bad) {

@@ -67,10 +67,7 @@ func newResolver(files []source, manifests map[string]manifestInfo) *resolver {
 
 	// Python modules, named from the repository root, from each component
 	// root and from their src/ directories.
-	bases := []string{"."}
-	for _, root := range r.roots {
-		bases = append(bases, root)
-	}
+	bases := append([]string{"."}, r.roots...)
 	var withSrc []string
 	for _, b := range bases {
 		withSrc = append(withSrc, b, path.Join(b, "src"))

@@ -89,7 +89,7 @@ type unusableCache struct{ *memoryCache }
 func (unusableCache) DisabledReason() string { return "the cache layout could not be created" }
 
 // cachedFixture is fixture() with a cache passed through Options, so that New
-// runs newExecState on it (probe and pin), and optional option edits.
+// runs newExecStateContext on it (probe and pin), and optional option edits.
 func cachedFixture(t *testing.T, cache ExecutionCache, edit func(*Options)) *Harness {
 	t.Helper()
 	src, base := t.TempDir(), t.TempDir()
@@ -736,7 +736,8 @@ func TestBaseCommitAndPolicyDigest(t *testing.T) {
 	a := Options{Commands: map[string][]string{"test": {"go", "test"}}, Image: "img", Timeout: time.Second}
 	b := a
 	b.Commands = map[string][]string{"test": {"go", "test", "-v"}}
-	if policyDigest(a) == policyDigest(b) || policyDigest(a) != policyDigest(a) || !cacheKeyPattern.MatchString(policyDigest(a)) {
+	first, again := policyDigest(a), policyDigest(a)
+	if first == policyDigest(b) || first != again || !cacheKeyPattern.MatchString(first) {
 		t.Fatal("policy digest is not a deterministic digest of the commands")
 	}
 }

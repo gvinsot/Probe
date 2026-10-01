@@ -80,7 +80,7 @@ func basicInfo(basic string) (valueClass, int) {
 // stringEdges are tried first for every string element, simplest first.
 var stringEdges = []string{
 	"", "a", "A", "0", "1", "-1", " ", "  a  ", "abc", "hello world", "a,b", "a\nb", "\t", "\x00",
-	"é", "日本語", "‮", "\xff", "0.5", "true", "null", "../", strings.Repeat("a", 64),
+	"é", "日本語", "\u202e", "\xff", "0.5", "true", "null", "../", strings.Repeat("a", 64),
 }
 
 // edges returns the edge values of a basic type, simplest first. Integer
@@ -201,7 +201,7 @@ func edgeValues(p Param) []Value {
 const stringAlphabet = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 -_.,;:/=+*#@!?()[]{}<>'\"\\"
 
 var (
-	stringMultibyte = []string{"é", "ß", "日", "本", "€", "😀", "‮", "́"}
+	stringMultibyte = []string{"é", "ß", "日", "本", "€", "😀", "\u202e", "́"}
 	stringControl   = []string{"\n", "\t", "\x00", "\r"}
 	stringInvalid   = []string{"\xff", "\xc3", "\xed\xa0\x80"}
 )

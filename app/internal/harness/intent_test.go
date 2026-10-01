@@ -516,7 +516,7 @@ func TestIntentToolDefinitions(t *testing.T) {
 		if !sort.StringsAreSorted(required) || params["additionalProperties"] != false {
 			t.Fatalf("%s parameters %+v", fn["name"], params)
 		}
-		if word := regexp.MustCompile(`(?i)(satisfied|verified|contradicts?|met|correct|tested)`).FindString(fn["description"].(string)); word != "" {
+		if word := regexp.MustCompile(`(?i)\b(satisfied|verified|contradicts?|met|correct|tested)\b`).FindString(fn["description"].(string)); word != "" {
 			t.Errorf("%s description says %q", fn["name"], word)
 		}
 	}

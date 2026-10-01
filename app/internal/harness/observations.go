@@ -28,9 +28,8 @@ import (
 	"github.com/gvinsot/Probe/app/internal/redact"
 )
 
-// observeState holds no per-harness state: each observation experiment is
+// The harness holds no observation state: each observation experiment is
 // decided within one run_generated_test call.
-type observeState struct{}
 
 // Fixed channel-error and outcome reasons. They never contain recorded text.
 const (

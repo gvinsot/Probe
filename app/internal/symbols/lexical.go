@@ -97,14 +97,6 @@ func testFile(p string) bool {
 	return lexTestFile(lexLanguage(p), p)
 }
 
-// langOf is the index language of a path.
-func langOf(p string) string {
-	if strings.HasSuffix(p, ".go") {
-		return LangGo
-	}
-	return lexLanguage(p)
-}
-
 // langName is the display name of an index language.
 func langName(lang string) string {
 	switch lang {

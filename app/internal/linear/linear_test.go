@@ -102,7 +102,7 @@ func TestFetchAndIntent(t *testing.T) {
 		case "ENG-42":
 			w.Write([]byte(issueJSON))
 		case "DENY-1":
-			http.Error(w, `{"errors":[{"message":"Authentication required"}]}`, 401)
+			http.Error(w, `{"errors":[{"message":"Authentication required"}]}`, http.StatusUnauthorized)
 		case "MOVE-1":
 			http.Redirect(w, r, "https://elsewhere.invalid/", http.StatusTemporaryRedirect)
 		default:

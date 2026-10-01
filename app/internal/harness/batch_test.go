@@ -576,7 +576,7 @@ func TestRunChecksProbesOnlyWhenChecksCanOverlap(t *testing.T) {
 }
 
 // Before RunChecks records a summary, the harness keeps the one it started
-// with (newExecState's); RunChecks replaces it, and a later call with a
+// with (newExecStateContext's); RunChecks replaces it, and a later call with a
 // smaller group does not lower what an earlier call recorded.
 func TestParallelismSummaryFollowsRunChecks(t *testing.T) {
 	useDocker(t, capacityDocker(8, 16<<30))

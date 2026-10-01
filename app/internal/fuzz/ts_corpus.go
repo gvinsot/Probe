@@ -44,7 +44,7 @@ var scriptNumberEdges = []float64{
 // scriptStringEdges are tried first for every string, simplest first.
 var scriptStringEdges = []string{
 	"", "a", "A", "0", "1", "-1", " ", "  a  ", "abc", "hello world", "a,b", "a\nb", "\t", "\x00",
-	"é", "日本語", "‮", wtf8(0xD800), "0.5", "true", "null", "undefined", "NaN", "../",
+	"é", "日本語", "\u202e", wtf8(0xD800), "0.5", "true", "null", "undefined", "NaN", "../",
 	"__proto__", "constructor", strings.Repeat("a", 64),
 }
 

@@ -3,7 +3,6 @@ package symbols
 import (
 	"bytes"
 	"errors"
-	"fmt"
 	"go/ast"
 	"go/token"
 	"go/types"
@@ -1080,16 +1079,6 @@ func (x *Index) redactedLines(file int32, bud *budget) []string {
 	x.redactedBytes += len(text)
 	return lines
 }
-
-// display is the short form of a key used in texts: the package name instead
-// of the import path.
-func (x *Index) display(id int32) string {
-	d := x.decls[id]
-	return d.PkgName + "." + d.Name
-}
-
-// location formats a declaration's position.
-func (d Decl) location() string { return fmt.Sprintf("%s:%d", d.Path, d.Line) }
 
 // dirOf is path.Dir with "" for the root.
 func dirOf(p string) string {

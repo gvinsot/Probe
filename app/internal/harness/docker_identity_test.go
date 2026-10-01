@@ -114,10 +114,8 @@ func TestDockerExecutionCachePinsAndReplays(t *testing.T) {
 		t.Fatalf("probe: %+v", e.Cache)
 	}
 	command := []string{"go", "vet", "./..."}
-	var logs []string
 	for i := 1; i <= 3; i++ {
 		c, _, _ := runLocked(h, context.Background(), model.CheckGeneratedBase, h.base, command, runOptions{})
-		logs = append(logs, c.Output)
 		switch {
 		case c.Status != "PASS":
 			t.Fatalf("run %d on %s: %s %d\n%s", i, h.opts.Image, c.Status, c.ExitCode, c.Output)
