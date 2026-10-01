@@ -477,10 +477,6 @@ function repoActions(repo) {
     if (!repo.admin) reinstall.title = noAdmin;
     actions.appendChild(reinstall);
   }
-  actions.appendChild(button('Analyze now', 'btn ghost small', (event) => {
-    event.stopPropagation();
-    analyzeNow(repo);
-  }));
   actions.appendChild(rules);
   return actions;
 }
@@ -1599,16 +1595,6 @@ async function setMonitoring(repo, on, trigger) {
   } catch (err) {
     toast(err.message, true);
     if (trigger) trigger.disabled = false;
-  }
-}
-
-async function analyzeNow(repo) {
-  try {
-    const queued = await api('/api/repos/' + encodeURIComponent(repo.key) + '/analyze', { method: 'POST', body: {} });
-    followQueued(repo.key, queued);
-    toast('Analysis queued for ' + repo.full_name + '.');
-  } catch (err) {
-    toast(err.message, true);
   }
 }
 

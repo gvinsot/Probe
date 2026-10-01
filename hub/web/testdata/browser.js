@@ -284,7 +284,7 @@ window.addEventListener('DOMContentLoaded', async () => {
     await settle();
     assert(state.branch === null && document.querySelectorAll('.commit-row').length === 4, 'a deleted branch falls back to every branch');
     const repoHead = document.querySelector('.repo-head');
-    assert(repoHead.textContent.includes('Analyze now') && repoHead.textContent.includes('Activate monitoring'), 'repository actions next to the name');
+    assert(!repoHead.textContent.includes('Analyze now') && repoHead.textContent.includes('Activate monitoring'), 'repository actions next to the name, without Analyze now');
     assert(!document.getElementById('repos').textContent.includes('.probe.json'), 'no policy tag');
     for (const id of ['jump-from-repos', 'jump-from-commits']) {
       assert(getComputedStyle(document.getElementById(id)).display === 'none', id + ' only on mobile');
