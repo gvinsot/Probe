@@ -195,7 +195,7 @@ func citationsNote(s *model.PRSummary) string {
 }
 
 // findingTexts renders the signals and hypotheses a risk cites with their
-// recorded location and status; an ID the report does not hold is skipped.
+// recorded title, location and status; an ID the report does not hold is skipped.
 func findingTexts(r *model.Report, risk model.PRSummaryRisk) []string {
 	var out []string
 	for _, id := range risk.HypothesisIDs {
@@ -205,7 +205,7 @@ func findingTexts(r *model.Report, risk model.PRSummaryRisk) []string {
 				if h.Line > 0 {
 					where += fmt.Sprintf(":%d", h.Line)
 				}
-				out = append(out, fmt.Sprintf("%s (%s finding)", where, inline(strings.ToLower(h.Status))))
+				out = append(out, fmt.Sprintf("%s — %s (%s finding)", inline(h.Title), where, inline(strings.ToLower(h.Status))))
 				break
 			}
 		}
@@ -213,7 +213,7 @@ func findingTexts(r *model.Report, risk model.PRSummaryRisk) []string {
 	for _, id := range risk.SignalIDs {
 		for _, sig := range r.Signals {
 			if sig.ID == id {
-				out = append(out, signalLocation(sig)+" (signal)")
+				out = append(out, inline(sig.Summary)+" — "+signalLocation(sig)+" (signal)")
 				break
 			}
 		}

@@ -76,8 +76,9 @@ its title, overview, behavior changes, risks, review focus and testing head
 the report, labelled as model output, with a button that copies it as
 Markdown for a pull request description. The alert list is laid out by the
 summary's change areas ("Add agent sorting", "Test agent sorting"), each with
-what changed, links that unfold the code it cites, and the alerts it groups,
-with the uncited alerts last under "Other alerts". The alerts, checks and
+what changed, links that unfold the code it cites, and the alerts it groups.
+An alert only a risk cites unfolds whole under that risk, and the alerts the
+summary cites nowhere come last under "Other alerts". The alerts, checks and
 verdict stay what Probe computed: the summary never changes them.
 
 **Reviewer swarm.** Set `PROBE_HUB_SWARM=true` (or a list such as

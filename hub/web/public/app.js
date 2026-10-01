@@ -873,21 +873,22 @@ function otherAreaItem(shown) {
   name.textContent = 'Other alerts';
   const count = document.createElement('span');
   count.className = 'note';
-  count.textContent = shown + (shown === 1 ? ' alert' : ' alerts') + ' no change area cites';
+  count.textContent = shown + (shown === 1 ? ' alert' : ' alerts') + ' the summary does not cite';
   head.append(name, count);
   item.appendChild(head);
   return item;
 }
 
 // summaryCitations renders the links of one summary statement: the code it
-// cites, then the alerts (by alert ID prefix) a risk cites. A link unfolds the
-// diff it points at under the statement held by li; a second click folds it.
-// An alert the list shows opens there instead.
+// cites, then the alerts (by alert ID prefix) a risk cites. A code link
+// unfolds its diff under the statement held by li; a second click folds it.
+// An alert the list shows opens there; any other alert unfolds whole under
+// the statement, which is then its only place in the report.
 function summaryCitations(li, refs, alertIDs) {
   const links = document.createElement('span');
   links.className = 'summary-refs';
   let open = null;
-  const toggle = (link, target) => {
+  const toggle = (link, fill) => {
     const panel = li.querySelector(':scope > .summary-diff');
     if (panel) panel.remove();
     if (open) open.setAttribute('aria-expanded', 'false');
@@ -899,24 +900,22 @@ function summaryCitations(li, refs, alertIDs) {
     link.setAttribute('aria-expanded', 'true');
     const holder = document.createElement('div');
     holder.className = 'summary-diff';
-    appendAlertDiff(holder, target);
+    fill(holder);
     li.appendChild(holder);
   };
   for (const ref of refs || []) {
     const link = refLink(refLabel(ref), ref.quote ? ref.path + '\nQuoted code found at these lines:\n' + ref.quote : ref.path);
     if (ref.quote) link.classList.add('verified');
     const target = { path: ref.path, line: ref.start_line || 0, end_line: ref.end_line || ref.start_line || 0, side: ref.side === 'old' ? 'old' : 'new' };
-    link.addEventListener('click', () => toggle(link, target));
+    link.addEventListener('click', () => toggle(link, (holder) => appendAlertDiff(holder, target)));
     links.appendChild(link);
   }
-  for (const id of alertIDs) {
-    const alert = findAlert(id);
-    if (!alert) continue;
-    const link = refLink(alert.title || id, alertLocation(alert));
+  for (const alert of new Set(alertIDs.map(findAlert).filter(Boolean))) {
+    const link = refLink(alert.title || alert.id, alertLocation(alert));
     link.classList.add('alert-ref');
     link.addEventListener('click', () => {
-      if (filteredAlerts().some((a) => a.id === alert.id)) revealAlert(alert.id);
-      else toggle(link, alert);
+      if (listedAlert(alert.id)) revealAlert(alert.id);
+      else toggle(link, (holder) => holder.appendChild(alertBody(alert)));
     });
     links.appendChild(link);
   }
@@ -973,11 +972,28 @@ function findAlert(id) {
   return null;
 }
 
+// listedAlert returns the item of the alert list that shows an alert.
+function listedAlert(id) {
+  return [...document.querySelectorAll('#alerts .alert')].find((li) => li.dataset.alertId === id) || null;
+}
+
+// riskCitedAlerts returns the IDs of the alerts the summary's risks cite.
+function riskCitedAlerts(s) {
+  const ids = new Set();
+  for (const risk of (s && s.risks) || []) {
+    for (const id of (risk.hypothesis_ids || []).map((h) => 'issue:' + h).concat((risk.signal_ids || []).map((g) => 'signal:' + g))) {
+      const alert = findAlert(id);
+      if (alert) ids.add(alert.id);
+    }
+  }
+  return ids;
+}
+
 // revealAlert unfolds an alert of the list and scrolls to it.
 function revealAlert(id) {
   state.expanded.add(id);
   renderAlerts();
-  const item = [...document.querySelectorAll('#alerts .alert')].find((li) => li.dataset.alertId === id);
+  const item = listedAlert(id);
   if (item) requestAnimationFrame(() => item.scrollIntoView({ block: 'start', behavior: 'smooth' }));
 }
 
@@ -1011,7 +1027,7 @@ function prSummaryMarkdown(s) {
   list('Behavior changes', points(s.behavior_changes));
   list('Risks', (s.risks || []).map((r) => {
     const alerts = (r.hypothesis_ids || []).map((id) => findAlert('issue:' + id)).concat((r.signal_ids || []).map((id) => findAlert('signal:' + id))).filter(Boolean);
-    const where = (r.refs || []).map(refText).concat(alerts.map((a) => alertLocation(a) + ' (' + (a.status ? a.status.toLowerCase() + ' ' : '') + a.kind + ')'));
+    const where = (r.refs || []).map(refText).concat([...new Set(alerts)].map((a) => (a.title || a.id) + ' — ' + alertLocation(a) + ' (' + (a.status ? a.status.toLowerCase() + ' ' : '') + a.kind + ')'));
     return r.text + (where.length ? ' — ' + where.join(', ') : '');
   }));
   list('Where to look first', points(s.review_focus));
@@ -1954,7 +1970,8 @@ function renderAlerts() {
   };
 
   // With a summary, the list is the report laid out by change area: each
-  // area with the alerts it cites, then the alerts no area cites.
+  // area with the alerts it cites, then the alerts the summary cites
+  // nowhere. An alert only a risk cites lives under that risk, in the head.
   const areas = (state.view && state.view.pr_summary && state.view.pr_summary.changes) || [];
   if (areas.length === 0) {
     if (alerts.length === 0) list.appendChild(empty());
@@ -1967,7 +1984,8 @@ function renderAlerts() {
     list.appendChild(areaItem(change, own.length, all.filter((alert) => alert.area === i + 1).length));
     for (const alert of own) list.appendChild(alertItem(alert, renderAlerts));
   });
-  const other = alerts.filter((alert) => !alert.area || alert.area > areas.length);
+  const inRisks = riskCitedAlerts(state.view.pr_summary);
+  const other = alerts.filter((alert) => (!alert.area || alert.area > areas.length) && !inRisks.has(alert.id));
   if (other.length) {
     list.appendChild(otherAreaItem(other.length));
     for (const alert of other) list.appendChild(alertItem(alert, renderAlerts));

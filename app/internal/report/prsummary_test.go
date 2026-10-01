@@ -36,7 +36,7 @@ func TestPRSummaryIsWrittenWithMarkdown(t *testing.T) {
 		t.Fatal(err)
 	}
 	text := string(data)
-	for _, want := range []string{"# Allow every user", "## Changes\n\n- **Authorization**: Allowed no longer compares the user. — auth.go:3-5\n", "## Behavior changes\n\n- Non-admin users are allowed\n", "## Risks\n\n- Unverified: every user becomes admin — auth.go:2 (old), auth.go:3 (unverified finding)\n", "## Where to look first\n\n- The return statement — auth.go:3 ✓\n", "## Testing\n\n_Probe executed no check for this review._\n\n_✓ marks a citation whose quoted code Probe found at those lines of the diff; what the summary says about it remains model output. 2 citations quoted code that is not in the diff and were dropped._", "_Written by test-model from the Probe review of 1 changed files (human review required).", PRSummaryMarker} {
+	for _, want := range []string{"# Allow every user", "## Changes\n\n- **Authorization**: Allowed no longer compares the user. — auth.go:3-5\n", "## Behavior changes\n\n- Non-admin users are allowed\n", "## Risks\n\n- Unverified: every user becomes admin — auth.go:2 (old), Every user is admin — auth.go:3 (unverified finding)\n", "## Where to look first\n\n- The return statement — auth.go:3 ✓\n", "## Testing\n\n_Probe executed no check for this review._\n\n_✓ marks a citation whose quoted code Probe found at those lines of the diff; what the summary says about it remains model output. 2 citations quoted code that is not in the diff and were dropped._", "_Written by test-model from the Probe review of 1 changed files (human review required).", PRSummaryMarker} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("PR_SUMMARY.md lacks %q:\n%s", want, text)
 		}
