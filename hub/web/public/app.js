@@ -45,7 +45,6 @@ const state = {
   commit: null,
   view: null,
   run: null,
-  variant: "normal",
   graphs: new Map(),
   runs: [],
   // Queued or running attempts by pendingKey, each tagged with its repo_key.
@@ -65,7 +64,6 @@ const state = {
   // by the live events.
   recent: new Map(),
   recentLimit: null,
-  plan: null,
   kind: 'all',
   query: '',
   onlyMonitored: false,
@@ -1143,11 +1141,9 @@ function upsertRepo(repo) {
 
 async function selectRepo(repoKey, commit) {
   const changed = state.repoKey !== repoKey || state.commit !== (commit || null);
-  if (changed) closeReportDialog();
   state.repoKey = repoKey;
   state.commit = commit || null;
   state.expanded.clear();
-  if (changed) state.variant = 'normal';
   const hash = '#/repo/' + repoKey + (commit ? '/commit/' + commit : '');
   if (window.location.hash !== hash) window.location.hash = hash;
   renderRepos();
@@ -1155,10 +1151,10 @@ async function selectRepo(repoKey, commit) {
   el('commit-tree').textContent = '';
   el('branches').textContent = '';
   el('commit-actions').classList.add('hidden');
-  await loadHistory(changed);
+  await loadHistory();
 }
 
-async function loadHistory(resetIntent = false) {
+async function loadHistory() {
   const repo = state.repos.get(state.repoKey);
   if (!repo) return;
   const loadID = ++state.loadID;
@@ -1183,7 +1179,7 @@ async function loadHistory(resetIntent = false) {
     el('commit-tree').textContent = '';
   }
   if (state.commit) {
-    renderCommitActions(resetIntent);
+    renderCommitActions();
     await loadReport();
   } else {
     clearReport(repo);
@@ -1399,74 +1395,38 @@ function renderGraph() {
   tree.appendChild(list);
 }
 
-// The intent field lives in the Plan card, which is rebuilt on every render, so
-// keep a reference to the element itself: once detached, getElementById misses it.
-let planIntentField = null;
-const planIntent = () => (planIntentField ||= el('plan-intent-field')).querySelector('textarea');
-
-function renderCommitActions(resetIntent = false) {
+// renderCommitActions offers "Run analysis" while the selected commit has no
+// analysis result; once one exists, the report below is the whole view.
+function renderCommitActions() {
   const repo = state.repos.get(state.repoKey);
+  const holder = el('commit-actions');
+  holder.textContent = '';
   if (!repo || !state.commit) return;
-  el('commit-actions').classList.remove('hidden');
-  const node = (state.graphs.get(repo.key)?.commits || []).find((c) => c.sha === state.commit);
-  if (resetIntent) planIntent().value = cachedRun(state.commit, 'plan')?.intent || node?.message || '';
-  // Rebuilding the cards detaches the textarea; restore focus if the user was typing.
-  const intent = planIntent();
-  const typing = document.activeElement === intent && [intent.selectionStart, intent.selectionEnd];
-  const comparison = el('comparison'); comparison.textContent = '';
-  for (const variant of ['normal', 'plan']) {
-    const run = displayedRun(state.commit, variant);
-    const card = document.createElement('div'); card.className = 'comparison-card';
-    // Title, verdict and (for plans) the intent prompt share one line.
-    const head = document.createElement('div'); head.className = 'card-head';
-    const title = document.createElement('h3'); title.textContent = variant === 'plan' ? 'Plan' : 'Analysis'; head.appendChild(title);
-    head.appendChild(verdictChip(run));
-    if (variant === 'plan') {
-      const label = document.createElement('label'); label.className = 'note'; label.htmlFor = 'plan-intent';
-      label.textContent = 'Describe the task to see what impacts where planned';
-      label.title = 'Editable; the plan starts from this commit’s first parent';
-      head.appendChild(label);
-    }
-    card.appendChild(head);
-    if (run) {
-      const detail = document.createElement('p'); detail.className = 'note';
-      detail.textContent = [analysisModeLabel(run.mode), run.base_commit ? 'Base ' + shortSha(run.base_commit) : '', run.finished_at ? timeAgo(run.finished_at) : '', run.error].filter(Boolean).join(' · ');
-      card.appendChild(detail);
-    }
-    if (variant === 'plan') card.appendChild(planIntentField);
-    const actions = document.createElement('div'); actions.className = 'row';
-    const launch = button('Run ' + (variant === 'plan' ? 'plan' : 'analysis'),'btn small', () => analyzeCommit(variant));
-    launch.disabled = run && ['queued', 'running'].includes(run.status);
-    actions.appendChild(launch);
-    const view = button('View cached result', 'btn quiet small', () => openReportDialog(variant));
-    view.dataset.reportVariant = variant;
-    view.setAttribute('aria-haspopup', 'dialog');
-    view.setAttribute('aria-controls', 'report-dialog');
-    view.disabled = !cachedRun(state.commit, variant);
-    actions.appendChild(view);
-    card.appendChild(actions);
-    comparison.appendChild(card);
-  }
-  if (typing) { intent.focus(); intent.setSelectionRange(...typing); }
+  const run = displayedRun(state.commit, 'normal');
+  const available = run && !isPending(run) && !['failed', 'cancelled'].includes(run.status);
+  holder.classList.toggle('hidden', Boolean(available));
+  if (available) return;
+  const launch = button(!run || !isPending(run) ? 'Run analysis' : run.status === 'running' ? 'Analysis running…' : 'Analysis queued…', 'btn', () => analyzeCommit());
+  launch.id = 'run-analysis';
+  launch.disabled = isPending(run);
+  holder.appendChild(launch);
 }
 
-async function analyzeCommit(variant) {
+async function analyzeCommit() {
   const repoKey = state.repoKey, commit = state.commit;
-  const key = pendingKey(repoKey, commit, variant);
-  const intent = planIntent().value.trim();
-  if (variant === 'plan' && !intent) { toast('Enter an intent for the plan.', true); return; }
+  const key = pendingKey(repoKey, commit, 'normal');
   // Shown until the hub names the attempt; events or polling then take over.
-  const optimistic = { status: 'queued', commit, variant, repo_key: repoKey, requested: Date.now() };
+  const optimistic = { status: 'queued', commit, variant: 'normal', repo_key: repoKey, requested: Date.now() };
   state.pending.set(key, optimistic);
   watchPending();
   renderCommitActions(); renderGraph();
   try {
     const queued = await api('/api/repos/' + encodeURIComponent(repoKey) + '/analyze', {
-      method: 'POST', body: { commit, variant, intent: variant === 'plan' ? intent : '' },
+      method: 'POST', body: { commit, variant: 'normal' },
     });
     if (queued?.commit === commit && state.pending.get(key) === optimistic) state.pending.delete(key);
     if (!followQueued(repoKey, queued) && repoKey === state.repoKey) { renderCommitActions(); renderGraph(); }
-    toast((variant === 'plan' ? 'Plan' : 'Analysis') + ' queued for ' + shortSha(commit) + '.');
+    toast('Analysis queued for ' + shortSha(commit) + '.');
   } catch (err) {
     if (state.pending.get(key) === optimistic) state.pending.delete(key);
     if (repoKey === state.repoKey) { renderCommitActions(); renderGraph(); }
@@ -1504,7 +1464,7 @@ function renderReportCommit(repo, run) {
 }
 
 function clearReport(repo) {
-  state.view = null; state.run = null; state.plan = null; state.feedback = null; state.replyTo = null;
+  state.view = null; state.run = null; state.feedback = null; state.replyTo = null;
   el('report-head').textContent = '';
   const title = document.createElement('h2'); title.id = 'report-repo'; title.textContent = repo?.full_name || 'Select a repository';
   el('report-head').appendChild(title);
@@ -1513,67 +1473,31 @@ function clearReport(repo) {
   el('filters').classList.add('hidden');
   el('alerts').textContent = '';
   el('extras').classList.add('hidden');
-  el('plan-result').classList.add('hidden');
   el('report-empty').classList.remove('hidden');
-  el('report-empty').textContent = 'No cached result for this mode. Launch an analysis above.';
-}
-
-function openReportDialog(variant) {
-  state.variant = variant;
-  const dialog = el('report-dialog');
-  // Move the live report, preserving its controls and event listeners. The
-  // dialog itself is outside the panels rebuilt by history and SSE updates.
-  el('report-dialog-body').appendChild(el('report-pane'));
-  if (!dialog.open) dialog.showModal();
-  el('report-dialog-close').focus();
-  loadReport();
-}
-
-function closeReportDialog() {
-  const dialog = el('report-dialog');
-  if (!dialog.open) return;
-  dialog.close();
-  el('splitter').after(el('report-pane'));
-  // Live updates may have replaced the button that originally opened it.
-  document.querySelector('[data-report-variant="' + state.variant + '"]')?.focus();
+  el('report-empty').textContent = 'No analysis for this commit yet.';
 }
 
 async function loadReport() {
   const repo = state.repos.get(state.repoKey);
-  const commit = state.commit, variant = state.variant;
+  const commit = state.commit;
   if (!repo || !commit) return;
   clearReport(repo);
   const reportID = ++state.reportID;
-  const run = cachedRun(commit, variant);
+  const run = cachedRun(commit, 'normal');
   if (!run) return;
   el('report-empty').textContent = 'Loading cached result…';
   try {
     const payload = await api('/api/repos/' + encodeURIComponent(repo.key)
-      + '/reports/' + encodeURIComponent(commit) + '?variant=' + variant);
-    if (reportID !== state.reportID || repo.key !== state.repoKey || commit !== state.commit || variant !== state.variant) return;
-    if (variant === 'plan') { state.plan = payload; renderPlan(payload); return; }
+      + '/reports/' + encodeURIComponent(commit));
+    if (reportID !== state.reportID || repo.key !== state.repoKey || commit !== state.commit) return;
     state.view = payload.view;
     state.run = payload.run;
     renderReport();
     loadFeedback(repo.key, commit, reportID);
   } catch (err) {
-    if (reportID !== state.reportID || repo.key !== state.repoKey || commit !== state.commit || variant !== state.variant) return;
+    if (reportID !== state.reportID || repo.key !== state.repoKey || commit !== state.commit) return;
     el('report-empty').textContent = run.error || err.message;
   }
-}
-
-function renderPlan(payload) {
-  el('report-empty').classList.add('hidden');
-  const holder = el('plan-result'); holder.textContent = ''; holder.classList.remove('hidden');
-  const title = document.createElement('h3'); title.textContent = 'Cached plan · ' + shortSha(payload.run.commit); holder.appendChild(title);
-  holder.appendChild(verdictChip(payload.run));
-  const note = document.createElement('p'); note.className = 'note';
-  note.textContent = 'Model-written proposal, not evidence. This plan starts at ' + shortSha(payload.run.base_commit) + '. It does not check the actual commit or approve it.';
-  holder.appendChild(note);
-  const pre = document.createElement('pre'); pre.className = 'policy'; pre.textContent = JSON.stringify(payload.plan, null, 2); holder.appendChild(pre);
-  const link = document.createElement('a'); link.className = 'btn quiet small'; link.textContent = 'Download plan JSON';
-  link.href = '/api/repos/' + encodeURIComponent(state.repoKey) + '/reports/' + encodeURIComponent(state.commit) + '/raw?variant=plan';
-  link.download = 'PLAN.json'; holder.appendChild(link);
 }
 
 function renderReport() {
@@ -1790,11 +1714,7 @@ function renderDashboard() {
   renderRepos();
   renderGraph();
   renderCommitActions();
-  if (state.variant === 'plan') {
-    if (state.plan && state.plan.run && state.plan.run.commit === state.commit) renderPlan(state.plan);
-  } else if (state.view) {
-    renderReport();
-  }
+  if (state.view) renderReport();
 }
 
 function renderAlerts() {
@@ -2614,16 +2534,10 @@ async function boot() {
     loadHistory();
   });
   el('modal-close').addEventListener('click', closeModal);
-  el('report-dialog-close').addEventListener('click', closeReportDialog);
-  el('report-dialog').addEventListener('cancel', (event) => {
-    event.preventDefault();
-    closeReportDialog();
-  });
   el('modal').addEventListener('click', (event) => {
     if (event.target === el('modal')) closeModal();
   });
   document.addEventListener('keydown', (event) => {
-    if (el('report-dialog').open) return; // Native modal handles focus and Escape.
     if (event.key === 'Escape') closeModal();
     if (event.key === 'Tab' && !el('modal').classList.contains('hidden')) {
       const focusable = [...el('modal').querySelectorAll('button:not(:disabled), input:not(:disabled), textarea:not(:disabled), a[href], select:not(:disabled)')];

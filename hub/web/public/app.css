@@ -369,9 +369,6 @@ select, .select {
 .modal-card .body .settings-title { margin: 6px 0 -8px; font-size: 0.95rem; }
 .modal-card .body .settings-title + .note { margin-top: 0; }
 .modal-card footer { display: flex; justify-content: flex-end; gap: 8px; padding: 14px; border-top: 1px solid var(--line); }
-.report-dialog { width: min(1100px, calc(100% - 40px)); padding: 0; color: var(--text); }
-.report-dialog::backdrop { background: rgba(8, 12, 18, 0.55); }
-.report-dialog > header { position: sticky; top: 0; z-index: 1; background: var(--surface); }
 pre.policy { margin: 0; background: var(--code-bg); color: var(--code-text); padding: 12px; border-radius: 8px; overflow: auto; max-height: 40vh; font-size: 0.8rem; }
 
 /* Sign-in page */
@@ -450,19 +447,8 @@ body.resizing { cursor: col-resize; user-select: none; }
   .commit-tree { max-height: 420px; }
 }
 .chip.unknown { color: var(--muted); background: var(--bg-alt); border: 1px solid var(--line); }
-.comparison { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
-.comparison-card { border: 1px solid var(--line); border-radius: 8px; padding: 14px; overflow-wrap: anywhere; }
-.card-head { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 8px; }
-.card-head h3 { margin: 0; }
-.card-head .note { margin: 0; }
-.comparison-card > .note { margin: 6px 0 0; }
-.comparison-card > .row { margin-top: 8px; }
-#plan-intent { display: block; width: 100%; resize: vertical; }
 .rules-text { display: block; width: 100%; resize: vertical; font-family: inherit; }
-.plan-intent-field { margin: 8px 0; }
-#plan-result pre { max-height: 500px; overflow: auto; }
 @media (max-width: 700px) {
-  .comparison { grid-template-columns: 1fr; }
   .topbar { flex-wrap: wrap; gap: 8px; padding: 10px; }
   .layout { padding: 12px 10px 30px; }
 }

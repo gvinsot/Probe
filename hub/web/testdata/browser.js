@@ -21,7 +21,6 @@ let fixtureActivities = [
 let fixtureFeedback = [];
 let fixtureNewCommits = [];
 let fixtureReposGate;
-let fixtureReportGate;
 let fixtureReportError = false;
 let fixtureRuns = [fixtureRun('normal'), fixtureRun('plan')];
 window.EventSource = class { constructor() { fixtureStream = this; } };
@@ -77,7 +76,6 @@ window.fetch = async (path, init) => {
   }
   else if (path.includes('/runs')) data = { runs: fixtureRuns };
   else if (path.includes('/reports/')) {
-    if (fixtureReportGate) await fixtureReportGate;
     if (fixtureReportError) throw new Error('cached result unavailable');
     const variant = new URL(path, location.origin).searchParams.get('variant');
     const run = fixtureRun(variant);
@@ -288,23 +286,22 @@ window.addEventListener('DOMContentLoaded', async () => {
     await settle();
     assert(document.getElementById('report-head').textContent.includes('cccccccc'), 'uncached commit stays selected');
     assert(document.getElementById('filters').classList.contains('hidden'), 'previous report cleared');
-    for (const card of document.querySelectorAll('.comparison-card')) {
-      card.querySelector('button').click();
-      await settle();
-    }
+    // Without an analysis, the commit only offers to run one: no Analysis or Plan cards.
+    const commitActions = document.getElementById('commit-actions');
+    assert(!commitActions.classList.contains('hidden') && commitActions.querySelectorAll('button').length === 1, 'a single action for an unanalyzed commit');
+    assert(!document.getElementById('plan-intent') && !document.getElementById('report-dialog') && !document.querySelector('.comparison-card'), 'no Analysis or Plan cards');
+    document.getElementById('run-analysis').click();
+    await settle();
     const requests = fixtureCalls.filter((call) => call.path.endsWith('/analyze'));
-    assert(requests.length === 2, 'both analyses can be launched');
-    for (let i = 0; i < 2; i++) {
-      const body = JSON.parse(requests[i].init.body);
-      assert(body.commit === fixtureSHA('c') && body.variant === (i ? 'plan' : 'normal'), 'exact selected commit and variant');
-      assert(requests[i].init.headers['X-Probe-CSRF'] === 'csrf', 'analysis includes CSRF');
-    }
-    for (const variant of ['normal', 'plan']) {
-      const pending = state.pending.get(pendingKey('repo', fixtureSHA('c'), variant));
-      assert(pending && pending.status === 'queued' && runTimestamp(pending.queued_at), 'launched attempt followed by its server enqueue time');
-      fixtureStream.onmessage({ data: JSON.stringify({ type: 'run', repo_key: 'repo', run: { commit: fixtureSHA('c'), variant, status: 'done', queued_at: pending.queued_at } }) });
-      assert(!state.pending.has(pendingKey('repo', fixtureSHA('c'), variant)), 'a finished event closes the attempt');
-    }
+    assert(requests.length === 1, 'the analysis is launched');
+    const body = JSON.parse(requests[0].init.body);
+    assert(body.commit === fixtureSHA('c') && body.variant === 'normal', 'exact selected commit and variant');
+    assert(requests[0].init.headers['X-Probe-CSRF'] === 'csrf', 'analysis includes CSRF');
+    const pending = state.pending.get(pendingKey('repo', fixtureSHA('c'), 'normal'));
+    assert(pending && pending.status === 'queued' && runTimestamp(pending.queued_at), 'launched attempt followed by its server enqueue time');
+    assert(document.getElementById('run-analysis').disabled && document.getElementById('run-analysis').textContent === 'Analysis queued…', 'the button shows the queued attempt');
+    fixtureStream.onmessage({ data: JSON.stringify({ type: 'run', repo_key: 'repo', run: { commit: fixtureSHA('c'), variant: 'normal', status: 'done', queued_at: pending.queued_at } }) });
+    assert(!state.pending.has(pendingKey('repo', fixtureSHA('c'), 'normal')), 'a finished event closes the attempt');
     state.recent.get('repo').delete(fixtureSHA('c')); // Keep the period fixtures below unchanged.
     fixtureStream.onmessage({ data: JSON.stringify({ type: 'report', repo_key: 'repo', commit: fixtureSHA('a'), run: fixtureRun('normal') }) });
     await settle();
@@ -312,10 +309,7 @@ window.addEventListener('DOMContentLoaded', async () => {
     assert(document.getElementById('report-head').textContent.includes('cccccccc'), 'live results do not steal selection');
     document.querySelector('.commit-open').click();
     await settle();
-    const cards = document.querySelectorAll('.comparison-card');
-    assert(cards.length === 2 && cards[1].contains(document.getElementById('plan-intent')), 'both mode cards, intent in the Plan card');
-    assert(cards[0].querySelector('.card-head .chip') && cards[1].querySelector('.card-head .chip'), 'verdict on the title line');
-    assert(cards[1].querySelector('.card-head label[for="plan-intent"]').textContent === 'Describe the task to see what impacts where planned', 'intent prompt beside the Plan title');
+    assert(commitActions.classList.contains('hidden') && !document.getElementById('run-analysis'), 'an analyzed commit shows its report only');
     assert(!document.getElementById('filters').classList.contains('hidden'), 'cached report shown on commit click');
     const commitLine = document.querySelector('#report-head .report-commit-line');
     assert(commitLine.querySelector('#selected-commit') && commitLine.querySelector('a').textContent === 'Open the commit', 'Open the commit beside the commit title');
@@ -323,7 +317,6 @@ window.addEventListener('DOMContentLoaded', async () => {
     assert(document.querySelector('#report-head .verdict').textContent === 'Human review required', 'report verdict rendered');
     assert(document.querySelector('#report-head .verdict').classList.contains('tone-high'), 'report verdict tinted by the most severe alert');
     assert(document.getElementById('mode-label').textContent.includes('AI review (read-only)'), 'deployment mode shown');
-    assert(cards[0].textContent.includes('AI review (read-only)'), 'actual analysis mode shown');
     assert(document.getElementById('report-head').textContent.includes('no code or tests were executed'), 'read-only report scope shown');
     const actualMode = state.run.mode;
     state.run.mode = 'lint'; renderReport();
@@ -381,7 +374,6 @@ window.addEventListener('DOMContentLoaded', async () => {
     state.showDismissed = false;
     state.view = plainView; renderReport();
     assert(!document.querySelector('#extras details.dismissed') && !document.querySelector('#report-head .reviewer-summary'), 'no AI sections without a reviewer');
-    assert(cards[0].querySelector('h3').textContent === 'Analysis', 'analysis card title');
     const severity = document.getElementById('severity');
     assert(document.querySelector('.topbar').contains(severity), 'severity threshold in the top bar');
     assert(severity.type === 'range', 'severity threshold uses a horizontal slider');
@@ -417,66 +409,13 @@ window.addEventListener('DOMContentLoaded', async () => {
     severity.value = '2'; severity.dispatchEvent(new Event('input'));
     assert(document.querySelector('#report-head .verdict').textContent === 'Human review required', 'high review flagged at high');
     severity.value = '0'; severity.dispatchEvent(new Event('input'));
-    cards[1].querySelectorAll('button')[1].click();
-    await settle();
-    assert(document.querySelector('#plan-result a').href.endsWith('?variant=plan'), 'download selected variant');
-    assert(document.getElementById('plan-result').textContent.includes('Generated plan'), 'stored plan visible');
-    const reportDialog = document.getElementById('report-dialog');
-    const reportClose = document.getElementById('report-dialog-close');
-    const viewButton = (variant) => document.querySelector('[data-report-variant="' + variant + '"]');
-    const assertReportOpen = () => {
-      assert(reportDialog.open && reportDialog.matches(':modal'), 'cached result stays in a native modal');
-      assert(reportDialog.contains(document.getElementById('report-pane')), 'live report is inside the dialog');
-    };
-    assertReportOpen();
-    assert(reportDialog.contains(document.getElementById('plan-result')), 'plan shown inside modal');
-    reportClose.click();
-    assert(!reportDialog.open && document.activeElement === viewButton('plan'), 'Close restores focus to the selected variant');
-    assert(document.getElementById('splitter').nextElementSibling.id === 'report-pane', 'closing restores the inline report');
-
-    let releaseReport;
-    fixtureReportGate = new Promise((resolve) => { releaseReport = resolve; });
-    viewButton('normal').click();
-    await settle();
-    assertReportOpen();
-    assert(document.getElementById('report-empty').textContent === 'Loading cached result…', 'modal stays open while loading');
-    releaseReport(); fixtureReportGate = null;
-    await settle();
-    assertReportOpen();
-    assert(reportDialog.querySelector('.verdict').textContent === 'Human review required', 'analysis rendered in modal');
-    assert(reportDialog.querySelector('#download').href.endsWith('/raw'), 'analysis download remains usable');
-    reportClose.focus();
-    document.getElementById('analyses').focus();
-    assert(document.activeElement === reportClose, 'background is inert while report is modal');
-    reportDialog.click();
-    assertReportOpen();
-    fixtureStream.onmessage({ data: JSON.stringify({ type: 'report', repo_key: 'repo', commit: fixtureSHA('a'), run: fixtureRun('normal') }) });
-    await settle();
-    await refreshDashboard(true);
-    assertReportOpen();
-    assert(reportDialog.querySelector('.verdict'), 'live and periodic updates preserve the displayed report');
-    reportDialog.dispatchEvent(new Event('cancel', { cancelable: true }));
-    assert(!reportDialog.open && document.activeElement === viewButton('normal'), 'Escape cancellation closes and restores focus after button replacement');
-
     fixtureReportError = true;
-    viewButton('normal').click();
-    await settle();
-    assertReportOpen();
-    assert(reportDialog.textContent.includes('cached result unavailable'), 'load errors stay visible inside modal');
+    await loadReport();
+    assert(document.getElementById('report-empty').textContent.includes('cached result unavailable'), 'load errors stay visible');
     fixtureReportError = false;
-    reportClose.click();
-    fixtureReportGate = new Promise((resolve) => { releaseReport = resolve; });
-    viewButton('normal').click();
-    reportClose.click();
-    releaseReport(); fixtureReportGate = null;
-    await settle();
-    assert(!reportDialog.open, 'late response cannot reopen a dismissed modal');
-    viewButton('plan').click();
-    await settle();
-    assertReportOpen();
-    assert(reportDialog.textContent.includes('Generated plan'), 'plan can be reopened after analysis and error');
-    assert(fixtureCalls.filter((call) => call.path.endsWith('/analyze')).length === 2, 'opening cached results never launches an analysis');
-    reportClose.click();
+    await loadReport();
+    assert(document.querySelector('#report-head .verdict').textContent === 'Human review required' && document.getElementById('download').href.endsWith('/raw'), 'the report and its download come back');
+    assert(fixtureCalls.filter((call) => call.path.endsWith('/analyze')).length === 1, 'loading cached results never launches an analysis');
     // An alert singles out only the lines it is about, and says why it singles out none.
     const diffFile = { path: 'hub/api.go', status: 'M', additions: 1, deletions: 0, hunks: [{ old_start: 1, old_lines: 1, new_start: 1, new_lines: 2, lines: [
       { kind: 'context', old_line: 1, new_line: 1, content: 'package hub' }, { kind: 'add', new_line: 2, content: 'if err != nil {}' }] }] };

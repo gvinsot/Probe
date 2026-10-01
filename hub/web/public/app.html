@@ -96,14 +96,7 @@
           </div>
 
           <div class="repo-info hidden" id="repo-info"></div>
-          <section class="panel-body hidden" id="commit-actions" aria-label="Selected commit">
-            <!-- Moved into the Plan card, before its "Run plan" button, on each render. -->
-            <div class="plan-intent-field" id="plan-intent-field">
-              <textarea class="search" id="plan-intent" rows="1" maxlength="65536"></textarea>
-            </div>
-            <div class="comparison" id="comparison"></div>
-          </section>
-          <div class="panel-body hidden" id="plan-result"></div>
+          <section class="panel-body hidden" id="commit-actions" aria-label="Selected commit"></section>
 
           <div class="filters hidden" id="filters">
             <div class="filter-row">
@@ -124,14 +117,6 @@
   </main>
 
   <div class="toast" id="toast" aria-live="polite"></div>
-  <dialog class="modal-card report-dialog" id="report-dialog" aria-labelledby="report-dialog-title">
-    <header>
-      <h3 id="report-dialog-title">Cached result</h3>
-      <span class="spacer"></span>
-      <button class="btn quiet small" id="report-dialog-close" autofocus>Close</button>
-    </header>
-    <div id="report-dialog-body"></div>
-  </dialog>
   <div class="modal hidden" id="modal" role="dialog" aria-modal="true" aria-labelledby="modal-title">
     <div class="modal-card">
       <header>
