@@ -46,7 +46,6 @@
       <output id="severity-value" for="severity">low</output>
     </div>
     <span class="chip review-count" id="review-count" role="status"></span>
-    <button class="btn quiet small" id="sync">Refresh repositories</button>
     <!-- Account-wide settings and tools, each in its own dialog. -->
     <details class="menu" id="settings-menu">
       <summary class="btn quiet small" id="settings">Settings</summary>
@@ -66,6 +65,7 @@
         <h2>Repositories</h2>
         <span class="spacer"></span>
         <span class="chip" id="repo-count">0</span>
+        <button class="btn quiet small" id="sync" title="List the repositories of your account again">Refresh</button>
         <button class="btn quiet small jump-next" id="jump-from-repos" aria-label="Scroll to the next panel" title="Next panel">↓</button>
       </div>
       <div class="panel-body">
@@ -78,7 +78,7 @@
       </div>
       <div class="notice hidden" id="hooks-outdated" role="alert"></div>
       <ul class="repo-list" id="repos"></ul>
-      <div class="empty hidden" id="repos-empty">No repository yet. Use “Refresh repositories”.</div>
+      <div class="empty hidden" id="repos-empty">No repository yet. Use “Refresh”.</div>
     </section>
 
     <section class="panel" id="report-panel" aria-label="Report">

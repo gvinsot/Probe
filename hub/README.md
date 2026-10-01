@@ -575,7 +575,7 @@ for both variants and a dashboard interaction test. The latter uses an installed
 `chromium` in headless mode and skips explicitly if Chromium is unavailable;
 its API fixtures need no forge or model credentials.
 
-The **Settings** menu beside **Refresh repositories** gathers the
+The **Settings** menu of the top bar gathers the
 account-wide dialogs: **Analyses**, **Agent access** and **Language**.
 
 **Language** chooses the language the AI reviewer writes this account's reports

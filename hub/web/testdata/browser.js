@@ -107,7 +107,7 @@ window.addEventListener('DOMContentLoaded', async () => {
     await settle();
     // Analyses, Agent access and Language share the Settings menu.
     const settingsMenu = document.getElementById('settings-menu');
-    assert([...settingsMenu.querySelectorAll('.menu-item')].map((b) => b.textContent).join('|') === 'Analyses|Agent access|Language' && settingsMenu.previousElementSibling.id === 'sync', 'settings menu beside repository refresh');
+    assert([...settingsMenu.querySelectorAll('.menu-item')].map((b) => b.textContent).join('|') === 'Analyses|Agent access|Language' && !document.querySelector('.topbar #sync') && document.querySelector('.repo-panel .panel-head #sync').textContent === 'Refresh', 'settings menu in the top bar, repository refresh at the head of the Repositories column');
     document.getElementById('settings').click();
     await settle();
     assert(settingsMenu.open, 'the menu opens');
