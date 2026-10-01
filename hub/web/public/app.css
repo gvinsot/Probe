@@ -365,6 +365,9 @@ select, .select {
 .modal-card header { display: flex; align-items: center; gap: 10px; padding: 14px; border-bottom: 1px solid var(--line); }
 .modal-card header h3 { margin: 0; font-size: 1rem; }
 .modal-card .body { padding: 14px; display: grid; gap: 12px; }
+/* Review settings: a section title sits close to the note it introduces. */
+.modal-card .body .settings-title { margin: 6px 0 -8px; font-size: 0.95rem; }
+.modal-card .body .settings-title + .note { margin-top: 0; }
 .modal-card footer { display: flex; justify-content: flex-end; gap: 8px; padding: 14px; border-top: 1px solid var(--line); }
 .report-dialog { width: min(1100px, calc(100% - 40px)); padding: 0; color: var(--text); }
 .report-dialog::backdrop { background: rgba(8, 12, 18, 0.55); }

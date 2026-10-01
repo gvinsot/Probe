@@ -619,12 +619,14 @@ function openRulesDialog(repo) {
   text.value = repo.coding_rules || '';
   text.setAttribute('aria-label', 'Coding rules');
   const rulesTitle = document.createElement('h3');
+  rulesTitle.className = 'settings-title';
   rulesTitle.textContent = 'Coding rules';
   body.insertBefore(rulesTitle, intro);
   body.appendChild(text);
 
   // Learning from team feedback: on unless the owner switched it off.
   const learningTitle = document.createElement('h3');
+  learningTitle.className = 'settings-title';
   learningTitle.textContent = 'Learning from team feedback';
   body.appendChild(learningTitle);
   const learningNote = document.createElement('p');
@@ -685,6 +687,7 @@ function openRulesDialog(repo) {
   // Monitoring: stopping removes the webhook, so later commits are no longer analyzed.
   if (repo.monitored) {
     const monitoringTitle = document.createElement('h3');
+    monitoringTitle.className = 'settings-title';
     monitoringTitle.textContent = 'Monitoring';
     body.appendChild(monitoringTitle);
     const monitoringNote = document.createElement('p');
