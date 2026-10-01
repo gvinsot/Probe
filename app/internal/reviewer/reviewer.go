@@ -263,7 +263,7 @@ func run(ctx context.Context, o Options, r *model.Report, h toolHarness, role ag
 		}
 	}
 	totalCalls, reminders := 0, 0
-	usedIDs := map[string]bool{}
+	var ids toolCallIDs
 	for iteration := 0; iteration < o.MaxIterations; iteration++ {
 		if err := ctx.Err(); err != nil {
 			return fmt.Errorf("reviewer deadline or cancellation: %w", err)
@@ -300,14 +300,13 @@ func run(ctx context.Context, o Options, r *model.Report, h toolHarness, role ag
 			r.Unverified = append(r.Unverified, "Reviewer tool-call budget exhausted; investigation is incomplete.")
 			return nil
 		}
+		if err := ids.normalize(&m); err != nil {
+			return fmt.Errorf("reviewer returned an invalid tool call: %w", err)
+		}
 		messages = append(messages, m)
 		for _, call := range m.ToolCalls {
 			callStarted := time.Now()
 			totalCalls++
-			if call.ID == "" || len(call.ID) > 200 || usedIDs[call.ID] || call.Type != "function" {
-				return errors.New("reviewer returned an invalid tool call")
-			}
-			usedIDs[call.ID] = true
 			var result json.RawMessage
 			localCall := false
 			rejected := !allowed[call.Function.Name]

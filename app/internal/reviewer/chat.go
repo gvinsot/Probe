@@ -14,6 +14,7 @@ import (
 
 	"github.com/gvinsot/Probe/app/internal/harness"
 	"github.com/gvinsot/Probe/app/internal/model"
+	"github.com/gvinsot/Probe/app/internal/redact"
 )
 
 // errInputBudget reports a request larger than Options.MaxInputBytes; it is
@@ -60,6 +61,39 @@ func requestError(err error, elapsed, limit time.Duration) error {
 		return fmt.Errorf("reviewer endpoint gave no response within %s (reviewer timeout %s); the model may be slow or overloaded", elapsed.Round(time.Second), limit)
 	}
 	return errors.New("reviewer request failed (transport error or prohibited redirect)")
+}
+
+// toolCallIDs gives every tool call of a session a distinct ID. Providers
+// behind OpenAI-compatible gateways omit the ID or the type, or restart their
+// numbering (call_0) at every turn; each result must still answer its own
+// call, so an absent, oversized or already used ID is replaced by a local one
+// before the message joins the conversation.
+type toolCallIDs struct {
+	used map[string]bool
+	next int
+}
+
+// normalize rewrites the tool calls of m in place. A call whose type is set
+// to anything but function is an error.
+func (ids *toolCallIDs) normalize(m *message) error {
+	if ids.used == nil {
+		ids.used = map[string]bool{}
+	}
+	for i := range m.ToolCalls {
+		call := &m.ToolCalls[i]
+		if call.Type == "" {
+			call.Type = "function"
+		}
+		if call.Type != "function" {
+			return fmt.Errorf("tool call of unsupported type %q", redact.TruncateUTF8(call.Type, 40))
+		}
+		for call.ID == "" || len(call.ID) > 200 || ids.used[call.ID] {
+			ids.next++
+			call.ID = fmt.Sprintf("probe_call_%d", ids.next)
+		}
+		ids.used[call.ID] = true
+	}
+	return nil
 }
 
 type completionChoice struct {

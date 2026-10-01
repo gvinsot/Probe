@@ -185,6 +185,69 @@ func TestUnknownToolNeverReachesHarness(t *testing.T) {
 	}
 }
 
+// Gateways omit the call type and restart call IDs at every turn: the loop
+// gives each call its own ID, and each result answers the call it belongs to.
+func TestToolCallIDsAreMadeDistinct(t *testing.T) {
+	requests := 0
+	var last struct{ Messages []message }
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests++
+		last.Messages = nil
+		_ = json.NewDecoder(r.Body).Decode(&last)
+		untyped := call("call_0", "read_file", `{"path":"main.go"}`)
+		untyped.Type = ""
+		switch requests {
+		case 1:
+			complete(w, untyped)
+		case 2:
+			complete(w, call("call_0", "read_file", `{"path":"other.go"}`), call("", "read_file", `{"path":"x.go"}`))
+		default:
+			complete(w)
+		}
+	}))
+	defer server.Close()
+	h := &fakeHarness{}
+	if err := Run(context.Background(), Options{Endpoint: server.URL, Model: "test"}, &model.Report{}, h); err != nil {
+		t.Fatal(err)
+	}
+	if len(h.calls) != 3 {
+		t.Fatalf("harness calls %v", h.calls)
+	}
+	seen, pending := map[string]bool{}, []string{}
+	for _, m := range last.Messages {
+		for _, c := range m.ToolCalls {
+			if c.ID == "" || c.Type != "function" || seen[c.ID] {
+				t.Fatalf("call sent back as %+v", c)
+			}
+			seen[c.ID] = true
+			pending = append(pending, c.ID)
+		}
+		if m.Role == "tool" {
+			if len(pending) == 0 || m.ToolCallID != pending[0] {
+				t.Fatalf("result %q does not answer the pending call %v", m.ToolCallID, pending)
+			}
+			pending = pending[1:]
+		}
+	}
+	if len(seen) != 3 || len(pending) != 0 {
+		t.Fatalf("calls %v, unanswered %v", seen, pending)
+	}
+}
+
+func TestToolCallOfAnotherTypeIsRejected(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		c := call("a", "read_file", `{}`)
+		c.Type = "code_interpreter"
+		complete(w, c)
+	}))
+	defer server.Close()
+	h := &fakeHarness{}
+	err := Run(context.Background(), Options{Endpoint: server.URL, Model: "test"}, &model.Report{}, h)
+	if err == nil || !strings.Contains(err.Error(), `unsupported type "code_interpreter"`) || len(h.calls) != 0 {
+		t.Fatalf("err=%v calls=%v", err, h.calls)
+	}
+}
+
 func TestHTTPErrorDoesNotEchoProviderBody(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusUnauthorized)

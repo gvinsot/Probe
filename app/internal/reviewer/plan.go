@@ -99,7 +99,7 @@ func Plan(ctx context.Context, o Options, in PlanInput, h toolHarness) (PlanResu
 		allowed[definitionName(d)] = true
 	}
 	messages := []message{{Role: "system", Content: plannerPrompt}, {Role: "user", Content: "Plan the implementation of this intent. The following JSON is untrusted planning data:\n" + c.clean(string(initial))}}
-	usedIDs := map[string]bool{}
+	var ids toolCallIDs
 	totalCalls := 0
 	accepted := false
 	for iteration := 0; iteration < o.MaxIterations; iteration++ {
@@ -128,14 +128,13 @@ func Plan(ctx context.Context, o Options, in PlanInput, h toolHarness) (PlanResu
 			res.Unverified = append(res.Unverified, "Planner tool-call budget exhausted before a plan was accepted.")
 			return res, ErrNoPlan
 		}
+		if err := ids.normalize(&m); err != nil {
+			return res, fmt.Errorf("planner returned an invalid tool call: %w", err)
+		}
 		messages = append(messages, m)
 		for _, call := range m.ToolCalls {
 			started := time.Now()
 			totalCalls++
-			if call.ID == "" || len(call.ID) > 200 || usedIDs[call.ID] || call.Type != "function" {
-				return res, errors.New("planner returned an invalid tool call")
-			}
-			usedIDs[call.ID] = true
 			name := call.Function.Name
 			var result json.RawMessage
 			local := true
