@@ -28,7 +28,7 @@ When a change touches a TypeScript/JavaScript (`.ts`, `.tsx`, `.mts`, `.cts`, `.
 - Calls are identifiers followed by `(`. A call is linked **by name** to the same-named declarations of the same language: `this.`/`self.` calls to the caller's own class first, `Module.f`/`module::f`/`Type::f` to the declaring file or type, plain calls to the same file first. A name with more than 3 candidates, or a common method name (`get`, `push`, `map`, `unwrap`...) called on a value of unknown type, is recorded as a name match only (reviewer tools), never linked. Paths through external types (`Vec::new`) are not linked.
 - Changed functions are compared per file (following renames) and name, by the token digests of their signature and body.
 
-Links from the lexical index carry the resolution `name`, the `impacted_caller` evidence says "Lexical index (approximate, linked by name only)", and reviewer tools answer with the method `lexical_name_index`. The section lists `languages` (for example `["go", "python"]`) whenever such files changed, and the fixed note gains a sentence on the lexical method. In a repository mixing Go and other languages, an unavailable Go index (for example no `go.mod`) makes the section `limited` and leaves the lexical part working. `--impacted-tests` still runs Go tests only: reaching tests of other languages are listed and reported as not run.
+Links from the lexical index carry the resolution `name`, the `impacted_caller` evidence says "Lexical index (approximate, linked by name only)", and reviewer tools answer with the method `lexical_name_index`. The section lists `languages` (for example `["go", "python"]`) whenever such files changed, and the fixed note gains a sentence on the lexical method. In a repository mixing Go and other languages, an unavailable Go index (for example no `go.mod`) makes the section `limited` and leaves the lexical part working. `--impacted-tests` runs Go tests, and with a matching template TypeScript/JavaScript tests (Vitest or Jest) or Python tests (pytest); reaching tests of the other languages are listed and reported as not run. A Python test is listed under its pytest name (`test_total`, `TestCart::test_empty`).
 
 ## Enabling and disabling
 
@@ -260,9 +260,26 @@ With a verifiable Vitest or Jest `generated_test` template (the file as one stan
 - The refinements of the two runs apply unchanged: a test that passed inside a failed run gets a run pair of its own, and a replayed baseline never supports `FAILS_ON_CANDIDATE`.
 - A title the index cannot read literally (a template literal with `${…}`, escapes, a title computed at run time, a title longer than 200 bytes, or a title containing ` > `) matches no result or no filter, so its test stays `UNVERIFIED` with a reason.
 
+### Python tests
+
+With a verifiable pytest `generated_test` template (pytest run directly on one standalone `{file}` argument, its JUnit XML report written to `{results_out}` with `--junitxml`, as for [generated tests](../README.md#verified-python-experiments)), the stage runs the Python tests the lexical index lists instead of Go tests:
+
+```json
+{
+  "commands": {
+    "generated_test": ["python", "-m", "pytest", "-p", "no:cacheprovider", "{file}", "--junitxml={results_out}"]
+  }
+}
+```
+
+- A test is named as pytest names it after the path: `test_total`, or `TestCart::test_empty` for a test in a class. Its module must be named `test_*.py` or `*_test.py` and be byte-identical in both snapshots; a test in a helper module, or a Python test with another template, gets a "not run: " reason.
+- The unit is the test module. Both runs use the template with the module replaced by the node IDs of the selected tests (`tests/test_cart.py::test_total`), which pytest runs exactly; no `-k` expression is built. The template itself may not deselect tests (`-k`, `-m`, `--deselect`, `--lf`, `--sw`).
+- Outcomes come from the JUnit report of each run, normalized as for generated tests: the testcases whose classname is one of the module's dotted path suffixes (the rootdir moves with ini files), and among them the test's name. A passed testcase is a pass, a failure or a setup error a failure, and a skip or `xfail` a skip; a collection error of the module means it did not load. A parametrized test is reported once per variant (`test_discount[0.5]`): it failed when one variant failed, passed when every variant passed, and was skipped when every variant was skipped; any other mix gives no outcome. The evidence records runner `pytest_junit`, and `report.Finalize` re-derives each status from the two recorded reports, accepting only commands that select the test's own node ID and deselect nothing.
+- The refinements of the two runs apply unchanged: a test that passed inside a failed run gets a run pair of its own, and a replayed baseline never supports `FAILS_ON_CANDIDATE`.
+
 ### Limitations
 
-- Go and, with a Vitest or Jest template, TypeScript and JavaScript tests; only the tests the index lists (20 per changed function, within 3 references); tests reached through function values, reflection or imports that are not loaded are not found.
+- Go and, with a Vitest or Jest template, TypeScript and JavaScript tests, or, with a pytest template, Python tests; only the tests the index lists (20 per changed function, within 3 references); tests reached through function values, reflection or imports that are not loaded are not found.
 - Tests of modified test files are not run here (see `--base-tests`); added test files have no baseline version.
 - One run each: a flaky test can produce `FAILS_ON_CANDIDATE`, and a failure may come from any part of the change, not only from the function that selected the test.
 - The index selects files with `linux/amd64` constraints; a test file excluded in the sandbox does not run and stays without a result.

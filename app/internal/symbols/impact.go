@@ -904,7 +904,13 @@ func (x *Index) reachingTests(id int32, mods modules, changedPaths map[string]bo
 		if d.lexical() {
 			pkg = dirOf(d.Path)
 		}
-		tests = append(tests, model.ImpactTest{Name: d.Name, Path: d.Path, Line: d.Line, Package: pkg, Depth: child.depth, Resolution: resolution, Via: via, FileChanged: changedPaths[d.Path]})
+		// A test is named as its runner names it: pytest joins classes and
+		// the function with "::".
+		name := d.Name
+		if d.Language == LangPython {
+			name = PythonTestName(name)
+		}
+		tests = append(tests, model.ImpactTest{Name: name, Path: d.Path, Line: d.Line, Package: pkg, Depth: child.depth, Resolution: resolution, Via: via, FileChanged: changedPaths[d.Path]})
 		return true
 	}
 search:

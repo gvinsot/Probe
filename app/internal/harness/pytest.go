@@ -64,6 +64,19 @@ func isPytestCommand(command []string) bool {
 	return false
 }
 
+// PytestArgs returns the arguments a pytest command passes to pytest itself:
+// what follows pytest (or py.test), or "-m pytest" after an interpreter. It
+// returns nil for a command that does not run pytest.
+func PytestArgs(command []string) []string {
+	if !isPytestCommand(command) {
+		return nil
+	}
+	if isPythonInterpreter(filepath.Base(command[0])) {
+		return command[3:]
+	}
+	return command[1:]
+}
+
 // isPythonInterpreter reports whether a command name is a Python interpreter:
 // python, python3 or python3.N.
 func isPythonInterpreter(base string) bool {
@@ -86,19 +99,21 @@ func isPythonInterpreter(base string) bool {
 // a package manager or a task runner, which run repository-defined commands),
 // the target as one standalone {file} argument and the JUnit XML report
 // written to {results_out} exactly once, through --junitxml or --junit-xml.
-// --junit-prefix, which rewrites the report's classnames, is refused.
+// --junit-prefix, which rewrites the report's classnames, and the options
+// that deselect tests (pytestSelectionOption) are refused.
 func verifiablePytestTemplate(command []string) bool {
-	if !isPytestCommand(command) {
+	args := PytestArgs(command)
+	if args == nil {
 		return false
 	}
 	targets, results, reported := 0, 0, false
-	for i, arg := range command[1:] {
+	for i, arg := range args {
 		if arg == "{file}" {
 			targets++
 		} else if strings.Contains(arg, "{file}") || strings.Contains(arg, "{package}") {
 			return false
 		}
-		if strings.HasPrefix(arg, "--junit-prefix") || strings.HasPrefix(arg, "--junitprefix") {
+		if strings.HasPrefix(arg, "--junit-prefix") || strings.HasPrefix(arg, "--junitprefix") || pytestSelectionOption(arg) {
 			return false
 		}
 		n := strings.Count(arg, config.ResultsPlaceholder)
@@ -109,11 +124,27 @@ func verifiablePytestTemplate(command []string) bool {
 		switch {
 		case arg == "--junitxml="+config.ResultsPlaceholder || arg == "--junit-xml="+config.ResultsPlaceholder:
 			reported = true
-		case arg == config.ResultsPlaceholder && i > 0 && (command[i] == "--junitxml" || command[i] == "--junit-xml"):
+		case arg == config.ResultsPlaceholder && i > 0 && (args[i-1] == "--junitxml" || args[i-1] == "--junit-xml"):
 			reported = true
 		}
 	}
 	return targets == 1 && results == 1 && reported
+}
+
+// pytestSelectionOption reports whether a pytest argument deselects tests:
+// -k and -m expressions (also attached, -kexpr), --deselect, and the cache
+// provider's --lf/--last-failed and --sw/--stepwise, which skip tests by what
+// earlier runs recorded.
+func pytestSelectionOption(arg string) bool {
+	if !strings.HasPrefix(arg, "--") && (strings.HasPrefix(arg, "-k") || strings.HasPrefix(arg, "-m")) {
+		return true
+	}
+	name, _, _ := strings.Cut(arg, "=")
+	switch name {
+	case "--deselect", "--lf", "--last-failed", "--sw", "--stepwise", "--sw-skip", "--stepwise-skip":
+		return true
+	}
+	return false
 }
 
 // isPyTestPath reports whether a path names a pytest test module by pytest's
@@ -447,3 +478,80 @@ func ValidatePytestExecution(check model.Check, p string, names []string) model.
 func capturesResults(runner string) bool {
 	return runner == RunnerJest || runner == RunnerPytest
 }
+
+// PytestTestOutcome returns "pass", "fail" or "skip" for the test named name
+// in the report of the file p, and "" when the report is unreadable or does
+// not establish one outcome. A test reported once under exactly that name
+// has its own outcome. A parametrized test is reported once per variant
+// ("name[id]") instead: it failed when a variant failed, passed when every
+// variant passed, and was skipped when every variant was skipped; any other
+// mix is "".
+func PytestTestOutcome(results, p, name string) string {
+	file, ok := pytestFile(results, p)
+	if !ok {
+		return ""
+	}
+	var exact, variants []string
+	for _, c := range file.Cases {
+		switch {
+		case c.Name == name:
+			exact = append(exact, c.Status)
+		case strings.HasPrefix(c.Name, name+"[") && strings.HasSuffix(c.Name, "]"):
+			variants = append(variants, c.Status)
+		}
+	}
+	switch {
+	case len(exact) == 1 && len(variants) == 0:
+		return pytestAction(exact[0])
+	case len(exact) > 0 || len(variants) == 0:
+		return ""
+	}
+	counts := map[string]int{}
+	for _, status := range variants {
+		counts[pytestAction(status)]++
+	}
+	switch {
+	case counts[""] > 0:
+		return ""
+	case counts["fail"] > 0:
+		return "fail"
+	case counts["pass"] == len(variants):
+		return "pass"
+	case counts["skip"] == len(variants):
+		return "skip"
+	}
+	return ""
+}
+
+func pytestAction(status string) string {
+	switch status {
+	case "passed":
+		return "pass"
+	case "failed":
+		return "fail"
+	case "skipped":
+		return "skip"
+	}
+	return ""
+}
+
+// pytestLoadFailure reports whether the report records a collection error
+// of the module p. It only selects a reason text.
+func pytestLoadFailure(results, p string) bool {
+	file, ok := pytestFile(results, p)
+	return ok && file.LoadFailed
+}
+
+// ClassifyExistingPytestTest is ClassifyExistingJestTest for a test of the
+// module p run by a verifiable pytest template: the outcomes come from the
+// recorded JUnit reports (PytestTestOutcome).
+func ClassifyExistingPytestTest(base, candidate model.Check, p, name string) (status, reason string) {
+	return classifyScriptTest(base, candidate, func(results string) string { return PytestTestOutcome(results, p, name) }, func(results string) bool { return pytestLoadFailure(results, p) })
+}
+
+// PyTestPath reports whether p names a pytest test module (test_*.py or
+// *_test.py), as the stages that run existing tests require.
+func PyTestPath(p string) bool { return isPyTestPath(p) }
+
+// PytestSelectionOption is pytestSelectionOption, for the report verifier.
+func PytestSelectionOption(arg string) bool { return pytestSelectionOption(arg) }

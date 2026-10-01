@@ -24,7 +24,7 @@ var ErrTooLarge = errors.New("file exceeds the read limit")
 
 // Planning limits. Every overflow is reported as a note, never dropped silently.
 const (
-	MaxTestFiles     = 50  // changed Go, TypeScript and JavaScript test files analyzed
+	MaxTestFiles     = 50  // changed Go, TypeScript, JavaScript and Python test files analyzed
 	MaxSelectedTests = 100 // selected test functions
 )
 
@@ -262,17 +262,27 @@ func isGoTestFile(p string) bool {
 	return true
 }
 
-// parseAnyTestFile parses a Go test file with go/parser and a TypeScript or
-// JavaScript test file with the index's lexical reader.
+// parseAnyTestFile parses a Go test file with go/parser, and a TypeScript,
+// JavaScript or Python test file with the index's lexical reader.
 func parseAnyTestFile(filename string, src []byte) (testFile, error) {
-	if strings.HasSuffix(filename, ".go") {
+	switch {
+	case strings.HasSuffix(filename, ".go"):
 		return parseTestFile(filename, src)
+	case strings.HasSuffix(filename, ".py"):
+		return parsePythonTestFile(filename, src)
 	}
 	return parseScriptTestFile(filename, src)
 }
 
-// testPaths is goTestPaths for Go test files and for TypeScript and
-// JavaScript test files (symbols.IsScriptTestPath). A rename between the two
+// isScriptOrPythonTestPath reports whether p is a TypeScript or JavaScript
+// test file (symbols.IsScriptTestPath) or a Python test module
+// (symbols.IsPythonTestPath).
+func isScriptOrPythonTestPath(p string) bool {
+	return symbols.IsScriptTestPath(p) || symbols.IsPythonTestPath(p)
+}
+
+// testPaths is goTestPaths for Go test files and for TypeScript, JavaScript
+// and Python test files (isScriptOrPythonTestPath). A rename between
 // languages is a deletion.
 func testPaths(f model.ChangedFile) (basePath, candPath string, ok bool) {
 	if basePath, candPath, ok := goTestPaths(f); ok {
@@ -283,20 +293,29 @@ func testPaths(f model.ChangedFile) (basePath, candPath string, ok bool) {
 	}
 	switch f.Status {
 	case "M":
-		if symbols.IsScriptTestPath(f.Path) {
+		if sameLanguageTest(f.Path, f.Path) {
 			return f.Path, f.Path, true
 		}
 	case "D":
-		if symbols.IsScriptTestPath(f.Path) {
+		if sameLanguageTest(f.Path, f.Path) {
 			return f.Path, "", true
 		}
 	case "R":
-		if symbols.IsScriptTestPath(f.OldPath) {
-			if symbols.IsScriptTestPath(f.Path) {
+		if isScriptOrPythonTestPath(f.OldPath) {
+			if sameLanguageTest(f.OldPath, f.Path) {
 				return f.OldPath, f.Path, true
 			}
 			return f.OldPath, "", true
 		}
 	}
 	return "", "", false
+}
+
+// sameLanguageTest reports whether p is a TypeScript, JavaScript or Python
+// test file of the same language as from.
+func sameLanguageTest(from, p string) bool {
+	if symbols.IsPythonTestPath(from) {
+		return symbols.IsPythonTestPath(p)
+	}
+	return symbols.IsScriptTestPath(from) && symbols.IsScriptTestPath(p)
 }

@@ -67,16 +67,19 @@ func verifyBaseTests(r *model.Report, l *ledger) map[string]string {
 // base_test_differential record support, or "". A go_test_json record is
 // classified from go test -json events, a jest_json record (a TS/JS test
 // run by a Vitest or Jest template on its own file) from the two recorded
-// JSON reports.
+// JSON reports, and a pytest_junit record (a Python test selected by its
+// node ID) from the two recorded JUnit reports.
 func baseTestEvidenceStatus(e model.Evidence, l *ledger) string {
 	if len(e.TestNames) != 1 || !verifiableNames(e.TestNames) || e.Path == "" || !verifiableText(e.Path) {
 		return ""
 	}
-	jest := e.Runner == harness.RunnerJest
+	jest, pytest := e.Runner == harness.RunnerJest, e.Runner == harness.RunnerPytest
 	switch {
-	case e.Runner != harness.RunnerGo && !jest:
+	case e.Runner != harness.RunnerGo && !jest && !pytest:
 		return ""
 	case jest && (!harness.ValidJSTestName(e.TestNames[0]) || !harness.ScriptTestPath(e.Path)):
+		return ""
+	case pytest && (!harness.ValidPytestTestName(e.TestNames[0]) || !harness.PyTestPath(e.Path)):
 		return ""
 	}
 	base, baseOK := l.check(e.BaseCheckID)
@@ -84,13 +87,19 @@ func baseTestEvidenceStatus(e model.Evidence, l *ledger) string {
 	if !baseOK || !hybridOK || base.Kind != model.CheckBaseTestBase || hybrid.Kind != model.CheckBaseTestHybrid || hybrid.Replayed() {
 		return ""
 	}
-	if jest && !scriptCommandTargets(base.Command, e.Path) || !jest && !baseTestCommandTargets(base.Command, e.Path) {
+	switch {
+	case jest && !scriptCommandTargets(base.Command, e.Path),
+		pytest && !pytestCommandTargets(base.Command, e.Path, e.TestNames[0]),
+		!jest && !pytest && !baseTestCommandTargets(base.Command, e.Path):
 		return ""
 	}
 	status, _ := harness.ClassifyExistingTest(base, hybrid, e.TestNames[0])
-	if jest {
+	switch {
+	case jest:
 		// The hybrid tree holds the baseline test file at its baseline path.
 		status, _ = harness.ClassifyExistingJestTest(base, hybrid, e.Path, e.TestNames[0])
+	case pytest:
+		status, _ = harness.ClassifyExistingPytestTest(base, hybrid, e.Path, e.TestNames[0])
 	}
 	switch {
 	case status == model.StatusFailsOnCandidate && positiveBaseline(base):

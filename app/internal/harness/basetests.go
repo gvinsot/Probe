@@ -74,7 +74,7 @@ const (
 	baseTestFileFailed = "not run: the baseline version of this test file could not be restored in the hybrid tree"
 	// baseTestTemplateReason is the section reason for a generated_test
 	// command that cannot establish which Go tests ran.
-	baseTestTemplateReason = "the generated_test command cannot establish which tests ran; configure it as go test {package}, or as a Vitest or Jest command that runs {file} and writes its JSON report to {results_out}"
+	baseTestTemplateReason = "the generated_test command cannot establish which tests ran; configure it as go test {package}, as a Vitest or Jest command that runs {file} and writes its JSON report to {results_out}, or a pytest command that runs {file} and writes its JUnit XML report to {results_out} (--junitxml={results_out})"
 )
 
 // baseTestNamePattern is what a selected name must look like: a Go test
@@ -248,7 +248,7 @@ func (h *Harness) auditBaseTests(started time.Time, arguments map[string]any, st
 // baseTestMaxNames names.
 type baseTestUnit struct {
 	dir    string   // package directory, slash-separated ("." for the root)
-	file   string   // the TS/JS test file reverted in the hybrid tree; "" for Go
+	file   string   // the TS/JS test file or Python test module reverted in the hybrid tree; "" for Go
 	target string   // path substituted into the generated_test template
 	names  []string // sorted, unique
 	items  []int    // indexes of the tests of these names, ascending
@@ -299,7 +299,7 @@ func (h *Harness) planBaseTestUnits(tests []model.BaseTest, runner existingRunne
 		for start := 0; start < len(names); start += baseTestMaxNames {
 			end := min(start+baseTestMaxNames, len(names))
 			u := baseTestUnit{dir: g.dir, target: g.target, names: append([]string(nil), names[start:end]...)}
-			if runner.jest() {
+			if runner.script() {
 				u.file = g.target
 			}
 			for _, name := range u.names {
@@ -337,9 +337,9 @@ func baseTestFileTemplate(command []string) bool {
 // baseTestPrecheck returns why a selected test cannot run, or "". Caller
 // holds h.mu.
 func (h *Harness) baseTestPrecheck(t model.BaseTest, runner existingRunner) string {
-	if runner.jest() {
-		if !ValidJSTestName(t.Name) || !ScriptTestPath(t.Path) {
-			return "not run: not a TypeScript or JavaScript test of a TypeScript or JavaScript test file"
+	if runner.script() {
+		if ok, reason := runner.validName(t.Name, t.Path); !ok {
+			return reason
 		}
 	} else if !baseTestNamePattern.MatchString(t.Name) || !isGoTestName(t.Name) || !strings.HasSuffix(t.Path, "_test.go") {
 		return "not run: not a Go test function of a Go test file"
@@ -351,10 +351,10 @@ func (h *Harness) baseTestPrecheck(t model.BaseTest, runner existingRunner) stri
 	if info, err := os.Lstat(p); err != nil || !info.Mode().IsRegular() {
 		return "not run: the baseline test file is not in the baseline snapshot"
 	}
-	if runner.jest() {
-		// A TS/JS test file imports the code it tests by path; a candidate
-		// that moved that code makes the file fail to load, which the
-		// report of the hybrid run records.
+	if runner.script() {
+		// A TS/JS or Python test file imports the code it tests by path or
+		// module; a candidate that moved that code makes the file fail to
+		// load, which the report of the hybrid run records.
 		return ""
 	}
 	dir := path.Dir(t.Path)
@@ -961,11 +961,11 @@ func (r *baseTestRun) baselineReason(base model.Check, p, name string) string {
 	case "pass":
 		return fmt.Sprintf("the baseline run %s failed although this test passed in it%s", base.ID, tail)
 	}
-	if r.runner.jest() {
+	if r.runner.script() {
 		if base.Status == "FAIL" && r.runner.suiteFailure(base, p) {
 			return fmt.Sprintf("the baseline test file did not load or set up in %s%s", base.ID, tail)
 		}
-		return fmt.Sprintf("the baseline report of %s does not record exactly one result of this test in the entry of its file (for example its title is computed at run time)%s", base.ID, tail)
+		return r.runner.missingResult(base.ID, tail)
 	}
 	if base.Status == "FAIL" && goBuildFailure(base.Output) {
 		return fmt.Sprintf("the baseline package did not build or set up in %s%s", base.ID, tail)
@@ -975,6 +975,9 @@ func (r *baseTestRun) baselineReason(base model.Check, p, name string) string {
 
 // baseTestDescription is the evidence description of one test.
 func baseTestDescription(t model.BaseTest, u baseTestUnit) string {
+	if u.file != "" && isPyTestPath(u.file) {
+		return truncateUTF8(Redact(fmt.Sprintf("Baseline version of %s from %s (%s), run on the baseline tree and on the candidate tree with the test module reverted to the baseline (conftest.py fixtures and other modules stay the candidate's).", t.Name, t.Path, BaseTestChangeText(t.Change))), 1024)
+	}
 	if u.file != "" {
 		return truncateUTF8(Redact(fmt.Sprintf("Baseline version of %s from %s (%s), run on the baseline tree and on the candidate tree with the test file and its snapshot file reverted to the baseline.", t.Name, t.Path, BaseTestChangeText(t.Change))), 1024)
 	}
@@ -1025,13 +1028,18 @@ func baseTestSnapshotPath(p string) string {
 }
 
 // baseTestRevertFile makes the TS/JS test file p of the hybrid tree, and its
-// snapshot file, the baseline's: the candidate entries at those paths are
+// snapshot file, or the Python test module p, the baseline's: the candidate entries at those paths are
 // removed, whatever their type, and the baseline's regular files copied. A
 // test file imports what it tests by path, so the rest of the candidate tree,
 // helpers and fixtures included, stays the candidate's. Every removed and
 // restored file is recorded in the manifest.
 func baseTestRevertFile(base, hybrid, p string, m *baseTestManifest) error {
-	for _, rel := range []string{p, baseTestSnapshotPath(p)} {
+	reverted := []string{p, baseTestSnapshotPath(p)}
+	if isPyTestPath(p) {
+		// pytest keeps no snapshot file by default.
+		reverted = reverted[:1]
+	}
+	for _, rel := range reverted {
 		src, err := safePath(base, rel)
 		if err != nil {
 			return err

@@ -132,9 +132,19 @@ With a verifiable Vitest or Jest `generated_test` template (the file as one stan
 
 With a `go test` template, TypeScript and JavaScript tests are listed with the reason "not run: not a Go test function of a Go test file", and with a Vitest or Jest template Go tests get the converse reason.
 
+## Python tests
+
+With a verifiable pytest `generated_test` template (pytest run directly on one standalone `{file}` argument, its JUnit XML report written to `{results_out}` with `--junitxml`, as for [generated tests](../README.md#verified-python-experiments)), the stage also selects the tests of changed Python test modules (`test_*.py` and `*_test.py`, pytest's default `python_files`), read with the static index's lexical reader, without running repository code:
+
+- A test is a `def test…` (also `async def`) at module level, or in a test class (`Test*`, or a subclass of a `TestCase`), named as pytest names it after the path: `test_total`, `TestCart::test_empty`, `TestCart::TestNested::test_inner`. Its digest covers its decorator lines (`@pytest.mark.parametrize(…)` included) and its tokens, each line with its indentation relative to the `def`: a comment or blank-line edit selects nothing, while moving a statement into or out of a block does.
+- `modified`, `removed`, `shared_code_changed` and `file_deleted` as for TypeScript: a token outside the tests (imports, fixtures, helpers, class headers and class-level code) selects every test of the module as `shared_code_changed`. Edits to `conftest.py` or to other modules select nothing.
+- The unit is the test module. Both runs use the template with the module replaced by the node IDs of the selected tests (`tests/test_cart.py::TestCart::test_empty`), so pytest runs exactly those; outcomes are read from pytest's JUnit report, as for [impacted tests](IMPACT.md#python-tests), and the evidence records runner `pytest_junit`.
+- The hybrid tree reverts only that test module to the baseline; `conftest.py` fixtures, helpers and configuration stay the candidate's, and a failure may come from any of them. The manifest lists the module under `files`.
+- A parametrized test is one test: it fails when one of its variants fails and passes when all of them pass; a mix of passed and skipped variants is `UNVERIFIED`. Tests whose names or parameters are computed at run time, and classes pytest collects under other names (`python_classes` or `python_functions` changed in the configuration), are not matched and stay `UNVERIFIED`.
+
 ## Limitations
 
-- Go, and TypeScript and JavaScript with a Vitest or Jest template. Python gets the lexical signals only.
+- Go, TypeScript and JavaScript with a Vitest or Jest template, and Python with a pytest template. Without a verifiable template, the lexical signals still apply.
 - A test is selected through its own file. A helper changed in another test file of the same package selects the tests of that other file, not of this one. An added test file, or a `TestMain`, `init` or variable initializer added to one file, can change how the tests of other files of the package run; only the tests of the changed file itself are selected, and an added file selects nothing.
 - Edits to `testdata` or other fixtures alone select no test: only changed `*_test.go` files select tests. When a `*_test.go` file of the same package directory is also selected, that directory's `testdata` is reverted in the hybrid tree.
 - Tests in files the change did not touch are not run (see `--impacted-tests`).

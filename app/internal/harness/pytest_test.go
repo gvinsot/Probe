@@ -93,6 +93,12 @@ func TestVerifiablePytestTemplate(t *testing.T) {
 		{[]string{"poetry", "run", "pytest", "{file}", "--junitxml={results_out}"}, false},
 		{[]string{"sh", "-c", "pytest {file} --junitxml={results_out}"}, false},
 		{[]string{"tox", "--", "{file}", "--junitxml={results_out}"}, false},
+		{[]string{"pytest", "-k", "fast", "{file}", "--junitxml={results_out}"}, false},
+		{[]string{"pytest", "-kfast", "{file}", "--junitxml={results_out}"}, false},
+		{[]string{"pytest", "-m", "not slow", "{file}", "--junitxml={results_out}"}, false},
+		{[]string{"pytest", "--deselect=a.py::t", "{file}", "--junitxml={results_out}"}, false},
+		{[]string{"pytest", "--lf", "{file}", "--junitxml={results_out}"}, false},
+		{[]string{"pytest", "--maxfail=1", "-x", "-q", "{file}", "--junitxml={results_out}"}, true},
 	} {
 		if got := verifiablePytestTemplate(tc.command); got != tc.want {
 			t.Errorf("verifiablePytestTemplate(%q) = %v, want %v", tc.command, got, tc.want)
@@ -471,5 +477,19 @@ func TestNormalizeLivePytestReport(t *testing.T) {
 	want := map[string]string{"test_pass": "passed", "test_fail": "failed", "test_skip": "skipped", "TestGroup::test_in_class": "passed"}
 	if !ok || !reflect.DeepEqual(got, want) {
 		t.Fatalf("live report read as %v, want %v\n%s", got, want, raw)
+	}
+}
+
+func TestPytestArgs(t *testing.T) {
+	for _, tc := range []struct {
+		command, want []string
+	}{
+		{[]string{"python", "-m", "pytest", "-q", "a.py"}, []string{"-q", "a.py"}},
+		{[]string{"/usr/bin/pytest", "-m", "slow", "a.py"}, []string{"-m", "slow", "a.py"}},
+		{[]string{"vitest", "run", "a.test.ts"}, nil},
+	} {
+		if got := PytestArgs(tc.command); !reflect.DeepEqual(got, tc.want) {
+			t.Errorf("PytestArgs(%q) = %q, want %q", tc.command, got, tc.want)
+		}
 	}
 }

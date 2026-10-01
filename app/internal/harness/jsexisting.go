@@ -15,6 +15,7 @@ package harness
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"path"
 	"path/filepath"
 	"regexp"
@@ -166,13 +167,19 @@ const (
 // It does not look at Replayed(): the live-baseline rule (§1.11) belongs to
 // callers and verifiers.
 func ClassifyExistingJestTest(base, candidate model.Check, p, name string) (status, reason string) {
+	return classifyScriptTest(base, candidate, func(results string) string { return JestTestOutcome(results, p, name) }, func(results string) bool { return jestSuiteFailure(results, p) })
+}
+
+// classifyScriptTest applies the ClassifyExistingJestTest rules with the
+// outcome and load-failure readers of one runner's report.
+func classifyScriptTest(base, candidate model.Check, outcome func(results string) string, loadFailed func(results string) bool) (status, reason string) {
 	if len(base.Command) == 0 || !equalStrings(base.Command, candidate.Command) {
 		return model.StatusUnverified, reasonCommandMismatch
 	}
 	if base.Status != "PASS" || base.ExitCode != 0 || base.Truncated {
 		return model.StatusUnverified, reasonBaselineNotPassed
 	}
-	if JestTestOutcome(base.Results, p, name) != "pass" {
+	if outcome(base.Results) != "pass" {
 		return model.StatusUnverified, reasonJestBaselineOutcome
 	}
 	switch candidate.Status {
@@ -185,7 +192,7 @@ func ClassifyExistingJestTest(base, candidate model.Check, p, name string) (stat
 	if candidate.Truncated {
 		return model.StatusUnverified, reasonCandidateTrunc
 	}
-	action := JestTestOutcome(candidate.Results, p, name)
+	action := outcome(candidate.Results)
 	switch candidate.Status {
 	case "FAIL":
 		if candidate.ExitCode < 1 || candidate.ExitCode > 124 {
@@ -194,7 +201,7 @@ func ClassifyExistingJestTest(base, candidate model.Check, p, name string) (stat
 		if action == "fail" {
 			return model.StatusFailsOnCandidate, reasonFailsOnCandidate
 		}
-		if jestSuiteFailure(candidate.Results, p) {
+		if loadFailed(candidate.Results) {
 			return model.StatusUnverified, reasonJestCandidateSuite
 		}
 		return model.StatusUnverified, reasonJestCandidateOutcome
@@ -247,7 +254,8 @@ func selectJSTests(command, names []string) []string {
 
 // existingRunner is the verifier of a stage that runs existing tests:
 // RunnerGo (also when empty) for go test events, RunnerJest for the JSON
-// report of a Vitest or Jest run.
+// report of a Vitest or Jest run, RunnerPytest for the JUnit XML report of a
+// pytest run.
 type existingRunner string
 
 // existingRunnerFor returns the verifier the generated_test template
@@ -256,6 +264,8 @@ func existingRunnerFor(command []string) existingRunner {
 	switch {
 	case verifiableGoTemplate(command):
 		return RunnerGo
+	case verifiablePytestTemplate(command):
+		return RunnerPytest
 	case verifiableJSTemplate(command):
 		return RunnerJest
 	}
@@ -265,10 +275,17 @@ func existingRunnerFor(command []string) existingRunner {
 // jest reports whether the runner reads Jest-compatible JSON reports.
 func (x existingRunner) jest() bool { return x == RunnerJest }
 
+// pytest reports whether the runner reads pytest JUnit XML reports.
+func (x existingRunner) pytest() bool { return x == RunnerPytest }
+
+// script reports whether the runner runs one test file per unit and reads
+// its outcomes from a captured report: Vitest, Jest or pytest.
+func (x existingRunner) script() bool { return x.jest() || x.pytest() }
+
 // evidenceRunner is the verifier recorded on evidence.
 func (x existingRunner) evidenceRunner() string {
-	if x.jest() {
-		return RunnerJest
+	if x.script() {
+		return string(x)
 	}
 	return RunnerGo
 }
@@ -276,45 +293,80 @@ func (x existingRunner) evidenceRunner() string {
 // outcome is the terminal action ("pass", "fail", "skip" or "") the check
 // records for the test name of the file p.
 func (x existingRunner) outcome(c model.Check, p, name string) string {
-	if x.jest() {
+	switch {
+	case x.jest():
 		return JestTestOutcome(c.Results, p, name)
+	case x.pytest():
+		return PytestTestOutcome(c.Results, p, name)
 	}
 	action, _ := GoTestOutcome(c.Output, name)
 	return action
 }
 
-// classify is ClassifyExistingTest or ClassifyExistingJestTest.
+// classify is ClassifyExistingTest, ClassifyExistingJestTest or
+// ClassifyExistingPytestTest.
 func (x existingRunner) classify(base, candidate model.Check, p, name string) (string, string) {
-	if x.jest() {
+	switch {
+	case x.jest():
 		return ClassifyExistingJestTest(base, candidate, p, name)
+	case x.pytest():
+		return ClassifyExistingPytestTest(base, candidate, p, name)
 	}
 	return ClassifyExistingTest(base, candidate, name)
 }
 
 // command is the generated_test template for target with a filter that
-// selects names: -run for go test, -t for Vitest and Jest.
+// selects names: -run for go test, -t for Vitest and Jest, node IDs for
+// pytest.
 func (x existingRunner) command(h *Harness, target string, names []string) []string {
-	if x.jest() {
+	switch {
+	case x.jest():
 		return selectJSTests(h.testCommand(target), names)
+	case x.pytest():
+		return selectPytestTests(h.testCommand(target), target, names)
 	}
 	return selectGoTests(h.testCommand(target), names)
 }
 
-// run records one run; a Vitest or Jest run captures its JSON report, the
+// run records one run; a Vitest, Jest or pytest run captures its report, the
 // only record of which tests ran. Caller holds h.mu.
 func (x existingRunner) run(h *Harness, ctx context.Context, kind, dir string, command []string, o runOptions) model.Check {
-	if x.jest() {
+	if x.script() {
 		return h.runWithResultsOptions(ctx, kind, dir, command, o)
 	}
 	c, _, _ := h.runWithOptions(ctx, kind, dir, command, o)
 	return c
 }
 
+// validName reports whether a selected test name and path can run with the
+// runner, and otherwise the reason it cannot.
+func (x existingRunner) validName(name, p string) (bool, string) {
+	switch {
+	case x.jest():
+		return ValidJSTestName(name) && ScriptTestPath(p), "not run: not a TypeScript or JavaScript test of a TypeScript or JavaScript test file"
+	case x.pytest():
+		return ValidPytestTestName(name) && isPyTestPath(p), "not run: not a pytest test of a Python test module (test_*.py or *_test.py)"
+	}
+	return true, ""
+}
+
+// missingResult is the reason text of a test whose result the baseline
+// report of check id does not record exactly once.
+func (x existingRunner) missingResult(id, tail string) string {
+	if x.pytest() {
+		return fmt.Sprintf("the baseline report of %s does not record exactly one result of this test, or of each of its parametrized variants, for its module (for example its parameters are computed at run time)%s", id, tail)
+	}
+	return fmt.Sprintf("the baseline report of %s does not record exactly one result of this test in the entry of its file (for example its title is computed at run time)%s", id, tail)
+}
+
 // suiteFailure reports whether a failed run did not load or build the tests
 // of p at all. It only selects a reason text.
 func (x existingRunner) suiteFailure(c model.Check, p string) bool {
-	if x.jest() {
+	switch {
+	case x.jest():
 		return jestSuiteFailure(c.Results, p)
+	case x.pytest():
+		return pytestLoadFailure(c.Results, p)
 	}
 	return goBuildFailure(c.Output)
 }

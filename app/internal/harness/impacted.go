@@ -60,7 +60,7 @@ const (
 	impactedNothingRan = "no selected test could run; see the reason of each test"
 	// impactedTemplateReason is the section reason for a generated_test
 	// command that cannot establish which Go tests ran.
-	impactedTemplateReason = "the generated_test command cannot establish which tests ran; configure it as go test {package}, or as a Vitest or Jest command that runs {file} and writes its JSON report to {results_out}"
+	impactedTemplateReason = "the generated_test command cannot establish which tests ran; configure it as go test {package}, as a Vitest or Jest command that runs {file} and writes its JSON report to {results_out}, or a pytest command that runs {file} and writes its JUnit XML report to {results_out} (--junitxml={results_out})"
 	// impactedPassedInsideFailure starts the reason of a test that passed in a
 	// candidate run that failed as a whole and got no result from a pair of its
 	// own.
@@ -308,14 +308,15 @@ func impactedFileTemplate(command []string) bool {
 // impactedPrecheck returns why a selected test cannot run, or "". files
 // caches the file checks. Caller holds h.mu.
 func (h *Harness) impactedPrecheck(t model.ImpactTest, runner existingRunner, files map[string]impactedFile) string {
-	goTest := !runner.jest()
+	goTest := !runner.script()
 	if goTest && (!impactedNamePattern.MatchString(t.Name) || !isGoTestName(t.Name) || !strings.HasSuffix(t.Path, "_test.go")) {
 		return "not run: not a Go test function of a Go test file"
 	}
-	// A TS/JS test is named by its titles; the report of its own file, not
-	// a declaration, establishes that it ran (JestTestOutcome).
-	if !goTest && (!ValidJSTestName(t.Name) || !ScriptTestPath(t.Path)) {
-		return "not run: not a TypeScript or JavaScript test of a TypeScript or JavaScript test file"
+	// A TS/JS test is named by its titles and a pytest test by its node ID
+	// after the path; the report of its own file, not a declaration,
+	// establishes that it ran (JestTestOutcome, PytestTestOutcome).
+	if ok, reason := runner.validName(t.Name, t.Path); !goTest && !ok {
+		return reason
 	}
 	f, ok := files[t.Path]
 	if !ok {
@@ -715,11 +716,11 @@ func (r *impactedRun) baselineReason(base model.Check, p, name string) string {
 	case "pass":
 		return fmt.Sprintf("the baseline run %s failed although this test passed in it%s", base.ID, tail)
 	}
-	if r.runner.jest() {
+	if r.runner.script() {
 		if base.Status == "FAIL" && r.runner.suiteFailure(base, p) {
 			return fmt.Sprintf("the baseline test file did not load or set up in %s%s", base.ID, tail)
 		}
-		return fmt.Sprintf("the baseline report of %s does not record exactly one result of this test in the entry of its file (for example its title is computed at run time)%s", base.ID, tail)
+		return r.runner.missingResult(base.ID, tail)
 	}
 	if base.Status == "FAIL" && goBuildFailure(base.Output) {
 		return fmt.Sprintf("the baseline package did not build or set up in %s%s", base.ID, tail)
@@ -741,7 +742,7 @@ func impactedDescription(t model.ImpactTest, unit string) string {
 	switch {
 	case unit == ".":
 		where = "the package at the repository root"
-	case strings.HasSuffix(unit, "_test.go") || ScriptTestPath(unit):
+	case strings.HasSuffix(unit, "_test.go") || ScriptTestPath(unit) || isPyTestPath(unit):
 		where = "test file " + unit
 	}
 	reach := ""
