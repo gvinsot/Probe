@@ -100,6 +100,7 @@ var neverRecorded = map[string]string{
 	"report.mutation.checks[].cache.recorded_duration_ms": "mutation checks are never cached",
 	"report.mutation.checks[].cache.live_runs":            "mutation checks are never cached",
 	"report.mutation.checks[].results":                    "mutation checks capture no payload",
+	"report.mutation.checks[].error_cause":                "mutation checks run no model-written test",
 }
 
 // fullyPopulatedReport is populatedReport with every field that fixture
@@ -108,7 +109,8 @@ func fullyPopulatedReport() Report {
 	r := populatedReport()
 	r.AnalysisMode = "review-read-only"
 	r.Change.Files = append(r.Change.Files, ChangedFile{Path: "assets/logo.png", Status: "M", Binary: true, Hunks: []Hunk{}})
-	r.Checks = append(r.Checks, Check{ID: "check-15", Kind: CheckExistingTest, Status: "FAIL", Command: []string{"go", "test", "-json", "./calc"}, ExitCode: 1, DurationMS: 40, Output: "{\"Action\":\"output\"}", Truncated: true})
+	r.Checks = append(r.Checks, Check{ID: "check-15", Kind: CheckExistingTest, Status: "FAIL", Command: []string{"go", "test", "-json", "./calc"}, ExitCode: 1, DurationMS: 40, Output: "{\"Action\":\"output\"}", Truncated: true},
+		Check{ID: "check-16", Kind: CheckGeneratedCandidate, Status: "ERROR", Command: []string{"go", "test", "-json", "./calc"}, ExitCode: 1, DurationMS: 30, Output: "FAIL calc [build failed]", ErrorCause: ErrorCauseTest})
 	r.Coverage.NotExecutedLines, r.Coverage.NoBlockLines, r.Coverage.NotMeasuredLines = 1, 1, 1
 	r.Coverage.Format = "go"
 	r.Coverage.Files = append(r.Coverage.Files, CoverageFile{Path: "calc/other.go", Status: "measured", AddedLines: 3, NotExecutedLines: 1, NoBlockLines: 1, NotMeasuredLines: 1})

@@ -92,7 +92,7 @@ The harness computes the changed declarations and the words of the added lines o
 
 A test that records `INTENT_TEST_FAILED` is retained as a hashed `intent_test` artifact, and the reviewer can no longer delete it. If it cannot be retained, the record is `UNVERIFIED` instead.
 
-Under the inherited generated-test rules, an intent check becomes ERROR, and every ERROR check makes the run exit 4 as in v0.2, whenever the named test did not run and end with a pass or a failure that the runner output confirms:
+Under the inherited generated-test rules, an intent check becomes ERROR whenever the named test did not run and end with a pass or a failure that the runner output confirms:
 
 - the test does not compile or cannot start (for example "[build failed]" in the Go output);
 - the output of the run contains one of the inherited setup-failure markers, such as `permission denied` or `command not found`, wherever it comes from;
@@ -100,7 +100,7 @@ Under the inherited generated-test rules, an intent check becomes ERROR, and eve
 - the `go test -json` framing is broken, a run or terminal event of the named test is missing, or the output was truncated;
 - the Jest-compatible report is missing, duplicated for the file, or unreadable.
 
-The record is then `UNVERIFIED`. Tests written against new API often fail this way; the exit code is operational, not a finding about the change. Code under test writes the same log, so it can also make its intent check ERROR (for example by printing `permission denied`), which turns an intent-test failure into an exit-4 run; it cannot turn anything into exit 1.
+The record is then `UNVERIFIED`. Tests written against new API often fail this way. Unless the output was truncated, such an ERROR is a failure of the model's test, not of the run: the check records `error_cause: "test"`, and it requests review (exit 2 with `--ci`) instead of exit 4. A Docker failure, an exit code of 125 or above, a lost log or a truncated output remain failures of the run (exit 4). Code under test writes the same log, so it can also make its intent check ERROR (for example by printing `permission denied`), which leaves the record unverified; it cannot turn anything into exit 1.
 
 ## Hypotheses
 

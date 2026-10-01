@@ -194,8 +194,16 @@ func ValidateGoExecution(check model.Check, names []string) model.Check {
 		allPass = allPass && started[name] && terminal[name] == "pass"
 		failed = failed || started[name] && terminal[name] == "fail"
 	}
-	if check.Status == "PASS" && !allPass || check.Status == "FAIL" && !failed || scanner.Err() != nil || len(packages) != 1 {
+	switch {
+	case scanner.Err() != nil:
 		check.Status = "ERROR"
+	case check.Status == "PASS" && !allPass || check.Status == "FAIL" && !failed || len(packages) != 1:
+		// The named tests did not run to a confirmed end: for a test the
+		// model wrote, a failure of that test, not of the run.
+		check.Status = "ERROR"
+		if model.ModelWrittenCheck(check.Kind) {
+			check.ErrorCause = model.ErrorCauseTest
+		}
 	}
 	return check
 }

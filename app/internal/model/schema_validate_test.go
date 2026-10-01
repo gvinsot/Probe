@@ -596,6 +596,8 @@ func schemaCases(t *testing.T) (valid, invalid map[string][]edit) {
 		"summary risk as text":                          {{"pr_summary/risks", []string{"Unverified: rounding"}}},
 		"summary risk severity":                         {{"pr_summary/risks/0/severity", "severe"}},
 		"summary focus severity":                        {{"pr_summary/review_focus/0/severity", "urgent"}},
+		"error cause on a configured check":             {{"checks/0/error_cause", "test"}},
+		"error cause on a passing check":                {{"checks/1/error_cause", "test"}},
 		"summary quote without lines":                   {{"pr_summary/changes/0/refs/1/quote", "x := 1"}},
 		"swarm of one agent":                            {{"reviewer_agents", []map[string]any{{"name": "security", "focus": "f", "status": "completed", "hypotheses": 0}}}},
 		"swarm agent status":                            {{"reviewer_agents/0/status", "done"}},

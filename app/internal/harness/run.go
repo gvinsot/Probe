@@ -278,7 +278,8 @@ func (h *Harness) record(p *runPlan) (model.Check, []byte, bool) {
 		case result.ExitCode >= 125:
 			c.Status = "ERROR"
 		case logDecidesError(p.kind) && strings.HasPrefix(p.kind, "generated_test_") && generatedSetupFailure(c.Output):
-			c.Status = "ERROR"
+			// The model's test did not build or load: its failure, not the run's.
+			c.Status, c.ErrorCause = "ERROR", model.ErrorCauseTest
 		case logDecidesError(p.kind) && strings.Contains(c.Output, "fork/exec ") && (strings.Contains(c.Output, "permission denied") || strings.Contains(c.Output, "exec format error") || strings.Contains(c.Output, "no such file or directory")):
 			c.Status = "ERROR"
 		default:
@@ -290,7 +291,7 @@ func (h *Harness) record(p *runPlan) (model.Check, []byte, bool) {
 	c.Output = truncateUTF8(c.Output, h.opts.MaxOutputBytes)
 	if c.Output != "" {
 		if err := h.saveArtifact(c.ID+".log", p.artifactKind, []byte(c.Output)); err != nil {
-			c.Status = "ERROR"
+			c.Status, c.ErrorCause = "ERROR", ""
 			c.Output = truncateUTF8(Redact("Unable to retain check output: "+err.Error()+"\n"+c.Output), h.opts.MaxOutputBytes)
 		}
 	}

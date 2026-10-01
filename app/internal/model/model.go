@@ -84,7 +84,32 @@ type Check struct {
 	// impersonate it; code executing in the sandbox can still write it.
 	Results string      `json:"results,omitempty"`
 	Cache   *CheckCache `json:"cache,omitempty"` // F7a: present only on base-side checks that were stored or replayed
+	// ErrorCause is ErrorCauseTest on an ERROR check of a model-written test
+	// that ran in the sandbox but did not build, load or run its named tests:
+	// a failure of the model's test, which leaves its evidence unverified and
+	// requests review, not a failure of the run (exit 4). Empty otherwise.
+	ErrorCause string `json:"error_cause,omitempty"`
 }
+
+// ErrorCauseTest marks an ERROR check caused by the model-written test itself.
+const ErrorCauseTest = "test"
+
+// ModelWrittenCheck reports whether a check kind runs a test the reviewer
+// model wrote.
+func ModelWrittenCheck(kind string) bool {
+	switch kind {
+	case CheckGeneratedBase, CheckGeneratedCandidate, CheckGeneratedBaseRepeat, CheckGeneratedIntent:
+		return true
+	}
+	return false
+}
+
+// Operational reports whether an ERROR check is a failure of the run (exit
+// 4): every ERROR check except one caused by a model-written test.
+func (c Check) Operational() bool {
+	return c.Status == "ERROR" && !(c.ErrorCause == ErrorCauseTest && ModelWrittenCheck(c.Kind))
+}
+
 type Evidence struct {
 	ID                string   `json:"id"`
 	Kind              string   `json:"kind"`

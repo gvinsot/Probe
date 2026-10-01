@@ -156,7 +156,7 @@ The execution flags (`--base-tests`, `--fuzz`, `--impacted-tests`, `--cache-dir`
 | 1 | High/critical hypothesis supported by differential failure. Nothing else produces 1: not divergences, not tests failing on candidate code, not intent-test failures, not surviving mutants. |
 | 2 | With `--ci`: human review required, including high-risk signals, unverified areas, incomplete checks, behavior divergences, baseline or impacted tests that fail on candidate code (`FAILS_ON_CANDIDATE`), intent-test failures, inconclusive fuzz results, incomplete mutation runs and configured stages that did not run. |
 | 3 | Invalid arguments, flag combination, output format, Git comparison or trusted configuration, including an unusable `--cache-dir` and an intent that is not UTF-8 or contains NUL. No container starts. |
-| 4 | Harness, analysis or report-writing operational error, including dependency preparation that failed or was not permitted, and a baseline-side fuzz harness that could not be built. |
+| 4 | Harness, analysis or report-writing operational error, including dependency preparation that failed or was not permitted, and a baseline-side fuzz harness that could not be built. A test the reviewer model wrote that does not build, load or run its named tests is not one: its check is ERROR with `error_cause: "test"`, its evidence stays unverified, and review is requested (2). |
 
 ## Configuration and trust
 

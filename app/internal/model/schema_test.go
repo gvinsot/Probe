@@ -560,3 +560,22 @@ func TestSchemaStructure(t *testing.T) {
 	}
 	walk("#", s.root)
 }
+
+func TestOperationalChecks(t *testing.T) {
+	cases := []struct {
+		check Check
+		want  bool
+	}{
+		{Check{Kind: CheckGeneratedBase, Status: "ERROR", ExitCode: 1, ErrorCause: ErrorCauseTest}, false},
+		{Check{Kind: CheckGeneratedIntent, Status: "ERROR", ErrorCause: ErrorCauseTest}, false},
+		{Check{Kind: CheckGeneratedCandidate, Status: "ERROR", ExitCode: 125}, true},
+		{Check{Kind: CheckGeneratedBase, Status: "ERROR", Truncated: true}, true},
+		{Check{Kind: CheckTest, Status: "ERROR", ErrorCause: ErrorCauseTest}, true}, // only model-written tests
+		{Check{Kind: CheckTest, Status: "FAIL", ExitCode: 1}, false},
+	}
+	for _, c := range cases {
+		if got := c.check.Operational(); got != c.want {
+			t.Errorf("Operational(%+v) = %v, want %v", c.check, got, c.want)
+		}
+	}
+}

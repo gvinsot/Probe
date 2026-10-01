@@ -617,8 +617,12 @@ func analyze(ctx context.Context, mode string, args []string, out, errOut io.Wri
 		r.Audit = append(r.Audit, h.Audit()[auditBefore:]...)
 		sort.SliceStable(r.Audit, func(i, j int) bool { return r.Audit[i].Time.Before(r.Audit[j].Time) })
 		r.Execution = executionSummary(h, work)
+		// A model-written test that did not build, load or run its named
+		// tests is its own failure: its evidence stays unverified and review
+		// is requested (exit 2). Every other ERROR check is a failure of the
+		// run.
 		for _, c := range r.Checks {
-			if c.Status == "ERROR" {
+			if c.Operational() {
 				operationalFailure = true
 			}
 		}

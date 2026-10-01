@@ -154,3 +154,23 @@ func TestGoProofRejectsMultiPackageAndExecutionOverrides(t *testing.T) {
 		t.Fatal("same-named test from different package accepted")
 	}
 }
+
+func TestGoExecutionMarksTheModelsTestFailures(t *testing.T) {
+	// A model-written test whose named tests never ran is its own failure;
+	// the same for a trusted test, or a truncated log, is not.
+	noRun := `{"Action":"output","Package":"p","Output":"FAIL p [build failed]\n"}` + "\n"
+	for _, c := range []struct {
+		check model.Check
+		cause string
+	}{
+		{model.Check{Kind: model.CheckGeneratedBase, Status: "FAIL", ExitCode: 1, Output: noRun}, model.ErrorCauseTest},
+		{model.Check{Kind: model.CheckGeneratedCandidate, Status: "PASS", Output: noRun}, model.ErrorCauseTest},
+		{model.Check{Kind: model.CheckBaseTestBase, Status: "FAIL", ExitCode: 1, Output: noRun}, ""},
+		{model.Check{Kind: model.CheckGeneratedBase, Status: "FAIL", ExitCode: 1, Output: noRun, Truncated: true}, ""},
+	} {
+		got := ValidateGoExecution(c.check, []string{"TestX"})
+		if got.Status != "ERROR" || got.ErrorCause != c.cause {
+			t.Errorf("%s truncated=%v: status %s cause %q, want ERROR %q", c.check.Kind, c.check.Truncated, got.Status, got.ErrorCause, c.cause)
+		}
+	}
+}

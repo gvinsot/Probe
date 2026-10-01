@@ -264,6 +264,9 @@ func ValidateJestExecution(check model.Check, path string, names []string) model
 	}
 	if file == nil {
 		check.Status = "ERROR"
+		if model.ModelWrittenCheck(check.Kind) {
+			check.ErrorCause = model.ErrorCauseTest
+		}
 		return check
 	}
 	status := map[string]string{}
@@ -286,6 +289,9 @@ func ValidateJestExecution(check model.Check, path string, names []string) model
 	}
 	if check.Status == "PASS" && !allPass || check.Status == "FAIL" && !failed {
 		check.Status = "ERROR"
+		if model.ModelWrittenCheck(check.Kind) {
+			check.ErrorCause = model.ErrorCauseTest
+		}
 	}
 	return check
 }

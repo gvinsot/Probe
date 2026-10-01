@@ -209,9 +209,11 @@
         "output": {"type": "string"},
         "truncated": {"type": "boolean"},
         "results": {"type": "string", "description": "Normalized structured output that a verifiable runner returned on the payload channel (a Jest-compatible report or a fuzz observation stream). It is kept apart from output so that log text cannot impersonate it; code executing in the sandbox can still write it."},
-        "cache": {"$ref": "#/$defs/checkCache"}
+        "cache": {"$ref": "#/$defs/checkCache"},
+        "error_cause": {"const": "test", "description": "On an ERROR check of a model-written test (generated_test_*): the test ran in the sandbox but did not build, load or run its named tests. A failure of the model's test, not of the run: it leaves its evidence unverified and requests review, never exit 4."}
       },
       "allOf": [
+        {"if": {"required": ["error_cause"]}, "then": {"properties": {"status": {"const": "ERROR"}, "kind": {"pattern": "^generated_test_"}}}},
         {"if": {"properties": {"status": {"const": "PASS"}}}, "then": {"properties": {"exit_code": {"const": 0}}}},
         {"if": {"properties": {"status": {"const": "FAIL"}}}, "then": {"properties": {"exit_code": {"minimum": 1, "maximum": 124}}}},
         {"if": {"required": ["cache"]}, "then": {"properties": {"kind": {"pattern": "_base$"}}}}
