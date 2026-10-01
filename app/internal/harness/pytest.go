@@ -234,6 +234,33 @@ type pytestCase struct {
 // junitMessageLimit bounds each kept message, as for Jest reports.
 const junitMessageLimit = 4096
 
+// junitTextLimit bounds the element text read for one message.
+const junitTextLimit = 1 << 20
+
+// junitMessage is one kept message: the element's message attribute, then the
+// end of its text (the traceback), whose last line names the file, line and
+// exception where the failure was raised. Both are redacted and bounded
+// together by junitMessageLimit; the middle of a long traceback is dropped.
+func junitMessage(head, text string) string {
+	head = truncateUTF8(Redact(strings.TrimSpace(head)), junitMessageLimit/4)
+	text = Redact(strings.TrimSpace(text))
+	if text == "" {
+		return head
+	}
+	room := junitMessageLimit - len(head) - len("\n…\n")
+	if len(text) > room {
+		cut := len(text) - room
+		for cut < len(text) && !utf8.RuneStart(text[cut]) {
+			cut++
+		}
+		text = "…\n" + text[cut:]
+	}
+	if head == "" {
+		return text
+	}
+	return head + "\n" + text
+}
+
 // junitTestCaseLimit bounds the testcases one report may hold.
 const junitTestCaseLimit = 20000
 
@@ -252,6 +279,7 @@ func normalizePytestReport(raw []byte) (string, error) {
 	report := pytestReport{Format: pytestReportFormat, TestCases: []pytestCase{}}
 	var current *pytestCase
 	var message *strings.Builder
+	head := ""
 	depth, rootSeen := 0, false
 	for {
 		token, err := decoder.Token()
@@ -288,14 +316,10 @@ func normalizePytestReport(raw []byte) (string, error) {
 				case t.Name.Local == "skipped" && current.Status == "passed":
 					current.Status = "skipped"
 				}
-				message = &strings.Builder{}
-				message.WriteString(attr(t, "message"))
+				message, head = &strings.Builder{}, attr(t, "message")
 			}
 		case xml.CharData:
-			if message != nil && message.Len() < junitMessageLimit {
-				if message.Len() > 0 && len(t) > 0 {
-					message.WriteByte('\n')
-				}
+			if message != nil && message.Len() < junitTextLimit {
 				message.Write(t)
 			}
 		case xml.EndElement:
@@ -305,8 +329,8 @@ func normalizePytestReport(raw []byte) (string, error) {
 				report.TestCases = append(report.TestCases, *current)
 				current = nil
 			case message != nil && (t.Name.Local == "failure" || t.Name.Local == "error" || t.Name.Local == "skipped"):
-				current.Messages = append(current.Messages, truncateUTF8(Redact(strings.TrimSpace(message.String())), junitMessageLimit))
-				message = nil
+				current.Messages = append(current.Messages, junitMessage(head, message.String()))
+				message, head = nil, ""
 			}
 		}
 	}
@@ -362,6 +386,9 @@ type scriptCase struct {
 	Name     string
 	TopLevel bool
 	Status   string
+	// Error marks a failure reported as an error (a fixture or setup error)
+	// rather than a failure of the test body.
+	Error    bool
 	Messages []string
 }
 
@@ -413,7 +440,7 @@ func pytestFile(results, p string) (scriptFile, bool) {
 			if status == "error" {
 				status = "failed"
 			}
-			file.Cases = append(file.Cases, scriptCase{Name: name, TopLevel: classes == "", Status: status, Messages: c.Messages})
+			file.Cases = append(file.Cases, scriptCase{Name: name, TopLevel: classes == "", Status: status, Error: c.Status == "error", Messages: c.Messages})
 			found = true
 			break
 		}
@@ -555,3 +582,57 @@ func PyTestPath(p string) bool { return isPyTestPath(p) }
 
 // PytestSelectionOption is pytestSelectionOption, for the report verifier.
 func PytestSelectionOption(arg string) bool { return pytestSelectionOption(arg) }
+
+// pytestFailureLine matches the last line of a pytest traceback: the file,
+// the line and the exception where the failure was raised.
+var pytestFailureLine = regexp.MustCompile(`^(.+):[0-9]+: ([A-Za-z_][A-Za-z0-9_.]*)$`)
+
+// pytestAssertionFailed is IntentAssertionFailed for a pytest report: the
+// module p loaded, a named top-level test failed (a setup error is not a
+// failure of the test), and every failed named test failed on an assertion
+// of p (pytestAssertionMessage).
+func pytestAssertionFailed(results, p string, names []string) bool {
+	file, ok := pytestFile(results, p)
+	if !ok || file.LoadFailed {
+		return false
+	}
+	wanted := map[string]bool{}
+	for _, n := range names {
+		wanted[n] = true
+	}
+	asserted := false
+	for _, c := range file.Cases {
+		if !c.TopLevel || !wanted[c.Name] || c.Status != "failed" {
+			continue
+		}
+		if c.Error || len(c.Messages) == 0 {
+			return false
+		}
+		for _, m := range c.Messages {
+			if !pytestAssertionMessage(m, p) {
+				return false
+			}
+		}
+		asserted = true
+	}
+	return asserted
+}
+
+// pytestAssertionMessage reports a failure message whose traceback ends at a
+// line of the module p with AssertionError (assert statements and unittest
+// assertions) or Failed (pytest.fail, and pytest.raises when the exception
+// was not raised). The traceback names the module relative to pytest's
+// rootdir, or by an absolute path. An exception of the code under test, an
+// assertion of a helper module, or a message without the default traceback
+// (--tb=no or --tb=line) is not one.
+func pytestAssertionMessage(m, p string) bool {
+	m = strings.TrimRight(m, " \t\r\n")
+	last := m[strings.LastIndexByte(m, '\n')+1:]
+	match := pytestFailureLine.FindStringSubmatch(strings.TrimSpace(last))
+	if match == nil || match[2] != "AssertionError" && match[2] != "Failed" {
+		return false
+	}
+	file := path.Clean(filepath.ToSlash(match[1]))
+	p = path.Clean(filepath.ToSlash(p))
+	return file == p || strings.HasSuffix(p, "/"+file) || strings.HasSuffix(file, "/"+p)
+}

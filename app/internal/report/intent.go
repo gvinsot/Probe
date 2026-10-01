@@ -146,8 +146,11 @@ func writeIntentSections(b *bytes.Buffer, r *model.Report) {
 				continue
 			}
 			lexical := ""
-			if e.Runner == harness.RunnerJest {
+			switch e.Runner {
+			case harness.RunnerJest:
 				lexical = "; read lexically for JavaScript/TypeScript"
+			case harness.RunnerPytest:
+				lexical = "; read lexically for Python"
 			}
 			fmt.Fprintf(b, "  Test %s (%s) failed on an assertion; names it shares with declarations the change added or modified (matched by name, not resolved%s): %s.\n", inline(e.Path), inline(strings.Join(e.TestNames, ", ")), lexical, inline(strings.Join(e.ReferencedSymbols, ", ")))
 		}

@@ -48,9 +48,9 @@ Extraction is a reading of list items, not an understanding of the intent. An in
 
 The reviewer is offered two tools only when the run has at least one criterion; without criteria, the tool list, the submit schema and the prompt are the same as without this feature.
 
-- `create_intent_test(criterion_id, path, content, description?)` registers a test for one criterion. Every `create_test` rule applies: a supported test file name, no overwrite of any snapshot path, uniquely named Go `TestX(t *testing.T)` functions, or static top-level `test("title", …)` / `it("title", …)` titles for JavaScript and TypeScript. In addition:
+- `create_intent_test(criterion_id, path, content, description?)` registers a test for one criterion. Every `create_test` rule applies: a supported test file name, no overwrite of any snapshot path, uniquely named Go `TestX(t *testing.T)` functions, static top-level `test("title", …)` / `it("title", …)` titles for JavaScript and TypeScript, or uniquely named top-level `def test_…()` functions in a `test_*.py` or `*_test.py` module for Python. In addition:
   - `criterion_id` must name a criterion that occurs exactly once;
-  - the trusted `generated_test` template must let Probe check which named tests ran: a Go template such as `["go", "test", "{package}"]`, or a Jest-compatible runner (Jest, Vitest) with `{file}` and `{results_out}`. Without one the call is refused and nothing is created, because no evidence could be recorded;
+  - the trusted `generated_test` template must let Probe check which named tests ran: a Go template such as `["go", "test", "{package}"]`, a Jest-compatible runner (Jest, Vitest) with `{file}` and `{results_out}`, or pytest with `{file}` and `--junitxml={results_out}` ([verified Python experiments](../README.md#verified-python-experiments)). Without one the call is refused and nothing is created, because no evidence could be recorded;
   - intent tests share `reviewer.max_generated_tests` with generated tests and may use at most half of it, rounded up (5 of the default 10). Deleting a test does not return its slot.
 - `run_intent_test(test_id)` stages the test in the candidate snapshot only, runs the selected named tests in one sandbox container (check kind `generated_test_intent`), removes the file again, and records one `intent_test` evidence record. The base snapshot is never touched and there is no baseline run. The run is charged to `sandbox.max_runtime_seconds` like any reviewer experiment, and it is never served from the execution cache.
 
@@ -58,7 +58,7 @@ The reviewer is offered two tools only when the run has at least one criterion; 
 
 ### Evidence statuses
 
-An `intent_test` record always carries `check_id`, `criterion_id`, `runner` (`go_test_json` or `jest_json`), `path` and `test_names`, and never a `base_check_id`. Its status is:
+An `intent_test` record always carries `check_id`, `criterion_id`, `runner` (`go_test_json`, `jest_json` or `pytest_junit`), `path` and `test_names`, and never a `base_check_id`. Its status is:
 
 | Status | When |
 | --- | --- |
@@ -70,6 +70,7 @@ What counts as an assertion failure:
 
 - **Go** (`go test -json`): a named test ends with a `fail` event, one of its output events (or a subtest's) is a `<file>:<line>: <message>` line with a non-empty message whose file is the intent test's own file, as `t.Errorf`, `t.Fatalf` and `t.Log` write, and no output event of the run contains `panic:`.
 - **Jest-compatible report**: in the report entry for exactly the intent test's file, whose file-level `message` is empty, a named top-level test is `failed` with a non-empty failure message, and every non-empty failure message of a failed named test starts (terminal color codes removed) with an assertion-error header: `AssertionError:` or `AssertionError [` (Vitest, Chai, `node:assert`), or Jest's matcher header `Error: expect(` or `Error: expect.`. A plain `Error`, a custom error class, a runtime error (`TypeError`, `ReferenceError`, …), a thrown non-error value or a test timeout, whether the code under test or the test threw it, is not an assertion failure. Other Jest-compatible runners whose assertion messages start otherwise record `UNVERIFIED`.
+- **pytest JUnit report**: in the report of the intent test's module, which did not fail to load (no collection error), a named top-level test failed (a fixture or setup `<error>` does not count), and the traceback of every failed named test ends at a line of the intent test's own module with `AssertionError` (an `assert` statement, a `unittest` assertion) or `Failed` (`pytest.fail(…)`, or `pytest.raises` when the exception was not raised): the last line of pytest's default traceback, `<module>:<line>: <exception>`, with the module relative to pytest's rootdir or absolute. An exception raised by the code under test (`ValueError`, `TypeError`, …), even through a function of the test module, an assertion inside a helper module, and a template that hides the traceback (`--tb=no`, `--tb=line`) do not count. Probe keeps the head and the end of each failure message, so a long traceback keeps that line.
 
 Code executing in the sandbox writes both channels, and code under test can throw an error whose message starts like an assertion. The rule tells kinds of failure apart; it does not authenticate them.
 
@@ -79,10 +80,11 @@ Code executing in the sandbox writes both channels, and code under test can thro
 
 - **Go**: every identifier and selector name of the test file (`go/ast`), intersected with the top-level declarations (functions, methods by method name, types, variables, constants) of the candidate's changed non-test Go files whose source range contains an added line.
 - **JavaScript and TypeScript**: identifiers read lexically from the test (outside strings and comments), intersected with top-level declarations found lexically at column 0 (`function`, `class`, `const`, `let`, `var`, `interface`, `type`, `enum`, `const enum`, `namespace`, with `export`, `default`, `declare`, `abstract` and `async` prefixes). The record's description and the Intent Test Failures entry say the match is lexical.
+- **Python**: identifiers read with the static index's Python tokenizer (outside strings, f-string text, docstrings and comments), intersected with the top-level declarations of the candidate's changed non-test `.py` files, found lexically at column 0: `def`, `async def` and `class` (with their decorator lines; a method belongs to its class), and module-level names assigned at column 0 (`RATE = …`, `LIMIT: int = …`). The description and the Intent Test Failures entry say the match is lexical.
 
 Names are matched, not resolved: a local variable that shares a changed declaration's name also matches. When the intersection is empty, the record is `UNVERIFIED` with "the intent test references no symbol the change added or modified", whether the test failed or passed: a test that touches no changed declaration says nothing about this change.
 
-Test files never link a test to the change: `_test.go` files, JavaScript and TypeScript files named `<name>.test.<ext>` or `<name>.spec.<ext>` for `.js`, `.jsx`, `.mjs`, `.cjs`, `.ts`, `.tsx`, `.mts` and `.cts`, and JavaScript and TypeScript files under a `__tests__` directory. Their declarations and added lines are not read.
+Test files never link a test to the change: `_test.go` files, JavaScript and TypeScript files named `<name>.test.<ext>` or `<name>.spec.<ext>` for `.js`, `.jsx`, `.mjs`, `.cjs`, `.ts`, `.tsx`, `.mts` and `.cts`, JavaScript and TypeScript files under a `__tests__` directory, and Python `test_*.py`, `*_test.py` and `conftest.py` files. Their declarations and added lines are not read.
 
 An `INTENT_TEST_FAILED` record additionally needs at least one referenced symbol to occur as a whole word on an added line of a changed, non-deleted, non-test file of the recorded diff. This is what `report.Finalize` can check again from the report alone. It has a consequence: when a change only edits the body of a multi-line function and the function's name is not on an added line, a failing intent test for that function stays `UNVERIFIED` ("no symbol the intent test references is named on an added line …"). Files whose path is secret-bearing or would be altered by redaction are not read for this rule, and lines are read redacted, so a name that only a redacted secret contains does not count.
 
@@ -195,13 +197,14 @@ The sections appear only when an intent was supplied. With an intent but no crit
 - `INTENT_TEST_PASSED` says nothing about whether a criterion holds. A criterion is never presented as satisfied, met, implemented, accepted or tested, and criteria are never counted as a ratio.
 - `intent_judgment` is model judgment, not evidence. It never hides, demotes or dismisses anything, and never changes a status, a severity, a review target or the exit code; an attacker-written intent can at most earn a labelled opinion next to a divergence.
 - Criteria extraction is not understanding of the intent, and "no criteria" does not mean "no requirements".
-- The Go test log and the Jest-compatible report that an intent status is read from are written by code executing in the sandbox. The assertion rule tells kinds of failure apart and does not authenticate them, so neither status is tamper-proof.
+- The Go test log, the Jest-compatible report and the pytest JUnit report that an intent status is read from are written by code executing in the sandbox. The assertion rule tells kinds of failure apart and does not authenticate them, so neither status is tamper-proof.
 
 ## Limitations
 
-- Only Go named tests and Jest-compatible reports can support a status; other runners are refused at `create_intent_test`.
+- Only Go named tests, Jest-compatible reports and pytest JUnit reports can support a status; other runners are refused at `create_intent_test`.
 - For Jest-compatible reports, only failure messages with the assertion-error headers listed above count as assertions; a runner or assertion library that words them otherwise records `UNVERIFIED`.
-- JavaScript and TypeScript symbols are matched lexically.
+- For pytest, only failures whose default traceback ends at the intent test's own module with `AssertionError` or `Failed` count as assertions.
+- JavaScript, TypeScript and Python symbols are matched lexically.
 - A change confined to a function body whose name is not on an added line cannot support `INTENT_TEST_FAILED` (see Referenced symbols).
 - There is no baseline run of an intent test, so Probe never says that a change delivered a criterion.
 - Criteria IDs are positional; editing the list renumbers them.

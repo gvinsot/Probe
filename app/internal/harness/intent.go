@@ -20,6 +20,7 @@ import (
 	"github.com/gvinsot/Probe/app/internal/acceptance"
 	"github.com/gvinsot/Probe/app/internal/model"
 	"github.com/gvinsot/Probe/app/internal/redact"
+	symbolindex "github.com/gvinsot/Probe/app/internal/symbols"
 )
 
 // Reviewer tool names of the intent tests.
@@ -65,6 +66,7 @@ const (
 	intentReasonNotRetained = "the failing intent test could not be retained as an artifact"
 	notePassed              = "a pass says nothing about whether the criterion holds"
 	noteLexicalSymbols      = "referenced symbols are matched lexically for JavaScript and TypeScript"
+	noteLexicalPython       = "referenced symbols are matched lexically for Python"
 	noteNoBaseline          = "no baseline control"
 )
 
@@ -87,6 +89,8 @@ func (h *Harness) intentRunner(t *generatedTest) (runner string, names, command 
 		return RunnerGo, t.GoTests, selectGoTests(command, t.GoTests)
 	case len(t.JSTests) > 0 && verifiableJSTemplate(template):
 		return RunnerJest, t.JSTests, command
+	case len(t.PyTests) > 0 && verifiablePytestTemplate(template):
+		return RunnerPytest, t.PyTests, command
 	}
 	return "", nil, nil
 }
@@ -164,7 +168,7 @@ func (h *Harness) runIntentTest(ctx context.Context, id string) (any, error) {
 	}
 	defer cleanup()
 	var c model.Check
-	if runner == RunnerJest {
+	if capturesResults(runner) {
 		c = h.runWithResultsOptions(ctx, model.CheckGeneratedIntent, h.candidate, command, runOptions{})
 	} else {
 		c, _, _ = h.runWithOptions(ctx, model.CheckGeneratedIntent, h.candidate, command, runOptions{})
@@ -193,7 +197,7 @@ func (h *Harness) runIntentTest(ctx context.Context, id string) (any, error) {
 		TestNames:         names,
 	}
 	if lexical {
-		e.Description += " (" + noteLexicalSymbols + ")"
+		e.Description += " (" + lexicalSymbolsNote(t.Path) + ")"
 	}
 	if status == model.StatusIntentTestPassed {
 		e.Description += " (" + notePassed + ")"
@@ -253,10 +257,14 @@ func IntentOutcome(runner string, c model.Check, path string, names, symbols []s
 func (h *Harness) referencedSymbols(ctx context.Context, t *generatedTest) (symbols []string, lexical bool) {
 	var used []string
 	language := "go"
-	if isJSTestPath(t.Path) {
+	switch {
+	case isJSTestPath(t.Path):
 		language, lexical = "js", true
 		used = acceptance.JSIdentifiers(t.Content)
-	} else {
+	case isPyTestPath(t.Path):
+		language, lexical = "py", true
+		used = symbolindex.PythonIdentifiers([]byte(t.Content))
+	default:
 		var err error
 		if used, err = acceptance.GoIdentifiers(t.Path, []byte(t.Content)); err != nil {
 			return nil, false
@@ -324,7 +332,7 @@ func (h *Harness) changedDeclarations(ctx context.Context, language string) (nam
 		if f.Binary || f.Status == "D" || intentTestFile(f.Path) || sensitivePath(f.Path) {
 			continue
 		}
-		if language == "go" && !strings.HasSuffix(f.Path, ".go") || language == "js" && !isJSSourcePath(f.Path) {
+		if language == "go" && !strings.HasSuffix(f.Path, ".go") || language == "js" && !isJSSourcePath(f.Path) || language == "py" && !strings.HasSuffix(strings.ToLower(f.Path), ".py") {
 			continue
 		}
 		added := addedLines(f)
@@ -346,9 +354,12 @@ func (h *Harness) changedDeclarations(ctx context.Context, language string) (nam
 			continue
 		}
 		var names []string
-		if language == "go" {
+		switch language {
+		case "go":
 			names = acceptance.GoChangedDeclarations(f.Path, src, added)
-		} else {
+		case "py":
+			names = symbolindex.PythonChangedDeclarations(f.Path, src, added)
+		default:
 			names = acceptance.JSChangedDeclarations(string(src), added)
 		}
 		for _, n := range names {
@@ -374,7 +385,7 @@ func (h *Harness) changedDeclarations(ctx context.Context, language string) (nam
 // __tests__ directory. A declaration or an added line of such a file never
 // links an intent test to the change.
 func intentTestFile(path string) bool {
-	if isTestPath(path) {
+	if isTestPath(path) || strings.EqualFold(filepath.Base(path), "conftest.py") {
 		return true
 	}
 	if !isJSSourcePath(path) {
@@ -532,7 +543,15 @@ var goAssertionLine = regexp.MustCompile(`^\s*([^\s:]+\.go):[0-9]+: (.*)$`)
 //     non-empty failure message, and every non-empty failure message of a
 //     failed named test starts with an assertion-error header
 //     (jsAssertionMessage): an Error or custom error thrown by the code under
-//     test, a runtime error or a timeout is not an assertion failure.
+//     test, a runtime error or a timeout is not an assertion failure;
+//   - pytest_junit: in the report of the intent test's module, which did not
+//     fail to load, a named top-level test failed (not a setup error), and
+//     the traceback of every failed named test ends at a line of the test's
+//     own module with AssertionError (assert statements, unittest
+//     assertions) or Failed (pytest.fail, pytest.raises without the
+//     exception) (pytestAssertionMessage): an exception raised by the code
+//     under test, or an assertion in a helper module, is not an assertion
+//     failure of the test.
 //
 // Code running in the sandbox writes both channels: the rule tells kinds of
 // failure apart, it does not authenticate them.
@@ -545,6 +564,8 @@ func IntentAssertionFailed(runner string, check model.Check, path string, names 
 		return goAssertionFailed(check.Output, filepath.Base(filepath.FromSlash(path)), names)
 	case RunnerJest:
 		return jestAssertionFailed(check.Results, path, names)
+	case RunnerPytest:
+		return pytestAssertionFailed(check.Results, path, names)
 	}
 	return false
 }
@@ -673,11 +694,20 @@ func intentToolDefinitions() []map[string]any {
 		return map[string]any{"type": "function", "function": map[string]any{"name": name, "description": description, "parameters": map[string]any{"type": "object", "properties": properties, "required": required, "additionalProperties": false}}}
 	}
 	return []map[string]any{
-		definition(IntentCreateTool, "Create a test for one acceptance criterion from intent_criteria. The file rules of create_test apply, and the policy must have a named-test runner whose output Probe can check for the file (Go named tests, or a Jest-compatible JSON report with static top-level test titles). The test runs on the candidate only, with no baseline control. Intent tests share the generated-test budget and may use at most half of it.",
+		definition(IntentCreateTool, "Create a test for one acceptance criterion from intent_criteria. The file rules of create_test apply, and the policy must have a named-test runner whose output Probe can check for the file (Go named tests, a Jest-compatible JSON report with static top-level test titles, or a pytest JUnit XML report with top-level test functions failing on assert statements in the test module). The test runs on the candidate only, with no baseline control. Intent tests share the generated-test budget and may use at most half of it.",
 			map[string]any{"criterion_id": map[string]any{"type": "string", "pattern": `^AC-[1-9][0-9]{0,2}$`, "description": "ID of the acceptance criterion, for example AC-1"}, "path": str("New test path, e.g. pkg/probe_intent_ac1_test.go"), "content": str("Exact test source"), "description": str("What the test checks for the criterion")},
 			[]string{"criterion_id", "path", "content"}),
 		definition(IntentRunTool, "Run an intent test on the candidate snapshot only. Its intent_test evidence is INTENT_TEST_FAILED only when the named test ran and failed on an assertion of its own file and names a declaration the change added or modified (matched by name, not resolved) whose name an added line contains; INTENT_TEST_PASSED when the named test ran and passed and names at least one declaration the change added or modified, which says nothing about whether the criterion holds; UNVERIFIED otherwise.",
 			map[string]any{"test_id": str("ID returned by create_intent_test")},
 			[]string{"test_id"}),
 	}
+}
+
+// lexicalSymbolsNote is the description note of an intent test whose
+// referenced symbols were matched lexically.
+func lexicalSymbolsNote(path string) string {
+	if isPyTestPath(path) {
+		return noteLexicalPython
+	}
+	return noteLexicalSymbols
 }

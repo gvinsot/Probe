@@ -142,3 +142,75 @@ func TestIsPythonTestPath(t *testing.T) {
 		t.Fatal("PythonTestName")
 	}
 }
+
+const cartModule = `"""Cart helpers."""
+import math
+
+RATE = 0.2
+LIMIT: int = 100
+
+
+def total(prices):
+    return sum(prices)
+
+
+@cache
+def discount(amount):
+    if amount > LIMIT:
+        return amount - 10
+    return amount
+
+
+class Cart:
+    def add(self, x):
+        pass
+
+
+if __name__ == "__main__":
+    print(total([1]))
+`
+
+func TestPythonChangedDeclarations(t *testing.T) {
+	for _, tc := range []struct {
+		added []int
+		want  []string
+	}{
+		{[]int{4}, []string{"RATE"}},
+		{[]int{5}, []string{"LIMIT"}},
+		{[]int{9}, []string{"total"}},
+		{[]int{12}, []string{"discount"}}, // its decorator
+		{[]int{15}, []string{"discount"}},
+		{[]int{21}, []string{"Cart"}}, // a method belongs to its class
+		{[]int{24, 25}, nil},          // an if block declares nothing
+		{[]int{1, 2}, nil},            // docstring and import
+		{[]int{4, 9, 21}, []string{"Cart", "RATE", "total"}},
+		{nil, nil},
+	} {
+		got := PythonChangedDeclarations("shop/cart.py", []byte(cartModule), tc.added)
+		if len(got) == 0 && len(tc.want) == 0 {
+			continue
+		}
+		if strings.Join(got, ",") != strings.Join(tc.want, ",") {
+			t.Errorf("added %v: %q, want %q", tc.added, got, tc.want)
+		}
+	}
+}
+
+func TestPythonIdentifiers(t *testing.T) {
+	got := PythonIdentifiers([]byte("from shop.cart import discount  # total\n\ndef test_x():\n    assert discount(100) == 90, \"total\"\n    '''RATE'''\n    f\"{LIMIT}\"\n"))
+	want := map[string]bool{"from": true, "shop": true, "cart": true, "import": true, "discount": true, "def": true, "test_x": true, "assert": true}
+	seen := map[string]bool{}
+	for _, name := range got {
+		seen[name] = true
+	}
+	for name := range want {
+		if !seen[name] {
+			t.Errorf("missing %q in %q", name, got)
+		}
+	}
+	for _, name := range []string{"total", "RATE"} {
+		if seen[name] {
+			t.Errorf("%q from a comment or a string read as an identifier: %q", name, got)
+		}
+	}
+}

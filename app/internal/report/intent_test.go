@@ -215,6 +215,44 @@ func TestIntentFailureWithJestRunner(t *testing.T) {
 	}
 }
 
+func TestIntentFailureWithPytestRunner(t *testing.T) {
+	results := func(status, message string) string {
+		b, _ := json.Marshal(map[string]any{"format": "pytest_junit", "testcases": []any{
+			map[string]any{"classname": "tests.test_intent_ac1", "name": "test_orders_of_100_get_10_off", "status": status, "messages": []string{message}},
+		}})
+		return string(b)
+	}
+	build := func(status, message string) *model.Report {
+		r := intentProofReport()
+		r.Change.Files[0] = model.ChangedFile{Path: "shop/cart.py", Status: "M", Hunks: []model.Hunk{{Lines: []model.DiffLine{{Kind: "add", NewLine: 5, Content: "def discount(amount):"}}}}}
+		r.Checks[0].Command = []string{"python", "-m", "pytest", "tests/test_intent_ac1.py", "--junitxml=/tmp/probe-test-results.json"}
+		r.Checks[0].Output = "pytest output"
+		r.Checks[0].Results = results(status, message)
+		r.Evidence[0].Path, r.Evidence[0].Runner, r.Evidence[0].TestNames, r.Evidence[0].ReferencedSymbols = "tests/test_intent_ac1.py", "pytest_junit", []string{"test_orders_of_100_get_10_off"}, []string{"discount"}
+		return r
+	}
+	r := build("failed", "assert 100 == 90\nE   assert 100 == 90\n\ntests/test_intent_ac1.py:5: AssertionError")
+	Finalize(r, true)
+	if r.Hypotheses[0].Status != model.StatusIntentTestFailed || r.ExitCode != 2 {
+		t.Fatalf("pytest failure: %s exit %d", r.Hypotheses[0].Status, r.ExitCode)
+	}
+	if want := "(matched by name, not resolved; read lexically for Python): discount.\n"; !strings.Contains(section(t, string(Markdown(r)), "## Intent Test Failures"), want) {
+		t.Fatalf("failures section lacks %q:\n%s", want, Markdown(r))
+	}
+	for _, tc := range [][2]string{
+		{"failed", "ValueError: bad amount\n\nshop/cart.py:6: ValueError"},
+		{"failed", "AssertionError\n\ntests/helpers.py:2: AssertionError"},
+		{"failed", "assert 100 == 90"},
+		{"error", "failed on setup\n\ntests/test_intent_ac1.py:5: AssertionError"},
+	} {
+		r = build(tc[0], tc[1])
+		Finalize(r, true)
+		if r.Hypotheses[0].Status != model.StatusUnverified || len(r.IntentTestFailures) != 0 {
+			t.Fatalf("%q supported the claim: %s", tc[1], r.Hypotheses[0].Status)
+		}
+	}
+}
+
 // Finalize re-derives every intent record from one word set of the diff: many
 // records over a large diff cost one pass over its added lines, and the
 // outcome equals the per-record rule.

@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"hash"
 	"path"
+	"sort"
 	"strings"
 )
 
@@ -104,3 +105,91 @@ func digestPythonToken(h hash.Hash, t ltok, base int32) {
 	}
 	digestToken(h, t)
 }
+
+// PythonIdentifiers returns the identifiers a Python source names outside
+// string literals and comments, sorted and without duplicates. Keywords are
+// included; nothing is resolved.
+func PythonIdentifiers(src []byte) []string {
+	f := parseLexical("probe.py", src)
+	seen := map[string]bool{}
+	for _, t := range f.toks {
+		if t.kind == tokIdent {
+			seen[t.text] = true
+		}
+	}
+	out := make([]string, 0, len(seen))
+	for name := range seen {
+		out = append(out, name)
+	}
+	sort.Strings(out)
+	return out
+}
+
+// PythonChangedDeclarations returns the top-level declarations of a Python
+// module that contain one of the added lines (1-based): functions and
+// classes defined at column 0, with their decorator lines, and module-level
+// names assigned at column 0 (NAME = ..., NAME: type = ...). A declaration
+// spans from its first line to the line before the next top-level statement.
+// The result is sorted and without duplicates.
+func PythonChangedDeclarations(p string, src []byte, added []int) []string {
+	if len(added) == 0 {
+		return nil
+	}
+	f := parseLexical(p, src)
+	t := f.toks
+	var starts []int // first tokens of top-level logical lines
+	for i := range t {
+		if t[i].first && t[i].indent == 0 {
+			starts = append(starts, i)
+		}
+	}
+	names := map[string]bool{}
+	for k := 0; k < len(starts); k++ {
+		first := starts[k]
+		// Decorator lines belong to the definition that follows them.
+		j := k
+		for j < len(starts) && t[starts[j]].text == "@" {
+			j++
+		}
+		if j == len(starts) {
+			break
+		}
+		i := starts[j]
+		lastTok := len(t) - 1
+		if j+1 < len(starts) {
+			lastTok = starts[j+1] - 1
+		}
+		name := ""
+		switch {
+		case is(t, i, "async") && is(t, i+1, "def") && ident(t, i+2):
+			name = t[i+2].text
+		case (is(t, i, "def") || is(t, i, "class")) && ident(t, i+1):
+			name = t[i+1].text
+		case ident(t, i) && i+1 <= lastTok && (is(t, i+1, "=") || is(t, i+1, ":")):
+			name = t[i].text
+		}
+		if name != "" && pythonKeyword[name] {
+			name = ""
+		}
+		if name != "" {
+			from, to := int(t[first].line), int(t[lastTok].line)
+			for _, line := range added {
+				if line >= from && line <= to {
+					names[name] = true
+					break
+				}
+			}
+		}
+		k = j
+	}
+	out := make([]string, 0, len(names))
+	for name := range names {
+		out = append(out, name)
+	}
+	sort.Strings(out)
+	return out
+}
+
+// pythonKeyword lists the soft and hard keywords that can start a top-level
+// statement followed by ":" or "=", which are never declarations.
+var pythonKeyword = map[string]bool{"if": true, "elif": true, "else": true, "for": true, "while": true, "try": true, "except": true, "finally": true, "with": true, "match": true, "case": true, "lambda": true}
