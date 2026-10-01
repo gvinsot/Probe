@@ -208,6 +208,7 @@ func analyze(ctx context.Context, mode string, args []string, out, errOut io.Wri
 	issues := addIssueFlags(f)
 	rules := f.String("rules", "", "review: team coding rules the reviewer checks the changed code against")
 	rulesFile := f.String("rules-file", "", "review: UTF-8 file containing team coding rules")
+	reportLanguage := f.String("report-language", "", "review: natural language the reviewer writes its findings and summary in, such as French (default: English)")
 	contextOptions := addContextFlags(f)
 	knowledgePath := f.String("knowledge", knowledge.DefaultPath, "review: codebase knowledge base, read at the tip of --base and given to the reviewer, which proposes updates; \"none\" disables it")
 	feedbackFile := f.String("feedback-file", "", "review: JSON file of team feedback on earlier findings (Probe Hub writes it), used to adapt the reviewer to the team")
@@ -280,6 +281,9 @@ func analyze(ctx context.Context, mode string, args []string, out, errOut io.Wri
 		return fail(errOut, 3, "intent exceeds 64 KiB")
 	}
 	if err := issues.check(); err != nil {
+		return fail(errOut, 3, "%v", err)
+	}
+	if err := reviewer.ValidateLanguage(*reportLanguage); err != nil {
 		return fail(errOut, 3, "%v", err)
 	}
 	codingRules, err := loadCodingRules(*rules, *rulesFile)
@@ -371,6 +375,7 @@ func analyze(ctx context.Context, mode string, args []string, out, errOut io.Wri
 	}
 	reviewerOptions := reviewer.Options{Endpoint: provider.Endpoint, Model: provider.Model, APIKey: provider.APIKey, Provider: provider.Provider, Temperature: provider.Temperature, MaxIterations: cfg.Reviewer.MaxIterations, Timeout: time.Duration(cfg.Reviewer.TimeoutSeconds) * time.Second, MaxInputBytes: cfg.Reviewer.MaxInputBytes}
 	reviewerOptions.ReadOnly = *readOnly
+	reviewerOptions.Language = *reportLanguage
 	reviewerOptions.AllowInsecureHTTP = provider.AllowInsecureHTTP
 	if reviewerOptions.Swarm, err = resolveSwarm(mode, explicit, swarmOptions, cfg.Reviewer.Swarm, *useReviewer); err != nil {
 		return fail(errOut, 3, "%v", err)

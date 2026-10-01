@@ -106,6 +106,7 @@ func (s *Server) buildRoutes() http.Handler {
 	mux.HandleFunc("POST /auth/logout", s.handleLogout)
 
 	mux.HandleFunc("GET /api/me", s.handleMe)
+	mux.HandleFunc("PUT /api/settings", s.handleSettings)
 	mux.HandleFunc("GET /api/repos", s.handleRepos)
 	mux.HandleFunc("GET /api/analyses", s.handleAnalyses)
 	mux.HandleFunc("POST /api/repos/sync", s.handleSync)

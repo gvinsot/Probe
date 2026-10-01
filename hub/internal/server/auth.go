@@ -163,6 +163,8 @@ func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) {
 			"login": user.Login, "name": user.Name, "provider": user.Provider,
 			"avatar_url": user.AvatarURL, "web_url": user.WebURL,
 		},
+		"settings":         settingsOf(user),
+		"report_languages": store.ReportLanguages,
 	})
 }
 

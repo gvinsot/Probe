@@ -1133,6 +1133,53 @@ function prSummaryMarkdown(s) {
 
 /* ------------------------------------------------------- agent access -- */
 
+// openLanguageDialog chooses the account-wide language the AI reviewer writes
+// reports in. Probe's own labels, verdicts and checks stay in English.
+function openLanguageDialog() {
+  closeModal();
+  const body = el('modal-body');
+  const footer = el('modal-footer');
+  el('modal-title').textContent = 'Language';
+  body.textContent = '';
+  footer.textContent = '';
+  const intro = document.createElement('p');
+  intro.className = 'note';
+  intro.textContent = 'The AI reviewer writes its findings, the AI report and plans in this language, for every repository of this account. '
+    + 'It applies to analyses queued from now on: earlier reports keep their language until rerun. Probe\'s own labels, verdicts and check results stay in English.';
+  body.appendChild(intro);
+  const label = document.createElement('label');
+  label.className = 'row';
+  label.textContent = 'Report language ';
+  const select = document.createElement('select');
+  select.id = 'report-language';
+  for (const language of state.me?.report_languages || ['English']) {
+    const option = document.createElement('option');
+    option.value = language;
+    option.textContent = language;
+    select.appendChild(option);
+  }
+  select.value = state.me?.settings?.report_language || 'English';
+  label.appendChild(select);
+  body.appendChild(label);
+  const save = button('Save', 'btn', async () => {
+    save.disabled = true;
+    try {
+      const saved = await api('/api/settings', { method: 'PUT', body: { report_language: select.value } });
+      state.me.settings = saved.settings;
+      closeModal();
+      toast('Reports will be written in ' + saved.settings.report_language + '.');
+    } catch (err) {
+      toast(err.message, true);
+      save.disabled = false;
+    }
+  });
+  save.id = 'report-language-save';
+  footer.appendChild(button('Cancel', 'btn quiet', closeModal));
+  footer.appendChild(save);
+  el('modal').classList.remove('hidden');
+  select.focus();
+}
+
 // Agent tokens let coding agents (Claude Code, Cursor, …) use the hub's MCP
 // endpoint. A token is shown once, right after it is created.
 async function openAgentDialog() {
@@ -1300,7 +1347,7 @@ function closeModal() {
   el('modal').classList.add('hidden');
   clearInterval(activityTimer);
   activityDialogID++;
-  if (activityOpen) el('analyses').focus();
+  if (activityOpen) el('settings').focus();
   activityOpen = false;
 }
 
@@ -2834,8 +2881,15 @@ async function boot() {
     try { await api('/auth/logout', { method: 'POST' }); } catch (err) { /* ignore */ }
     window.location.replace('/index.html');
   });
-  el('analyses').addEventListener('click', openActivityDialog);
-  el('agent-access').addEventListener('click', openAgentDialog);
+  // Each item of the Settings menu closes it and opens its dialog.
+  const settingsMenu = el('settings-menu');
+  for (const [id, open] of [['analyses', openActivityDialog], ['agent-access', openAgentDialog], ['language', openLanguageDialog]]) {
+    el(id).addEventListener('click', () => { settingsMenu.open = false; open(); });
+  }
+  document.addEventListener('click', (event) => { if (!settingsMenu.contains(event.target)) settingsMenu.open = false; });
+  settingsMenu.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape' && settingsMenu.open) { settingsMenu.open = false; el('settings').focus(); }
+  });
   el('sync').addEventListener('click', async (event) => {
     event.target.disabled = true;
     try {

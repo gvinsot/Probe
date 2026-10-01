@@ -17,12 +17,16 @@ import (
 
 // analyzePlan asks the trusted CLI for a read-only proposal at the selected
 // commit's parent. Its CLI decision is displayed separately from a review.
-func (r *Runner) analyzePlan(ctx context.Context, work, base string, j Job, run *store.Run, repoName string) (*store.Record, error) {
+func (r *Runner) analyzePlan(ctx context.Context, work, base string, j Job, run *store.Run, repoName, language string) (*store.Record, error) {
 	run.Mode = "plan"
 	if os.Getenv(config.EndpointEnvName) == "" || os.Getenv(config.ModelEnvName) == "" {
 		return nil, fmt.Errorf("plan analysis requires a deployment-configured reviewer endpoint and model")
 	}
-	output, code, runErr := r.executeCLI(ctx, work, r.cacheHome(j), []string{"plan", "--repo", work, "--base", base, "--intent", j.Intent, "--out", ".probe", "--ci"})
+	args := []string{"plan", "--repo", work, "--base", base, "--intent", j.Intent, "--out", ".probe", "--ci"}
+	if language != "" {
+		args = append(args, "--report-language", language)
+	}
+	output, code, runErr := r.executeCLI(ctx, work, r.cacheHome(j), args)
 	data, err := readBounded(filepath.Join(work, ".probe/PLAN.json"), 4<<20)
 	if err != nil {
 		if runErr != nil {

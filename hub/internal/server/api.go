@@ -1,6 +1,7 @@
 package server
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -305,6 +306,47 @@ func (s *Server) handleRules(w http.ResponseWriter, r *http.Request) {
 	}
 	s.events.Publish(sess.UserKey, map[string]any{"type": "repo", "repo": updated.Public()})
 	writeJSON(w, http.StatusOK, map[string]any{"repo": updated.Public()})
+}
+
+// settingsOf returns the account's settings as the API shows them.
+func settingsOf(user *store.User) map[string]string {
+	return map[string]string{"report_language": cmp.Or(user.ReportLanguage, store.ReportLanguages[0])}
+}
+
+// handleSettings saves the account-wide settings. The report language applies
+// to the analyses queued afterwards; earlier reports keep theirs.
+func (s *Server) handleSettings(w http.ResponseWriter, r *http.Request) {
+	sess, _, ok := s.require(w, r)
+	if !ok {
+		return
+	}
+	var body struct {
+		ReportLanguage string `json:"report_language"`
+	}
+	if err := decodeBody(r, &body); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	language := body.ReportLanguage
+	if language == store.ReportLanguages[0] {
+		language = ""
+	}
+	if !store.ValidReportLanguage(language) {
+		writeError(w, http.StatusBadRequest, "unsupported report language")
+		return
+	}
+	var updated *store.User
+	err := s.store.UpdateUser(sess.UserKey, func(u *store.User) error {
+		u.ReportLanguage = language
+		updated = u
+		return nil
+	})
+	if err != nil {
+		s.log.Error("update settings", "error", err)
+		writeError(w, http.StatusInternalServerError, "the settings could not be saved")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"settings": settingsOf(updated)})
 }
 
 // handleMonitorOn installs the push webhook and analyzes the current tip.

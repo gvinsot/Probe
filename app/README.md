@@ -337,6 +337,17 @@ line, never from the reviewed change. A run without a reviewer (`lint`,
 `--reviewer=false`) does not record them, because nothing checked them.
 Probe Hub keeps the rules of each repository and passes them to every review.
 
+### Report language
+
+`--report-language NAME` (for example `French`, at most 40 letters, spaces,
+hyphens or parentheses) asks the reviewer model to write its prose in that
+language: hypothesis titles and explanations, judgments and the pull request
+summary. JSON keys, enum values, paths, code and the quotes Probe checks
+against the diff stay untranslated, and Probe's own text (headings, verdicts,
+check results) stays in English. The model may not follow the instruction
+perfectly; it does not change what Probe verifies. Probe Hub passes the
+language chosen in its settings.
+
 ### Learning from team feedback
 
 `--feedback-file FILE` (JSON, at most 64 KiB) gives the reviewer what the team

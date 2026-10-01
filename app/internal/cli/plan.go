@@ -53,6 +53,7 @@ func planCommand(ctx context.Context, args []string, out, errOut io.Writer, vers
 	intentFile := f.String("intent-file", "", "UTF-8 file containing the intent of the change to plan")
 	issues := addIssueFlags(f)
 	useReviewer := f.Bool("reviewer", true, "plan needs the configured provider; --reviewer=false is refused")
+	reportLanguage := f.String("report-language", "", "natural language the model writes the plan in, such as French (default: English)")
 	if err := f.Parse(args); err != nil {
 		return flagCode(err)
 	}
@@ -136,6 +137,7 @@ func planCommand(ctx context.Context, args []string, out, errOut io.Writer, vers
 	}
 	options := reviewer.Options{Endpoint: provider.Endpoint, Model: provider.Model, APIKey: provider.APIKey, Provider: provider.Provider, Temperature: provider.Temperature, MaxIterations: cfg.Reviewer.MaxIterations, Timeout: time.Duration(cfg.Reviewer.TimeoutSeconds) * time.Second, MaxInputBytes: cfg.Reviewer.MaxInputBytes}
 	options.AllowInsecureHTTP = provider.AllowInsecureHTTP
+	options.Language = *reportLanguage
 	if err := reviewer.Validate(options); err != nil {
 		return fail(errOut, 3, "%v", err)
 	}

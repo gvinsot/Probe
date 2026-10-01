@@ -182,7 +182,7 @@ func (c *chat) send(ctx context.Context, messages []message, tools []map[string]
 		ParallelToolCalls   *bool            `json:"parallel_tool_calls,omitempty"`
 		Temperature         *float64         `json:"temperature,omitempty"`
 		Provider            json.RawMessage  `json:"provider,omitempty"`
-	}{c.o.Model, messages, tools, cmp.Or(c.maxTokens, defaultMaxTokens), parallel, c.o.Temperature, c.o.Provider})
+	}{c.o.Model, localize(messages, c.o.Language), tools, cmp.Or(c.maxTokens, defaultMaxTokens), parallel, c.o.Temperature, c.o.Provider})
 	if err != nil {
 		return completionChoice{}, model.AuditEvent{}, 0, err
 	}

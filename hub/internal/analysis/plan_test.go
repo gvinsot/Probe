@@ -24,7 +24,7 @@ exit 2
 	r, _ := testRunner(t, binary)
 	work := t.TempDir()
 	run := &store.Run{}
-	rec, err := r.analyzePlan(context.Background(), work, "parent-sha", Job{Commit: strings.Repeat("a", 40), Intent: "add a graph\nwith branches"}, run, "repo")
+	rec, err := r.analyzePlan(context.Background(), work, "parent-sha", Job{Commit: strings.Repeat("a", 40), Intent: "add a graph\nwith branches"}, run, "repo", "French")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -35,7 +35,7 @@ exit 2
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(args), "--base\nparent-sha\n") || strings.Contains(string(args), "--head") || !strings.Contains(string(args), "--intent\nadd a graph\nwith branches\n") {
+	if !strings.Contains(string(args), "--base\nparent-sha\n") || strings.Contains(string(args), "--head") || !strings.Contains(string(args), "--intent\nadd a graph\nwith branches\n") || !strings.Contains(string(args), "--report-language\nFrench\n") {
 		t.Fatalf("args: %s", args)
 	}
 }
@@ -43,7 +43,7 @@ exit 2
 func TestPlanRequiresDeploymentProvider(t *testing.T) {
 	t.Setenv(config.EndpointEnvName, "")
 	r, _ := testRunner(t, "/must-not-run")
-	_, err := r.analyzePlan(context.Background(), t.TempDir(), "base", Job{}, &store.Run{}, "repo")
+	_, err := r.analyzePlan(context.Background(), t.TempDir(), "base", Job{}, &store.Run{}, "repo", "")
 	if err == nil || !strings.Contains(err.Error(), "deployment-configured") {
 		t.Fatalf("err: %v", err)
 	}

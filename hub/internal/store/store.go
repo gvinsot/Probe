@@ -19,6 +19,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -73,6 +74,18 @@ type User struct {
 	// LLMUsage is what the account consumed through the LLM gateway on its
 	// last day of use.
 	LLMUsage *LLMUsage `json:"llm_usage,omitempty"`
+	// ReportLanguage is the language the AI reviewer writes this account's
+	// reports in, one of ReportLanguages; empty is English.
+	ReportLanguage string `json:"report_language,omitempty"`
+}
+
+// ReportLanguages are the languages a report can be written in, as the CLI's
+// --report-language takes them. English, the default, is stored empty.
+var ReportLanguages = []string{"English", "French", "German", "Spanish", "Italian", "Portuguese", "Dutch", "Polish", "Japanese", "Chinese", "Korean"}
+
+// ValidReportLanguage reports whether language can be stored.
+func ValidReportLanguage(language string) bool {
+	return language == "" || slices.Contains(ReportLanguages, language)
 }
 
 // Agent token scopes: read lists repositories and reads reports; write also

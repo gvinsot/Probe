@@ -27,7 +27,8 @@ window.EventSource = class { constructor() { fixtureStream = this; } };
 window.fetch = async (path, init) => {
   fixtureCalls.push({ path, init });
   let data;
-  if (path === '/api/me') data = { authenticated: true, mode: 'review-read-only', csrf: 'csrf', user: { login: 'octocat', provider: 'github' } };
+  if (path === '/api/me') data = { authenticated: true, mode: 'review-read-only', csrf: 'csrf', user: { login: 'octocat', provider: 'github' }, settings: { report_language: 'English' }, report_languages: ['English', 'French', 'German'] };
+  else if (path === '/api/settings') data = { settings: { report_language: JSON.parse(init.body).report_language } };
   else if (path === '/api/analyses') {
     if (fixtureActivityGate) await fixtureActivityGate;
     if (fixtureActivityError) throw new Error('temporary failure');
@@ -104,8 +105,24 @@ window.addEventListener('DOMContentLoaded', async () => {
   const assert = (condition, message) => { if (!condition) throw new Error(message); };
   try {
     await settle();
+    // Analyses, Agent access and Language share the Settings menu.
+    const settingsMenu = document.getElementById('settings-menu');
+    assert([...settingsMenu.querySelectorAll('.menu-item')].map((b) => b.textContent).join('|') === 'Analyses|Agent access|Language' && settingsMenu.previousElementSibling.id === 'sync', 'settings menu beside repository refresh');
+    document.getElementById('settings').click();
+    await settle();
+    assert(settingsMenu.open, 'the menu opens');
+    document.getElementById('language').click();
+    await settle();
+    assert(!settingsMenu.open && document.getElementById('modal-title').textContent === 'Language', 'an item closes the menu and opens its dialog');
+    const languageSelect = document.getElementById('report-language');
+    assert(languageSelect.value === 'English' && languageSelect.options.length === 3, 'the account language is preselected among the choices');
+    languageSelect.value = 'French';
+    document.getElementById('report-language-save').click();
+    await settle();
+    const settingsCall = fixtureCalls.find((call) => call.path === '/api/settings');
+    assert(settingsCall && settingsCall.init.method === 'PUT' && JSON.parse(settingsCall.init.body).report_language === 'French' && settingsCall.init.headers['X-Probe-CSRF'] === 'csrf', 'saving puts the language with CSRF');
+    assert(document.getElementById('modal').classList.contains('hidden') && state.me.settings.report_language === 'French', 'the saved language is kept');
     const activityButton = document.getElementById('analyses');
-    assert(activityButton.nextElementSibling.id === 'sync', 'analyses button beside repository refresh');
     activityButton.click();
     await settle();
     const activityText = () => document.getElementById('activity-list').textContent;
@@ -133,7 +150,7 @@ window.addEventListener('DOMContentLoaded', async () => {
     fixtureActivityGate = new Promise((resolve) => { releaseActivity = resolve; });
     document.querySelector('#modal-footer button').click();
     document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
-    assert(document.getElementById('modal').classList.contains('hidden') && document.activeElement === activityButton, 'Escape closes modal and restores focus');
+    assert(document.getElementById('modal').classList.contains('hidden') && document.activeElement === document.getElementById('settings'), 'Escape closes modal and returns focus to the Settings menu');
     document.getElementById('modal-body').textContent = 'Another dialog';
     releaseActivity();
     fixtureActivityGate = null;

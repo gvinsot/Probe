@@ -438,7 +438,7 @@ directly: find a repository, trigger a review, wait for it, read the
 findings, give feedback on them, rerun an analysis, and manage the review
 context (coding rules, learning from feedback).
 
-**Connect.** In the dashboard, open **Agent access**, name a token, pick its
+**Connect.** In the dashboard, open **Settings → Agent access**, name a token, pick its
 scope and lifetime, and copy it: it is shown once. Then:
 
 ```sh
@@ -509,7 +509,7 @@ The CLI then receives an agent token of scope `llm` (90 days), stored in its
 user configuration directory, readable by the user only. A new login from
 the same machine replaces its previous token. The CLI uses the gateway only
 when no provider endpoint or key is configured: a deployment's own provider
-always wins. For CI, create an **LLM gateway** token under **Agent access**
+always wins. For CI, create an **LLM gateway** token under **Settings → Agent access**
 and set `PROBE_HUB_TOKEN` (and `PROBE_HUB_URL` for another hub) as secrets.
 
 **What the gateway enforces.** No secret ships in the CLI: every request is
@@ -575,7 +575,18 @@ for both variants and a dashboard interaction test. The latter uses an installed
 `chromium` in headless mode and skips explicitly if Chromium is unavailable;
 its API fixtures need no forge or model credentials.
 
-The **Analyses** button beside **Refresh repositories** opens the account's
+The **Settings** menu beside **Refresh repositories** gathers the
+account-wide dialogs: **Analyses**, **Agent access** and **Language**.
+
+**Language** chooses the language the AI reviewer writes this account's reports
+in (findings, the AI report and plans), among the languages `/api/me` lists in
+`report_languages`; `PUT /api/settings` with `{"report_language": "French"}`
+saves it. The hub passes it to the CLI as `--report-language` for every review
+or plan in which the AI reviewer runs; English, the default, passes nothing.
+It applies to analyses queued afterwards: earlier reports keep their language
+until rerun. Probe's own labels, verdicts and check results stay in English.
+
+**Settings → Analyses** opens the account's
 queued and running analyses and completed/failed attempts from the last 48
 hours. Each rerun is listed separately, including plan analyses, with timestamps
 and failure details. The modal refreshes on live updates and every five seconds.

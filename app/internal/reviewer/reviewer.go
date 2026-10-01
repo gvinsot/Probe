@@ -24,10 +24,10 @@ type Options struct {
 	// AllowInsecureHTTP is an explicit deployment exception, never a policy setting.
 	AllowInsecureHTTP bool
 	// ReadOnly offers source inspection only; model claims cannot establish execution.
-	ReadOnly      bool
-	Endpoint      string
-	Model         string
-	APIKey        string
+	ReadOnly bool
+	Endpoint string
+	Model    string
+	APIKey   string
 	// Provider is sent as the request's "provider" field (OpenRouter's
 	// provider routing); nil sends none.
 	Provider json.RawMessage
@@ -43,6 +43,9 @@ type Options struct {
 	// Swarm runs several specialized agents in parallel instead of one
 	// reviewer; nil runs the single reviewer.
 	Swarm *Swarm
+	// Language is the natural language the model writes its prose in, such
+	// as "French"; empty leaves the prompts' English.
+	Language string
 }
 
 type toolHarness interface {
@@ -113,6 +116,9 @@ func normalize(o Options) (Options, string, error) {
 	u.Path = strings.TrimRight(u.Path, "/")
 	if !strings.HasSuffix(u.Path, "/chat/completions") {
 		u.Path += "/chat/completions"
+	}
+	if err := ValidateLanguage(o.Language); err != nil {
+		return o, "", err
 	}
 	if o.MaxIterations == 0 {
 		o.MaxIterations = 20

@@ -426,12 +426,12 @@ func (r *Runner) analyze(ctx context.Context, j Job, run *store.Run) (record *st
 		return nil, fmt.Errorf("prepare analysis output: %w", err)
 	}
 	if j.Variant == "plan" {
-		return r.analyzePlan(ctx, work, base, j, run, repo.FullName)
+		return r.analyzePlan(ctx, work, base, j, run, repo.FullName, user.ReportLanguage)
 	}
 	mode := r.modeFor(ctx, g, repo, base)
 	run.Mode = mode
 
-	inputs := reviewerInputs{rules: repo.CodingRules}
+	inputs := reviewerInputs{rules: repo.CodingRules, language: user.ReportLanguage}
 	if !repo.LearningOff {
 		inputs.feedback = learning.Summarize(repo)
 	}
@@ -492,6 +492,7 @@ func (r *Runner) modeFor(ctx context.Context, g *gitRunner, repo *store.Repo, ba
 type reviewerInputs struct {
 	rules    string
 	feedback *learning.Feedback
+	language string // the account's report language; empty is English
 }
 
 // cacheHome is the CLI's cache directory for one repository: kept in the data
@@ -548,6 +549,9 @@ func (r *Runner) runCLI(ctx context.Context, work, cache, mode, base, head strin
 				args = append(args, "--swarm")
 			default:
 				args = append(args, "--swarm-agents", r.cfg.Swarm)
+			}
+			if inputs.language != "" {
+				args = append(args, "--report-language", inputs.language)
 			}
 			// Written outside the checkout, so that they are never repository content.
 			if strings.TrimSpace(inputs.rules) != "" {

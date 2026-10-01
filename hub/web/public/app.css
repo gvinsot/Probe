@@ -122,6 +122,15 @@ h1, h2, h3 { line-height: 1.25; }
 .btn.ghost:hover { background: var(--accent-soft); }
 .btn.quiet { background: transparent; border-color: var(--line); color: var(--muted); }
 .btn.quiet:hover { background: var(--surface-alt); color: var(--text); }
+/* Settings menu: a details element whose items open their dialogs. */
+.menu { position: relative; }
+.menu > summary { list-style: none; }
+.menu > summary::-webkit-details-marker { display: none; }
+.menu > summary::after { content: ""; display: inline-block; width: 5px; height: 5px; margin: 0 2px 3px 8px; border: solid currentColor; border-width: 0 1.5px 1.5px 0; transform: rotate(45deg); }
+.menu[open] > summary::after { margin-bottom: 0; transform: rotate(-135deg); }
+.menu-items { position: absolute; right: 0; top: calc(100% + 4px); z-index: 30; display: grid; min-width: 160px; padding: 4px; background: var(--surface); border: 1px solid var(--line); border-radius: 8px; box-shadow: 0 6px 18px rgb(0 0 0 / 0.15); }
+.menu-item { padding: 6px 10px; border: 0; border-radius: 6px; background: transparent; color: var(--text); font: inherit; font-size: 0.85rem; text-align: left; cursor: pointer; }
+.menu-item:hover, .menu-item:focus-visible { background: var(--surface-alt); }
 /* Onboarding actions get their own colors so they stand out in the repository
    list: blue to create the policy, violet to start monitoring commits. */
 .btn.setup { background: var(--setup); border-color: var(--setup); }

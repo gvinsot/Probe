@@ -57,3 +57,32 @@ done`)
 		})
 	}
 }
+
+// The account's report language reaches the CLI whenever a reviewer writes.
+func TestRunCLIPassesTheReportLanguage(t *testing.T) {
+	binary := fakeCLI(t, `printf '%s\n' "$@" > args.txt`)
+	r, _ := testRunner(t, binary)
+	for _, tc := range []struct {
+		name, mode, endpoint, language string
+		want                           bool
+	}{
+		{"review", config.ModeReview, "https://provider.example/v1", "French", true},
+		{"read-only review", config.ModeReadOnly, "https://provider.example/v1", "French", true},
+		{"English", config.ModeReview, "https://provider.example/v1", "", false},
+		{"review without a reviewer", config.ModeReview, "", "French", false},
+		{"lint", config.ModeLint, "https://provider.example/v1", "French", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv(config.EndpointEnvName, tc.endpoint)
+			t.Setenv(config.ModelEnvName, "test")
+			work := t.TempDir()
+			if _, code, err := r.runCLI(context.Background(), work, "", tc.mode, "base", "head", reviewerInputs{language: tc.language}); code != 0 || err != nil {
+				t.Fatalf("exit %d: %v", code, err)
+			}
+			args, _ := os.ReadFile(filepath.Join(work, "args.txt"))
+			if strings.Contains(string(args), "--report-language\nFrench\n") != tc.want || strings.Contains(string(args), "--report-language") != tc.want {
+				t.Fatalf("arguments %q", args)
+			}
+		})
+	}
+}
