@@ -28,7 +28,7 @@ func TestRunCLIPassesTheSwarmSetting(t *testing.T) {
 			t.Setenv(config.EndpointEnvName, tc.endpoint)
 			t.Setenv(config.ModelEnvName, "test")
 			work := t.TempDir()
-			if _, code, err := r.runCLI(context.Background(), work, tc.mode, "base", "head", reviewerInputs{}); code != 0 || err != nil {
+			if _, code, err := r.runCLI(context.Background(), work, "", tc.mode, "base", "head", reviewerInputs{}); code != 0 || err != nil {
 				t.Fatalf("exit %d: %v", code, err)
 			}
 			args, _ := os.ReadFile(filepath.Join(work, "args.txt"))

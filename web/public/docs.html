@@ -70,6 +70,9 @@
           <li><a href="#review">review</a></li>
           <li><a href="#plan">plan &amp; plan gate</a></li>
           <li><a href="#init">init</a></li>
+          <li><a href="#knowledge">knowledge</a></li>
+          <li><a href="#context">context</a></li>
+          <li><a href="#graph">graph</a></li>
           <li><a href="#report">report</a></li>
           <li><a href="#version">version &amp; help</a></li>
           <li class="group">Behaviour</li>
@@ -88,8 +91,15 @@
           <li><a href="#policy-fuzz">fuzz</a></li>
           <li><a href="#policy-mutation">mutation</a></li>
           <li><a href="#policy-prepare">prepare</a></li>
+          <li><a href="#policy-context">context</a></li>
           <li><a href="#defaults">Language defaults</a></li>
-          <li><a href="#reviewer">AI reviewer</a></li>
+          <li class="group">AI reviewer</li>
+          <li><a href="#reviewer">Configuration</a></li>
+          <li><a href="#read-only">Read-only review</a></li>
+          <li><a href="#swarm">Reviewer swarm</a></li>
+          <li><a href="#pr-summary">PR summary</a></li>
+          <li><a href="#intent-sources">Jira, Linear, Notion, Google Docs</a></li>
+          <li><a href="#rules">Coding rules &amp; feedback</a></li>
         </ul>
       </aside>
 
@@ -100,16 +110,26 @@
 <pre><code>probe init [--repo PATH] [--language go|typescript|javascript|python|rust]
 probe lint [--base main] [--head HEAD] [--ci] [flags]
 probe review [--base main] [--reviewer=false] [--ci] [flags]
+probe review --swarm [--swarm-agents correctness,security,...] [--base main]
+probe review --read-only [--base main] [--ci]
 probe review [flags] BASE..HEAD
 probe plan --intent-file FILE [--base main] [--ci]
+probe plan --jira PROJ-123 | --linear ENG-123 [--notion PAGE] [--gdoc DOC] [--base main] [--ci]
 probe review --plan .probe/PLAN.json [flags]
+probe knowledge build [--base main] [--focus TEXT]
+probe knowledge apply [--from .probe/knowledge-updates.json]
+probe knowledge check [--knowledge PROBE_KNOWLEDGE.md]
+probe context check [--context-dir DIR] [--context-repo NAME=PATH] [--clusters FILE]
+probe graph build [--commit HEAD] [--out FILE]
+probe graph query search|neighbors|path ARGS [--commit HEAD]
 probe report [--input .probe/confidence-report.json] [--out DIR] [--format LIST] [--report-url URL]
 probe version</code></pre>
           </div>
           <ul>
             <li><strong>lint</strong> analyzes a change statically. It never executes repository code and never calls an AI provider.</li>
-            <li><strong>review</strong> adds sandboxed checks in Docker, the opt-in evidence stages (changed baseline tests, impacted tests, differential fuzzing, mutation, dependency preparation) and, when a model is configured, an AI investigation.</li>
+            <li><strong>review</strong> adds sandboxed checks in Docker, the opt-in evidence stages (changed baseline tests, impacted tests, differential fuzzing, mutation, dependency preparation) and, when a model is configured, an AI investigation. <code>review --read-only</code> keeps only the AI investigation, with read-only tools and no Docker.</li>
             <li><strong>plan</strong> asks the configured provider for an implementation plan before any code is written, evaluates it with fixed rules, and turns it into a contract that <code>lint --plan</code> and <code>review --plan</code> check the diff against.</li>
+            <li><strong>knowledge</strong>, <strong>context</strong> and <strong>graph</strong> manage what the AI reviewer reads besides the diff: the <a href="#knowledge">codebase knowledge base</a>, the <a href="#context">other repositories</a> and the <a href="#graph">repository graph</a>.</li>
             <li>Only <strong>committed</strong> files are analyzed; uncommitted edits and untracked files are ignored.</li>
             <li>Reports are written to <code>.probe/</code> in the repository by default. Console output stays short.</li>
             <li>Flags accept one or two dashes (<code>-ci</code> or <code>--ci</code>). Booleans are set with <code>--ci</code> or <code>--ci=true</code> and cleared with <code>--checks=false</code>. A value is given as <code>--base main</code> or <code>--base=main</code>.</li>
@@ -149,14 +169,17 @@ probe version</code></pre>
                 <tr id="lint-repo"><td><code>--repo PATH</code></td><td><code>.</code></td><td class="desc">Repository directory. Any directory inside the work tree works.</td></tr>
                 <tr id="lint-config"><td><code>--config PATH</code></td><td>policy of the base</td><td class="desc">Use this local policy file instead of <code>.probe.json</code> from the base branch. Only pass a file you trust.</td></tr>
                 <tr id="lint-out"><td><code>--out DIR</code></td><td><code>.probe</code></td><td class="desc">Report directory, relative to the repository root. The path may not contain symbolic links.</td></tr>
-                <tr id="lint-format"><td><code>--format LIST</code></td><td><code>markdown,json</code></td><td class="desc">Comma-separated report formats to write: <code>markdown</code>, <code>json</code>, <code>sarif</code> <span class="tag">v0.4</span>, <code>pr-comment</code> <span class="tag">v0.4</span>. See <a href="#outputs">Output files</a>.</td></tr>
+                <tr id="lint-format"><td><code>--format LIST</code></td><td><code>markdown,json</code></td><td class="desc">Comma-separated report formats to write: <code>markdown</code>, <code>json</code>, <code>sarif</code> <span class="tag">v0.4</span>, <code>pr-comment</code> <span class="tag">v0.4</span>, <code>pr-summary</code>. See <a href="#outputs">Output files</a>.</td></tr>
                 <tr id="lint-report-url"><td><code>--report-url URL</code> <span class="tag">v0.4</span></td><td>—</td><td class="desc">An <code>https</code> link to the full report, cited in <code>PR_COMMENT.md</code>. Requires the <code>pr-comment</code> format; a URL that looks like it carries a credential is refused with exit <code>3</code>.</td></tr>
                 <tr id="lint-impact"><td><code>--impact</code></td><td><code>true</code></td><td class="desc">Build the static <a href="#impact">impact index</a> of changed functions. <code>--impact=false</code> skips it.</td></tr>
+                <tr id="lint-graph"><td><code>--graph</code></td><td><code>true</code></td><td class="desc">Build the <a href="#graph">repository graph</a> of the head commit and record its structural delta against the base. <code>--graph=false</code> skips it.</td></tr>
+                <tr id="lint-graph-cache"><td><code>--graph-cache DIR</code></td><td>user cache directory</td><td class="desc">Where graphs are cached by commit, outside the repository and the report directory; <code>off</code> disables the cache. An unusable explicit directory exits <code>3</code>.</td></tr>
                 <tr id="lint-plan"><td><code>--plan PATH</code></td><td>—</td><td class="desc">A <code>PLAN.json</code> written by <a href="#plan"><code>probe plan</code></a>: check the diff against its contract and add a <code>plan_drift</code> section and signals.</td></tr>
                 <tr id="lint-ci"><td><code>--ci</code></td><td><code>false</code></td><td class="desc">Exit with code <code>2</code> when human review is required. See <a href="#exit-codes">Exit codes</a>.</td></tr>
                 <tr id="lint-intent"><td><code>--intent TEXT</code></td><td>—</td><td class="desc">Pull request intent or acceptance criteria, recorded in the report (at most 64 KiB).</td></tr>
                 <tr id="lint-intent-file"><td><code>--intent-file PATH</code></td><td>—</td><td class="desc">Read the intent from a UTF-8 file. Cannot be combined with <code>--intent</code>.</td></tr>
-                <tr id="lint-checks"><td><code>--checks</code>, <code>--reviewer</code></td><td><code>false</code></td><td class="desc">Must stay false: <code>lint</code> exits with code <code>3</code> if either is enabled. Use <code>review</code>. The review-only stage flags (<code>--base-tests</code>, <code>--impacted-tests</code>, <code>--fuzz</code>, <code>--cache-dir</code>, <code>--parallel</code>, <code>--deadline</code>, <code>--allow-prepare-network</code>) are refused the same way.</td></tr>
+                <tr id="lint-intent-sources"><td><code>--jira KEY</code>, <code>--linear KEY</code>, <code>--notion PAGES</code>, <code>--gdoc DOCS</code></td><td>—</td><td class="desc">Add a Jira or Linear issue, Notion pages or Google Docs to the intent. See <a href="#intent-sources">Intent from Jira, Linear, Notion and Google Docs</a>.</td></tr>
+                <tr id="lint-checks"><td><code>--checks</code>, <code>--reviewer</code></td><td><code>false</code></td><td class="desc">Must stay false: <code>lint</code> exits with code <code>3</code> if either is enabled. Use <code>review</code>. The review-only flags (<code>--base-tests</code>, <code>--impacted-tests</code>, <code>--fuzz</code>, <code>--cache-dir</code>, <code>--parallel</code>, <code>--deadline</code>, <code>--allow-prepare-network</code>, <code>--swarm</code>, <code>--swarm-agents</code>, an explicit <code>--pr-summary</code>) are refused the same way.</td></tr>
               </tbody>
             </table>
           </div>
@@ -182,20 +205,33 @@ probe lint --base main --plan .probe/PLAN.json   <span class="c"># scope drift a
                 <tr id="review-repo"><td><code>--repo PATH</code></td><td><code>.</code></td><td class="desc">Repository directory.</td></tr>
                 <tr id="review-config"><td><code>--config PATH</code></td><td>policy of the base</td><td class="desc">Use this local policy file instead of <code>.probe.json</code> from the base branch, for example to try a policy before committing it. Only pass a file you trust: it decides what runs and where source is sent.</td></tr>
                 <tr id="review-out"><td><code>--out DIR</code></td><td><code>.probe</code></td><td class="desc">Report directory, relative to the repository root. Artifacts go to <code>DIR/artifacts/</code>.</td></tr>
-                <tr id="review-format"><td><code>--format LIST</code></td><td><code>markdown,json</code></td><td class="desc">Comma-separated report formats to write: <code>markdown</code>, <code>json</code>, <code>sarif</code> <span class="tag">v0.4</span>, <code>pr-comment</code> <span class="tag">v0.4</span>.</td></tr>
+                <tr id="review-format"><td><code>--format LIST</code></td><td><code>markdown,json</code></td><td class="desc">Comma-separated report formats to write: <code>markdown</code>, <code>json</code>, <code>sarif</code> <span class="tag">v0.4</span>, <code>pr-comment</code> <span class="tag">v0.4</span>, <code>pr-summary</code>.</td></tr>
                 <tr id="review-report-url"><td><code>--report-url URL</code> <span class="tag">v0.4</span></td><td>—</td><td class="desc">An <code>https</code> link to the full report, cited in <code>PR_COMMENT.md</code>. Requires the <code>pr-comment</code> format.</td></tr>
                 <tr id="review-ci"><td><code>--ci</code></td><td><code>false</code></td><td class="desc">Exit with code <code>2</code> when human review is required, including high-risk signals, unverified areas or incomplete checks.</td></tr>
                 <tr id="review-checks"><td><code>--checks</code></td><td><code>true</code></td><td class="desc">Run the configured checks in the sandbox. <code>--checks=false</code> skips them; a configured reviewer may still run sandbox experiments.</td></tr>
                 <tr id="review-reviewer"><td><code>--reviewer</code></td><td>auto</td><td class="desc">AI investigation. Enabled automatically when a model is set in the trusted policy or <code>PROBE_REVIEWER_MODEL</code>. <code>--reviewer=false</code> disables every provider call; <code>--reviewer</code> fails with exit <code>3</code> if no model is configured.</td></tr>
+                <tr id="review-read-only"><td><code>--read-only</code></td><td><code>false</code></td><td class="desc">Investigate with the deployment's model and read-only tools only, without Docker or code execution. See <a href="#read-only">Read-only review</a>.</td></tr>
+                <tr id="review-ai-impacts-criticality"><td><code>--ai-impacts-criticality</code></td><td><code>true</code></td><td class="desc">A linter signal the reviewer read as <code>no_risk</code>, citing a recorded source read, drops one severity level; a low one is set aside. <code>--ai-impacts-criticality=false</code> keeps the linter's severities. See <a href="#signal-assessments">signal assessments</a>.</td></tr>
+                <tr id="review-swarm"><td><code>--swarm</code>, <code>--swarm-agents LIST</code></td><td>policy <code>reviewer.swarm</code></td><td class="desc">Investigate with specialized agents in parallel instead of one reviewer; <code>--swarm-agents</code> picks them and implies <code>--swarm</code>. Refused with <code>--reviewer=false</code>. See <a href="#swarm">Reviewer swarm</a>.</td></tr>
+                <tr id="review-pr-summary"><td><code>--pr-summary</code></td><td>on when the reviewer runs</td><td class="desc">After the review, the reviewer model writes a pull request description into <code>PR_SUMMARY.md</code>. <code>--pr-summary=false</code> skips the extra provider call. See <a href="#pr-summary">PR summary</a>.</td></tr>
                 <tr id="review-max-iterations"><td><code>--max-iterations N</code></td><td>policy (<code>20</code>)</td><td class="desc">Override <code>reviewer.max_iterations</code> for this run, 1 to 100.</td></tr>
                 <tr id="review-intent"><td><code>--intent TEXT</code></td><td>—</td><td class="desc">Pull request intent or acceptance criteria (at most 64 KiB). Recorded in the report and given to the reviewer.</td></tr>
                 <tr id="review-intent-file"><td><code>--intent-file PATH</code></td><td>—</td><td class="desc">Read the intent from a UTF-8 file. Cannot be combined with <code>--intent</code>.</td></tr>
+                <tr id="review-intent-sources"><td><code>--jira KEY</code>, <code>--linear KEY</code>, <code>--notion PAGES</code>, <code>--gdoc DOCS</code></td><td>—</td><td class="desc">Add a Jira or Linear issue (<code>auto</code>: the key in the branch name or commit messages), up to 5 Notion pages or up to 5 Google Docs to the intent. A failure to fetch exits <code>3</code> before anything runs. See <a href="#intent-sources">Intent from Jira, Linear, Notion and Google Docs</a>.</td></tr>
+                <tr id="review-rules"><td><code>--rules TEXT</code>, <code>--rules-file PATH</code></td><td>—</td><td class="desc">Team coding rules (UTF-8, at most 32 KiB) the reviewer checks the changed code against. See <a href="#rules">Coding rules</a>.</td></tr>
+                <tr id="review-feedback-file"><td><code>--feedback-file PATH</code></td><td>—</td><td class="desc">JSON summary of the team's reactions to earlier findings (at most 64 KiB), written by Probe Hub. Guidance for the model, never evidence. See <a href="#feedback">Team feedback</a>.</td></tr>
+                <tr id="review-knowledge"><td><code>--knowledge PATH</code></td><td><code>PROBE_KNOWLEDGE.md</code></td><td class="desc">The <a href="#knowledge">knowledge base</a>, read at the tip of the base branch and given to the reviewer, which proposes updates. <code>none</code> disables it.</td></tr>
+                <tr id="review-context"><td><code>--context-dir DIR</code>, <code>--context-repo NAME=PATH</code></td><td>—</td><td class="desc">Where the checkouts of the <a href="#policy-context">context repositories</a> are: <code>DIR/owner/repo</code> or <code>DIR/repo</code>, or one path per repository (repeatable).</td></tr>
+                <tr id="review-fetch-context"><td><code>--fetch-context</code></td><td><code>false</code></td><td class="desc">Shallow-fetch a context repository that has no local checkout from the <code>url</code> the policy gives.</td></tr>
+                <tr id="review-clusters"><td><code>--clusters FILE</code></td><td>—</td><td class="desc">Operator JSON file of repository cluster definitions shared by an organization.</td></tr>
+                <tr id="review-context-flag"><td><code>--context</code></td><td><code>true</code></td><td class="desc"><code>--context=false</code> ignores the cross-repository context the policy declares for this run.</td></tr>
                 <tr id="review-allow-network"><td><code>--allow-network</code></td><td><code>false</code></td><td class="desc">Give sandbox containers network access. Takes effect only if the trusted policy also sets <code>sandbox.network: true</code>.</td></tr>
                 <tr id="review-no-network"><td><code>--no-network</code></td><td><code>false</code></td><td class="desc">Force sandbox networking off. Does not affect reviewer API calls; add <code>--reviewer=false</code> for that.</td></tr>
                 <tr id="review-plan"><td><code>--plan PATH</code></td><td>—</td><td class="desc">Check the diff against the contract of a <a href="#plan"><code>PLAN.json</code></a>. A drifted change requests human review (exit <code>2</code> with <code>--ci</code>), never exit <code>1</code>.</td></tr>
                 <tr id="review-impact"><td><code>--impact</code></td><td><code>true</code></td><td class="desc">Build the static <a href="#impact">impact index</a> of changed functions. <code>--impact=false</code> skips it (and cannot be combined with <code>--impacted-tests</code>).</td></tr>
-                <tr id="review-impacted-tests"><td><code>--impacted-tests</code> <span class="tag">v0.4</span></td><td><code>false</code></td><td class="desc">Run the unchanged Go tests that the impact index lists as reaching a changed function, on baseline and candidate. A test passing on the base and failing on the candidate is <code>FAILS_ON_CANDIDATE</code>: a reason to review, not a defect.</td></tr>
-                <tr id="review-base-tests"><td><code>--base-tests</code> <span class="tag">v0.4</span></td><td><code>false</code></td><td class="desc">Run the baseline version of each Go test function the change modified or removed, on baseline and candidate code.</td></tr>
+                <tr id="review-graph"><td><code>--graph</code>, <code>--graph-cache DIR</code></td><td><code>true</code>, user cache</td><td class="desc">Build the <a href="#graph">repository graph</a> and give it to the reviewer; <code>--graph=false</code> skips it, <code>--graph-cache off</code> disables its cache.</td></tr>
+                <tr id="review-impacted-tests"><td><code>--impacted-tests</code> <span class="tag">v0.4</span></td><td><code>false</code></td><td class="desc">Run the unchanged tests that the impact index lists as reaching a changed function, on baseline and candidate: Go tests, or TypeScript/JavaScript tests with a Vitest or Jest <code>generated_test</code> template. A test passing on the base and failing on the candidate is <code>FAILS_ON_CANDIDATE</code>: a reason to review, not a defect.</td></tr>
+                <tr id="review-base-tests"><td><code>--base-tests</code> <span class="tag">v0.4</span></td><td><code>false</code></td><td class="desc">Run the baseline version of each test the change modified or removed, on baseline and candidate code: Go test functions, or TypeScript/JavaScript <code>test()</code> and <code>it()</code> calls with a Vitest or Jest template.</td></tr>
                 <tr id="review-fuzz"><td><code>--fuzz</code> <span class="tag">v0.4</span></td><td><code>true</code></td><td class="desc">Run the differential fuzzing that the policy's <a href="#policy-fuzz"><code>fuzz</code></a> object configures. <code>--fuzz=false</code> records the stage as disabled.</td></tr>
                 <tr id="review-cache-dir"><td><code>--cache-dir DIR</code> <span class="tag">v0.4</span></td><td>—</td><td class="desc">Opt-in cache of baseline executions, outside the repository and the output directory. A replayed baseline run never supports a positive result.</td></tr>
                 <tr id="review-parallel"><td><code>--parallel N</code> <span class="tag">v0.4</span></td><td><code>1</code></td><td class="desc">Run the initial checks N at a time, 1 to 4.</td></tr>
@@ -210,6 +246,9 @@ probe review HEAD~1..HEAD --reviewer=false           <span class="c"># checks on
 probe review --base main --checks=false --reviewer=false   <span class="c"># static only, like lint</span>
 probe review --base main --intent-file PR.md         <span class="c"># give acceptance criteria</span>
 probe review --base main --impacted-tests --base-tests --ci   <span class="c"># run tests on both revisions</span>
+probe review --base main --jira auto --ci                <span class="c"># the Jira issue named by the branch is the intent</span>
+probe review --base main --swarm                         <span class="c"># specialized AI agents in parallel</span>
+probe review --read-only --base main --ci                <span class="c"># AI review without Docker or execution</span>
 probe review --base main --format markdown,json,sarif,pr-comment --report-url "$RUN_URL"</code></pre>
           </div>
           <p>Dependency preparation runs first, when the policy has a <code>prepare</code> object. Checks then run in the order test, typecheck, build, then coverage, followed by the evidence stages and the reviewer. Each container is non-root, has a read-only root and source mount, no added capabilities, no network by default, and the CPU, memory, PID and time limits of the <a href="#policy-sandbox">sandbox policy</a>. The Docker socket, your working checkout and API keys are never mounted. If Docker or the image is missing, the run ends with exit <code>4</code>; nothing ever falls back to your host.</p>
@@ -222,7 +261,8 @@ probe review --base main --format markdown,json,sarif,pr-comment --report-url "$
             <table>
               <thead><tr><th>Flag</th><th>Default</th><th>Description</th></tr></thead>
               <tbody>
-                <tr id="plan-intent"><td><code>--intent-file PATH</code>, <code>--intent TEXT</code></td><td>—</td><td class="desc">The change to plan. Required; at most 64 KiB of UTF-8, read like the review intent.</td></tr>
+                <tr id="plan-intent"><td><code>--intent-file PATH</code>, <code>--intent TEXT</code></td><td>—</td><td class="desc">The change to plan. Required, unless an issue or document below supplies it; at most 64 KiB of UTF-8, read like the review intent.</td></tr>
+                <tr id="plan-intent-sources"><td><code>--jira KEY</code>, <code>--linear KEY</code>, <code>--notion PAGES</code>, <code>--gdoc DOCS</code></td><td>—</td><td class="desc">Plan from a Jira or Linear issue, Notion pages or Google Docs, alone or with an intent; <code>auto</code> reads the key from the branch name. See <a href="#intent-sources">Intent from Jira, Linear, Notion and Google Docs</a>.</td></tr>
                 <tr id="plan-base"><td><code>--base REV</code></td><td><code>main</code></td><td class="desc">The revision the plan starts from. Its tip supplies the trusted policy.</td></tr>
                 <tr id="plan-config"><td><code>--config PATH</code></td><td>policy of the base</td><td class="desc">Explicit trusted local policy.</td></tr>
                 <tr id="plan-out"><td><code>--out DIR</code></td><td><code>.probe</code></td><td class="desc">Output directory, relative to the repository.</td></tr>
@@ -292,6 +332,56 @@ probe review --base origin/main --plan .probe/PLAN.json --ci   <span class="c">#
           </div>
         </section>
 
+        <section id="knowledge">
+          <h2><code>probe knowledge</code></h2>
+          <p class="synopsis">Maintain <code>PROBE_KNOWLEDGE.md</code>, an editable Markdown knowledge base of the repository: how parts work and relate, known risks, architecture and conventions, one entry per <code>##</code> heading. A review reads it at the tip of the base branch, like the policy, so a change never supplies the knowledge its own review receives, and gives the reviewer the entries whose <code>paths</code> match a changed file, within 24 KiB. They are context for the model, never evidence or instructions.</p>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Command</th><th>Does</th></tr></thead>
+              <tbody>
+                <tr id="knowledge-build"><td><code>probe knowledge build [--base main] [--focus TEXT]</code></td><td class="desc">The configured provider explores the base commit with read-only tools and proposes entries, for example to bootstrap the file. Nothing is written to the repository or executed. Needs a model (exit <code>3</code> otherwise).</td></tr>
+                <tr id="knowledge-apply"><td><code>probe knowledge apply [--from .probe/knowledge-updates.json]</code></td><td class="desc">Merge the proposed additions, corrections and removals into the working-tree file, keeping your manual edits. Review the diff and commit it: Probe never commits.</td></tr>
+                <tr id="knowledge-check"><td><code>probe knowledge check [--knowledge PATH]</code></td><td class="desc">Validate a hand-edited file: unique titles, known kinds, no stray heading outside code fences, size limits. Exits <code>1</code> on a problem.</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <div class="code">
+<pre><code>## Refunds are validated by the gateway
+- kind: architecture
+- paths: pay/**, gateway/refund.go
+- updated: 2026-09-30 (review of 1a2b3c4d)
+
+The refund handler trusts the amount because the gateway checks it first.</code></pre>
+          </div>
+          <p>Kinds are <code>component</code>, <code>relationship</code>, <code>risk</code>, <code>architecture</code>, <code>convention</code>, <code>review</code> and <code>note</code>. During a review, the reviewer may propose up to 20 updates with its <code>record_knowledge</code> tool; they are recorded in the report and written to <code>.probe/knowledge-updates.json</code>, with a merged preview in <code>.probe/KNOWLEDGE.md</code>. <code>review --knowledge none</code> disables the knowledge base.</p>
+        </section>
+
+        <section id="context">
+          <h2><code>probe context check</code></h2>
+          <p class="synopsis">Show how each repository of the policy's <a href="#policy-context"><code>context</code></a> resolves: available with its commit and file count, or unavailable with the reason. Exits <code>1</code> while one is unavailable, <code>0</code> when all are available or the policy declares none.</p>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Flag</th><th>Default</th><th>Description</th></tr></thead>
+              <tbody>
+                <tr id="context-base"><td><code>--base REV</code>, <code>--config PATH</code></td><td><code>main</code></td><td class="desc">Where the trusted policy is read, as for <code>review</code>.</td></tr>
+                <tr id="context-dirs"><td><code>--context-dir DIR</code>, <code>--context-repo NAME=PATH</code>, <code>--clusters FILE</code>, <code>--fetch-context</code></td><td>—</td><td class="desc">The same flags as <a href="#review-context"><code>review</code></a>.</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <section id="graph">
+          <h2><code>probe graph</code></h2>
+          <p class="synopsis">The repository graph of a whole commit, not only the diff: components, packages, files, functions, types and external dependencies (<code>go:</code>, <code>npm:</code>, <code>pypi:</code>, <code>cargo:</code>), linked by <code>contains</code>, <code>calls</code>, <code>member_of</code>, <code>implements</code>, <code>imports</code>, <code>depends_on</code> and <code>declares</code> edges. <code>lint</code> and <code>review</code> build it by default (<code>--graph</code>), from Git objects only, and record its summary and its structural delta against the base: new external dependencies, new dependencies between components or packages, added or removed types. It adds no signal and never changes the exit code.</p>
+          <div class="code">
+<pre><code>probe graph build [--commit HEAD] [--out graph.json]          <span class="c"># build (or read from the cache), optionally export</span>
+probe graph query search Cart.Total [--kind function]
+probe graph query neighbors internal/payment --kinds depends_on --direction in --depth 2
+probe graph query path api.Handle Cart.Total [--undirected]</code></pre>
+          </div>
+          <p>The reviewer queries the same graph with <code>graph_search</code>, <code>graph_neighbors</code> (up to 3 hops) and <code>graph_path</code>. Graphs are cached by commit in the user cache directory, or in <code>--graph-cache DIR</code> (<code>off</code> disables it); in CI, keeping that directory between runs reuses the base graphs. An edge is a place to look and a missing edge is not proof that none exists: function values, reflection and generated code are not resolved. See <a href="https://github.com/gvinsot/Probe/blob/main/app/docs/GRAPH.md">repository graph</a>.</p>
+        </section>
+
         <section id="report">
           <h2><code>probe report</code></h2>
           <p class="synopsis">Re-render a saved JSON report, for example to regenerate Markdown or produce SARIF in CI. Nothing is re-run, and re-rendering does not authenticate the evidence it contains; every status is re-derived from the recorded checks, so an edited report is corrected rather than trusted.</p>
@@ -301,7 +391,7 @@ probe review --base origin/main --plan .probe/PLAN.json --ci   <span class="c">#
               <tbody>
                 <tr id="report-input"><td><code>--input PATH</code></td><td><code>.probe/confidence-report.json</code></td><td class="desc">Saved JSON report (version 1, at most 64 MiB).</td></tr>
                 <tr id="report-out"><td><code>--out DIR</code></td><td><code>.probe</code></td><td class="desc">Output directory, relative to the current directory.</td></tr>
-                <tr id="report-format"><td><code>--format LIST</code></td><td><code>markdown,json</code></td><td class="desc">Comma-separated formats to write: <code>markdown</code>, <code>json</code>, <code>sarif</code> <span class="tag">v0.4</span>, <code>pr-comment</code> <span class="tag">v0.4</span>.</td></tr>
+                <tr id="report-format"><td><code>--format LIST</code></td><td><code>markdown,json</code></td><td class="desc">Comma-separated formats to write: <code>markdown</code>, <code>json</code>, <code>sarif</code> <span class="tag">v0.4</span>, <code>pr-comment</code> <span class="tag">v0.4</span>, <code>pr-summary</code>.</td></tr>
                 <tr id="report-report-url"><td><code>--report-url URL</code> <span class="tag">v0.4</span></td><td>—</td><td class="desc">An <code>https</code> link to the full report, cited in <code>PR_COMMENT.md</code>.</td></tr>
               </tbody>
             </table>
@@ -329,7 +419,7 @@ probe review --base origin/main --plan .probe/PLAN.json --ci   <span class="c">#
               <thead><tr><th>Code</th><th>Meaning</th></tr></thead>
               <tbody>
                 <tr id="exit-0"><td><code>0</code></td><td class="desc">Report completed without a reproduced high or critical issue. Without <code>--ci</code>, unresolved areas do not change this code.</td></tr>
-                <tr id="exit-1"><td><code>1</code></td><td class="desc">A high or critical hypothesis is supported by a differential failure: a generated test passed on the base and failed on the candidate. Nothing else produces <code>1</code>: not a fuzzing divergence, a surviving mutant, a failing impacted or baseline test, nor plan drift.</td></tr>
+                <tr id="exit-1"><td><code>1</code></td><td class="desc">A high or critical hypothesis is supported by a differential failure: a generated test passed on the base and failed on the candidate. Nothing else produces <code>1</code> in a review: not a fuzzing divergence, a surviving mutant, a failing impacted or baseline test, plan drift, nor a finding several swarm agents agree on. <code>knowledge check</code> and <code>context check</code> use <code>1</code> for an invalid knowledge base or an unavailable context repository.</td></tr>
                 <tr id="exit-2"><td><code>2</code></td><td class="desc">With <code>--ci</code> only: human review required, including high-risk signals, unverified areas, incomplete checks, a <code>FAILS_ON_CANDIDATE</code> test, a fuzzing divergence or inconclusive stage, plan drift, a plan that raised a category (the <a href="#plan-gate">plan gate</a>), or (for <code>plan</code>) a flagged category.</td></tr>
                 <tr id="exit-3"><td><code>3</code></td><td class="desc">Invalid arguments, Git comparison, or trusted configuration (including an unknown policy key or command name).</td></tr>
                 <tr id="exit-4"><td><code>4</code></td><td class="desc">Operational error in the harness, analysis or report writing, such as Docker or the sandbox image being unavailable, a check that could not run, a failed dependency preparation, or a provider failure during <code>plan</code>.</td></tr>
@@ -351,10 +441,15 @@ probe review --base origin/main --plan .probe/PLAN.json --ci   <span class="c">#
                 <tr id="env-api-key"><td><code>PROBE_API_KEY</code></td><td class="desc">API key. The name is set by <code>reviewer.api_key_env</code>; this is the default.</td></tr>
                 <tr id="env-api-key-file"><td><code>PROBE_API_KEY_FILE</code></td><td class="desc">Path of a file containing the key, used when the variable above is unset. The file must be readable, or the run fails with exit <code>3</code>.</td></tr>
                 <tr id="env-secret"><td><code>/run/secrets/PROBE_API_KEY</code></td><td class="desc">Docker secret read last, when neither variable is set. Absence is not an error.</td></tr>
+                <tr id="env-insecure-http"><td><code>PROBE_REVIEWER_ALLOW_INSECURE_HTTP</code></td><td class="desc"><code>true</code> permits an explicitly configured <code>http</code> <code>PROBE_REVIEWER_ENDPOINT</code> on a trusted network. Source and key then travel unencrypted.</td></tr>
+                <tr id="env-jira"><td><code>PROBE_JIRA_URL</code>, <code>PROBE_JIRA_EMAIL</code>, <code>PROBE_JIRA_TOKEN</code></td><td class="desc">Jira site for <code>--jira</code>; the e-mail is for Jira Cloud (API token), without it the token is a Server/Data Center personal access token. <code>PROBE_JIRA_CRITERIA_FIELD</code> names an optional acceptance-criteria field.</td></tr>
+                <tr id="env-linear"><td><code>PROBE_LINEAR_API_KEY</code></td><td class="desc">Linear key for <code>--linear</code>; a read-only key is enough. <code>PROBE_LINEAR_TEAMS</code> limits the team keys <code>auto</code> accepts.</td></tr>
+                <tr id="env-notion"><td><code>PROBE_NOTION_TOKEN</code></td><td class="desc">Secret of a Notion integration the pages are shared with, for <code>--notion</code>.</td></tr>
+                <tr id="env-google"><td><code>PROBE_GOOGLE_ACCESS_TOKEN</code>, <code>PROBE_GOOGLE_CREDENTIALS</code>, <code>PROBE_GOOGLE_API_KEY</code></td><td class="desc">For <code>--gdoc</code>: an OAuth access token, a service-account key file the documents are shared with, or an API key for public documents only.</td></tr>
               </tbody>
             </table>
           </div>
-          <p>A blank variable counts as unset. Key files are read whole with surrounding whitespace stripped, bounded to 8 KiB and must hold a single line. When the reviewer runs, the log names where each value came from, never the value itself. Whoever controls this environment chooses where redacted source is sent: keep it out of jobs that run untrusted fork code.</p>
+          <p>A blank variable counts as unset. Key files are read whole with surrounding whitespace stripped, bounded to 8 KiB and must hold a single line. The Jira, Linear, Notion and Google tokens and keys may also come from <code>&lt;NAME&gt;_FILE</code> or the Docker secret <code>/run/secrets/&lt;NAME&gt;</code>. When the reviewer runs, the log names where each value came from, never the value itself. Whoever controls this environment chooses where redacted source is sent: keep it out of jobs that run untrusted fork code.</p>
         </section>
 
         <section id="outputs">
@@ -367,6 +462,8 @@ probe review --base origin/main --plan .probe/PLAN.json --ci   <span class="c">#
                 <tr id="out-json"><td><code>.probe/confidence-report.json</code></td><td class="desc">The same data for tools: commit IDs, changed lines, signals, checks, hypotheses, evidence, audit events and artifact hashes. See the <a href="https://github.com/gvinsot/Probe/blob/main/app/schema/confidence-report.schema.json">JSON schema</a>.</td></tr>
                 <tr id="out-sarif"><td><code>.probe/confidence-report.sarif</code> <span class="tag">v0.4</span></td><td class="desc">With <code>--format sarif</code>: a SARIF 2.1.0 log for code-scanning tools, holding only findings backed by recorded sandbox evidence. No finding is not approval.</td></tr>
                 <tr id="out-pr-comment"><td><code>.probe/PR_COMMENT.md</code> <span class="tag">v0.4</span></td><td class="desc">With <code>--format pr-comment</code>: a pull-request comment with a status block and every evidence-backed finding.</td></tr>
+                <tr id="out-pr-summary"><td><code>.probe/PR_SUMMARY.md</code></td><td class="desc">When the reviewer runs (or with <code>--format pr-summary</code>): the <a href="#pr-summary">AI-written pull request description</a>, ready to paste. Model output; it changes no status.</td></tr>
+                <tr id="out-knowledge"><td><code>.probe/knowledge-updates.json</code>, <code>KNOWLEDGE.md</code></td><td class="desc">The reviewer's proposed <a href="#knowledge">knowledge base</a> updates, and a merged preview. <code>probe knowledge apply</code> merges them into <code>PROBE_KNOWLEDGE.md</code>.</td></tr>
                 <tr id="out-plan"><td><code>.probe/PLAN.json</code>, <code>PLAN.md</code></td><td class="desc">Written by <a href="#plan"><code>probe plan</code></a>: the model-written proposal, the deterministic assessment and the contract (<a href="https://github.com/gvinsot/Probe/blob/main/app/schema/plan.schema.json">schema</a>).</td></tr>
                 <tr id="out-artifacts"><td><code>.probe/artifacts/</code></td><td class="desc">Check logs, coverage profiles, generated test sources, test results, mutant patches and fuzzing records, each referenced by its SHA-256 hash in the report.</td></tr>
               </tbody>
@@ -404,7 +501,7 @@ probe review --base origin/main --plan .probe/PLAN.json --ci   <span class="c">#
                 <tr id="sig-network_change"><td><code>network_change</code></td><td><span class="sev sev-medium">medium</span></td><td class="desc">A changed line makes HTTP, gRPC or socket calls, or contains a URL.</td></tr>
                 <tr id="sig-error_handling_change"><td><code>error_handling_change</code></td><td><span class="sev sev-medium">medium</span></td><td class="desc">Error checks, wrapping, <code>panic</code>/<code>recover</code>, <code>catch</code> or <code>except</code> changed.</td></tr>
                 <tr id="sig-dependency_change"><td><code>dependency_change</code></td><td><span class="sev sev-medium">medium</span></td><td class="desc">A dependency manifest or lockfile changed (<code>go.mod</code>, <code>package.json</code>, <code>Cargo.lock</code>, <code>pyproject.toml</code>…).</td></tr>
-                <tr id="sig-uncovered_change"><td><code>uncovered_change</code></td><td><span class="sev sev-medium">medium</span> <span class="sev sev-low">low</span></td><td class="desc">Added Go lines were not executed by the recorded <a href="#policy-commands"><code>coverage</code></a> run. Low when the coverage run itself failed.</td></tr>
+                <tr id="sig-uncovered_change"><td><code>uncovered_change</code></td><td><span class="sev sev-medium">medium</span> <span class="sev sev-low">low</span></td><td class="desc">Added lines were not executed by the recorded <a href="#policy-commands"><code>coverage</code></a> run: Go lines from a Go profile, TypeScript/JavaScript lines from an LCOV report. Low when the coverage run itself failed.</td></tr>
                 <tr id="sig-branch_growth"><td><code>branch_growth</code></td><td><span class="sev sev-medium">medium</span></td><td class="desc">At least five more lines with branch constructs were added than removed in a file. Not a complexity metric.</td></tr>
                 <tr id="sig-large_change"><td><code>large_change</code></td><td><span class="sev sev-medium">medium</span></td><td class="desc">More than 400 lines changed in one file.</td></tr>
                 <tr id="sig-file_deleted"><td><code>file_deleted</code></td><td><span class="sev sev-medium">medium</span></td><td class="desc">A tracked file was removed.</td></tr>
@@ -413,7 +510,7 @@ probe review --base origin/main --plan .probe/PLAN.json --ci   <span class="c">#
                 <tr id="sig-test_focus_added"><td><code>test_focus_added</code> <span class="tag">v0.4</span></td><td><span class="sev sev-high">high</span></td><td class="desc">A focus marker was added to a test file (<code>it.only</code>, <code>fdescribe</code>…).</td></tr>
                 <tr id="sig-test_assertion_removed"><td><code>test_assertion_removed</code>, <code>test_case_removed</code> <span class="tag">v0.4</span></td><td><span class="sev sev-medium">medium</span></td><td class="desc">A test file lost more assertion lines, or more test declarations, than it gained. Go, TS/JS, Python and Rust rules.</td></tr>
                 <tr id="sig-test_skip_added"><td><code>test_skip_added</code>, <code>test_expectation_relaxed</code> <span class="tag">v0.4</span></td><td><span class="sev sev-medium">medium</span></td><td class="desc">A skip marker was added (<code>t.Skip</code>, <code>it.skip</code>, <code>@pytest.mark.skip</code>, <code>#[ignore]</code>…), or exact expectations were replaced by looser ones in a hunk.</td></tr>
-                <tr id="sig-surviving_mutant"><td><code>surviving_mutant</code> <span class="tag">v0.4</span></td><td><span class="sev sev-medium">medium</span></td><td class="desc">A <a href="#policy-mutation">mutation</a> of an added Go line made no test of its package fail. The mutant may be equivalent.</td></tr>
+                <tr id="sig-surviving_mutant"><td><code>surviving_mutant</code> <span class="tag">v0.4</span></td><td><span class="sev sev-medium">medium</span></td><td class="desc">A <a href="#policy-mutation">mutation</a> of an added Go or TypeScript/JavaScript line made none of the tests run for it fail. The mutant may be equivalent.</td></tr>
                 <tr id="sig-prepare_input_changed"><td><code>prepare_input_changed</code> <span class="tag">v0.4</span></td><td><span class="sev sev-medium">medium</span></td><td class="desc">The change touches a file listed in the policy's <a href="#policy-prepare"><code>prepare.inputs</code></a>; the dependency layer was still built from the base commit.</td></tr>
                 <tr id="sig-plan_drift"><td><code>plan_drift</code></td><td><span class="sev sev-high">high</span> <span class="sev sev-medium">medium</span> <span class="sev sev-low">low</span></td><td class="desc">With <code>--plan</code>: the diff leaves the plan's contract. See <a href="#plan-drift">scope drift</a>.</td></tr>
                 <tr id="sig-impacted_caller"><td><code>impacted_caller</code></td><td><span class="sev sev-low">low</span></td><td class="desc">Unchanged code calls a changed function, according to the <a href="#impact">impact index</a>. At most 10 per function and 100 per run.</td></tr>
@@ -449,8 +546,9 @@ probe review --base origin/main --plan .probe/PLAN.json --ci   <span class="c">#
                 <tr id="lang-impact"><td>Impact index and reviewer symbol tools</td><td>type-checked</td><td>lexical</td><td>lexical</td><td>lexical</td></tr>
                 <tr id="lang-checks"><td>Sandbox checks and <code>init</code> defaults</td><td>yes</td><td>yes</td><td>yes</td><td>yes</td></tr>
                 <tr id="lang-generated"><td>Verified generated tests</td><td>yes</td><td>yes (Jest/Vitest JSON)</td><td>run, not verified by name</td><td>no default command</td></tr>
+                <tr id="lang-graph"><td><a href="#graph">Repository graph</a></td><td>type-checked</td><td>lexical</td><td>lexical</td><td>lexical</td></tr>
                 <tr id="lang-fuzz"><td>Differential fuzzing</td><td>yes</td><td>yes</td><td>—</td><td>—</td></tr>
-                <tr id="lang-go-only"><td>Coverage, mutation, <code>--base-tests</code>, <code>--impacted-tests</code></td><td>yes</td><td>—</td><td>—</td><td>—</td></tr>
+                <tr id="lang-go-only"><td>Changed-line coverage, mutation, <code>--base-tests</code>, <code>--impacted-tests</code></td><td>yes</td><td>yes (Vitest or Jest; coverage from LCOV)</td><td>—</td><td>—</td></tr>
               </tbody>
             </table>
           </div>
@@ -467,6 +565,7 @@ probe review --base origin/main --plan .probe/PLAN.json --ci   <span class="c">#
                 <tr id="policy-version"><td><code>version</code></td><td>integer</td><td><code>1</code></td><td class="desc">Policy format version. Must be <code>1</code>.</td></tr>
                 <tr id="policy-language"><td><code>language</code></td><td>string</td><td>detected</td><td class="desc">Language written by <code>init</code>. Informational.</td></tr>
                 <tr id="policy-optional"><td><code>fuzz</code>, <code>mutation</code>, <code>prepare</code> <span class="tag">v0.4</span></td><td>object</td><td>absent</td><td class="desc">Opt-in evidence stages: <a href="#policy-fuzz">differential fuzzing</a>, <a href="#policy-mutation">mutation of added lines</a> and <a href="#policy-prepare">trusted dependency preparation</a>. <code>init</code> never writes them.</td></tr>
+                <tr id="policy-optional-context"><td><code>context</code></td><td>object</td><td>absent</td><td class="desc">Other repositories the reviewer reads: <a href="#policy-context">cross-repository context</a>. Release-ordered like the stages above: an older binary refuses a policy that contains it.</td></tr>
               </tbody>
             </table>
           </div>
@@ -502,7 +601,7 @@ probe review --base origin/main --plan .probe/PLAN.json --ci   <span class="c">#
                 <tr id="policy-commands-typecheck"><td><code>commands.typecheck</code></td><td>—</td><td class="desc">Type or static check, for example <code>go vet</code> or <code>tsc --noEmit</code>.</td></tr>
                 <tr id="policy-commands-build"><td><code>commands.build</code></td><td>—</td><td class="desc">Build command.</td></tr>
                 <tr id="policy-commands-generated_test"><td><code>commands.generated_test</code></td><td><code>{file}</code>, <code>{package}</code>, <code>{results_out}</code></td><td class="desc">How the AI reviewer's temporary tests (and <code>--impacted-tests</code>) are run on base and candidate. Go's default uses the test's package so it can exercise unexported code. Verified Go experiments need a single standalone target placeholder; a Jest or Vitest command writing a JSON report to <code>{results_out}</code> makes TS/JS experiments verifiable by test name.</td></tr>
-                <tr id="policy-commands-coverage"><td><code>commands.coverage</code></td><td><code>{coverage_out}</code> (exactly once)</td><td class="desc">Go only. Measures which added lines a sandbox run executed. Runs last, in addition to <code>test</code>, within <code>sandbox.max_runtime_seconds</code>. Add <code>-coverpkg=./...</code> to attribute execution across packages.</td></tr>
+                <tr id="policy-commands-coverage"><td><code>commands.coverage</code></td><td><code>{coverage_out}</code> or <code>{coverage_dir}</code> (exactly once)</td><td class="desc">Measures which added lines a sandbox run executed. Runs last, in addition to <code>test</code>, within <code>sandbox.max_runtime_seconds</code>. Go writes a profile to <code>{coverage_out}</code> (add <code>-coverpkg=./...</code> to attribute execution across packages); Vitest or Jest write <code>lcov.info</code> into <code>{coverage_dir}</code>, for example <code>["vitest", "run", "--coverage.enabled", "--coverage.reporter=lcovonly", "--coverage.reportsDirectory={coverage_dir}"]</code>. Run it from the repository root.</td></tr>
               </tbody>
             </table>
           </div>
@@ -539,6 +638,7 @@ probe review --base origin/main --plan .probe/PLAN.json --ci   <span class="c">#
                 <tr id="policy-reviewer-max_generated_tests"><td><code>reviewer.max_generated_tests</code></td><td><code>10</code></td><td>0–100</td><td class="desc">Temporary tests the reviewer may create.</td></tr>
                 <tr id="policy-reviewer-timeout_seconds"><td><code>reviewer.timeout_seconds</code></td><td><code>600</code></td><td>1–1800</td><td class="desc">Total time for the investigation.</td></tr>
                 <tr id="policy-reviewer-max_input_bytes"><td><code>reviewer.max_input_bytes</code></td><td><code>131072</code></td><td>4096–2097152</td><td class="desc">Bound on source context sent to the provider.</td></tr>
+                <tr id="policy-reviewer-swarm"><td><code>reviewer.swarm</code></td><td>absent</td><td>object</td><td class="desc">Present: every review runs a <a href="#swarm">swarm</a> of specialized agents. <code>agents</code> (all by default, at most 12), <code>max_parallel</code> (<code>3</code>, 1–8), <code>partition_files</code> (<code>15</code>, 0–1000; 0 never splits). An older binary refuses the key.</td></tr>
               </tbody>
             </table>
           </div>
@@ -580,7 +680,7 @@ probe review --base origin/main --plan .probe/PLAN.json --ci   <span class="c">#
 
         <section id="policy-mutation">
           <h2><code>mutation</code> <span class="tag">v0.4</span></h2>
-          <p>Makes small deterministic changes to the added lines of changed non-test Go files and runs the package's tests once per mutant. A mutant no test notices becomes a medium <code>surviving_mutant</code> signal; no score is computed. All four keys are required.</p>
+          <p>Makes small deterministic changes to the added lines of changed non-test Go files and runs the package's tests once per mutant. A mutant no test notices becomes a medium <code>surviving_mutant</code> signal; no score is computed. All four keys are required. With a Vitest or Jest command (<code>{file}</code> and <code>{results_out}</code> instead of <code>{package}</code>, for example <code>["vitest", "related", "{file}", "--run", "--reporter=json", "--outputFile={results_out}"]</code>), changed TypeScript and JavaScript sources are mutated instead, and each mutant runs the tests related to its file.</p>
           <div class="code">
 <pre><code>"mutation": {
   "command": ["go", "test", "-json", "-count=1", "-failfast", "{package}"],
@@ -591,7 +691,7 @@ probe review --base origin/main --plan .probe/PLAN.json --ci   <span class="c">#
             <table>
               <thead><tr><th>Key</th><th>Allowed</th></tr></thead>
               <tbody>
-                <tr id="policy-mutation-command"><td><code>mutation.command</code></td><td class="desc"><code>go test</code> with exactly one <code>-json</code> and one standalone <code>{package}</code>; flags that change the selected tests or binary (<code>-run</code>, <code>-exec</code>, <code>-o</code>…) are refused.</td></tr>
+                <tr id="policy-mutation-command"><td><code>mutation.command</code></td><td class="desc"><code>go test</code> with exactly one <code>-json</code> and one standalone <code>{package}</code>; flags that change the selected tests or binary (<code>-run</code>, <code>-exec</code>, <code>-o</code>…) are refused. Or Vitest or Jest called directly (not through <code>npm</code> or a shell), with one standalone <code>{file}</code> and one <code>{results_out}</code>.</td></tr>
                 <tr id="policy-mutation-max_mutants"><td><code>mutation.max_mutants</code></td><td class="desc">1–200.</td></tr>
                 <tr id="policy-mutation-timeout_seconds"><td><code>mutation.timeout_seconds</code></td><td class="desc">1 to <code>sandbox.timeout_seconds</code>, per run.</td></tr>
                 <tr id="policy-mutation-max_runtime_seconds"><td><code>mutation.max_runtime_seconds</code></td><td class="desc"><code>timeout_seconds</code> to <code>sandbox.max_runtime_seconds</code>, inside the shared budget.</td></tr>
@@ -622,6 +722,42 @@ probe review --base origin/main --plan .probe/PLAN.json --ci   <span class="c">#
           </div>
         </section>
 
+        <section id="policy-context">
+          <h2><code>context</code></h2>
+          <p>A change often depends on contracts that live in another repository: shared types, an SDK, an API client, a sibling service. <code>context</code> names those repositories, directly or through <strong>clusters</strong> of related repositories, so the reviewer reads them and reports an incompatibility, for example an endpoint the SDK still calls the old way, as an <code>UNVERIFIED</code> hypothesis on the changed line.</p>
+          <div class="code">
+<pre><code>"context": {
+  "repos": [
+    "company/shared-types",
+    {"name": "company/payment-sdk", "ref": "main", "paths": ["src/**"], "role": "payment SDK",
+     "url": "https://github.com/company/payment-sdk.git"}
+  ],
+  "clusters": ["payments"],
+  "cluster_definitions": {
+    "payments": {"description": "Payment service, its SDK and shared types",
+                 "repos": ["company/payment-service", "company/payment-sdk", "company/shared-types"]}
+  }
+}</code></pre>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Key</th><th>Description</th></tr></thead>
+              <tbody>
+                <tr id="policy-context-repos"><td><code>context.repos</code></td><td class="desc">Each entry is <code>owner/repo</code> or an object with <code>name</code>, <code>ref</code> (branch, tag or commit; <code>HEAD</code> by default), <code>paths</code> (globs that restrict what is read), <code>role</code> (for the reviewer) and <code>url</code>.</td></tr>
+                <tr id="policy-context-clusters"><td><code>context.clusters</code></td><td class="desc">The clusters this repository belongs to. Every other member becomes context; the repository itself is recognized from its <code>origin</code> remote and left out.</td></tr>
+                <tr id="policy-context-cluster_definitions"><td><code>context.cluster_definitions</code></td><td class="desc">Cluster definitions, or once for a whole organization in an operator file given with <code>--clusters FILE</code>. A cluster defined in both places is refused.</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <p>Probe reads the committed files at <code>ref</code> of a local checkout given with <code>--context-dir</code> or <code>--context-repo</code>, never a working tree; with <code>--fetch-context</code> a missing one is shallow-fetched from its <code>url</code>. The reviewer's tools only list, read and search them: sensitive files and files over 1 MiB are never read, nothing is executed, and every read is audited. A repository that cannot be found is recorded as unavailable and never fails the review. Check the setup with <a href="#context"><code>probe context check</code></a>.</p>
+          <div class="code">
+<pre><code><span class="c"># CI: check out the context next to the reviewed repository</span>
+- uses: actions/checkout@v4
+  with: {repository: company/payment-sdk, path: context/company/payment-sdk}
+- run: probe review --base "origin/$GITHUB_BASE_REF" --context-dir context --ci</code></pre>
+          </div>
+        </section>
+
         <section id="defaults">
           <h2>Language defaults</h2>
           <p>Written by <code>probe init</code>, and used when the base branch has no policy. Stock Node.js, Python and Rust images do not contain your dependencies: build an image that does, or add a <a href="#policy-prepare"><code>prepare</code></a> object, and adapt the commands.</p>
@@ -641,7 +777,7 @@ probe review --base origin/main --plan .probe/PLAN.json --ci   <span class="c">#
 
         <section id="reviewer">
           <h2>AI reviewer</h2>
-          <p>Optional. When a model is configured, <code>review</code> lets it investigate the change with bounded tools: reading redacted files and diffs, searching source, looking up references and callers in the <a href="#impact">static index</a>, running existing checks, and creating and running temporary tests on base and candidate. It has no shell and no URL fetcher. Its claims stay hypotheses until a test reproduces a difference.</p>
+          <p>Optional. When a model is configured, <code>review</code> lets it investigate the change with bounded tools: reading redacted files and diffs, searching source, looking up references and callers in the <a href="#impact">static index</a>, querying the <a href="#graph">repository graph</a>, reading the <a href="#policy-context">context repositories</a>, running existing checks, and creating and running temporary tests on base and candidate. It also receives the <a href="#knowledge">knowledge base</a>, the team's <a href="#rules">coding rules</a> and <a href="#feedback">feedback</a> when they are given. It has no shell and no URL fetcher. Its claims stay hypotheses until a test reproduces a difference.</p>
           <div class="code">
 <pre><code>{
   "reviewer": {
@@ -662,6 +798,86 @@ probe review --base main --reviewer=false            <span class="c"># turn it o
             <li>API keys never enter test containers. <code>lint</code> never calls a provider.</li>
             <li>Provider failures and exhausted budgets keep the deterministic results and mark the investigation incomplete; with <code>--ci</code> that requires human review.</li>
           </ul>
+          <h3 id="signal-assessments">Signal assessments</h3>
+          <p>When the linter raised signals, the reviewer reads each one and gives it a plain-language title stating the intent of the modification ("Admin tokens now skip the expiry check" rather than "Lines added to a sensitive file"), a short explanation and a judgment: <code>risk</code>, <code>no_risk</code> or <code>uncertain</code>. A <code>no_risk</code> reading is kept only when it cites a recorded read of the source. With <code>--ai-impacts-criticality</code> (the default), a kept <code>no_risk</code> lowers its signal by one severity level, the linter's value staying in <code>original_severity</code>, and a low signal is set aside; review targets and the exit code then follow the adjusted severities. The judgment is never evidence and changes no hypothesis status.</p>
+        </section>
+
+        <section id="read-only">
+          <h2>Read-only review</h2>
+          <p><code>probe review --read-only --base main --ci</code> analyzes the diff and the relevant source with the deployment's model, without Docker and without executing repository code. Preparation, checks, coverage, fuzzing and mutation are skipped, and execution flags are refused. The model can read files, get the diff, search code and look up references, symbols, callers and the graph; any write or execution call is rejected.</p>
+          <ul>
+            <li>The provider comes from <code>PROBE_REVIEWER_MODEL</code> and <code>PROBE_REVIEWER_ENDPOINT</code> (OpenAI by default); the policy's <code>reviewer</code> settings are ignored and built-in budgets apply.</li>
+            <li>Suspicions stay <code>UNVERIFIED</code>: no reproduced issue can come from this mode. An unresolved hypothesis still requests human review (exit <code>2</code> with <code>--ci</code>).</li>
+            <li>The report records <code>analysis_mode: "review-read-only"</code> and states that no code or test ran.</li>
+          </ul>
+        </section>
+
+        <section id="swarm">
+          <h2>Reviewer swarm</h2>
+          <p>With <code>--swarm</code>, or a <code>reviewer.swarm</code> policy object, several specialized agents investigate the change in parallel instead of one reviewer. Each is the ordinary reviewer, with the same tools and budgets, plus a focus. Their findings are merged without a model and checked against the evidence like any other: <strong>agreement between agents is never evidence</strong>.</p>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Agent</th><th>Focus</th></tr></thead>
+              <tbody>
+                <tr id="swarm-correctness"><td><code>correctness</code></td><td class="desc">Logic errors, edge cases, broken invariants, regressions of existing behavior.</td></tr>
+                <tr id="swarm-security"><td><code>security</code></td><td class="desc">Injection, authentication and authorization bypasses, untrusted input, exposed secrets, unsafe deserialization, SSRF, misused cryptography.</td></tr>
+                <tr id="swarm-tests"><td><code>tests</code></td><td class="desc">Whether tests exercise the changed behavior; weakened or deleted assertions, tests that cannot fail. Writes differential tests where it can.</td></tr>
+                <tr id="swarm-compatibility"><td><code>compatibility</code></td><td class="desc">Exported APIs, callers in unchanged code, serialized formats, schemas and migrations, contracts with other repositories.</td></tr>
+                <tr id="swarm-reliability"><td><code>reliability</code></td><td class="desc">Error handling, concurrency, resource leaks, timeouts and retries, performance regressions.</td></tr>
+                <tr id="swarm-intent"><td><code>intent</code></td><td class="desc">Whether the change does what its intent asks. Runs only when the intent yielded acceptance criteria.</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <div class="code">
+<pre><code>probe review --base main --swarm                               <span class="c"># every agent</span>
+probe review --base main --swarm-agents security,correctness   <span class="c"># chosen agents, in this order</span>
+probe review --read-only --base main --swarm                   <span class="c"># also in read-only review</span></code></pre>
+          </div>
+          <p>A change with more than <code>partition_files</code> changed files has its <code>correctness</code> agent split into up to 4 agents, each owning a group of files. Experiments run one at a time and share one <code>reviewer.max_generated_tests</code> budget; only the model conversations run in parallel, at most <code>max_parallel</code> at a time. If an agent fails, the others' work is kept and the failure is listed. The report lists the agents in <code>reviewer_agents</code> and credits each finding to the agents that submitted it. Provider traffic grows with the number of agents: five agents can cost up to five times one reviewer. See <a href="https://github.com/gvinsot/Probe/blob/main/app/docs/SWARM.md">reviewer swarm</a>.</p>
+        </section>
+
+        <section id="pr-summary">
+          <h2>Pull request summary</h2>
+          <p>When the reviewer runs, it writes, after the verdict is settled, a description of the change a person can read in a minute: a title, an overview, changes by area, behavior changes, risks, where to look first, testing, and the developer intentions that group the signals and hypotheses ("Add agent sorting", "Test agent sorting"). It goes to <code>pr_summary</code> in the JSON report, to the top of <code>CONFIDENCE_REPORT.md</code> and to <code>PR_SUMMARY.md</code>, ready to paste as a pull request description.</p>
+          <div class="code">
+<pre><code>probe review --base main                       <span class="c"># summary included when the reviewer runs</span>
+probe review --base main --pr-summary=false    <span class="c"># skip it</span>
+probe report --format pr-summary               <span class="c"># re-render PR_SUMMARY.md from the JSON report</span></code></pre>
+          </div>
+          <p>It costs one provider call, two when the first answer is invalid. The summary is model output: it changes no status, severity, review target or exit code, and it is not an approval. A provider failure only leaves it out. Probe publishes nothing; posting it to a pull request is a CI decision. See <a href="https://github.com/gvinsot/Probe/blob/main/app/docs/PR_SUMMARY.md">PR summary</a>.</p>
+        </section>
+
+        <section id="intent-sources">
+          <h2>Intent from Jira, Linear, Notion and Google Docs</h2>
+          <p>The intent of a change can come from where the team already wrote it. <code>review</code>, <code>lint</code> and <code>plan</code> fetch it before any container starts or any provider call, add it to <code>--intent</code> or <code>--intent-file</code>, and record it in the report. Its acceptance criteria become <code>AC-1</code>, <code>AC-2</code>…, which the reviewer and the intent tests compare the implementation with.</p>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Flag</th><th>Source</th><th>Configuration</th></tr></thead>
+              <tbody>
+                <tr id="intent-jira"><td><code>--jira KEY</code>, <code>--jira auto</code></td><td class="desc">A Jira Cloud or Server/Data Center issue: summary, description and acceptance criteria. <code>auto</code> finds the key in the branch name or the commit messages.</td><td><code>PROBE_JIRA_URL</code>, <code>PROBE_JIRA_EMAIL</code>, <code>PROBE_JIRA_TOKEN</code></td></tr>
+                <tr id="intent-linear"><td><code>--linear KEY</code>, <code>--linear auto</code></td><td class="desc">A Linear issue: title and description. <code>auto</code> also reads Linear's lower-case branch names.</td><td><code>PROBE_LINEAR_API_KEY</code></td></tr>
+                <tr id="intent-notion"><td><code>--notion PAGE[,PAGE]</code></td><td class="desc">Up to 5 Notion pages (URLs or IDs): product, architecture or requirements.</td><td><code>PROBE_NOTION_TOKEN</code></td></tr>
+                <tr id="intent-gdoc"><td><code>--gdoc DOC[,DOC]</code></td><td class="desc">Up to 5 Google Docs (URLs or IDs), such as design documents, exported as Markdown.</td><td><code>PROBE_GOOGLE_ACCESS_TOKEN</code>, <code>PROBE_GOOGLE_CREDENTIALS</code> or <code>PROBE_GOOGLE_API_KEY</code></td></tr>
+              </tbody>
+            </table>
+          </div>
+          <div class="code">
+<pre><code>probe review --base main --jira auto --ci        <span class="c"># the issue named by the branch</span>
+probe review --base main --linear ENG-123
+probe plan --jira PROJ-123 --gdoc "$DESIGN_DOC_URL" --ci</code></pre>
+          </div>
+          <p>Notion pages and Google Docs are context: their list items become criteria only under an "Acceptance criteria" heading. A fetch that fails (missing configuration, an issue or page the account cannot see, an authentication error) exits <code>3</code>. The fetched text is data for the model, never instructions. See the <a href="https://github.com/gvinsot/Probe/blob/main/app/docs/JIRA.md">Jira</a>, <a href="https://github.com/gvinsot/Probe/blob/main/app/docs/LINEAR.md">Linear</a>, <a href="https://github.com/gvinsot/Probe/blob/main/app/docs/NOTION.md">Notion</a> and <a href="https://github.com/gvinsot/Probe/blob/main/app/docs/GOOGLE_DOCS.md">Google Docs</a> guides.</p>
+        </section>
+
+        <section id="rules">
+          <h2>Team coding rules</h2>
+          <p><code>--rules TEXT</code> or <code>--rules-file FILE</code> (UTF-8, at most 32 KiB) gives the reviewer your team's coding rules, in both review modes. It checks the changed code, and only the changed code, against them and reports each violation as a hypothesis naming the rule, <code>UNVERIFIED</code> unless evidence supports another status. The rules are review criteria, not instructions: they cannot change the tools, the statuses or the evidence requirements. They come from the command line, never from the reviewed change, and are recorded in <code>coding_rules</code> when a reviewer ran.</p>
+          <div class="code">
+<pre><code>probe review --base origin/main --rules-file docs/CODING_RULES.md --ci</code></pre>
+          </div>
+          <h3 id="feedback">Learning from team feedback</h3>
+          <p><code>--feedback-file FILE</code> (JSON, at most 64 KiB) tells the reviewer what the team thought of earlier findings, so reviews gradually fit the team. Probe Hub builds it from the votes, comments and replies on findings and from whether the next commit changed the flagged file. With at least three reactions and a two-to-one majority, the reviewer is told the trend: it spends less effort on topics the team finds not useful, investigates those it values more deeply, and follows the preferences the comments express.</p>
+          <p>The feedback is guidance for the model, never evidence. It changes no status, severity or exit code by itself, never justifies dismissing a concrete defect, and is recorded in <code>team_feedback</code>.</p>
         </section>
 
         <p class="no-match" id="ref-empty" hidden>Nothing in the reference matches this filter.</p>

@@ -42,7 +42,7 @@ func (r *Runner) Policy(ctx context.Context, language string) ([]byte, error) {
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, r.cfg.Binary, "init", "--repo", dir, "--language", language)
-	cmd.Env = cliEnv(dir)
+	cmd.Env = cliEnv(dir, "")
 	var out bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &out, &out
 	if err := cmd.Run(); err != nil {

@@ -210,7 +210,7 @@ webhooks there.
 | --- | --- | --- |
 | `PROBE_HUB_BASE_URL` | — | **Required.** Public URL of this deployment. |
 | `PROBE_HUB_ADDR` | `:8080` | Listen address. |
-| `PROBE_HUB_DATA_DIR` | `/var/lib/probe-hub` | State directory; back it up. Unused for state once a database is configured. |
+| `PROBE_HUB_DATA_DIR` | `/var/lib/probe-hub` | State directory; back it up. Unused for state once a database is configured. Its `cache/` subdirectory holds the CLI's repository graph cache, one bounded store per repository, which need not be backed up. |
 | `PROBE_HUB_DATABASE_CONNECTION_STRING` | — | PostgreSQL URL. The state then lives in that database; see [State storage](#state-storage). |
 | `PROBE_HUB_SESSION_KEY` | generated | 64 hex characters. Seals sessions and stored tokens; back it up with the data volume; the shipped stack uses one replica. Required with a database. See [Session key](#session-key-backup-and-rotation). |
 | `PROBE_HUB_SESSION_KEY_PREVIOUS` | — | Keys retired by a rotation (comma separated). They still open stored credentials, which are resealed under the current key at start-up. |

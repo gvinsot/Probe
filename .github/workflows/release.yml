@@ -47,11 +47,15 @@ jobs:
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "publish=$publish" >> "$GITHUB_OUTPUT"
 
+  # The CLI module builds on its own Go version: the root go.work, which also
+  # covers the hub, requires a newer one.
   verify:
     needs: prepare
     defaults:
       run:
         working-directory: app
+    env:
+      GOWORK: 'off'
     strategy:
       fail-fast: false
       matrix:
@@ -88,6 +92,7 @@ jobs:
         goos: [linux, darwin, windows]
         goarch: [amd64, arm64]
     env:
+      GOWORK: 'off'
       TARGET_GOOS: ${{ matrix.goos }}
       TARGET_GOARCH: ${{ matrix.goarch }}
       VERSION: ${{ needs.prepare.outputs.version }}

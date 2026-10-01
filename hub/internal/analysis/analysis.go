@@ -435,7 +435,7 @@ func (r *Runner) analyze(ctx context.Context, j Job, run *store.Run) (record *st
 	if !repo.LearningOff {
 		inputs.feedback = learning.Summarize(repo)
 	}
-	output, exitCode, runErr := r.runCLI(ctx, work, mode, base, j.Commit, inputs)
+	output, exitCode, runErr := r.runCLI(ctx, work, r.cacheHome(j), mode, base, j.Commit, inputs)
 	data, readErr := readBounded(filepath.Join(work, reportPath), maxReportBytes)
 	if readErr != nil {
 		if runErr != nil {
@@ -494,10 +494,26 @@ type reviewerInputs struct {
 	feedback *learning.Feedback
 }
 
+// cacheHome is the CLI's cache directory for one repository: kept in the data
+// directory, so the repository graph of a base tip survives the disposable
+// checkout, and never inside that checkout, where the CLI refuses a cache.
+// It is per repository so that no analysis reads entries another wrote, and
+// absolute because the CLI runs in the checkout.
+func (r *Runner) cacheHome(j Job) string {
+	if r.cfg.DataDir == "" {
+		return ""
+	}
+	dir, err := filepath.Abs(filepath.Join(r.cfg.DataDir, "cache", j.UserKey, j.RepoKey))
+	if err != nil {
+		return ""
+	}
+	return dir
+}
+
 // runCLI executes the trusted binary on the prepared checkout. The owner's
 // coding rules and the team's feedback reach the CLI only when a reviewer
 // runs, the only step that reads them.
-func (r *Runner) runCLI(ctx context.Context, work, mode, base, head string, inputs reviewerInputs) (string, int, error) {
+func (r *Runner) runCLI(ctx context.Context, work, cache, mode, base, head string, inputs reviewerInputs) (string, int, error) {
 	readOnly := mode == config.ModeReadOnly
 	if readOnly {
 		if strings.TrimSpace(os.Getenv(config.EndpointEnvName)) == "" || strings.TrimSpace(os.Getenv(config.ModelEnvName)) == "" {
@@ -556,7 +572,7 @@ func (r *Runner) runCLI(ctx context.Context, work, mode, base, head string, inpu
 			}
 		}
 	}
-	return r.executeCLI(ctx, work, args)
+	return r.executeCLI(ctx, work, cache, args)
 }
 
 // writePrivateFile stores data in a private temporary file.
@@ -679,13 +695,18 @@ func statusDescription(run store.Run) string {
 
 // cliEnv gives the CLI a minimal environment. Docker and provider settings are
 // forwarded so an operator can enable review mode without patching the image.
-func cliEnv(work string) []string {
+// HOME is the checkout, so the user cache directory the CLI would derive from
+// it is unusable; cache, when set, replaces it (XDG_CACHE_HOME).
+func cliEnv(work, cache string) []string {
 	env := []string{
 		"PATH=" + os.Getenv("PATH"),
 		"HOME=" + work,
 		"TMPDIR=" + filepath.Join(work, "tmp"),
 		"GIT_TERMINAL_PROMPT=0",
 		"GIT_CONFIG_NOSYSTEM=1",
+	}
+	if cache != "" {
+		env = append(env, "XDG_CACHE_HOME="+cache)
 	}
 	for _, name := range []string{"DOCKER_HOST", "DOCKER_CERT_PATH", "DOCKER_TLS_VERIFY", config.EndpointEnvName, config.ModelEnvName, config.AllowInsecureHTTPEnvName, "PROBE_API_KEY", "PROBE_API_KEY_FILE"} {
 		if v := os.Getenv(name); v != "" {

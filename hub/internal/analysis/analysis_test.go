@@ -31,7 +31,7 @@ func testRunner(t *testing.T, binary string) (*Runner, store.Store) {
 		t.Fatalf("store.Open: %v", err)
 	}
 	cfg := config.Config{
-		BaseURL: "https://hub.example", Mode: config.ModeLint, Binary: binary,
+		BaseURL: "https://hub.example", Mode: config.ModeLint, Binary: binary, DataDir: t.TempDir(),
 		Workers: 1, QueueSize: 4, AnalysisTimeout: time.Minute, CloneDepth: 5,
 	}
 	return New(cfg, st, nil, events.New(), discardLogger()), st
@@ -171,6 +171,7 @@ const fakeReport = `{"version":1,"tool_version":"v9.9.9","generated_at":"2026-09
 func TestRunCLIPassesTheExactRangeAndReadsTheReport(t *testing.T) {
 	binary := fakeCLI(t, `
 echo "$@" > args.txt
+echo "$XDG_CACHE_HOME" > cache.txt
 mkdir -p .probe
 cat > .probe/confidence-report.json <<'JSON'
 `+fakeReport+`
@@ -179,13 +180,18 @@ exit 2
 `)
 	r, _ := testRunner(t, binary)
 	work := t.TempDir()
-	output, code, err := r.runCLI(context.Background(), work, config.ModeLint, "base-sha", "head-sha", reviewerInputs{})
+	cache := r.cacheHome(Job{UserKey: "user", RepoKey: "repo"})
+	output, code, err := r.runCLI(context.Background(), work, cache, config.ModeLint, "base-sha", "head-sha", reviewerInputs{})
 	if code != 2 {
 		t.Fatalf("exit code = %d (%v), want 2: %s", code, err, output)
 	}
 	args, readErr := os.ReadFile(filepath.Join(work, "args.txt"))
 	if readErr != nil {
 		t.Fatalf("the CLI must run inside the prepared checkout: %v", readErr)
+	}
+	// The CLI refuses a graph cache inside the repository, which HOME is.
+	if got, _ := os.ReadFile(filepath.Join(work, "cache.txt")); strings.TrimSpace(string(got)) != cache || strings.HasPrefix(cache, work) {
+		t.Errorf("XDG_CACHE_HOME = %q, want %q outside the checkout %q", got, cache, work)
 	}
 	for _, want := range []string{"lint", "--base base-sha", "--head head-sha", "--exact", "--ci", "--format json,markdown"} {
 		if !strings.Contains(string(args), want) {

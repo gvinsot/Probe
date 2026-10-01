@@ -160,7 +160,12 @@ probe review HEAD~1..HEAD --reviewer=false</code></pre>
 <pre><code>probe review --base main --ci</code></pre>
               </div>
               <p>Working with a coding agent? Adopt the <a href="index.html#process">plan-first process</a>: the agent runs <code>probe plan --intent-file task.md --ci</code> before writing code (a flagged plan goes to a human), implements the plan, and CI runs <code>probe review --plan .probe/PLAN.json --ci</code>. Exit <code>0</code> means the change conforms to a low-risk plan and passed its checks, so it can merge without a human review; exit <code>2</code> lists why a human must look (<a href="docs.html#plan-gate">plan gate</a>).</p>
-              <p>Next steps: every flag, exit code and policy key is in the <a href="docs.html">reference</a>. To let an AI reviewer try to reproduce issues, configure a provider as described in <a href="docs.html#reviewer">AI reviewer</a>. For GitHub Actions, see the <a href="https://github.com/gvinsot/Probe/blob/main/app/docs/CI.md">CI integration guide</a>.</p>
+              <p>In Claude Code, the official plugin drives the same binary: <code>/probe:review</code> reviews your committed changes, <code>/probe:findings</code> explains a finding with its evidence, <code>/probe:fix</code> works on it, and <code>/probe:graph</code> shows what a change affects beyond the diff.</p>
+              <div class="code">
+<pre><code>/plugin marketplace add gvinsot/Probe
+/plugin install probe@probe</code></pre>
+              </div>
+              <p>Next steps: every flag, exit code and policy key is in the <a href="docs.html">reference</a>. To let an AI reviewer try to reproduce issues, configure a provider as described in <a href="docs.html#reviewer">AI reviewer</a>; give it the requirement with <a href="docs.html#intent-sources"><code>--jira</code>, <code>--linear</code>, <code>--notion</code> or <code>--gdoc</code></a>, and your team's <a href="docs.html#rules">coding rules</a>. For GitHub Actions, see the <a href="https://github.com/gvinsot/Probe/blob/main/app/docs/CI.md">CI integration guide</a>.</p>
             </div>
           </li>
 

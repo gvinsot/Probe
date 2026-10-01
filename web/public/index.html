@@ -83,8 +83,9 @@
               <li>Maps a Git diff to risk signals: authentication, payments, removed validation, public APIs, dependencies.</li>
               <li>Runs your tests in disposable containers and tries to reproduce issues on both revisions.</li>
               <li>Checks an agent's plan before the code exists, then lets conforming low-risk changes merge.</li>
+              <li>Reads the requirement from Jira, Linear, Notion or Google Docs and checks the code against it.</li>
             </ul>
-            <div class="chips"><span>CLI</span><span>Hub (Docker)</span><span>GitHub · GitLab</span><span>Go · TypeScript · Python · Rust</span></div>
+            <div class="chips"><span>CLI</span><span>Hub (Docker)</span><span>GitHub · GitLab</span><span>Claude Code · MCP</span><span>Go · TypeScript · Python · Rust</span></div>
             <div class="cta">
               <a class="btn" href="#code">Explore Probe for code</a>
               <a class="btn btn-ghost" href="download.html#cli">Download the CLI</a>
@@ -392,8 +393,9 @@ probe review --base main --ci</code></pre>
           <span class="kicker">Probe for code · Docker</span>
           <h2>Or run it for a whole account: Probe&nbsp;Hub</h2>
           <p>The hub is the companion Docker image. Run one container, sign in with GitHub or GitLab, and every repository still missing a <code>.probe.json</code> gets a policy proposed in one click, previewed before it is committed to the default branch.</p>
-          <p>Repositories that have a policy can be watched: each new commit is analyzed and its report opens on its own. A severity slider filters the alerts from low to critical, and clicking one unfolds every modification it concerns, with the flagged lines highlighted in the diff.</p>
-          <p>One Docker container, no database, no external service — so a company can deploy it internally against its own GitHub Enterprise or GitLab instance. In its default mode it never executes the analyzed code.</p>
+          <p>Repositories that have a policy can be watched: each new commit is analyzed and its report opens on its own, with an AI-written pull request summary when a reviewer model is configured. A severity slider filters the alerts from low to critical, and clicking one unfolds every modification it concerns, with the flagged lines highlighted in the diff.</p>
+          <p>The team shapes the reviewer: each repository keeps its coding rules, and votes, comments and replies on findings teach it what the team finds useful. Coding agents such as Claude Code or Cursor connect to the hub's MCP server to trigger reviews, read findings and give feedback.</p>
+          <p>One Docker container, no external service required, with its state on a volume or in PostgreSQL — so a company can deploy it internally against its own GitHub Enterprise or GitLab instance. In its default mode it never executes the analyzed code.</p>
           <div class="cta">
             <a class="btn" href="https://app.probe.technology">Open the web app</a>
             <a class="btn btn-ghost" href="https://github.com/gvinsot/Probe/blob/main/hub/README.md">Deploy your own</a>
@@ -446,7 +448,19 @@ Reports open by themselves, filtered by severity.</span></code></pre>
           </article>
           <article class="card">
             <h3>Bounded AI reviewer</h3>
-            <p>Bring any OpenAI-compatible provider. Tools are bounded: redacted file reads, search and test runs. No shell, no URL fetcher.</p>
+            <p>Bring any OpenAI-compatible provider. Tools are bounded: redacted file reads, search and test runs. No shell, no URL fetcher. It also drafts the pull request description, never the verdict.</p>
+          </article>
+          <article class="card">
+            <h3>Reviewer swarm</h3>
+            <p>Specialized agents for correctness, security, tests, compatibility, reliability and intent investigate in parallel. Their findings are merged and checked against evidence: agreement is not proof.</p>
+          </article>
+          <article class="card">
+            <h3>Beyond the diff</h3>
+            <p>A repository graph, the related repositories of a cluster and an editable knowledge base let the reviewer see who depends on a change and which contract it may break.</p>
+          </article>
+          <article class="card">
+            <h3>Requirements as intent</h3>
+            <p>Point Probe at a Jira or Linear issue, Notion pages or Google Docs: their acceptance criteria become what the change is reviewed against, along with your team's coding rules.</p>
           </article>
           <article class="card">
             <h3>CI ready</h3>
@@ -454,7 +468,7 @@ Reports open by themselves, filtered by severity.</span></code></pre>
           </article>
           <article class="card">
             <h3>Agent friendly</h3>
-            <p>Coding agents run <code>lint</code> and <code>review</code> before handing work over, and report what was reproduced and what remains open.</p>
+            <p>Coding agents run <code>lint</code> and <code>review</code> before handing work over. A Claude Code plugin and the hub's MCP server let them request reviews, read findings and fix them.</p>
           </article>
         </div>
       </div>

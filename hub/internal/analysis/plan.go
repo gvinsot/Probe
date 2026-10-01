@@ -22,7 +22,7 @@ func (r *Runner) analyzePlan(ctx context.Context, work, base string, j Job, run 
 	if os.Getenv(config.EndpointEnvName) == "" || os.Getenv(config.ModelEnvName) == "" {
 		return nil, fmt.Errorf("plan analysis requires a deployment-configured reviewer endpoint and model")
 	}
-	output, code, runErr := r.executeCLI(ctx, work, []string{"plan", "--repo", work, "--base", base, "--intent", j.Intent, "--out", ".probe", "--ci"})
+	output, code, runErr := r.executeCLI(ctx, work, r.cacheHome(j), []string{"plan", "--repo", work, "--base", base, "--intent", j.Intent, "--out", ".probe", "--ci"})
 	data, err := readBounded(filepath.Join(work, ".probe/PLAN.json"), 4<<20)
 	if err != nil {
 		if runErr != nil {
@@ -52,10 +52,10 @@ func (r *Runner) analyzePlan(ctx context.Context, work, base string, j Job, run 
 	return rec, nil
 }
 
-func (r *Runner) executeCLI(ctx context.Context, work string, args []string) (string, int, error) {
+func (r *Runner) executeCLI(ctx context.Context, work, cache string, args []string) (string, int, error) {
 	cmd := exec.CommandContext(ctx, r.cfg.Binary, args...)
 	cmd.Dir = work
-	cmd.Env = cliEnv(work)
+	cmd.Env = cliEnv(work, cache)
 	var out bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &out, &out
 	err := cmd.Run()

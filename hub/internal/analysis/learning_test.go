@@ -29,7 +29,7 @@ done`)
 		want     bool
 	}{{"with feedback", feedback, true}, {"empty", &learning.Feedback{}, false}, {"learning off", nil, false}} {
 		work := t.TempDir()
-		if _, code, err := r.runCLI(context.Background(), work, config.ModeReadOnly, "base", "head", reviewerInputs{feedback: tc.feedback}); code != 0 || err != nil {
+		if _, code, err := r.runCLI(context.Background(), work, "", config.ModeReadOnly, "base", "head", reviewerInputs{feedback: tc.feedback}); code != 0 || err != nil {
 			t.Fatalf("%s: exit %d: %v", tc.name, code, err)
 		}
 		data, err := os.ReadFile(filepath.Join(work, "feedback.json"))

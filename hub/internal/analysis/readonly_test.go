@@ -20,7 +20,7 @@ func TestReadOnlyRunsRestrictedCLIWithoutPolicyApproval(t *testing.T) {
 	t.Setenv(config.EndpointEnvName, "https://provider.example/v1")
 	t.Setenv(config.ModelEnvName, "test")
 	work := t.TempDir()
-	output, code, err := r.runCLI(context.Background(), work, config.ModeReadOnly, "base", "head", reviewerInputs{})
+	output, code, err := r.runCLI(context.Background(), work, "", config.ModeReadOnly, "base", "head", reviewerInputs{})
 	if err != nil || code != 0 {
 		t.Fatalf("exit=%d %v %s", code, err, output)
 	}
@@ -42,7 +42,7 @@ func TestReadOnlyMissingProviderFailsBeforeCLI(t *testing.T) {
 	r, _ := testRunner(t, "nonexistent-cli")
 	t.Setenv(config.EndpointEnvName, "")
 	t.Setenv(config.ModelEnvName, "test")
-	_, code, err := r.runCLI(context.Background(), t.TempDir(), config.ModeReadOnly, "base", "head", reviewerInputs{})
+	_, code, err := r.runCLI(context.Background(), t.TempDir(), "", config.ModeReadOnly, "base", "head", reviewerInputs{})
 	if code != 3 || err == nil || !strings.Contains(err.Error(), "deployment-configured") {
 		t.Fatalf("exit=%d error=%v", code, err)
 	}
@@ -52,7 +52,7 @@ func TestCLIForwardsProviderKeyFile(t *testing.T) {
 	t.Setenv(config.AllowInsecureHTTPEnvName, "true")
 	t.Setenv("PROBE_API_KEY_FILE", "/run/secrets/provider-key")
 	t.Setenv("PROBE_HUB_GITHUB_CLIENT_SECRET", "unrelated-secret")
-	env := strings.Join(cliEnv(t.TempDir()), "\n")
+	env := strings.Join(cliEnv(t.TempDir(), ""), "\n")
 	if !strings.Contains(env, config.AllowInsecureHTTPEnvName+"=true") {
 		t.Fatal("CLI did not receive the deployment HTTP exception")
 	}
