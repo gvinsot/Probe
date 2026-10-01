@@ -398,7 +398,7 @@ select, .select {
 .modal-card .body { padding: 14px; display: grid; gap: 12px; }
 /* Review settings: one section per setting, a rule between sections; inside,
    the title, its note and the controls stack with an even gap. */
-#review-settings-panel { display: grid; gap: 18px; }
+#review-settings-panel:not([hidden]) { display: grid; gap: 18px; }
 .settings-section { display: grid; gap: 8px; justify-items: start; }
 .settings-section > .note, .settings-section > textarea { justify-self: stretch; }
 .settings-section + .settings-section { padding-top: 16px; border-top: 1px solid var(--line); }

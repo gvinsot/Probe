@@ -735,9 +735,11 @@ window.addEventListener('DOMContentLoaded', async () => {
     assert(document.querySelector('.modal-card').offsetHeight === rulesCardHeight, 'the history tab keeps the size of the coding rules');
     const historyRows = el('review-history-panel').querySelectorAll('.review-history li');
     assert(el('review-settings-panel').hidden && el('modal-footer').hidden && historyRows.length === 2, 'the history tab lists the review actions');
+    assert(getComputedStyle(el('review-settings-panel')).display === 'none' && getComputedStyle(el('review-history-panel')).display !== 'none', 'the history tab shows the history only, not the coding rules');
     assert(historyRows[0].textContent.includes('mark withdrawn') && historyRows[1].textContent.includes('reviewed') && historyRows[1].textContent.includes('Merge feature') && historyRows[1].textContent.includes('octocat'), 'each action shows what, which commit and who');
     el('tab-coding-rules').click();
     assert(!el('review-settings-panel').hidden && !el('modal-footer').hidden, 'back to the coding rules');
+    assert(getComputedStyle(el('review-settings-panel')).display === 'grid' && getComputedStyle(el('review-history-panel')).display === 'none', 'the coding rules tab shows the settings only');
     closeModal();
     assert(document.querySelector('.modal-card').style.height === '', 'closing the dialog frees the card size for the next one');
     await settle();
