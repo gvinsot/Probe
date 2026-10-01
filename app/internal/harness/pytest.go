@@ -15,6 +15,7 @@ import (
 
 	"github.com/gvinsot/Probe/app/internal/config"
 	"github.com/gvinsot/Probe/app/internal/model"
+	"github.com/gvinsot/Probe/app/internal/observe"
 	"github.com/gvinsot/Probe/app/internal/pytestcmd"
 )
 
@@ -195,6 +196,10 @@ type pytestCase struct {
 	Name      string   `json:"name"`
 	Status    string   `json:"status"`
 	Messages  []string `json:"messages,omitempty"`
+	// Observations are the properties the test recorded with pytest's
+	// record_property fixture under a "probe." name, in recording order,
+	// as [key, value] pairs (the prefix removed), redacted and bounded.
+	Observations [][2]string `json:"observations,omitempty"`
 }
 
 // junitMessageLimit bounds each kept message, as for Jest reports.
@@ -273,6 +278,10 @@ func normalizePytestReport(raw []byte) (string, error) {
 					return "", errors.New("test results hold too many testcases")
 				}
 				current = &pytestCase{ClassName: attr(t, "classname"), Name: attr(t, "name"), Status: "passed"}
+			case current != nil && t.Name.Local == "property":
+				if key, ok := strings.CutPrefix(attr(t, "name"), observe.GoKeyPrefix); ok && len(current.Observations) <= observe.MaxKeys {
+					current.Observations = append(current.Observations, [2]string{boundedObservation(key, observe.MaxKeyBytes), boundedObservation(attr(t, "value"), observe.MaxValueBytes)})
+				}
 			case current != nil && (t.Name.Local == "failure" || t.Name.Local == "error" || t.Name.Local == "skipped"):
 				switch {
 				case t.Name.Local == "failure" && current.Status != "error":
@@ -349,9 +358,10 @@ func pytestModules(p string) []string {
 // (the node ID after the path), whether it is top-level (in no class), its
 // outcome ("passed", "failed" or "skipped") and its messages.
 type scriptCase struct {
-	Name     string
-	TopLevel bool
-	Status   string
+	Name         string
+	TopLevel     bool
+	Status       string
+	Observations [][2]string
 	// Error marks a failure reported as an error (a fixture or setup error)
 	// rather than a failure of the test body.
 	Error    bool
@@ -406,7 +416,7 @@ func pytestFile(results, p string) (scriptFile, bool) {
 			if status == "error" {
 				status = "failed"
 			}
-			file.Cases = append(file.Cases, scriptCase{Name: name, TopLevel: classes == "", Status: status, Error: c.Status == "error", Messages: c.Messages})
+			file.Cases = append(file.Cases, scriptCase{Name: name, TopLevel: classes == "", Status: status, Error: c.Status == "error", Messages: c.Messages, Observations: c.Observations})
 			found = true
 			break
 		}
@@ -606,3 +616,46 @@ func pytestAssertionMessage(m, p string) bool {
 // VerifiablePytestTemplate reports whether a generated_test template can
 // establish which generated Python tests ran (verifiablePytestTemplate).
 func VerifiablePytestTemplate(cmd []string) bool { return verifiablePytestTemplate(cmd) }
+
+// boundedObservation is the kept form of a recorded observation key or
+// value: redacted, and replaced by its fixed stand-in (observe.Oversized)
+// when it is longer than limit, so a long value is still seen to differ.
+func boundedObservation(text string, limit int) string {
+	text = Redact(text)
+	if len(text) > limit {
+		return observe.Oversized(text)
+	}
+	return text
+}
+
+// extractPytestObservations reads the observations of exactly the named
+// top-level tests in the pytest report of the generated module p. A check
+// without a report, or a report without the module, recorded nothing; a
+// report that does not parse is a channel error.
+func extractPytestObservations(results, p string, names []string) observe.Set {
+	var s observe.Set
+	if results == "" {
+		return s
+	}
+	if _, ok := parsePytestReport(results); !ok {
+		s.Fail(reasonResultsBad)
+		return s
+	}
+	file, ok := pytestFile(results, p)
+	if !ok {
+		return s
+	}
+	wanted := map[string]bool{}
+	for _, n := range names {
+		wanted[n] = true
+	}
+	for _, c := range file.Cases {
+		if !c.TopLevel || !wanted[c.Name] {
+			continue
+		}
+		for _, kv := range c.Observations {
+			s.Record(c.Name, kv[0], kv[1])
+		}
+	}
+	return s
+}

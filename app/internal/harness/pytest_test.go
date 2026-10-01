@@ -493,3 +493,70 @@ func TestPytestArgs(t *testing.T) {
 		}
 	}
 }
+
+// TestPythonObservationWithRealPytest records values with pytest's
+// record_property fixture: the key whose value the change altered diverges
+// after one live baseline repeat, the other does not.
+func TestPythonObservationWithRealPytest(t *testing.T) {
+	python := requirePytest(t)
+	h := pyFixture(t)
+	var argv [][]string
+	h.executeCapture = realPytest(t, python, &argv)
+	content := `from shop.cart import total
+
+
+def test_observe_total(record_property):
+    record_property("probe.half", repr(total([10], 0.5)))
+    record_property("probe.none", repr(total([10], 0)))
+`
+	result := runPython(t, h, content)
+	o, ok := result["observation"].(map[string]any)
+	if !ok {
+		t.Fatalf("no observation in %+v", result)
+	}
+	e := o["evidence"].(map[string]any)
+	if e["kind"] != model.EvidenceDifferentialObservation || e["status"] != model.StatusDiverged || e["runner"] != RunnerPytest || e["repeat_check_id"] == nil {
+		t.Fatalf("observation evidence %+v", e)
+	}
+	rows := map[string]map[string]any{}
+	for _, row := range o["observations"].([]any) {
+		r := row.(map[string]any)
+		rows[r["key"].(string)] = r
+	}
+	if rows["half"]["status"] != "DIVERGED" || rows["half"]["base"] != "5.0" || rows["half"]["candidate"] != "2.5" || rows["none"]["status"] != "EQUAL" {
+		t.Fatalf("rows %+v", rows)
+	}
+	if len(argv) != 3 {
+		t.Fatalf("a baseline, a candidate and a baseline repeat run expected: %d", len(argv))
+	}
+	// The report re-derives the outcome from the three recorded checks.
+	checks := map[string]model.Check{}
+	for _, c := range h.Checks() {
+		checks[c.ID] = c
+	}
+	repeat := checks[e["repeat_check_id"].(string)]
+	outcome, known := EvaluateObservations(RunnerPytest, checks[e["base_check_id"].(string)], checks[e["check_id"].(string)], &repeat, "tests/test_probe_discount.py", []string{"test_observe_total"})
+	if !known || outcome.Status != model.StatusDiverged {
+		t.Fatalf("re-derived %+v", outcome)
+	}
+}
+
+func TestPytestObservationsAreBoundedAndRedacted(t *testing.T) {
+	var props strings.Builder
+	for i := 0; i < 40; i++ {
+		fmt.Fprintf(&props, `<property name="probe.k%d" value="%d" />`, i, i)
+	}
+	raw := `<testsuites><testsuite><testcase classname="tests.test_x" name="test_obs"><properties>` +
+		`<property name="probe.secret" value="Bearer abcdefghijklmnopqrstuvwxyz0123456789" />` +
+		`<property name="probe.long" value="` + strings.Repeat("x", 5000) + `" />` +
+		`<property name="other" value="ignored" />` + props.String() +
+		`</properties></testcase></testsuite></testsuites>`
+	results := normalizedJUnit(t, raw)
+	if strings.Contains(results, "abcdefghijklmnop") || strings.Contains(results, "xxxxxxxxxx") || strings.Contains(results, "ignored") {
+		t.Fatalf("normalized report keeps secrets, long values or foreign properties: %s", results)
+	}
+	s := extractPytestObservations(results, "tests/test_x.py", []string{"test_obs"})
+	if s.Err() == "" {
+		t.Fatal("more than 32 recorded keys must be a channel error")
+	}
+}

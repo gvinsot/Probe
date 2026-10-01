@@ -207,7 +207,7 @@ func (o Outcome) Summary() string {
 
 var (
 	addressLike    = regexp.MustCompile(`0x[0-9a-fA-F]{8,}`)
-	sourcePosition = regexp.MustCompile(`\.(?:go|ts|tsx|js|mjs|cjs|jsx):\d+`)
+	sourcePosition = regexp.MustCompile(`\.(?:go|ts|tsx|js|mjs|cjs|jsx|py):\d+`)
 )
 
 // keyProblem returns why a key cannot be compared, or "".

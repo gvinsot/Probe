@@ -706,7 +706,7 @@ func TestObservationToolDescriptions(t *testing.T) {
 		descriptions[f["name"].(string)] = f["description"].(string)
 	}
 	for tool, fragments := range map[string][]string{
-		"create_test":        {`t.Attr("probe.<key>"`, "(task.meta as any).probe", "Jest and pytest cannot record observations", "def test_name(): ...", "at most 32"},
+		"create_test":        {`t.Attr("probe.<key>"`, "(task.meta as any).probe", "Jest cannot record observations", `record_property("probe.<key>", repr(result))`, "def test_name(): ...", "at most 32"},
 		"run_generated_test": {"differential_observation", "DIVERGED", "NOT_DIVERGED", "not which one is correct"},
 	} {
 		for _, fragment := range fragments {

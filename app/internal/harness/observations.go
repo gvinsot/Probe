@@ -5,7 +5,8 @@ package harness
 // in the sandbox image), which go test -json turns into "attr" events inside
 // the recorded check log; Vitest tests record them in task.meta.probe,
 // which the Jest-compatible JSON report carries on the {results_out} payload
-// channel. When the generated test passes on both revisions, the recorded
+// channel; pytest tests record them with the record_property fixture under a
+// "probe." name, which pytest's JUnit XML report carries on the same channel. When the generated test passes on both revisions, the recorded
 // values are compared key by key (package observe). A key whose candidate value
 // differs is decided by exactly one extra, live baseline run.
 //
@@ -42,7 +43,7 @@ const (
 	reasonNotBothPass      = "observations are compared only when the generated test passes on both revisions"
 	reasonRepeatCommand    = "the baseline repeat used a different command"
 	reasonRepeatNotPass    = "the baseline repeat run did not pass; the stability of baseline values is unknown"
-	reasonDeclaredNotFound = "the test declares observations but none was recorded; Go needs a 1.25 or later toolchain for t.Attr, and Jest reports carry no per-test metadata"
+	reasonDeclaredNotFound = "the test declares observations but none was recorded; Go needs a 1.25 or later toolchain for t.Attr, Jest reports carry no per-test metadata, and pytest records properties only with the record_property fixture"
 	reasonNotRetained      = "the diverging generated test could not be retained as an artifact, so the difference is not recorded as a divergence"
 )
 
@@ -226,6 +227,8 @@ func ObservationSet(runner string, c model.Check, path string, names []string) (
 		return extractGoObservations(c.Output, names), true
 	case RunnerJest:
 		return extractJestObservations(c.Results, path, names), true
+	case RunnerPytest:
+		return extractPytestObservations(c.Results, path, names), true
 	}
 	return observe.Set{}, false
 }
@@ -389,7 +392,7 @@ func recordMeta(s *observe.Set, test string, raw json.RawMessage) {
 // command and pass too. Otherwise the outcome is UNVERIFIED. Check kinds and
 // the live-baseline rule are the verifier's concern.
 func EvaluateObservations(runner string, base, candidate model.Check, repeat *model.Check, path string, names []string) (observe.Outcome, bool) {
-	if runner != RunnerGo && runner != RunnerJest {
+	if runner != RunnerGo && runner != RunnerJest && runner != RunnerPytest {
 		return observe.Outcome{}, false
 	}
 	if len(names) == 0 {
@@ -439,6 +442,9 @@ func declaresObservations(path, content string) bool {
 	}
 	if isJSTestPath(path) {
 		return strings.Contains(content, "meta") && strings.Contains(content, observe.MetaField)
+	}
+	if isPyTestPath(path) {
+		return strings.Contains(content, "record_property") && strings.Contains(content, observe.GoKeyPrefix)
 	}
 	return false
 }
@@ -512,7 +518,7 @@ func (h *Harness) observeGenerated(ctx context.Context, t *generatedTest, runner
 // holds h.mu.
 func (h *Harness) runBaselineRepeat(ctx context.Context, runner, path string, names, command []string) model.Check {
 	var c model.Check
-	if runner == RunnerJest {
+	if capturesResults(runner) {
 		c = h.runWithResultsOptions(ctx, model.CheckGeneratedBaseRepeat, h.base, command, runOptions{live: true})
 	} else {
 		c, _, _ = h.runWithOptions(ctx, model.CheckGeneratedBaseRepeat, h.base, command, runOptions{live: true})

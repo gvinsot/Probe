@@ -2,7 +2,7 @@
 
 A generated test normally asserts what the changed code should return, and the reviewer model guesses that expected value. When the guess is wrong, the experiment says more about the model than about the change. An observation experiment removes the guess: the generated test records the values the code returns, under named keys, and Probe compares what the baseline and the candidate recorded for the same inputs. A human then decides which value is intended.
 
-Observation experiments add no policy key, no flag, no tool, no container channel and no environment variable. They run inside the reviewer's existing `create_test` and `run_generated_test` tools whenever the trusted policy has a `generated_test` template whose named execution Probe can establish (Go `["go", "test", "{package}"]`, or a Vitest template with `{file}` and `{results_out}`).
+Observation experiments add no policy key, no flag, no tool, no container channel and no environment variable. They run inside the reviewer's existing `create_test` and `run_generated_test` tools whenever the trusted policy has a `generated_test` template whose named execution Probe can establish (Go `["go", "test", "{package}"]`, a Vitest template with `{file}` and `{results_out}`, or a pytest template with `{file}` and `--junitxml={results_out}`).
 
 ## Recording values
 
@@ -27,6 +27,19 @@ test("observe discount", ({ task }) => {
 ```
 
 Vitest copies `task.meta` into the report; console output cannot reach it. Probe keeps each value as canonical JSON text with its type: a string is recorded quoted (`"4"`), a number as written (`4`), an object with sorted keys. The number `4` and the string `"4"` are therefore different values. JSON drops `undefined` and turns `NaN` into `null`, so record such values with `String(x)`. A value whose canonical text exceeds 1024 bytes, or a key longer than 200 bytes, is kept only as a fixed stand-in that carries its length and a sha256 of its redacted text; a stand-in is never compared.
+
+**pytest** (the channel is pytest's JUnit XML report that the template writes to `{results_out}`): request pytest's built-in `record_property` fixture in the top-level test function and record each value under a `probe.` name, as its `repr`:
+
+```python
+from shop.cart import discount
+
+
+def test_observe_discount(record_property):
+    record_property("probe.discount(5,33)", repr(discount(5, 33)))
+    record_property("probe.discount(100,10)", repr(discount(100, 10)))
+```
+
+pytest writes each call as a `<property>` of the test's `<testcase>`, in order; console output cannot reach it. Probe keeps only properties whose name starts with `probe.`, of exactly the generated top-level test functions, at most 33 of them per test (more than 32 keys make the record `UNVERIFIED`), each redacted, and a key over 200 bytes or a value over 1024 bytes as a fixed stand-in. Values are compared as the text pytest recorded, so `repr` keeps the type visible (`4` and `'4'` differ) and keeps a value on one line; a value that holds a Python source position (`cart.py:12`) or a memory address is treated as build-dependent, as for Go and Vitest.
 
 **Jest** reports carry no per-test metadata, so a Jest template cannot record observations. A generated test that declares observations but records none gets an `UNVERIFIED` observation record that says so.
 
@@ -60,7 +73,7 @@ The record's status is:
 - `NOT_DIVERGED` when at least one row was compared and every row is `EQUAL`;
 - `UNVERIFIED` otherwise, with a fixed reason (a run did not pass, the repeat was skipped or did not pass, a channel error, only unstable or incomparable differences, or nothing was recorded).
 
-Values are compared in full, as recorded in the check log (Go) or in the check's structured results (Vitest). The rows shown in reports carry display cuts of 256 bytes, UTF-8 safe, with `truncated` set.
+Values are compared in full, as recorded in the check log (Go) or in the check's structured results (Vitest, pytest). The rows shown in reports carry display cuts of 256 bytes, UTF-8 safe, with `truncated` set.
 
 A `DIVERGED` experiment retains the generated test source as a hashed `generated_test` artifact, and the reviewer can no longer delete that test. If the source cannot be retained, the record is `UNVERIFIED` instead.
 
@@ -134,7 +147,7 @@ This holds whatever the observation record's own status is (for example when the
 Both channels can be written by code executing in the sandbox. They are kept apart from ordinary log text so that unrelated output cannot impersonate an observation, and nothing more:
 
 - In Go, a plain line such as `=== ATTR  TestX probe.k v` printed by the code under test stays an ordinary output event. Only a line carrying the test runner's framing byte (`\x16`) becomes an `attr` event. Code under test that prints such a framed line for a key the test also records makes that key recorded twice, hence `INCOMPARABLE`: a forged line can turn a divergence into `UNVERIFIED`, and can add a key, but it cannot produce `NOT_DIVERGED` for a key it duplicates.
-- In Vitest, console output cannot reach `task.meta`; the test code and the code it calls can.
+- In Vitest, console output cannot reach `task.meta`; the test code and the code it calls can. In pytest, console output cannot reach the properties `record_property` records either; the test code and the code it calls (for example through the call stack) can.
 - Code that sabotages its own test process (for example by writing directly to the process's standard output descriptors) can forge anything a passing test can. This is the same limit as for `NOT_REPRODUCED`, and it is why these records are observations, not proof.
 
 Values are redacted before they are parsed, compared, displayed or sent to a provider. Equal redacted values prove nothing and are `INCOMPARABLE`; a value that redaction would alter after decoding (for example a JSON-escaped credential) is `INCOMPARABLE` too. A normalized Vitest meta that redaction would alter is replaced by a fixed marker. When the metas would make an otherwise readable runner report unreadable, or push it over the payload limit or the results budget, they are all replaced by a marker instead. Observations therefore never change whether the pass or fail of the test itself is established. Reports remain unsigned.
@@ -159,7 +172,7 @@ Values are redacted before they are parsed, compared, displayed or sent to a pro
 
 ## Limitations
 
-- Go (1.25 or later) and Vitest only. Jest, Python and other runners record no observations.
+- Go (1.25 or later), Vitest and pytest only. Jest and other runners record no observations.
 - No observations from failing runs: a candidate failure keeps the ordinary `REPRODUCED` path, and the observation record is `UNVERIFIED`.
 - No subtest observations, no candidate-side repeat, no tolerance for floating-point noise, no order-insensitive collections and no normalization of error text. A reordered struct field or a reworded error is a real, recorded difference that a human may judge uninteresting.
 - A value that is identical in both baseline runs but depends on the build (for example a heap address on a toolchain that does not randomize it) can still diverge; the address and source-position heuristics catch only common forms.
