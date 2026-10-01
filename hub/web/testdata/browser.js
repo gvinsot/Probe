@@ -720,14 +720,18 @@ window.addEventListener('DOMContentLoaded', async () => {
     assert(el('coding-rules').value === '- Never log credentials.', 'the dialog shows the saved rules');
     // The review history is a tab beside the coding rules.
     assert(el('tab-coding-rules').getAttribute('aria-selected') === 'true' && el('review-history-panel').hidden, 'the dialog opens on the coding rules');
+    assert([...el('review-settings-panel').querySelectorAll('.settings-section .settings-title')].map((h) => h.textContent).slice(0, 2).join('|') === 'Coding rules|Learning from team feedback', 'each setting is its own section');
+    const rulesCardHeight = document.querySelector('.modal-card').offsetHeight;
     el('tab-review-history').click();
     await settle();
+    assert(document.querySelector('.modal-card').offsetHeight === rulesCardHeight, 'the history tab keeps the size of the coding rules');
     const historyRows = el('review-history-panel').querySelectorAll('.review-history li');
     assert(el('review-settings-panel').hidden && el('modal-footer').hidden && historyRows.length === 2, 'the history tab lists the review actions');
     assert(historyRows[0].textContent.includes('mark withdrawn') && historyRows[1].textContent.includes('reviewed') && historyRows[1].textContent.includes('Merge feature') && historyRows[1].textContent.includes('octocat'), 'each action shows what, which commit and who');
     el('tab-coding-rules').click();
     assert(!el('review-settings-panel').hidden && !el('modal-footer').hidden, 'back to the coding rules');
     closeModal();
+    assert(document.querySelector('.modal-card').style.height === '', 'closing the dialog frees the card size for the next one');
     await settle();
     assert(!document.body.dataset.testResult, document.body.dataset.testResult);
     document.body.dataset.testResult = 'PASS';

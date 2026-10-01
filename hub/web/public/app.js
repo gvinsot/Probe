@@ -672,6 +672,9 @@ function openRulesDialog(repo) {
   tabs.className = 'tabs';
   tabs.setAttribute('role', 'tablist');
   const showTab = (panel) => {
+    // The card keeps the size the coding rules gave it, whichever tab shows.
+    const card = el('modal').querySelector('.modal-card');
+    if (!body.hidden && card.offsetHeight) card.style.height = card.offsetHeight + 'px';
     for (const tab of tabs.children) tab.setAttribute('aria-selected', String(tab.panel === panel));
     body.hidden = panel !== body;
     history.hidden = panel !== history;
@@ -689,12 +692,23 @@ function openRulesDialog(repo) {
   }
   modalBody.append(tabs, body, history);
 
-  const intro = document.createElement('p');
-  intro.className = 'note';
-  intro.textContent = 'The AI reviewer checks the changed code of every review against these rules and reports each violation it finds as an alert. '
-    + 'They apply only when an AI reviewer runs, never to lint-only analyses. One rule per line works best.';
-  body.appendChild(intro);
+  // Each setting is a section: a title, what it does, then its controls.
+  const section = (title, note) => {
+    const part = document.createElement('section');
+    part.className = 'settings-section';
+    const heading = document.createElement('h3');
+    heading.className = 'settings-title';
+    heading.textContent = title;
+    const explanation = document.createElement('p');
+    explanation.className = 'note';
+    explanation.textContent = note;
+    part.append(heading, explanation);
+    body.appendChild(part);
+    return part;
+  };
 
+  const rulesSection = section('Coding rules', 'The AI reviewer checks the changed code of every review against these rules and reports each violation it finds as an alert. '
+    + 'They apply only when an AI reviewer runs, never to lint-only analyses. One rule per line works best.');
   const text = document.createElement('textarea');
   text.id = 'coding-rules';
   text.className = 'search rules-text';
@@ -703,22 +717,11 @@ function openRulesDialog(repo) {
   text.placeholder = '- Never log credentials or tokens.\n- Wrap returned errors with context.\n- Every public function has a test.';
   text.value = repo.coding_rules || '';
   text.setAttribute('aria-label', 'Coding rules');
-  const rulesTitle = document.createElement('h3');
-  rulesTitle.className = 'settings-title';
-  rulesTitle.textContent = 'Coding rules';
-  body.insertBefore(rulesTitle, intro);
-  body.appendChild(text);
+  rulesSection.appendChild(text);
 
   // Learning from team feedback: on unless the owner switched it off.
-  const learningTitle = document.createElement('h3');
-  learningTitle.className = 'settings-title';
-  learningTitle.textContent = 'Learning from team feedback';
-  body.appendChild(learningTitle);
-  const learningNote = document.createElement('p');
-  learningNote.className = 'note';
-  learningNote.textContent = 'Votes, comments and replies on findings, and whether the next analyzed commit changed the file a finding was about, '
-    + 'adapt how the AI reviewer investigates and words later reviews. They never change a verdict by themselves.';
-  body.appendChild(learningNote);
+  const learningSection = section('Learning from team feedback', 'Votes, comments and replies on findings, and whether the next analyzed commit changed the file a finding was about, '
+    + 'adapt how the AI reviewer investigates and words later reviews. They never change a verdict by themselves.');
   const toggle = document.createElement('label');
   toggle.className = 'row';
   const enabled = document.createElement('input');
@@ -727,12 +730,12 @@ function openRulesDialog(repo) {
   enabled.checked = repo.learning !== false;
   toggle.appendChild(enabled);
   toggle.appendChild(document.createTextNode(' Learn from team feedback'));
-  body.appendChild(toggle);
+  learningSection.appendChild(toggle);
   const learned = document.createElement('div');
   learned.id = 'learned-summary';
   learned.className = 'note';
   learned.textContent = 'Loading what was learned…';
-  body.appendChild(learned);
+  learningSection.appendChild(learned);
   const showLearned = (feedback) => {
     learned.textContent = '';
     const topics = feedback?.topics || [];
@@ -767,25 +770,18 @@ function openRulesDialog(repo) {
     }
   });
   reset.id = 'learning-reset';
-  body.appendChild(reset);
+  learningSection.appendChild(reset);
 
   // Monitoring: stopping removes the webhook, so later commits are no longer analyzed.
   if (repo.monitored) {
-    const monitoringTitle = document.createElement('h3');
-    monitoringTitle.className = 'settings-title';
-    monitoringTitle.textContent = 'Monitoring';
-    body.appendChild(monitoringTitle);
-    const monitoringNote = document.createElement('p');
-    monitoringNote.className = 'note';
-    monitoringNote.textContent = 'Every new commit of ' + repo.full_name + ' is analyzed. Stopping removes the webhook; existing results are kept.';
-    body.appendChild(monitoringNote);
+    const monitoringSection = section('Monitoring', 'Every new commit of ' + repo.full_name + ' is analyzed. Stopping removes the webhook; existing results are kept.');
     const stop = button('Stop monitoring', 'btn quiet small', async () => {
       stop.disabled = true;
       closeModal();
       await setMonitoring(repo, false);
     });
     stop.id = 'stop-monitoring';
-    body.appendChild(stop);
+    monitoringSection.appendChild(stop);
   }
 
   const save = button('Save', 'btn', async () => {
@@ -1440,6 +1436,7 @@ let activityOpen = false;
 function closeModal() {
   el('modal').classList.add('hidden');
   el('modal-footer').hidden = false;
+  el('modal').querySelector('.modal-card').style.height = '';
   clearInterval(activityTimer);
   activityDialogID++;
   if (activityOpen) el('settings').focus();

@@ -395,9 +395,16 @@ select, .select {
 .modal-card header { display: flex; align-items: center; gap: 10px; padding: 14px; border-bottom: 1px solid var(--line); }
 .modal-card header h3 { margin: 0; font-size: 1rem; }
 .modal-card .body { padding: 14px; display: grid; gap: 12px; }
-/* Review settings: a section title sits close to the note it introduces. */
-.modal-card .body .settings-title { margin: 6px 0 -8px; font-size: 0.95rem; }
-.modal-card .body .settings-title + .note { margin-top: 0; }
+/* Review settings: one section per setting, a rule between sections; inside,
+   the title, its note and the controls stack with an even gap. */
+#review-settings-panel { display: grid; gap: 18px; }
+.settings-section { display: grid; gap: 8px; justify-items: start; }
+.settings-section > .note, .settings-section > textarea { justify-self: stretch; }
+.settings-section + .settings-section { padding-top: 16px; border-top: 1px solid var(--line); }
+.settings-section .settings-title { margin: 0; font-size: 0.95rem; }
+.settings-section .note { margin: 0; line-height: 1.45; }
+.settings-section .note ul { margin: 4px 0; padding-left: 18px; }
+.settings-section .row { font-size: 0.86rem; }
 .modal-card footer { display: flex; justify-content: flex-end; gap: 8px; padding: 14px; border-top: 1px solid var(--line); }
 .modal-card footer[hidden], [role="tabpanel"][hidden] { display: none; }
 .policy-text { display: block; width: 100%; resize: vertical; background: var(--code-bg); color: var(--code-text); border: 1px solid var(--line); padding: 12px; border-radius: 8px; font-family: ui-monospace, "SFMono-Regular", "Cascadia Code", Menlo, Consolas, monospace; font-size: 0.8rem; white-space: pre; overflow: auto; }
