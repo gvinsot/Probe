@@ -29,8 +29,9 @@ const fuzzTemplateReason = "the generated_test command cannot run a fuzz harness
 // false. Selection only parses the two snapshots on the host. A change with no
 // function to run records no_candidates without running a container. The
 // template decides the language (fuzz.SelectAll): eligible TS/JS functions run
-// only with a verifiable Vitest or Jest generated_test template, and with any
-// other template they are listed in fuzz.skipped with the reason; eligible Go
+// only with a verifiable Vitest or Jest generated_test template, eligible
+// Python functions only with a verifiable pytest one, and with any other
+// template they are listed in fuzz.skipped with the reason; eligible Go
 // functions run only with a Go fuzz template. Eligible Go functions that the
 // template cannot run, when no TS/JS function runs either, or a selection
 // failure, record not_run with an Unverified line. When a Vitest or Jest
@@ -45,6 +46,9 @@ func runFuzz(ctx context.Context, h *harness.Harness, cfg config.Config, change 
 	limits := fuzz.NewLimits(cfg.Fuzz.Effective(cfg.Sandbox))
 	template := cfg.Commands["generated_test"]
 	family := fuzz.ScriptFamily(template)
+	if family == "" {
+		family = fuzz.PytestFamily(template)
+	}
 	// The TS/JS enumeration reads candidate content on the host: besides its
 	// own size and work bounds, the fuzz sub-cap and --deadline stop it.
 	scriptCtx, cancel := context.WithTimeout(ctx, limits.MaxRuntime)
@@ -111,7 +115,7 @@ func (f fuzzRunner) Observe(ctx context.Context, req fuzz.Request) (fuzz.Side, f
 		Confirm: req.Confirm, SaveSource: req.SaveSource, Deadline: req.Deadline, Normalize: req.Harness.Normalize,
 		Runner: req.Harness.EvidenceRunner(),
 	}
-	if run.Runner == harness.RunnerJest {
+	if run.Runner == harness.RunnerJest || run.Runner == harness.RunnerPytest {
 		run.Started = fuzz.StartedTests
 	}
 	base, candidate, err := f.h.RunObserved(ctx, run)
@@ -190,12 +194,16 @@ func fuzzLine(f *model.FuzzReport) string {
 // fuzzPlanText describes what a plan runs, for example "7 changed Go
 // functions in 2 packages" or "2 changed TS/JS functions in 1 module".
 func fuzzPlanText(plan fuzz.Plan) string {
-	goFns, goPkgs, scriptFns, modules := 0, 0, 0, 0
+	goFns, goPkgs, scriptFns, modules, pyFns, pyModules := 0, 0, 0, 0, 0, 0
 	for _, pkg := range plan.Packages {
-		if pkg.Script != nil {
+		switch {
+		case pkg.Python != nil:
+			pyFns += len(pkg.Targets)
+			pyModules++
+		case pkg.Script != nil:
 			scriptFns += len(pkg.Targets)
 			modules++
-		} else {
+		default:
 			goFns += len(pkg.Targets)
 			goPkgs++
 		}
@@ -206,6 +214,9 @@ func fuzzPlanText(plan fuzz.Plan) string {
 	}
 	if scriptFns > 0 {
 		parts = append(parts, fuzzCount(scriptFns, "changed TS/JS function")+" in "+fuzzCount(modules, "module"))
+	}
+	if pyFns > 0 {
+		parts = append(parts, fuzzCount(pyFns, "changed Python function")+" in "+fuzzCount(pyModules, "module"))
 	}
 	return strings.Join(parts, " and ")
 }

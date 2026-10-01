@@ -186,8 +186,8 @@ func (h *Harness) RunObserved(ctx context.Context, run ObservedRun) (base, candi
 		return ObservedSide{}, ObservedSide{}, err
 	}
 	runner := RunnerGo
-	if run.Runner == RunnerJest {
-		runner = RunnerJest
+	if run.Runner == RunnerJest || run.Runner == RunnerPytest {
+		runner = run.Runner
 	}
 	h.fuzz.runs++
 	if run.SaveSource {
@@ -264,7 +264,7 @@ func (h *Harness) fuzzPrecheck(run ObservedRun) ([]string, error) {
 		return nil, errors.New("no observation stream validator was given")
 	case run.Deadline.IsZero():
 		return nil, errors.New("no stage deadline was given")
-	case run.Runner == RunnerJest:
+	case run.Runner == RunnerJest || run.Runner == RunnerPytest:
 		return h.scriptFuzzPrecheck(run)
 	case run.Runner != "" && run.Runner != RunnerGo:
 		return nil, errors.New("unknown fuzz harness runner")
@@ -339,7 +339,7 @@ func (h *Harness) fuzzSide(c model.Check, payload []byte, truncated bool, run Ob
 	}
 	switch {
 	case !baseline || cause != "":
-	case run.Runner == RunnerJest:
+	case run.Runner == RunnerJest || run.Runner == RunnerPytest:
 		cause = scriptBaselineStartFailure(c, payload, side.OverflowSHA256 != "", run)
 	case h.completeLog(c):
 		cause = fuzzBaselineStartFailure(c, run.TestNames)
@@ -440,8 +440,8 @@ func (h *Harness) AddFuzzEvidence(e model.Evidence) (model.Evidence, error) {
 		return model.Evidence{}, fmt.Errorf("fuzz evidence must have kind %s", model.EvidenceDifferentialFuzz)
 	case e.Status != model.StatusDiverged && e.Status != model.StatusNotDiverged && e.Status != model.StatusUnverified:
 		return model.Evidence{}, errors.New("fuzz evidence status must be DIVERGED, NOT_DIVERGED or UNVERIFIED")
-	case e.Runner != RunnerGo && e.Runner != RunnerJest:
-		return model.Evidence{}, fmt.Errorf("fuzz evidence runner must be %s or %s", RunnerGo, RunnerJest)
+	case e.Runner != RunnerGo && e.Runner != RunnerJest && e.Runner != RunnerPytest:
+		return model.Evidence{}, fmt.Errorf("fuzz evidence runner must be %s, %s or %s", RunnerGo, RunnerJest, RunnerPytest)
 	case len(e.TestNames) != 1 || e.TestNames[0] == "":
 		return model.Evidence{}, errors.New("fuzz evidence must name exactly one test")
 	case e.Path == "":
@@ -491,17 +491,25 @@ func VerifiableJSTemplate(cmd []string) bool { return verifiableJSTemplate(cmd) 
 // h.mu.
 func (h *Harness) scriptFuzzPrecheck(run ObservedRun) ([]string, error) {
 	clean := filepath.ToSlash(filepath.Clean(filepath.FromSlash(run.Path)))
+	template := h.opts.Commands["generated_test"]
+	python := run.Runner == RunnerPytest
 	switch {
 	case run.Started == nil:
-		return nil, errors.New("no started-test counter was given for a TS/JS fuzz harness")
-	case !verifiableJSTemplate(h.opts.Commands["generated_test"]):
+		return nil, errors.New("no started-test counter was given for a TS/JS or Python fuzz harness")
+	case python && !verifiablePytestTemplate(template):
+		return nil, errors.New("the generated_test command cannot run a Python fuzz harness; configure a verifiable pytest template with {file} and --junitxml={results_out}")
+	case !python && !verifiableJSTemplate(template):
 		return nil, errors.New("the generated_test command cannot run a TS/JS fuzz harness; configure a verifiable Vitest or Jest template with {file} and {results_out}")
-	case !isJSTestPath(run.Path) || clean != run.Path || strings.HasPrefix(run.Path, "/") || strings.HasPrefix(run.Path, "../"):
-		return nil, errors.New("the TS/JS fuzz harness path must be a clean .test.ts or .test.js path")
+	case python && !isPyTestPath(run.Path), !python && !isJSTestPath(run.Path), clean != run.Path, strings.HasPrefix(run.Path, "/"), strings.HasPrefix(run.Path, "../"):
+		return nil, errors.New("the fuzz harness path must be a clean .test.ts or .test.js path, or a clean test_*.py path for a Python harness")
 	case len(run.Content) == 0 || len(run.Content) > maxFileBytes || strings.ContainsRune(run.Content, 0):
 		return nil, errors.New("the fuzz harness must contain 1 byte to 1 MiB of text")
 	}
-	names, err := generatedJSTests(run.Content)
+	extract := generatedJSTests
+	if python {
+		extract = generatedPyTests
+	}
+	names, err := extract(run.Content)
 	if err != nil {
 		return nil, err
 	}

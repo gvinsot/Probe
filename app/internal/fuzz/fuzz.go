@@ -49,7 +49,7 @@ const (
 // Reasons Run records itself.
 const (
 	ReasonRuntimeBudget = "fuzz.max_runtime_seconds or the overall deadline was reached before this package ran"
-	ReasonNoCandidates  = "no changed Go or TS/JS function is eligible for differential fuzzing"
+	ReasonNoCandidates  = "no changed Go, TS/JS or Python function is eligible for differential fuzzing"
 	// ReasonNoRunnable replaces ReasonNoCandidates when nothing was planned
 	// and at least one function meets the eligibility rules but was skipped
 	// because the generated_test template cannot run it (templateReasons).
@@ -60,6 +60,7 @@ const (
 // eligibility rules but that the generated_test template cannot run.
 var templateReasons = map[string]bool{
 	ReasonScriptTemplate: true, ReasonGoTemplate: true, ReasonScriptJestPath: true, ReasonScriptVitestExcluded: true,
+	ReasonPythonTemplate: true, ReasonGoTemplatePytest: true, ReasonScriptTemplatePytest: true,
 }
 
 // CounterexampleCutNote accompanies a counterexample whose displays are not
@@ -242,6 +243,9 @@ func renderPackage(pkg PackagePlan, o Options, suffix func() (string, error)) (H
 		if pkg.Script != nil {
 			return RenderScript(pkg, ro)
 		}
+		if pkg.Python != nil {
+			return RenderPython(pkg, ro)
+		}
 		h, err := Render(pkg, ro)
 		if err == nil {
 			return h, nil
@@ -410,8 +414,9 @@ func GoTemplateUnverified(n int) string {
 
 // Unverified returns the Unverified lines of a fuzz stage: one per
 // inconclusive function, one for the functions cut by max_functions or
-// max_packages, and one for the eligible Go functions that a Vitest or Jest
-// template could not run (goTemplateSkipped), at most 20 lines in total.
+// max_packages, and one for the eligible Go functions that a Vitest, Jest or
+// pytest template could not run (goTemplateSkipped), at most 20 lines in
+// total.
 func Unverified(rep model.FuzzReport, budgetSkipped, goTemplateSkipped int) []string {
 	var lines []string
 	inconclusive := 0
@@ -443,7 +448,20 @@ func Unverified(rep model.FuzzReport, budgetSkipped, goTemplateSkipped int) []st
 		lines = append(lines, fmt.Sprintf("Differential fuzzing did not run on %d changed functions because fuzz.max_functions or fuzz.max_packages was reached (see fuzz.skipped).", budgetSkipped))
 	}
 	if goTemplateSkipped > 0 {
-		lines = append(lines, GoTemplateUnverified(goTemplateSkipped))
+		line := GoTemplateUnverified(goTemplateSkipped)
+		for _, skip := range rep.Skipped {
+			if skip.Reason == ReasonGoTemplatePytest {
+				line = goTemplatePytestUnverified(goTemplateSkipped)
+				break
+			}
+		}
+		lines = append(lines, line)
 	}
 	return lines
+}
+
+// goTemplatePytestUnverified is GoTemplateUnverified under a pytest
+// template.
+func goTemplatePytestUnverified(n int) string {
+	return fmt.Sprintf("Differential fuzzing did not run on %d changed Go functions: the generated_test template is a pytest template, which cannot run a Go fuzz harness (see fuzz.skipped).", n)
 }

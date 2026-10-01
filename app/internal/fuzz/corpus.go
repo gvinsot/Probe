@@ -342,8 +342,11 @@ var goScheme = corpusScheme{edgeValues: edgeValues, edges: edges, random: random
 
 // corpusOf returns the corpus of a target of either language.
 func corpusOf(t Target, n int) []Input {
-	if t.Language == LanguageScript {
+	switch t.Language {
+	case LanguageScript:
 		return scriptCorpus(t, n)
+	case LanguagePython:
+		return pythonCorpus(t, n)
 	}
 	return Corpus(t, n)
 }

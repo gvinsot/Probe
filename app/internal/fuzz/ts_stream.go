@@ -16,7 +16,6 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	"github.com/gvinsot/Probe/app/internal/harness"
 	"github.com/gvinsot/Probe/app/internal/model"
 )
 
@@ -37,7 +36,8 @@ func scriptDoneLine(f int, test string, observed int) string {
 // the head record of the next function. A function whose records end before
 // its done record is interrupted, even after an end or stop record: without
 // the done record, nothing shows that its test finished. The normalized
-// stream is marked with the runner jest_json.
+// stream is marked with the harness's runner: jest_json for a TS/JS harness,
+// pytest_junit for a Python harness.
 func (h Harness) normalizeScript(payload []byte) (string, error) {
 	if len(h.Tests) == 0 || len(h.Tests) > maxHarnessTests {
 		return "", errors.New("the harness has no fuzz test")
@@ -174,7 +174,7 @@ func (h Harness) normalizeScript(payload []byte) (string, error) {
 			fn.AtCall = h.Tests[current-1].Inputs[fn.At].Call
 		}
 	}
-	out, err := encodeStream(Stream{Version: StreamVersion, Scheme: model.FuzzSeedScheme, Display: h.Display, Runner: harness.RunnerJest, Functions: functions})
+	out, err := encodeStream(Stream{Version: StreamVersion, Scheme: model.FuzzSeedScheme, Display: h.Display, Runner: h.Runner, Functions: functions})
 	if err != nil {
 		return "", err
 	}

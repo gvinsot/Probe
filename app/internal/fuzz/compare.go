@@ -131,13 +131,14 @@ func ParseChecks(c Checks) Recorded {
 // inputs. A FAIL check can still be usable for the tests that passed before
 // its process ended.
 //
-// For a TS/JS harness (runner jest_json, Appendix D.13) the log is never
-// read: the check must be PASS with exit code 0, its stream must be a TS/JS
-// stream, and the test must have written its head and done records (state
-// complete or stopped). A failing run supports no test.
+// For a TS/JS harness (runner jest_json, Appendix D.13) or a Python harness
+// (runner pytest_junit) the log is never read: the check must be PASS with
+// exit code 0, its stream must be a stream of that runner, and the test must
+// have written its head and done records (state complete or stopped). A
+// failing run supports no test.
 func view(c *model.Check, stream *Stream, name, kind, test string, planned int, allowAgreedReplay bool, runner string) side {
-	if runner == harness.RunnerJest {
-		return scriptView(c, stream, name, kind, test, planned, allowAgreedReplay)
+	if scriptRunner(runner) {
+		return scriptView(c, stream, name, kind, test, planned, allowAgreedReplay, runner)
 	}
 	s := side{name: name, present: c != nil}
 	switch {
@@ -270,7 +271,7 @@ func (r Recorded) Evaluate(test string, planned int) Evaluation {
 		ev.Reason = "no input was planned"
 		return ev
 	}
-	if c.Runner != "" && c.Runner != harness.RunnerGo && c.Runner != harness.RunnerJest {
+	if c.Runner != "" && c.Runner != harness.RunnerGo && !scriptRunner(c.Runner) {
 		ev.Reason = "the evidence names an unknown runner"
 		return ev
 	}

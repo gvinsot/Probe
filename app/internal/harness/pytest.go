@@ -602,3 +602,7 @@ func pytestAssertionMessage(m, p string) bool {
 	p = path.Clean(filepath.ToSlash(p))
 	return file == p || strings.HasSuffix(p, "/"+file) || strings.HasSuffix(file, "/"+p)
 }
+
+// VerifiablePytestTemplate reports whether a generated_test template can
+// establish which generated Python tests ran (verifiablePytestTemplate).
+func VerifiablePytestTemplate(cmd []string) bool { return verifiablePytestTemplate(cmd) }

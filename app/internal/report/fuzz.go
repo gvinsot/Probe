@@ -77,7 +77,7 @@ func deriveFuzz(r *model.Report, l *ledger) map[string]fuzzDerived {
 			continue
 		}
 		e, ok := l.item(fn.EvidenceID)
-		if !ok || e.Kind != model.EvidenceDifferentialFuzz || e.Runner != harness.RunnerGo && e.Runner != harness.RunnerJest || len(e.TestNames) != 1 || !verifiableNames(e.TestNames) ||
+		if !ok || e.Kind != model.EvidenceDifferentialFuzz || e.Runner != harness.RunnerGo && e.Runner != harness.RunnerJest && e.Runner != harness.RunnerPytest || len(e.TestNames) != 1 || !verifiableNames(e.TestNames) ||
 			e.Path == "" || !verifiableText(e.Path) || fn.TestName != e.TestNames[0] || fn.Checks.Base != e.BaseCheckID || fn.Checks.Candidate != e.CheckID {
 			continue
 		}
@@ -88,7 +88,8 @@ func deriveFuzz(r *model.Report, l *ledger) map[string]fuzzDerived {
 		if !baseOK || !candOK || d.base.Kind != model.CheckFuzzBase || d.candidate.Kind != model.CheckFuzzCandidate {
 			continue
 		}
-		if e.Runner == harness.RunnerJest && !scriptCommandTargets(d.base.Command, e.Path) || e.Runner == harness.RunnerGo && !fuzzCommandTargets(d.base.Command, e.Path, fn.TestName) {
+		if e.Runner == harness.RunnerJest && !scriptCommandTargets(d.base.Command, e.Path) || e.Runner == harness.RunnerGo && !fuzzCommandTargets(d.base.Command, e.Path, fn.TestName) ||
+			e.Runner == harness.RunnerPytest && !pytestHarnessTargets(d.base.Command, e.Path) {
 			continue
 		}
 		key := [5]string{e.BaseCheckID, e.CheckID, "", "", e.Runner}
@@ -346,6 +347,9 @@ func writeFuzz(b *bytes.Buffer, r *model.Report) {
 	if fuzzHasScripts(f) {
 		b.WriteString(inline(fuzzLexicalNote) + "\n\n")
 	}
+	if fuzzHasPython(f) {
+		b.WriteString(inline(fuzzPythonLexicalNote) + "\n\n")
+	}
 	for _, fn := range f.Functions {
 		where := inline(fn.Path)
 		if fn.Line > 0 {
@@ -413,6 +417,26 @@ func fuzzCheckList(c *model.FuzzChecks) string {
 // section lists one.
 const fuzzLexicalNote = "TS/JS functions, their signatures and their parameter types were read lexically, from TypeScript annotations and JSDoc @param tags, without a type checker; a construct that was not recognized is not listed."
 
+// fuzzPythonLexicalNote says how Python functions were found; it is shown
+// when the section lists one.
+const fuzzPythonLexicalNote = "Python functions, their signatures and their parameter types were read lexically, from their annotations, without a type checker or an import of the module; a construct that was not recognized is not listed."
+
+// fuzzHasPython reports whether the section lists a Python function, planned
+// or skipped.
+func fuzzHasPython(f *model.FuzzReport) bool {
+	for _, fn := range f.Functions {
+		if fuzz.IsPythonPath(fn.Path) {
+			return true
+		}
+	}
+	for _, s := range f.Skipped {
+		if fuzz.IsPythonPath(s.Path) {
+			return true
+		}
+	}
+	return false
+}
+
 // fuzzHasScripts reports whether the section lists a TS/JS function, planned
 // or skipped.
 func fuzzHasScripts(f *model.FuzzReport) bool {
@@ -430,21 +454,27 @@ func fuzzHasScripts(f *model.FuzzReport) bool {
 }
 
 // fuzzFunctionNoun names the planned functions by language: "changed Go
-// function", "changed TS/JS function", or "changed function" for both.
+// function", "changed TS/JS function", "changed Python function", or
+// "changed function" for a mix.
 func fuzzFunctionNoun(functions []model.FuzzFunction) string {
-	goFns, scriptFns := 0, 0
+	goFns, scriptFns, pythonFns := 0, 0, 0
 	for _, fn := range functions {
-		if fuzz.IsScriptPath(fn.Path) {
+		switch {
+		case fuzz.IsScriptPath(fn.Path):
 			scriptFns++
-		} else {
+		case fuzz.IsPythonPath(fn.Path):
+			pythonFns++
+		default:
 			goFns++
 		}
 	}
 	switch {
-	case scriptFns == 0:
+	case scriptFns == 0 && pythonFns == 0:
 		return "changed Go function"
-	case goFns == 0:
+	case goFns == 0 && pythonFns == 0:
 		return "changed TS/JS function"
+	case goFns == 0 && scriptFns == 0:
+		return "changed Python function"
 	}
 	return "changed function"
 }
@@ -464,4 +494,19 @@ func fuzzReasonText(s string) string {
 		return "no reason was recorded"
 	}
 	return s
+}
+
+// pytestHarnessTargets reports whether a recorded pytest fuzz command runs
+// the harness module p as its target and deselects none of its tests.
+func pytestHarnessTargets(command []string, p string) bool {
+	target := false
+	for _, arg := range harness.PytestArgs(command) {
+		switch {
+		case harness.PytestSelectionOption(arg):
+			return false
+		case arg == p:
+			target = true
+		}
+	}
+	return target
 }

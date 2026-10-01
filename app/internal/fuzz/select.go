@@ -124,19 +124,25 @@ func Select(baseDir, candidateDir string, change model.Change, signals []model.S
 	return finishPlan(eligible, skipped, limits, s), nil
 }
 
-// SelectAll plans the changed Go functions (Select) and the changed TS/JS
-// functions (SelectScripts) of change that the generated_test template can
-// run, with the budget and priority rules of Select (a TS/JS function is
-// exported, and its module counts as a package). family is the runner family
-// of the template (ScriptFamily), which decides the language:
-//   - "": no TS/JS harness can run. Every eligible TS/JS function is skipped
-//     with ReasonScriptTemplate, and the Go functions are planned (the
-//     caller decides whether the template runs them).
+// SelectAll plans the changed Go functions (Select), the changed TS/JS
+// functions (SelectScripts) and the changed Python functions (SelectPython)
+// of change that the generated_test template can run, with the budget and
+// priority rules of Select (a TS/JS or Python module counts as a package).
+// family is the runner family of the template (ScriptFamily or
+// PytestFamily), which decides the language:
+//   - "": no TS/JS or Python harness can run. Every eligible TS/JS function
+//     is skipped with ReasonScriptTemplate and every eligible Python
+//     function with ReasonPythonTemplate, and the Go functions are planned
+//     (the caller decides whether the template runs them).
 //   - vitest or jest: the template cannot be a Go fuzz template. Every
 //     eligible Go function is skipped with ReasonGoTemplate and counted in
-//     Plan.GoTemplateSkipped before the budget, so it takes no share of it,
-//     and an eligible TS/JS function whose module the runner cannot target
-//     is skipped with that reason (scriptRunnerProblem).
+//     Plan.GoTemplateSkipped before the budget, so it takes no share of it;
+//     an eligible TS/JS function whose module the runner cannot target is
+//     skipped with that reason (scriptRunnerProblem), and every eligible
+//     Python function with ReasonPythonTemplate.
+//   - pytest: the eligible Go functions are skipped as for vitest or jest
+//     (ReasonGoTemplatePytest), the eligible TS/JS functions with
+//     ReasonScriptTemplatePytest, and the Python functions are planned.
 //
 // ctx bounds the TS/JS enumeration (the fuzz sub-cap and --deadline).
 // Nothing is executed.
@@ -147,8 +153,12 @@ func SelectAll(ctx context.Context, baseDir, candidateDir string, change model.C
 	}
 	goTemplateSkipped := 0
 	if family != "" {
+		reason := ReasonGoTemplate
+		if family == FamilyPytest {
+			reason = ReasonGoTemplatePytest
+		}
 		for _, t := range eligible {
-			skipped = append(skipped, model.FuzzSkip{Path: t.Path, Line: t.Line, Symbol: t.Symbol, Reason: ReasonGoTemplate})
+			skipped = append(skipped, model.FuzzSkip{Path: t.Path, Line: t.Line, Symbol: t.Symbol, Reason: reason})
 		}
 		goTemplateSkipped, eligible = len(eligible), nil
 	}
@@ -156,11 +166,24 @@ func SelectAll(ctx context.Context, baseDir, candidateDir string, change model.C
 	skipped = append(skipped, scripts.Skipped...)
 	for _, t := range scripts.Targets {
 		reason := ReasonScriptTemplate
-		if family != "" {
+		switch family {
+		case FamilyPytest:
+			reason = ReasonScriptTemplatePytest
+		case FamilyVitest, FamilyJest:
 			reason = scriptRunnerProblem(family, t.Path)
 		}
 		if reason != "" {
 			skipped = append(skipped, model.FuzzSkip{Path: t.Path, Line: t.Line, Symbol: t.Symbol, Reason: reason})
+			continue
+		}
+		t.Priority = priority(t, signals)
+		eligible = append(eligible, t)
+	}
+	python := SelectPython(ctx, baseDir, candidateDir, change)
+	skipped = append(skipped, python.Skipped...)
+	for _, t := range python.Targets {
+		if family != FamilyPytest {
+			skipped = append(skipped, model.FuzzSkip{Path: t.Path, Line: t.Line, Symbol: t.Symbol, Reason: ReasonPythonTemplate})
 			continue
 		}
 		t.Priority = priority(t, signals)
@@ -708,6 +731,10 @@ func budget(eligible []Target, limits Limits, s *selection) Plan {
 		share := max(1, MaxPackageInputs/len(targets))
 		for i := range targets {
 			targets[i].Inputs = len(corpusOf(targets[i], min(limits.MaxInputs, share)))
+		}
+		if targets[0].Language == LanguagePython {
+			plan.Packages = append(plan.Packages, PackagePlan{Dir: dir, Targets: targets, Python: &PythonModule{Path: dir}})
+			continue
 		}
 		if targets[0].Language == LanguageScript {
 			module, ok := scriptModule(dir)

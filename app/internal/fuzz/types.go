@@ -22,6 +22,9 @@ type Param struct {
 	Basic string `json:"basic"`           // bool, string, int..int64, rune, uint..uint64, byte, float32, float64
 	Named string `json:"named,omitempty"` // package-local named type of the element
 	Len   int    `json:"len,omitempty"`   // array length (ParamArray only)
+	// Keyword is the name of a Python keyword-only parameter, passed as
+	// name=value; "" for a positional one and for other languages.
+	Keyword string `json:"keyword,omitempty"`
 }
 
 // Elem is the Go type of one element, or of the scalar itself.
@@ -59,9 +62,10 @@ type Target struct {
 	Inputs    int     `json:"inputs"` // planned number of seeded inputs
 	Exported  bool    `json:"exported"`
 	Priority  int     `json:"priority"` // highest severity rank (0..4) of signals overlapping the function
-	// Language is "" for a Go function and LanguageScript for a TS/JS
-	// function. A TS/JS target's Dir is its module path, so that each module
-	// is planned, budgeted and run like one package.
+	// Language is "" for a Go function, LanguageScript for a TS/JS function
+	// and LanguagePython for a Python function. A TS/JS or Python target's
+	// Dir is its module path, so that each module is planned, budgeted and
+	// run like one package.
 	Language string `json:"language,omitempty"`
 }
 
@@ -77,6 +81,8 @@ type PackagePlan struct {
 	Idents map[string]bool `json:"-"`
 	// Script is set for a TS/JS module (F2c); Name and Idents are then empty.
 	Script *ScriptModule `json:"script,omitempty"`
+	// Python is set for a Python module; Name and Idents are then empty.
+	Python *PythonModule `json:"python,omitempty"`
 }
 
 // ScriptModule is the TS/JS module whose changed functions one harness runs.

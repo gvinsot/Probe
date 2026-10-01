@@ -125,7 +125,7 @@ type rawRecord struct {
 // so redacting a display never changes a comparison. The result must be a
 // fixed point of redaction, or it is rejected too.
 func (h Harness) Normalize(payload []byte) (string, error) {
-	if h.Runner == harness.RunnerJest {
+	if scriptRunner(h.Runner) {
 		return h.normalizeScript(payload)
 	}
 	if len(h.Tests) == 0 || len(h.Tests) > maxHarnessTests {
@@ -422,8 +422,12 @@ func (s Stream) validate() error {
 	if s.Version != StreamVersion || s.Scheme != model.FuzzSeedScheme {
 		return errors.New("unknown observation stream version")
 	}
-	if s.Runner != "" && s.Runner != harness.RunnerJest {
+	if s.Runner != "" && !scriptRunner(s.Runner) {
 		return errors.New("unknown observation stream runner")
+	}
+	names := testNamePattern
+	if s.Runner == harness.RunnerPytest {
+		names = pythonTestNamePattern
 	}
 	if s.Display < minDisplayBytes || s.Display > MaxDisplayBytes {
 		return errors.New("invalid display bound")
@@ -436,7 +440,7 @@ func (s Stream) validate() error {
 	ended := false    // a function was interrupted or not started: nothing later may have begun
 	timedOut := false // a function stopped on a timeout: later ones may only be poisoned
 	for _, f := range s.Functions {
-		if !testNamePattern.MatchString(f.Test) || seen[f.Test] {
+		if !names.MatchString(f.Test) || seen[f.Test] {
 			return fmt.Errorf("invalid or duplicate test name %q", f.Test)
 		}
 		seen[f.Test] = true
@@ -470,7 +474,7 @@ func (s Stream) validate() error {
 					return fmt.Errorf("%s: stop after a timeout", f.Test)
 				}
 				// A TS/JS harness has no goexit stop (normalizeScript refuses it).
-				if f.Stop == StopGoexit && s.Runner == harness.RunnerJest {
+				if f.Stop == StopGoexit && scriptRunner(s.Runner) {
 					return fmt.Errorf("%s: goexit stop in a TS/JS stream", f.Test)
 				}
 			default:
@@ -501,4 +505,12 @@ func (s Stream) validate() error {
 		return errors.New("the observation stream plans too many inputs")
 	}
 	return nil
+}
+
+// scriptRunner reports whether a harness or stream runner is one whose
+// stream frames every test with head and done records: a TS/JS harness run
+// by Vitest or Jest (jest_json) or a Python harness run by pytest
+// (pytest_junit).
+func scriptRunner(runner string) bool {
+	return runner == harness.RunnerJest || runner == harness.RunnerPytest
 }

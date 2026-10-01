@@ -2,8 +2,8 @@ package fuzz
 
 import (
 	"fmt"
-
 	"github.com/gvinsot/Probe/app/internal/harness"
+
 	"github.com/gvinsot/Probe/app/internal/model"
 )
 
@@ -35,7 +35,7 @@ func (s *Stream) endedInside() bool {
 // the process ended. So does a passing run whose stream ended inside a test
 // (under Jest, a process.exit(0) in the code under test ends the run with
 // exit code 0): its later tests did not start.
-func scriptView(c *model.Check, stream *Stream, name, kind, test string, planned int, allowAgreedReplay bool) side {
+func scriptView(c *model.Check, stream *Stream, name, kind, test string, planned int, allowAgreedReplay bool, runner string) side {
 	s := side{name: name, present: c != nil}
 	switch {
 	case c == nil:
@@ -62,8 +62,8 @@ func scriptView(c *model.Check, stream *Stream, name, kind, test string, planned
 	case stream == nil:
 		s.problem = "observation stream was rejected"
 		return s
-	case stream.Runner != harness.RunnerJest:
-		s.problem = "observation stream is not the stream of a TS/JS harness"
+	case stream.Runner != runner:
+		s.problem = "observation stream is not the stream of a " + runnerLanguage(runner) + " harness"
 		return s
 	}
 	fn, ok := stream.Function(test)
@@ -79,7 +79,7 @@ func scriptView(c *model.Check, stream *Stream, name, kind, test string, planned
 	ended := fn.State == StateInterrupted || fn.State == StateNotStarted
 	switch {
 	case c.Status != "PASS" || c.ExitCode != 0:
-		s.problem = fmt.Sprintf("ended with exit code %d; a TS/JS run supports a comparison only when it passes with exit code 0", c.ExitCode)
+		s.problem = fmt.Sprintf("ended with exit code %d; a %s run supports a comparison only when it passes with exit code 0", c.ExitCode, runnerLanguage(runner))
 		s.ended = ended
 	case ended:
 		s.problem = "observation stream has no done record of the fuzz test although the run passed"
@@ -88,4 +88,13 @@ func scriptView(c *model.Check, stream *Stream, name, kind, test string, planned
 		s.usable, s.pkg = true, scriptPackage
 	}
 	return s
+}
+
+// runnerLanguage names the language of a harness of a script runner, for
+// reasons.
+func runnerLanguage(runner string) string {
+	if runner == harness.RunnerPytest {
+		return "Python"
+	}
+	return "TS/JS"
 }
