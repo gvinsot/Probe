@@ -29,7 +29,7 @@ const Kind = "uncovered_change"
 const Note = "Executed means the line ran at least once during the recorded run. The coverage profile is produced by the test suite of the candidate revision and is recorded as a report, not as proof. It is not evidence that behavior is asserted, correct or safe. Deleted lines, test files and non-Go files are outside this measurement. Verdicts are block-granular: a line inside an instrumented block carries the count of that block, including lines that hold no statement of their own. Execution is measured per instrumented package; a line executed only through the tests of another package counts as not executed unless the coverage command sets -coverpkg. If the run did not pass, a line reported as not executed may lie after the point where the run stopped."
 
 // NoteLCOV is Note for a measurement read from an LCOV report.
-const NoteLCOV = "Executed means the line ran at least once during the recorded run. The LCOV report is produced by the test suite of the candidate revision and is recorded as a report, not as proof. It is not evidence that behavior is asserted, correct or safe. Deleted lines, test files, declaration files and files other than TypeScript or JavaScript sources are outside this measurement. Verdicts are line-granular: only lines for which the report carries a line entry are classified, so a line the coverage tool does not count as a statement, such as the continuation of a multi-line statement, is not inside any instrumented block. A file absent from the report is not measured; so is every file when the report names paths relative to a directory other than the repository root. If the run did not pass, a line reported as not executed may lie after the point where the run stopped."
+const NoteLCOV = "Executed means the line ran at least once during the recorded run. The LCOV report is produced by the test suite of the candidate revision and is recorded as a report, not as proof. It is not evidence that behavior is asserted, correct or safe. Deleted lines, test files, declaration files and files other than the TypeScript, JavaScript or Python sources of the languages the report names are outside this measurement. Verdicts are line-granular: only lines for which the report carries a line entry are classified, so a line the coverage tool does not count as a statement, such as the continuation of a multi-line statement, is not inside any instrumented block. A file absent from the report is not measured; so is every file when the report names paths relative to a directory other than the repository root. If the run did not pass, a line reported as not executed may lie after the point where the run stopped."
 
 // NoteFor returns the note of a measurement in format.
 func NoteFor(format string) string {
@@ -39,12 +39,26 @@ func NoteFor(format string) string {
 	return Note
 }
 
-// Languages names the sources a measurement in format covers, for display.
-func Languages(format string) string {
-	if format == FormatLCOV {
+// Languages names the sources a measurement covers, for display: Go for a Go
+// profile; for an LCOV report, the languages of the files it measured.
+func Languages(c model.Coverage) string {
+	if c.Format != FormatLCOV {
+		return "Go"
+	}
+	script, python := false, false
+	for _, f := range c.Files {
+		script = script || ScriptSource(f.Path)
+		python = python || PythonSource(f.Path)
+	}
+	switch {
+	case script && python:
+		return "TypeScript/JavaScript and Python"
+	case python:
+		return "Python"
+	case script:
 		return "TypeScript/JavaScript"
 	}
-	return "Go"
+	return "TypeScript/JavaScript or Python"
 }
 
 const (
@@ -149,8 +163,9 @@ func NotConfigured() model.Coverage {
 }
 
 // Analyze resolves every added new-side line of every changed non-test source
-// file of the profile's language (Go for a Go profile, TypeScript and
-// JavaScript for an LCOV report) into exactly one of four states. Files are
+// file of the profile's languages (Go for a Go profile; TypeScript and
+// JavaScript, or Python, for an LCOV report, as its records name them) into
+// exactly one of four states. Files are
 // matched by building the expected profile key from the diff (and, for Go,
 // the module path) and asking the profile a yes/no question; a container-supplied string is never mapped back onto a repository
 // path, so a mismatched or forged profile misses and yields "not measured"
@@ -171,8 +186,9 @@ func Analyze(p *Profile, run Run, change model.Change) Result {
 		byPath:   map[string]model.CoverageFile{},
 	}
 	result.notExecuted = map[string][]int{}
+	langs := reportLanguages(p)
 	for _, f := range change.Files {
-		if !inScope(format, f) {
+		if !inScope(format, langs, f) {
 			continue
 		}
 		added, removed := changedLines(f)
@@ -383,17 +399,57 @@ func stopped(evidence, status string) string {
 }
 
 // inScope selects the changed files a profile in format can speak about. A Go
-// profile measures only Go files and an LCOV report only TypeScript and
-// JavaScript files, so a repository's other sources never become "not
-// measured" lines of a measurement that could not have covered them.
-func inScope(format string, f model.ChangedFile) bool {
+// profile measures only Go files. An LCOV report measures the languages it
+// names (lcovLanguages): TypeScript and JavaScript sources when it holds a
+// record of one, Python sources when it holds a record of a .py file. A
+// repository's other sources never become "not measured" lines of a
+// measurement that could not have covered them, for example the Python
+// files of a repository whose Vitest report covers its front end only.
+func inScope(format string, langs lcovLanguages, f model.ChangedFile) bool {
 	if f.Status == "D" || f.Binary {
 		return false
 	}
 	if format == FormatLCOV {
-		return ScriptSource(f.Path)
+		return langs.script && ScriptSource(f.Path) || langs.python && PythonSource(f.Path)
 	}
 	return strings.HasSuffix(f.Path, ".go") && !strings.HasSuffix(f.Path, "_test.go")
+}
+
+// lcovLanguages are the languages an LCOV report names in its file records.
+type lcovLanguages struct{ script, python bool }
+
+// reportLanguages reads the languages of the file records of p by their
+// extensions alone: a record of a test file still says which test suite
+// produced the report.
+func reportLanguages(p *Profile) lcovLanguages {
+	var langs lcovLanguages
+	for _, b := range p.Blocks {
+		switch path.Ext(strings.ToLower(b.File)) {
+		case ".ts", ".tsx", ".mts", ".cts", ".js", ".jsx", ".mjs", ".cjs":
+			langs.script = true
+		case ".py":
+			langs.python = true
+		}
+	}
+	return langs
+}
+
+// PythonSource reports whether a repository path is a Python source file an
+// LCOV report can measure: a .py file that is not a test module (test_*.py,
+// *_test.py), a conftest.py or a file under a tests/ or test/ directory, and
+// not under a hidden directory, a virtual environment or site-packages.
+func PythonSource(p string) bool {
+	lower := strings.ToLower(p)
+	base := path.Base(lower)
+	if path.Ext(base) != ".py" || strings.HasPrefix(base, "test_") || strings.HasSuffix(base, "_test.py") || base == "conftest.py" {
+		return false
+	}
+	for _, part := range strings.Split(path.Dir(lower), "/") {
+		if part == "tests" || part == "test" || part == "site-packages" || part == "venv" || part == "__pycache__" || strings.HasPrefix(part, ".") && part != "." {
+			return false
+		}
+	}
+	return true
 }
 
 // ScriptSource reports whether a repository path is a TypeScript or
