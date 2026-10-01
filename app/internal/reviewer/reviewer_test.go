@@ -217,20 +217,26 @@ func TestTruncatedResponsesAreRetriedInSmallerSteps(t *testing.T) {
 	}
 }
 
-func TestOutputBudgetFallsBackOnABadRequest(t *testing.T) {
-	// A provider that rejects 8192 output tokens gets one retry with 4096,
+func TestRefusedRequestsDropOptionalParameters(t *testing.T) {
+	// A provider that refuses the request (here 400 on both optional
+	// parameters) gets parallel_tool_calls dropped, then 4096 output tokens,
 	// kept for the next requests.
-	var budgets []float64
+	type sent struct {
+		budget   float64
+		parallel bool
+	}
+	var requests []sent
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var body map[string]any
 		_ = json.NewDecoder(r.Body).Decode(&body)
+		_, parallel := body["parallel_tool_calls"]
 		budget := body["max_completion_tokens"].(float64)
-		budgets = append(budgets, budget)
+		requests = append(requests, sent{budget, parallel})
 		if budget > fallbackMaxTokens {
 			http.Error(w, `{"error":"max_tokens exceeds the context"}`, http.StatusBadRequest)
 			return
 		}
-		if len(budgets) == 2 {
+		if len(requests) == 3 {
 			complete(w, call("a", "run_build", `{}`))
 			return
 		}
@@ -240,8 +246,66 @@ func TestOutputBudgetFallsBackOnABadRequest(t *testing.T) {
 	if err := Run(context.Background(), Options{Endpoint: server.URL, Model: "test"}, &model.Report{}, &fakeHarness{}); err != nil {
 		t.Fatal(err)
 	}
-	if fmt.Sprint(budgets) != fmt.Sprint([]float64{defaultMaxTokens, fallbackMaxTokens, fallbackMaxTokens}) {
-		t.Fatalf("budgets %v", budgets)
+	want := []sent{{defaultMaxTokens, true}, {defaultMaxTokens, false}, {fallbackMaxTokens, false}, {fallbackMaxTokens, false}}
+	if fmt.Sprint(requests) != fmt.Sprint(want) {
+		t.Fatalf("requests %v, want %v", requests, want)
+	}
+
+	// An OpenRouter route that finds no endpoint for parallel_tool_calls
+	// (404) is satisfied by dropping it; the output budget is kept.
+	requests = nil
+	server2 := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		_, parallel := body["parallel_tool_calls"]
+		requests = append(requests, sent{body["max_completion_tokens"].(float64), parallel})
+		if parallel {
+			http.Error(w, `{"error":{"message":"No endpoints found that can handle the requested parameters."}}`, http.StatusNotFound)
+			return
+		}
+		complete(w)
+	}))
+	defer server2.Close()
+	if err := Run(context.Background(), Options{Endpoint: server2.URL, Model: "test"}, &model.Report{}, &fakeHarness{}); err != nil {
+		t.Fatal(err)
+	}
+	if want := []sent{{defaultMaxTokens, true}, {defaultMaxTokens, false}}; fmt.Sprint(requests) != fmt.Sprint(want) {
+		t.Fatalf("requests %v, want %v", requests, want)
+	}
+}
+
+func TestRateLimitedRequestsAreRetried(t *testing.T) {
+	saved := rateLimitBackoff
+	rateLimitBackoff = []time.Duration{time.Millisecond, time.Millisecond, time.Millisecond}
+	defer func() { rateLimitBackoff = saved }()
+	var requests int
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests++
+		if requests <= 2 {
+			http.Error(w, `{"error":"rate-limited upstream"}`, http.StatusTooManyRequests)
+			return
+		}
+		complete(w)
+	}))
+	defer server.Close()
+	r := &model.Report{}
+	if err := Run(context.Background(), Options{Endpoint: server.URL, Model: "test"}, r, &fakeHarness{}); err != nil {
+		t.Fatalf("after %d requests: %v", requests, err)
+	}
+	if requests != 3 {
+		t.Fatalf("%d requests", requests)
+	}
+
+	// A provider that stays rate-limited fails after the retries.
+	requests = 0
+	server2 := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests++
+		http.Error(w, `{"error":"rate-limited upstream"}`, http.StatusTooManyRequests)
+	}))
+	defer server2.Close()
+	err := Run(context.Background(), Options{Endpoint: server2.URL, Model: "test"}, &model.Report{}, &fakeHarness{})
+	if err == nil || !strings.Contains(err.Error(), "429") || requests != 1+len(rateLimitBackoff) {
+		t.Fatalf("%d requests: %v", requests, err)
 	}
 }
 

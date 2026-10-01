@@ -10,6 +10,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -31,16 +32,27 @@ type chat struct {
 	transport *http.Transport
 	client    *http.Client
 	maxTokens int // max_completion_tokens; 0: defaultMaxTokens
+	// noParallel omits parallel_tool_calls, which some providers do not
+	// accept (an OpenRouter route then finds no endpoint: HTTP 404).
+	noParallel bool
+	retryAfter time.Duration // the Retry-After of the last refused request; 0: none
 }
 
 // Output budget of a completion. Structured answers (a summary with its
 // quotes, a generated test in a tool call) outgrow 4096 tokens; a provider
-// that rejects 8192, such as a local model with a short context, gets one
-// retry with 4096, kept for the rest of the session.
+// that rejects 8192, such as a local model with a short context, falls back
+// to 4096, kept for the rest of the session.
 const (
 	defaultMaxTokens  = 8192
 	fallbackMaxTokens = 4096
 )
+
+// rateLimitBackoff is how long a rate-limited (429) or unavailable (503)
+// provider is given before each retry, unless it sends a Retry-After of at
+// most maxRetryAfter.
+var rateLimitBackoff = []time.Duration{2 * time.Second, 5 * time.Second, 10 * time.Second}
+
+const maxRetryAfter = 30 * time.Second
 
 // newChat builds the session's client. The response-header wait is the whole
 // reviewer timeout: a non-streaming completion sends its headers only once the
@@ -118,9 +130,36 @@ type completionChoice struct {
 // returned message is redacted and has the assistant role.
 func (c *chat) complete(ctx context.Context, messages []message, tools []map[string]any, iteration int) (completionChoice, model.AuditEvent, error) {
 	choice, event, status, err := c.send(ctx, messages, tools, iteration)
-	if status == http.StatusBadRequest && cmp.Or(c.maxTokens, defaultMaxTokens) > fallbackMaxTokens {
+	// A request a provider cannot handle (HTTP 400, or 404 from a router
+	// that finds no endpoint for its parameters) is sent again without its
+	// optional parameters, for the rest of the session: parallel_tool_calls
+	// first, then the larger output budget.
+	refused := func() bool { return status == http.StatusBadRequest || status == http.StatusNotFound }
+	if refused() && len(tools) > 0 && !c.noParallel {
+		c.noParallel = true
+		choice, event, status, err = c.send(ctx, messages, tools, iteration)
+	}
+	if refused() && cmp.Or(c.maxTokens, defaultMaxTokens) > fallbackMaxTokens {
 		c.maxTokens = fallbackMaxTokens
-		choice, event, _, err = c.send(ctx, messages, tools, iteration)
+		choice, event, status, err = c.send(ctx, messages, tools, iteration)
+	}
+	// A rate-limited or unavailable provider is retried after a pause,
+	// within the reviewer's deadline.
+	for _, wait := range rateLimitBackoff {
+		if status != http.StatusTooManyRequests && status != http.StatusServiceUnavailable {
+			break
+		}
+		if c.retryAfter > 0 {
+			wait = c.retryAfter
+		}
+		timer := time.NewTimer(wait)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return choice, event, err
+		case <-timer.C:
+		}
+		choice, event, status, err = c.send(ctx, messages, tools, iteration)
 	}
 	return choice, event, err
 }
@@ -132,7 +171,7 @@ func (c *chat) send(ctx context.Context, messages []message, tools []map[string]
 	// parallel_tool_calls, and some an empty tools array, when no tool is
 	// offered.
 	var parallel *bool
-	if len(tools) > 0 {
+	if len(tools) > 0 && !c.noParallel {
 		parallel = new(bool)
 	}
 	body, err := json.Marshal(struct {
@@ -166,6 +205,10 @@ func (c *chat) send(ctx context.Context, messages []message, tools []map[string]
 	}
 	data, readErr := io.ReadAll(io.LimitReader(res.Body, 1024*1024+1))
 	res.Body.Close()
+	c.retryAfter = 0
+	if seconds, err := strconv.Atoi(strings.TrimSpace(res.Header.Get("Retry-After"))); err == nil && seconds > 0 {
+		c.retryAfter = min(time.Duration(seconds)*time.Second, maxRetryAfter)
+	}
 	if res.StatusCode < 200 || res.StatusCode >= 300 {
 		return completionChoice{}, event, res.StatusCode, fmt.Errorf("reviewer endpoint returned HTTP %d", res.StatusCode)
 	}
