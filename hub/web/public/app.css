@@ -465,6 +465,10 @@ body.resizing { cursor: col-resize; user-select: none; }
 .commit-column h3 { margin: 0; font-size: 0.92rem; }
 .commit-column .note { margin: 6px 0; }
 .report-pane { flex: 1; min-width: 0; }
+/* A tree being replaced stays in place, inert, and dims after a short delay
+   so a quick reload swaps it without flicker. */
+#commit-tree, #branches { transition: opacity 0.15s ease; }
+#commit-tree[aria-busy="true"], #branches[aria-busy="true"] { opacity: 0.6; pointer-events: none; transition-delay: 0.2s; }
 .commit-tree { display: flex; overflow: auto; max-height: calc(100vh - 230px); border: 1px solid var(--line); border-radius: 8px; }
 .graph-lines { flex: none; }
 .graph-edge { fill: none; stroke: var(--accent); stroke-width: 1.5; opacity: .65; }

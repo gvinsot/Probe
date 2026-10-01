@@ -277,8 +277,11 @@ window.addEventListener('DOMContentLoaded', async () => {
     assert(document.querySelector('.commit-row .chip.branch').textContent === 'main', 'branch name in the tree');
     // A branch button reloads the tree with that branch only.
     const branchButton = (name) => [...document.querySelectorAll('#branches button')].find((b) => b.textContent === name);
+    const noteBefore = document.getElementById('graph-note').textContent;
     branchButton('feature/ui').click();
+    assert(document.querySelectorAll('.commit-row').length === 4 && el('commit-tree').getAttribute('aria-busy') === 'true' && el('branches').getAttribute('aria-busy') === 'true' && document.getElementById('graph-note').textContent === noteBefore, 'the current tree stays, inert, while the next one loads');
     await settle();
+    assert(el('commit-tree').getAttribute('aria-busy') === 'false' && el('branches').getAttribute('aria-busy') === 'false', 'the new tree replaces it once loaded');
     assert(fixtureCalls.some((call) => call.path === '/api/repos/repo/commits?branch=feature%2Fui'), 'the branch is requested alone');
     assert(document.querySelectorAll('.commit-row').length === 2 && branchButton('feature/ui').getAttribute('aria-pressed') === 'true' && document.getElementById('graph-note').textContent.startsWith('Branch feature/ui only'), 'the tree shows one branch');
     branchButton('All branches').click();

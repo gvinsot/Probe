@@ -1657,8 +1657,7 @@ async function selectRepo(repoKey, commit) {
   if (window.location.hash !== hash) window.location.hash = hash;
   renderRepos();
   clearReport(state.repos.get(repoKey));
-  el('commit-tree').textContent = '';
-  el('branches').textContent = '';
+  // The previous tree stays until the new one arrives (loadHistory).
   el('commit-actions').classList.add('hidden');
   await loadHistory();
 }
@@ -1669,7 +1668,11 @@ async function loadHistory() {
   const loadID = ++state.loadID;
   el('commit-browser').classList.remove('hidden');
   el('splitter').classList.remove('hidden');
-  el('graph-note').textContent = 'Loading commits…';
+  // The tree on screen stays, inert, until the new commits replace it at
+  // once: only a first load, with nothing to show yet, says it is loading.
+  const tree = el('commit-tree');
+  if (!tree.childElementCount) el('graph-note').textContent = 'Loading commits…';
+  setTreeBusy(true);
   // History remains useful if fetching Git temporarily fails.
   const results = await Promise.allSettled([
     state.graphs.has(repo.key) ? Promise.resolve(state.graphs.get(repo.key))
@@ -1677,6 +1680,7 @@ async function loadHistory() {
     api('/api/repos/' + encodeURIComponent(repo.key) + '/runs'),
   ]);
   if (loadID !== state.loadID || repo.key !== state.repoKey) return;
+  setTreeBusy(false);
   const [graphResult, runsResult] = results;
   if (runsResult.status === 'fulfilled') { state.runs = runsResult.value.runs || []; settleFromHistory(repo.key); }
   else { state.runs = []; toast(runsResult.reason.message, true); }
@@ -1685,7 +1689,8 @@ async function loadHistory() {
     renderGraph();
   } else {
     el('graph-note').textContent = graphResult.reason.message;
-    el('commit-tree').textContent = '';
+    tree.textContent = '';
+    el('branches').textContent = '';
   }
   if (state.commit) {
     renderCommitActions();
@@ -1694,6 +1699,13 @@ async function loadHistory() {
     clearReport(repo);
     el('report-empty').textContent = 'Select a commit to inspect cached results or launch an analysis.';
   }
+}
+
+// setTreeBusy marks the commit tree and its branch buttons as being
+// replaced: they stay visible but cannot be clicked, and dim only when the
+// load lasts long enough to notice (app.css).
+function setTreeBusy(busy) {
+  for (const id of ['commit-tree', 'branches']) el(id).setAttribute('aria-busy', String(busy));
 }
 
 function cachedRun(commit, variant) {
