@@ -55,7 +55,7 @@ window.fetch = async (path, init) => {
   else if (path.endsWith('/commits')) data = { limited: false, branches: [{name:'main',sha:fixtureSHA('a')},{name:'feature/ui',sha:fixtureSHA('c')}], commits: [
     ...fixtureNewCommits,
     { sha: fixtureSHA('a'), parents: [fixtureSHA('b'), fixtureSHA('c')], branches: ['main'], message: 'Merge feature', author: 'Ada' },
-    { sha: fixtureSHA('c'), parents: [fixtureSHA('d')], branches: ['feature/ui'], message: '<img src=x onerror=alert(1)>', author: 'Grace' },
+    { sha: fixtureSHA('c'), parents: [fixtureSHA('d')], branches: ['feature/ui'], message: '<img src=x onerror=alert(1)>', author: 'Grace', stats: { files: 3, additions: 12, deletions: 4 } },
     { sha: fixtureSHA('b'), parents: [fixtureSHA('d')], branches: [], message: 'Main branch work', author: 'Ada' },
     { sha: fixtureSHA('d'), parents: [], branches: [], message: 'Initial commit', author: 'Ada' },
   ] };
@@ -298,6 +298,12 @@ window.addEventListener('DOMContentLoaded', async () => {
     await settle();
     assert(document.getElementById('report-head').textContent.includes('cccccccc'), 'uncached commit stays selected');
     assert(document.getElementById('filters').classList.contains('hidden'), 'previous report cleared');
+    // Without an analysis, Git still tells the commit's size, on the line of
+    // the repository, commit and title.
+    const pendingLine = document.querySelector('#report-head .report-commit-line');
+    assert(pendingLine.querySelector('#report-repo') && pendingLine.querySelector('.report-sha').textContent === 'cccccccccc' && pendingLine.querySelector('#selected-commit').textContent === '<img src=x onerror=alert(1)>', 'repository, commit and title on one line');
+    const facts = [...document.querySelectorAll('#report-head .stat')].map((s) => s.textContent).join('|');
+    assert(facts === '3files|+12 / -4lines' && document.getElementById('report-sub').textContent.includes('by Grace'), 'commit facts before any analysis: ' + facts);
     // Without an analysis, the commit only offers to run one: no Analysis or Plan cards.
     const commitActions = document.getElementById('commit-actions');
     assert(!commitActions.classList.contains('hidden') && commitActions.querySelectorAll('button').length === 1, 'a single action for an unanalyzed commit');

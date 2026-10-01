@@ -5,6 +5,9 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
+	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -19,6 +22,16 @@ type CommitNode struct {
 	Author   string   `json:"author"`
 	Date     string   `json:"date"`
 	Branches []string `json:"branches"`
+	// Stats is the size of the change against the first parent; nil when Git
+	// cannot tell, at the cut of a shallow history.
+	Stats *CommitStats `json:"stats,omitempty"`
+}
+
+// CommitStats is what git --shortstat counts for one commit.
+type CommitStats struct {
+	Files     int `json:"files"`
+	Additions int `json:"additions"`
+	Deletions int `json:"deletions"`
 }
 
 type Branch struct {
@@ -101,18 +114,33 @@ func (g *gitRunner) graph(ctx context.Context) (*CommitGraph, error) {
 	if len(graph.Branches) == 0 {
 		return graph, nil
 	}
-	raw, err := g.run(ctx, "log", "--remotes=origin", "--topo-order", "--max-count=301", "--format=%H%x00%P%x00%s%x00%an%x00%cI%x00")
+	// Each record starts with a record separator; the shortstat line, absent
+	// for an empty change, follows the fields. Merges count against their
+	// first parent, the side an analysis compares them to.
+	raw, err := g.run(ctx, "log", "--remotes=origin", "--topo-order", "--max-count=301",
+		"--shortstat", "--diff-merges=first-parent", "--format=%x1e%H%x00%P%x00%s%x00%an%x00%cI%x00")
 	if err != nil {
 		return nil, err
 	}
-	fields := strings.Split(raw, "\x00")
-	for len(fields) >= 6 {
+	cut, err := g.shallowCommits(ctx)
+	if err != nil {
+		return nil, err
+	}
+	for _, record := range strings.Split(raw, "\x1e")[1:] {
+		fields := strings.Split(record, "\x00")
+		if len(fields) != 6 {
+			return nil, fmt.Errorf("invalid commit in graph")
+		}
 		sha := strings.TrimSpace(fields[0])
 		if !commitPattern.MatchString(sha) {
 			return nil, fmt.Errorf("invalid commit in graph")
 		}
-		graph.Commits = append(graph.Commits, CommitNode{SHA: sha, Parents: strings.Fields(fields[1]), Message: fields[2], Author: fields[3], Date: fields[4], Branches: tips[sha]})
-		fields = fields[5:]
+		node := CommitNode{SHA: sha, Parents: strings.Fields(fields[1]), Message: fields[2], Author: fields[3], Date: fields[4], Branches: tips[sha]}
+		// A shallow cut has no parent here, so Git would count its whole tree.
+		if !cut[sha] {
+			node.Stats = parseShortstat(fields[5])
+		}
+		graph.Commits = append(graph.Commits, node)
 	}
 	shallow, err := g.run(ctx, "rev-parse", "--is-shallow-repository")
 	if err != nil {
@@ -123,4 +151,47 @@ func (g *gitRunner) graph(ctx context.Context) (*CommitGraph, error) {
 		graph.Commits = graph.Commits[:300]
 	}
 	return graph, nil
+}
+
+// shallowCommits lists the commits where a shallow history is cut.
+func (g *gitRunner) shallowCommits(ctx context.Context) (map[string]bool, error) {
+	path, err := g.run(ctx, "rev-parse", "--git-path", "shallow")
+	if err != nil {
+		return nil, err
+	}
+	if !filepath.IsAbs(path) {
+		path = filepath.Join(g.dir, path)
+	}
+	data, err := os.ReadFile(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return map[string]bool{}, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	cut := map[string]bool{}
+	for _, sha := range strings.Fields(string(data)) {
+		cut[sha] = true
+	}
+	return cut, nil
+}
+
+var shortstatPart = regexp.MustCompile(`(\d+) (file|insertion|deletion)`)
+
+// parseShortstat reads " 3 files changed, 10 insertions(+), 2 deletions(-)";
+// an empty line is an empty change.
+func parseShortstat(line string) *CommitStats {
+	stats := &CommitStats{}
+	for _, m := range shortstatPart.FindAllStringSubmatch(line, -1) {
+		n, _ := strconv.Atoi(m[1])
+		switch m[2] {
+		case "file":
+			stats.Files = n
+		case "insertion":
+			stats.Additions = n
+		case "deletion":
+			stats.Deletions = n
+		}
+	}
+	return stats
 }

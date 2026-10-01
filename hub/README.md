@@ -145,7 +145,10 @@ if longer retention is required. Cached results do not auto-expire when the CLI,
 provider changes. Only fresh CLI output is accepted: tracked output files or
 symlinks in the checkout are removed before an analysis.
 
-The API adds `GET /api/repos/{repo}/commits`. `POST .../analyze` accepts
+The API adds `GET /api/repos/{repo}/commits`, whose commits carry `stats`
+(files, additions, deletions against the first parent, as `git --shortstat`
+counts them; absent where a shallow history is cut) so a commit shows its size
+before any analysis. `POST .../analyze` accepts
 `commit`, `variant` (`normal` or `plan`), and `intent` (required for plan, at most
 64 KiB). `GET .../reports/{commit}` and its `/raw` endpoint accept
 `?variant=plan`; the default remains the normal confidence report. Both variants

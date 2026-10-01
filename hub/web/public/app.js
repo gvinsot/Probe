@@ -1768,17 +1768,28 @@ function analysisModeLabel(mode) {
   return mode || 'lint';
 }
 
+// renderReportCommit writes the head's first line: the repository, the commit
+// and its title. It returns the commit's node of the graph, if loaded.
 function renderReportCommit(repo, run) {
-  const commit = run?.commit || state.commit;
-  if (!commit) return;
-  const node = (state.graphs.get(repo?.key)?.commits || []).find((c) => c.sha === commit);
-  const message = run?.message || node?.message;
   const line = document.createElement('div');
   line.className = 'report-commit-line';
+  const name = document.createElement('h2');
+  name.id = 'report-repo';
+  name.textContent = repo?.full_name || 'Select a repository';
+  line.appendChild(name);
+  el('report-head').appendChild(line);
+  const commit = run?.commit || state.commit;
+  if (!commit) return null;
+  const node = (state.graphs.get(repo?.key)?.commits || []).find((c) => c.sha === commit) || null;
+  const sha = document.createElement('code');
+  sha.className = 'report-sha';
+  sha.textContent = shortSha(commit);
+  sha.title = commit;
+  line.appendChild(sha);
   const heading = document.createElement('p');
   heading.id = 'selected-commit';
   heading.className = 'report-commit';
-  heading.textContent = shortSha(commit) + (message ? ' · ' + message : '');
+  heading.textContent = run?.message || node?.message || '';
   line.appendChild(heading);
   if (repo?.web_url) {
     const forgeLink = document.createElement('a');
@@ -1789,16 +1800,31 @@ function renderReportCommit(repo, run) {
     forgeLink.textContent = 'Open the commit';
     line.appendChild(forgeLink);
   }
-  el('report-head').appendChild(line);
+  return node;
+}
+
+// renderCommitFacts shows what Git tells of a commit no analysis has read
+// yet: its author and age, and the size of its change.
+function renderCommitFacts(node) {
+  const head = el('report-head');
+  const sub = document.createElement('p');
+  sub.id = 'report-sub';
+  sub.className = 'report-sub';
+  if (node) sub.textContent = [node.author && 'by ' + node.author, node.date && timeAgo(node.date)].filter(Boolean).join(' · ');
+  head.appendChild(sub);
+  if (!node?.stats) return;
+  const stats = document.createElement('div');
+  stats.className = 'stats';
+  stats.appendChild(stat(node.stats.files, node.stats.files === 1 ? 'file' : 'files'));
+  stats.appendChild(stat('+' + node.stats.additions + ' / -' + node.stats.deletions, 'lines'));
+  if (node.parents && node.parents.length > 1) stats.appendChild(stat(node.parents.length, 'parents'));
+  head.appendChild(stats);
 }
 
 function clearReport(repo) {
   state.view = null; state.run = null; state.feedback = null; state.replyTo = null; state.unreadable = null;
   el('report-head').textContent = '';
-  const title = document.createElement('h2'); title.id = 'report-repo'; title.textContent = repo?.full_name || 'Select a repository';
-  el('report-head').appendChild(title);
-  renderReportCommit(repo);
-  const sub = document.createElement('p'); sub.id = 'report-sub'; sub.className = 'report-sub'; el('report-head').appendChild(sub);
+  renderCommitFacts(renderReportCommit(repo));
   el('filters').classList.add('hidden');
   el('alerts').textContent = '';
   el('extras').classList.add('hidden');
@@ -1843,12 +1869,10 @@ function renderReport() {
   const head = el('report-head');
   head.textContent = '';
 
+  renderReportCommit(repo, run);
+
   const title = document.createElement('div');
   title.className = 'report-title';
-  const h2 = document.createElement('h2');
-  h2.id = 'report-repo';
-  h2.textContent = repo.full_name;
-  title.appendChild(h2);
   const verdict = document.createElement('span');
   verdict.className = 'verdict ' + (view.summary.verdict || 'failed');
   if (view.summary.verdict === 'review') verdict.classList.add(reviewTone(view.summary));
@@ -1861,8 +1885,6 @@ function renderReport() {
   title.appendChild(verdict);
   if (run && run.status === 'failed') title.appendChild(chip('analysis failed', 'bad'));
   head.appendChild(title);
-
-  renderReportCommit(repo, run);
 
   const sub = document.createElement('p');
   sub.className = 'report-sub';

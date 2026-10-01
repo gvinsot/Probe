@@ -230,12 +230,15 @@ h1, h2, h3 { line-height: 1.25; }
 .report-head { display: grid; gap: 10px; padding: 14px; border-bottom: 1px solid var(--line); }
 .report-title { display: flex; align-items: baseline; flex-wrap: wrap; gap: 10px; }
 .report-title h2 { margin: 0; font-size: 1.05rem; }
-.report-commit-line { display: flex; align-items: center; gap: 10px; }
-.report-commit-line .btn { flex: none; }
+/* Repository, commit and title on one line. */
+.report-commit-line { display: flex; align-items: baseline; gap: 10px; }
+.report-commit-line h2 { flex: none; margin: 0; font-size: 1.05rem; color: var(--muted); }
+.report-commit-line .btn { flex: none; align-self: center; }
+.report-sha { flex: none; font-size: 0.9rem; color: var(--muted); }
 .report-commit { flex: 1; min-width: 0; margin: 0; font-size: 1.15rem; font-weight: 600; overflow-wrap: anywhere; }
 .report-sub { margin: 0; color: var(--muted); font-size: 0.85rem; word-break: break-word; }
 /* Keep the author, age and trigger line tucked right under the commit label. */
-.report-commit-line + .report-sub { margin-top: -8px; }
+.report-commit-line + .report-sub, .report-title + .report-sub { margin-top: -8px; }
 .stats { display: flex; flex-wrap: wrap; gap: 8px; }
 .stat {
   background: var(--surface-alt);
