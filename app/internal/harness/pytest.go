@@ -15,6 +15,7 @@ import (
 
 	"github.com/gvinsot/Probe/app/internal/config"
 	"github.com/gvinsot/Probe/app/internal/model"
+	"github.com/gvinsot/Probe/app/internal/pytestcmd"
 )
 
 // Python tests run through pytest, whose built-in JUnit XML report
@@ -50,50 +51,15 @@ const pytestNameLimit = 1024
 var pytestTopLevelTest = regexp.MustCompile(`(?m)^(?:async[ \t]+)?def[ \t]+(test[A-Za-z0-9_]*)[ \t]*\(`)
 
 // isPytestCommand reports whether command runs pytest directly: pytest or
-// py.test, or a Python interpreter with -m pytest.
-func isPytestCommand(command []string) bool {
-	if len(command) == 0 {
-		return false
-	}
-	switch base := filepath.Base(command[0]); {
-	case base == "pytest" || base == "py.test":
-		return true
-	case isPythonInterpreter(base):
-		return len(command) >= 3 && command[1] == "-m" && command[2] == "pytest"
-	}
-	return false
-}
+// py.test, or a Python interpreter with -m pytest (pytestcmd).
+func isPytestCommand(command []string) bool { return pytestcmd.Is(command) }
 
-// PytestArgs returns the arguments a pytest command passes to pytest itself:
-// what follows pytest (or py.test), or "-m pytest" after an interpreter. It
-// returns nil for a command that does not run pytest.
-func PytestArgs(command []string) []string {
-	if !isPytestCommand(command) {
-		return nil
-	}
-	if isPythonInterpreter(filepath.Base(command[0])) {
-		return command[3:]
-	}
-	return command[1:]
-}
+// isPythonInterpreter reports whether a command name is a Python interpreter.
+func isPythonInterpreter(base string) bool { return pytestcmd.IsInterpreter(base) }
 
-// isPythonInterpreter reports whether a command name is a Python interpreter:
-// python, python3 or python3.N.
-func isPythonInterpreter(base string) bool {
-	if base == "python" || base == "python3" {
-		return true
-	}
-	rest, ok := strings.CutPrefix(base, "python3.")
-	if !ok || rest == "" {
-		return false
-	}
-	for _, r := range rest {
-		if r < '0' || r > '9' {
-			return false
-		}
-	}
-	return true
-}
+// PytestArgs returns the arguments a pytest command passes to pytest itself,
+// or nil for a command that does not run pytest (pytestcmd.Args).
+func PytestArgs(command []string) []string { return pytestcmd.Args(command) }
 
 // verifiablePytestTemplate requires pytest run directly (not through a shell,
 // a package manager or a task runner, which run repository-defined commands),

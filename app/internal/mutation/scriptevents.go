@@ -37,6 +37,9 @@ type scriptCounts struct {
 // readScriptReport counts a recorded report; ok is false when it is missing
 // or unreadable.
 func readScriptReport(results string) (scriptCounts, bool) {
+	if c, ok := readPytestReport(results); ok {
+		return c, true
+	}
 	var r scriptReport
 	if results == "" || json.Unmarshal([]byte(results), &r) != nil || r.TestResults == nil {
 		return scriptCounts{}, false
@@ -155,4 +158,48 @@ func (c Control) classifyScript(mutant model.Check) Verdict {
 		}
 		return Verdict{Status: model.MutantInconclusive, Reason: "the mutant run passed without a recorded passed test"}
 	}
+}
+
+// pytestReport is the subset of a normalized pytest JUnit report (the
+// harness's pytest_junit format) classification reads.
+type pytestReport struct {
+	Format    string `json:"format"`
+	TestCases []struct {
+		ClassName string `json:"classname"`
+		Name      string `json:"name"`
+		Status    string `json:"status"`
+	} `json:"testcases"`
+}
+
+// readPytestReport counts a recorded pytest report: a passed testcase is a
+// passed test; a failure, or an error of a test (a fixture or setup error),
+// a failed test; an error without a classname, a collection error, a test
+// file that failed to load. Skipped and xfail testcases are not counted. ok
+// is false for a report in another format.
+func readPytestReport(results string) (scriptCounts, bool) {
+	var r pytestReport
+	if results == "" || json.Unmarshal([]byte(results), &r) != nil || r.Format != "pytest_junit" || r.TestCases == nil {
+		return scriptCounts{}, false
+	}
+	var c scriptCounts
+	modules := map[string]bool{}
+	for _, t := range r.TestCases {
+		switch {
+		case t.ClassName == "":
+			modules[t.Name] = true
+			if t.Status == "error" {
+				c.suiteFailures++
+			}
+		case t.Status == "passed":
+			modules[t.ClassName] = true
+			c.passed++
+		case t.Status == "failed" || t.Status == "error":
+			modules[t.ClassName] = true
+			c.failed = append(c.failed, t.ClassName+"::"+t.Name)
+		default:
+			modules[t.ClassName] = true
+		}
+	}
+	c.files = len(modules)
+	return c, true
 }

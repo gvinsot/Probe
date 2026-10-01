@@ -177,3 +177,32 @@ func TestScriptMutationCommand(t *testing.T) {
 		}
 	}
 }
+
+func TestPytestMutationCommand(t *testing.T) {
+	policy := func(command string) string {
+		return `{"version":1,"mutation":{"command":` + command + `,"max_mutants":10,"timeout_seconds":60,"max_runtime_seconds":300}}`
+	}
+	for _, command := range []string{
+		`["python","-m","pytest","-x","-q","-p","no:cacheprovider","tests","--junitxml={results_out}"]`,
+		`["pytest","--junit-xml","{results_out}"]`,
+		`["python3.12","-m","pytest","-m","not slow","--junitxml={results_out}"]`,
+	} {
+		if _, err := Decode([]byte(policy(command))); err != nil {
+			t.Errorf("%s rejected: %v", command, err)
+		}
+	}
+	for name, command := range map[string]string{
+		"a file target":  `["pytest","{file}","--junitxml={results_out}"]`,
+		"no report":      `["pytest","tests"]`,
+		"report twice":   `["pytest","--junitxml={results_out}","--junit-xml={results_out}"]`,
+		"not JUnit":      `["pytest","--report-log={results_out}"]`,
+		"package token":  `["pytest","{package}","--junitxml={results_out}"]`,
+		"coverage token": `["pytest","--cov-report=lcov:{coverage_dir}/lcov.info","--junitxml={results_out}"]`,
+		"junit prefix":   `["pytest","--junit-prefix=x","--junitxml={results_out}"]`,
+		"through uv":     `["uv","run","pytest","--junitxml={results_out}"]`,
+	} {
+		if _, err := Decode([]byte(policy(command))); err == nil {
+			t.Errorf("%s: %s accepted", name, command)
+		}
+	}
+}

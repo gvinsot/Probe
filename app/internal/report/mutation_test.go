@@ -410,3 +410,68 @@ func TestMutationJSONKeepsLedger(t *testing.T) {
 		t.Fatalf("saved %+v", saved)
 	}
 }
+
+// pytestMutationReport is mutationReport for a Python change mutated with a
+// pytest command: one surviving and one killed mutant of shop/cart.py.
+func pytestMutationReport() *model.Report {
+	report := func(status string) string {
+		return `{"format":"pytest_junit","testcases":[{"classname":"tests.test_cart","name":"test_discount_above","status":"` + status + `"},{"classname":"tests.test_cart","name":"test_no_discount_below","status":"passed"}]}`
+	}
+	executed := []string{"python", "-m", "pytest", "-q", "tests", "--junitxml=/tmp/probe-test-results.json"}
+	run := func(id, kind, status string, code int, results string) model.Check {
+		return model.Check{ID: id, Kind: kind, Status: status, ExitCode: code, Command: append([]string(nil), executed...), Results: results}
+	}
+	r := mutationReport()
+	r.Change = model.Change{Files: []model.ChangedFile{{Path: "shop/cart.py", Status: "M", Additions: 4, Hunks: []model.Hunk{{NewStart: 5, NewLines: 4, Lines: []model.DiffLine{
+		{Kind: "add", NewLine: 5, Content: "def discount(amount):"}, {Kind: "add", NewLine: 6, Content: "    if amount >= 100:"},
+		{Kind: "add", NewLine: 7, Content: "        return amount - 10"}, {Kind: "add", NewLine: 8, Content: "    return amount"},
+	}}}}}, Additions: 4}
+	r.Signals[0].Path, r.Signals[0].Symbol, r.Signals[0].Summary = "shop/cart.py", "discount", "With a single-change mutant of this added line, no test that the mutation command ran failed"
+	r.Mutation.Command = []string{"python", "-m", "pytest", "-q", "tests", "--junitxml={results_out}"}
+	r.Mutation.Files = []model.MutationFile{{Path: "shop/cart.py", Status: model.MutationFileEligible, AddedLines: 4, MutatedLines: 2}}
+	r.Mutation.Mutants = []model.Mutant{
+		{ID: "mutant-1", Path: "shop/cart.py", Line: 6, Column: 15, Symbol: "discount", Package: "shop/cart.py", Operator: "boundary", Original: ">=", Mutated: ">", Status: model.MutantSurvived, CheckID: "mutation-check-2", ControlCheckID: "mutation-check-1", PatchSHA256: patchSHA, TestsRun: 2},
+		{ID: "mutant-2", Path: "shop/cart.py", Line: 7, Column: 23, Symbol: "discount", Package: "shop/cart.py", Operator: "swap_arithmetic", Original: "-", Mutated: "+", Status: model.MutantKilled, CheckID: "mutation-check-3", ControlCheckID: "mutation-check-1", FailedTests: []string{"tests.test_cart::test_discount_above"}},
+	}
+	r.Mutation.Checks = []model.Check{
+		run("mutation-check-1", model.CheckMutationControl, "PASS", 0, report("passed")),
+		run("mutation-check-2", model.CheckMutant, "PASS", 0, report("passed")),
+		run("mutation-check-3", model.CheckMutant, "FAIL", 1, report("failed")),
+	}
+	r.Mutation.Note = model.MutationPythonNote
+	return r
+}
+
+func TestVerifiedPythonMutants(t *testing.T) {
+	r := pytestMutationReport()
+	if verified := verifyMutation(r); verified["mutant-1"] != model.MutantSurvived || verified["mutant-2"] != model.MutantKilled || len(verified) != 2 {
+		t.Fatalf("verified %v", verified)
+	}
+	for _, tc := range []struct {
+		name, mutant string
+		mutate       func(r *model.Report)
+	}{
+		{"the survivor's report records a failure", "mutant-1", func(r *model.Report) {
+			r.Mutation.Checks[1].Results = strings.Replace(r.Mutation.Checks[1].Results, `"passed"},{`, `"failed"},{`, 1)
+		}},
+		{"the killer's report records a collection error only", "mutant-2", func(r *model.Report) {
+			r.Mutation.Checks[2].Results = `{"format":"pytest_junit","testcases":[{"classname":"","name":"tests.test_cart","status":"error"}]}`
+		}},
+		{"another unit", "mutant-1", func(r *model.Report) { r.Mutation.Mutants[0].Package = "./shop" }},
+		{"another command", "mutant-1", func(r *model.Report) { r.Mutation.Checks[1].Command = append(r.Mutation.Checks[1].Command, "-k", "x") }},
+	} {
+		r := pytestMutationReport()
+		tc.mutate(r)
+		if _, ok := verifyMutation(r)[tc.mutant]; ok {
+			t.Errorf("%s: %s still verified", tc.name, tc.mutant)
+		}
+	}
+	r = pytestMutationReport()
+	Finalize(r, true)
+	if r.Mutation.Status != model.MutationRan || r.Mutation.Survived != 1 || r.Mutation.Killed != 1 || r.ExitCode != 0 {
+		t.Fatalf("section %+v exit %d", r.Mutation, r.ExitCode)
+	}
+	if md := string(Markdown(r)); !strings.Contains(md, "did not import (a collection error)") && !strings.Contains(md, "tests passed in the run for source file") {
+		t.Fatalf("the Markdown section does not use the pytest terms:\n%s", md)
+	}
+}

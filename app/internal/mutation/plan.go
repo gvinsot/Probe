@@ -49,7 +49,8 @@ type Plan struct {
 // optional coverage skip and selects at most maxMutants of them breadth-first.
 // notExecuted may be nil; otherwise it returns the added lines a passing,
 // measured coverage run reported as not executed.
-func NewPlan(src Source, change model.Change, maxMutants int, notExecuted func(string) []int, script bool) Plan {
+func NewPlan(src Source, change model.Change, maxMutants int, notExecuted func(string) []int, mode Mode) Plan {
+	script := mode != ModeGo
 	files := append([]model.ChangedFile(nil), change.Files...)
 	sort.SliceStable(files, func(i, j int) bool { return files[i].Path < files[j].Path })
 	var p Plan
@@ -57,7 +58,7 @@ func NewPlan(src Source, change model.Change, maxMutants int, notExecuted func(s
 	sources := map[string][]byte{}
 	total := 0
 	for _, f := range files {
-		if !inScope(script, f) {
+		if !inScope(mode, f) {
 			continue
 		}
 		added := addedLines(f)
@@ -81,7 +82,8 @@ func NewPlan(src Source, change model.Change, maxMutants int, notExecuted func(s
 			}
 		}
 		// A Vitest or Jest command finds the tests related to a TS/JS file
-		// itself; the control run records whether any ran.
+		// itself, and a pytest command runs its own selection; the control
+		// run records whether any ran.
 		if reason == "" && !script {
 			if ok, err := src.HasTestFile(path.Dir(f.Path)); err != nil || !ok {
 				reason = skipNoTestFile
@@ -95,9 +97,12 @@ func NewPlan(src Source, change model.Change, maxMutants int, notExecuted func(s
 			}
 			var capped bool
 			var skip string
-			if script {
+			switch mode {
+			case ModePython:
+				sites, capped, skip = PythonFileSites(f.Path, data, addedSet)
+			case ModeScript:
 				sites, capped, skip = ScriptFileSites(f.Path, data, addedSet)
-			} else {
+			default:
 				sites, capped, skip = FileSites(f.Path, data, addedSet)
 			}
 			switch {
@@ -241,9 +246,10 @@ func executionOrder(sites []Site) []Site {
 // Planning only admits paths without "." or "_" components, so the argument
 // always starts with "./" or is "." and can never be read as a flag.
 func PackageArg(file string) string {
-	if scriptPath(file) {
+	if scriptPath(file) || pythonPath(file) {
 		// A TS/JS unit is the mutated source file: the runner selects the
-		// tests related to it.
+		// tests related to it. A Python unit is the mutated source file too;
+		// the pytest command runs its own test selection for it.
 		return file
 	}
 	dir := path.Dir(file)
@@ -269,9 +275,9 @@ func ExpandCommand(command []string, unit string) []string {
 	return out
 }
 
-// ScriptCommand reports whether a mutation command runs Vitest or Jest (its
-// mutants are TS/JS sites, its outcomes read from a JSON report) rather
-// than go test.
+// ScriptCommand reports whether a mutation command runs Vitest, Jest or
+// pytest (its mutants are TS/JS or Python sites, its outcomes read from a
+// captured report) rather than go test.
 func ScriptCommand(command []string) bool {
 	return len(command) > 0 && path.Base(command[0]) != "go"
 }
@@ -291,12 +297,16 @@ const (
 
 // inScope selects changed, non-deleted, non-binary, non-test source files of
 // the command's language, as the coverage measurement does: Go files for a go
-// test command, TypeScript and JavaScript sources for a Vitest or Jest one.
-func inScope(script bool, f model.ChangedFile) bool {
+// test command, TypeScript and JavaScript sources for a Vitest or Jest one,
+// Python sources for a pytest one.
+func inScope(mode Mode, f model.ChangedFile) bool {
 	if f.Status == "D" || f.Binary {
 		return false
 	}
-	if script {
+	switch mode {
+	case ModePython:
+		return coverage.PythonSource(f.Path)
+	case ModeScript:
 		return coverage.ScriptSource(f.Path)
 	}
 	return strings.HasSuffix(f.Path, ".go") && !strings.HasSuffix(f.Path, "_test.go")
@@ -385,6 +395,9 @@ type Terms struct {
 
 // TermsFor returns the Terms of a mutation command.
 func TermsFor(command []string) Terms {
+	if PythonCommand(command) {
+		return Terms{Runs: "once per source file, running the test selection of the command", Invalid: "did not import (a collection error)", Unit: "the source file", PerUnit: "tests passed in the run for source file"}
+	}
 	if ScriptCommand(command) {
 		return Terms{Runs: "once per source file with {file} expanded", Invalid: "did not load", Unit: "the source file", PerUnit: "tests passed for source file"}
 	}

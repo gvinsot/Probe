@@ -193,3 +193,47 @@ func PythonChangedDeclarations(p string, src []byte, added []int) []string {
 // pythonKeyword lists the soft and hard keywords that can start a top-level
 // statement followed by ":" or "=", which are never declarations.
 var pythonKeyword = map[string]bool{"if": true, "elif": true, "else": true, "for": true, "while": true, "try": true, "except": true, "finally": true, "with": true, "match": true, "case": true, "lambda": true}
+
+// PythonToken is one token of a Python source. Comments are not tokens.
+// Kind is 'i' (identifier or keyword), 's' (string), 'n' (number) or 'p'
+// (punctuation); First marks the first token of a logical line and Indent is
+// that line's indentation.
+type PythonToken struct {
+	Text      string
+	Kind      byte
+	Line, Col int // Col is the 1-based byte column
+	// Match is the index of the matching bracket of ( [ { ) ] }, or -1.
+	Match  int
+	First  bool
+	Indent int
+}
+
+// PythonSource is the lexical reading of one Python source file: its tokens
+// and the bodies of the module-level functions and methods the index
+// records (test functions excluded); nested functions belong to their
+// enclosing function.
+type PythonSource struct {
+	Tokens    []PythonToken
+	Functions []ScriptFunction
+}
+
+// ReadPythonSource tokenizes and reads a Python source statically, the way
+// the static index does. It returns false when p is not a Python source.
+func ReadPythonSource(p string, src []byte) (PythonSource, bool) {
+	if lexLanguage(p) != LangPython {
+		return PythonSource{}, false
+	}
+	f := parseLexical(p, src)
+	m := matchBrackets(f.toks)
+	out := PythonSource{Tokens: make([]PythonToken, len(f.toks))}
+	for i, t := range f.toks {
+		out.Tokens[i] = PythonToken{Text: t.text, Kind: t.kind, Line: int(t.line), Col: int(t.col), Match: m[i], First: t.first, Indent: int(t.indent)}
+	}
+	for _, d := range f.decls {
+		if d.test || d.bodyStart < 0 || d.end >= len(f.toks) || d.bodyStart > d.end {
+			continue
+		}
+		out.Functions = append(out.Functions, ScriptFunction{Name: d.name, Body: d.bodyStart, End: d.end})
+	}
+	return out, true
+}

@@ -1,6 +1,10 @@
 package model
 
-import "path"
+import (
+	"path"
+
+	"github.com/gvinsot/Probe/app/internal/pytestcmd"
+)
 
 // Mutation section statuses, file statuses and mutant statuses.
 const (
@@ -86,8 +90,15 @@ type Mutation struct {
 // Vitest or Jest on TypeScript and JavaScript sources.
 const MutationScriptNote = "Each mutant is one deterministic change to an added line of a changed TypeScript or JavaScript source (not a test, declaration or minified file), found lexically without a parser or type checker: only operators written with white space on both sides, conditions of if and while, integer operands of comparisons and boolean results of return and arrow functions are mutated, inside function and method bodies. It runs the Vitest or Jest command of the policy for that source file, which selects the tests related to it, in a private copy of the candidate, after an unmutated control run of the same command passed with at least one passed test. Outcomes are read from the JSON report of each run. A surviving mutant records only that no test this command ran for that file failed with the change and at least one passed (skipped tests are not counted): the mutant may be semantically equivalent to the original code, tests the command did not relate to the file were not run, and it is not evidence of a defect, of a missing test or of dead code. A mutant with which a test file failed to load and no test failed is invalid, not killed. A killed mutant records only that a test failed with the change; it is counted, never listed, and is no reassurance about the tests. The reports can also be written by code running in the sandbox. There is no mutation score."
 
+// MutationPythonNote is the note of a mutation section whose command runs
+// pytest on Python sources.
+const MutationPythonNote = "Each mutant is one deterministic change to an added line of a changed Python source (not a test module, conftest.py or a file under a tests directory), found lexically without a parser or type checker: only operators written with white space on both sides, and and or, conditions of if, elif and while statements, integer operands of comparisons and True or False after return are mutated, inside function and method bodies. It runs the pytest command of the policy, with the test selection that command names, in a private copy of the candidate, after an unmutated control run of the same command passed with at least one passed test. Outcomes are read from the JUnit XML report of each run. A surviving mutant records only that no test this command ran failed with the change and at least one passed (skipped and xfail tests are not counted): the mutant may be semantically equivalent to the original code, tests outside the command's selection were not run, and it is not evidence of a defect, of a missing test or of dead code. A mutant with which a module failed to import (a collection error) and no test failed is invalid, not killed. A killed mutant records only that a test failed with the change; it is counted, never listed, and is no reassurance about the tests. The reports can also be written by code running in the sandbox. There is no mutation score."
+
 // MutationNoteFor is the fixed note of a mutation section run with command.
 func MutationNoteFor(command []string) string {
+	if pytestcmd.Is(command) {
+		return MutationPythonNote
+	}
 	if len(command) > 0 && path.Base(command[0]) != "go" {
 		return MutationScriptNote
 	}

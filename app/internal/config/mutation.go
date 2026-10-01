@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/gvinsot/Probe/app/internal/coverage"
+	"github.com/gvinsot/Probe/app/internal/pytestcmd"
 )
 
 // PackagePlaceholder is the one token a mutation command must contain. It
@@ -141,6 +142,9 @@ func flagName(arg string) string {
 // run repository-defined commands that decide what executes and what gets
 // written to the report.
 func validateScriptMutationCommand(argv []string) error {
+	if args := pytestcmd.Args(argv); args != nil {
+		return validatePytestMutationCommand(args)
+	}
 	switch path.Base(argv[0]) {
 	case "npm", "yarn", "pnpm", "bun", "sh", "bash", "env":
 		return fmt.Errorf("mutation.command must call go test, or the Vitest or Jest runner directly (for example through npx), not %q", argv[0])
@@ -158,6 +162,42 @@ func validateScriptMutationCommand(argv []string) error {
 	}
 	if files != 1 || results != 1 {
 		return fmt.Errorf("a Vitest or Jest mutation.command must contain {file} exactly once as a standalone argument and write its JSON report to %s exactly once", ResultsPlaceholder)
+	}
+	return nil
+}
+
+// validatePytestMutationCommand accepts a pytest mutation command for Python
+// sources, given the arguments pytest receives (pytestcmd.Args): its JUnit
+// XML report written to {results_out} exactly once, through --junitxml or
+// --junit-xml, and no other placeholder. pytest selects no tests by source
+// file, so the command names its own test selection (for example tests/)
+// and runs it for every mutant; there is no {file}. --junit-prefix, which
+// rewrites the report's classnames, is refused.
+func validatePytestMutationCommand(args []string) error {
+	results, reported := 0, false
+	for i, arg := range args {
+		for _, token := range []string{"{file}", PackagePlaceholder, coverage.Placeholder, coverage.DirPlaceholder} {
+			if strings.Contains(arg, token) {
+				return fmt.Errorf("a pytest mutation.command runs its own test selection for every mutant: it may contain %s once and no other placeholder (no {file})", ResultsPlaceholder)
+			}
+		}
+		if strings.HasPrefix(arg, "--junit-prefix") || strings.HasPrefix(arg, "--junitprefix") {
+			return fmt.Errorf("a pytest mutation.command must not set --junit-prefix")
+		}
+		n := strings.Count(arg, ResultsPlaceholder)
+		results += n
+		if n == 0 {
+			continue
+		}
+		switch {
+		case arg == "--junitxml="+ResultsPlaceholder || arg == "--junit-xml="+ResultsPlaceholder:
+			reported = true
+		case arg == ResultsPlaceholder && i > 0 && (args[i-1] == "--junitxml" || args[i-1] == "--junit-xml"):
+			reported = true
+		}
+	}
+	if results != 1 || !reported {
+		return fmt.Errorf("a pytest mutation.command must write its JUnit XML report to %s exactly once (--junitxml=%s)", ResultsPlaceholder, ResultsPlaceholder)
 	}
 	return nil
 }

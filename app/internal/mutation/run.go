@@ -241,7 +241,10 @@ func lines(src []byte, first, last int) []string {
 // survivorSignal is the medium review signal of one SURVIVED mutant.
 func survivorSignal(m model.Mutant, controlID string, c model.Check) model.Signal {
 	summary, text := survivorSummary, survivorText
-	if scriptPath(m.Path) {
+	switch {
+	case pythonPath(m.Path):
+		summary, text = survivorPythonSummary, survivorPythonText
+	case scriptPath(m.Path):
 		summary, text = survivorScriptSummary, survivorScriptText
 	}
 	s := model.Signal{

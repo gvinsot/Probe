@@ -36,7 +36,10 @@ func runMutation(ctx context.Context, h *harness.Harness, cfg config.Config, cha
 		return false
 	}
 	lines := "Go"
-	if mutation.ScriptCommand(cfg.Mutation.Command) {
+	switch mutation.CommandMode(cfg.Mutation.Command) {
+	case mutation.ModePython:
+		lines = "Python"
+	case mutation.ModeScript:
 		lines = "TypeScript/JavaScript"
 	}
 	fmt.Fprintf(errOut, "Running mutation analysis of added %s lines in isolated Docker sandboxes...\n", lines)

@@ -4,7 +4,7 @@ Coverage tells you whether an added line was executed by the package's tests. It
 
 A mutant with which no test that the command ran for its package failed (`SURVIVED`) becomes a medium `surviving_mutant` review signal. That is an observation about the recorded runs, not a defect: the mutant may be semantically equivalent to the original code, and only the tests of the mutated file's own package ran. A mutant with which a named test failed (`KILLED`) is counted and never listed: it is no reassurance about the tests. Mutation creates no evidence record and no hypothesis, never produces exit 1, never removes, lowers or dismisses anything else in the report, and computes no mutation score and no percentage.
 
-The stage runs during `review` only, mutates Go or, with a Vitest or Jest command, TypeScript and JavaScript (see [below](#typescript-and-javascript)), and has no flag of its own.
+The stage runs during `review` only, mutates Go or, with a Vitest or Jest command, TypeScript and JavaScript (see [below](#typescript-and-javascript)), or, with a pytest command, Python (see [Python](#python)), and has no flag of its own.
 
 ## Enabling it
 
@@ -154,9 +154,24 @@ For Jest: `["npx", "--no", "--", "jest", "--findRelatedTests", "{file}", "--json
 - **Unit**: the mutated source file. `{file}` expands to its repository path, and the runner selects the tests related to it (`vitest related`, `jest --findRelatedTests`); one control run per file, then its mutants.
 - **Outcomes** come from the JSON report of each run: `KILLED` when the run failed with exit code 1 to 124 and the report records a failed test; `SURVIVED` when it passed with exit code 0, at least one passed test and none failed; `INVALID` when a test file failed to load and no test failed (a mutant that does not compile or throws on import, for example with ts-jest's type checking); a missing or unreadable report is `INCONCLUSIVE`, never an operational error. The control must pass with at least one passed test, no failed test and no test file that failed to load, otherwise every mutant of the file stays not run with the reason (for example when the candidate's own tests of that file already fail).
 
+## Python
+
+A `mutation.command` that runs pytest directly (`pytest`, `py.test`, or `python`/`python3`/`python3.N` with `-m pytest`) and writes its JUnit XML report to `{results_out}` exactly once (`--junitxml={results_out}`) mutates changed Python sources. pytest has no way to select the tests related to one source file, so the command has **no `{file}`**: it names its own test selection, which every control and mutant run executes. Keep it fast, for example with `-x` and the directory of the unit tests:
+
+```json
+"mutation": { "command": ["python", "-m", "pytest", "-p", "no:cacheprovider", "-x", "-q", "tests", "--junitxml={results_out}"], "max_mutants": 20, "timeout_seconds": 60, "max_runtime_seconds": 600 }
+```
+
+The image must provide pytest and the project's dependencies. A binary before this release rejects such a policy with exit 3.
+
+- **Files**: added lines of changed `.py` sources, except test modules (`test_*.py`, `*_test.py`), `conftest.py`, files under `tests/` or `test/` directories, virtual environments and `site-packages`, files marked `@generated` or `DO NOT EDIT`, and files with a line longer than 1000 bytes.
+- **Sites** are found on the tokens of the static index's Python reader, inside the function and method bodies it records, without a parser: `negate_condition` on the condition of an `if`, `elif` or `while` statement (up to the `:` that ends its header, a walrus `:=` excepted; a conditional expression or a comprehension `if` is not a statement, and a condition holding a `lambda` is left alone), which becomes `not (…)`; `boundary` (`<`, `<=`, `>`, `>=`), `negate_comparison` (`==`, `!=`) and `swap_arithmetic` (`+`, `-`, `*`, `/`) only on operators written with white space on both sides (so unary minus, `*args`, `**kwargs`, `//` and `**` are left alone); `swap_logical` on `and` and `or`; `increment_constant` on a decimal integer operand of a comparison; `flip_boolean` on `True` or `False` that a `return` statement returns. A replacement that would join a neighbouring character or name (`if(x)`) is refused. `drop_error` has no Python form.
+- **Unit**: the mutated source file, recorded as the mutant's `package`; one control run per file, then its mutants, each running the command's whole test selection.
+- **Outcomes** come from the JUnit report of each run, normalized as for [generated tests](../README.md#verified-python-experiments): `KILLED` when the run failed with exit code 1 to 124 and the report records a failed test, a test-level error (a fixture that failed with the mutant) included; `SURVIVED` when it passed with exit code 0, at least one passed test and none failed (skipped and `xfail` tests are not counted); `INVALID` when a module failed to import (a collection error) and no test failed; a missing or unreadable report is `INCONCLUSIVE`. The control must pass with at least one passed test, no failed test and no collection error, otherwise every mutant of the file stays not run with the reason.
+
 ## Limitations
 
-- Go, and TypeScript and JavaScript with a Vitest or Jest command. TS/JS sites are lexical: an operator that is not written as a binary operator, or a condition outside `if` and `while`, is not mutated, and a mutant a parser would have refused runs and ends `INVALID`.
+- Go, TypeScript and JavaScript with a Vitest or Jest command, and Python with a pytest command. TS/JS and Python sites are lexical: an operator that is not written as a binary operator, or a condition outside `if` and `while`, is not mutated, and a mutant a parser would have refused runs and ends `INVALID`. A Python mutant runs the command's whole test selection, so mutation of many Python files costs one full selection per mutant.
 - One package per mutant: tests of other packages that exercise the mutated function do not run, so a survivor may be killed by them.
 - Equivalent mutants are not detected, and some survivors cannot be killed by any test.
 - Files with build constraints or GOOS/GOARCH names are skipped rather than evaluated against the sandbox platform.

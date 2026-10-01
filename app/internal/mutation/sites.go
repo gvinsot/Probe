@@ -245,6 +245,9 @@ func (s Site) Apply(src []byte) ([]byte, error) {
 	if scriptPath(s.Path) {
 		return s.applyScript(src)
 	}
+	if pythonPath(s.Path) {
+		return s.applyPython(src)
+	}
 	if s.Start < 0 || s.End > len(src) || s.Start >= s.End || string(src[s.Start:s.End]) != s.Original {
 		return nil, errors.New("the source no longer holds the original text at the recorded position")
 	}
