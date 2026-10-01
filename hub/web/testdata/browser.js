@@ -179,14 +179,26 @@ window.addEventListener('DOMContentLoaded', async () => {
       setup.click();
       await settle();
       assert(document.getElementById('modal-title').textContent === 'Add policy to acme/missing', 'policy dialog title matches the action');
-      assert(document.querySelector('#modal-body pre').textContent === '{"version":1}', 'policy preview rendered');
+      const policyText = document.getElementById('policy-text');
+      assert(policyText.value === '{"version":1}' && !policyText.disabled, 'policy preview rendered, editable');
       const create = document.querySelector('#modal-footer .btn:not(.quiet)');
       assert(create.textContent === 'Commit the policy' && !create.disabled, 'policy can be committed after preview');
+      // The administrator edits the policy; the other commits it as generated.
+      const edit = (text) => { policyText.value = text; policyText.dispatchEvent(new Event('input')); };
+      if (admin) {
+        edit('{"version":1,');
+        assert(create.disabled && el('policy-problem').textContent.startsWith('Invalid JSON'), 'invalid JSON cannot be committed');
+        edit('[1]');
+        assert(create.disabled && el('policy-problem').textContent === 'The policy must be a JSON object.', 'only an object can be committed');
+        edit('{"version":1,"timeout_seconds":60}');
+        assert(!create.disabled && el('policy-problem').textContent === '', 'a valid edit can be committed');
+      }
       create.click();
       await settle();
       const calls = fixtureCalls.slice(callStart);
       assert(calls.length === 2 && calls.every((call) => call.path.endsWith('/policy')), 'adding policy only requests preview and policy commit');
       assert(JSON.parse(calls[0].init.body).preview && !JSON.parse(calls[1].init.body).preview, 'preview precedes policy commit');
+      assert(JSON.parse(calls[1].init.body).policy === (admin ? '{"version":1,"timeout_seconds":60}' : ''), 'an edited policy is sent, an unchanged one left to the hub');
       assert(state.repos.get('missing').has_policy && !state.repos.get('missing').monitored, 'policy creation leaves monitoring disabled');
       assert(document.getElementById('modal').classList.contains('hidden'), 'successful policy creation closes the dialog');
       const row = Array.from(document.querySelectorAll('#repos .repo')).find((node) => node.textContent.includes('acme/missing'));

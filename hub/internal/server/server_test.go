@@ -497,6 +497,38 @@ func TestPolicyBootstrap(t *testing.T) {
 	}
 }
 
+// An edited policy is committed as written, once checked and indented.
+func TestPolicyEditedBeforeCommit(t *testing.T) {
+	h := newHarness(t)
+	h.signIn()
+	repo := h.addRepo(nil)
+	h.server.runner = newFakeRunner(t, h)
+	path := "/api/repos/" + repo.Key + "/policy"
+
+	for _, text := range []string{"not json", "[1, 2]", "null", `{"version": 1} {"version": 2}`, `{"x": "` + strings.Repeat("a", maxPolicyBytes) + `"}`} {
+		if got := h.do(http.MethodPost, path, map[string]any{"policy": text}); got.Code != http.StatusBadRequest {
+			t.Errorf("policy %.20q = %d, want 400", text, got.Code)
+		}
+	}
+	if h.provider.createdFile.path != "" {
+		t.Fatal("a refused policy must not be committed")
+	}
+	created := h.do(http.MethodPost, path, map[string]any{"policy": `{"version":1,"timeout_seconds":12345678901234567890}`})
+	if created.Code != http.StatusCreated {
+		t.Fatalf("create = %d: %s", created.Code, created.Body)
+	}
+	want := "{\n  \"timeout_seconds\": 12345678901234567890,\n  \"version\": 1\n}\n"
+	if got := string(h.provider.createdFile.content); got != want {
+		t.Errorf("committed policy = %q, want %q", got, want)
+	}
+	if !strings.Contains(h.provider.createdFile.message, "Edited in the Probe hub") {
+		t.Errorf("commit message = %q", h.provider.createdFile.message)
+	}
+	if body := h.decode(created); body["policy"] != want {
+		t.Errorf("returned policy = %v", body["policy"])
+	}
+}
+
 func TestMonitoringLifecycle(t *testing.T) {
 	h := newHarness(t)
 	h.signIn()

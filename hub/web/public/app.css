@@ -380,6 +380,9 @@ select, .select {
 .modal-card .body .settings-title { margin: 6px 0 -8px; font-size: 0.95rem; }
 .modal-card .body .settings-title + .note { margin-top: 0; }
 .modal-card footer { display: flex; justify-content: flex-end; gap: 8px; padding: 14px; border-top: 1px solid var(--line); }
+.policy-text { display: block; width: 100%; resize: vertical; background: var(--code-bg); color: var(--code-text); border: 1px solid var(--line); padding: 12px; border-radius: 8px; font-family: ui-monospace, "SFMono-Regular", "Cascadia Code", Menlo, Consolas, monospace; font-size: 0.8rem; white-space: pre; overflow: auto; }
+.note.bad { color: var(--critical); }
+.note.bad:empty { display: none; }
 pre.policy { margin: 0; background: var(--code-bg); color: var(--code-text); padding: 12px; border-radius: 8px; overflow: auto; max-height: 40vh; font-size: 0.8rem; }
 
 /* Sign-in page */
