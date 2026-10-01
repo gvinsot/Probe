@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Probe Hub — CLI login</title>
+  <meta name="robots" content="noindex">
+  <link rel="icon" href="logo.png" type="image/png">
+  <link rel="stylesheet" href="app.css">
+  <script src="device.js" defer></script>
+</head>
+<body>
+  <main class="signin">
+    <section class="panel signin-card">
+      <h1 class="signin-title"><img class="brand-title" src="title.png" alt="Probe" width="147" height="48"> <span>Hub</span></h1>
+      <p>Connect the Probe CLI to this hub. Once approved, <code>probe review</code> uses the hub's LLM under your account and its daily quota.</p>
+
+      <div class="error-box hidden" id="error" role="alert"></div>
+
+      <!-- Not signed in: the forges to sign in with, returning here. -->
+      <div class="signin-actions hidden" id="providers"></div>
+
+      <!-- Signed in: enter the code the terminal shows. -->
+      <form class="device-form hidden" id="code-form">
+        <label for="code">Code shown by <code>probe login</code></label>
+        <input class="search device-code" id="code" autocomplete="off" spellcheck="false" maxlength="9" placeholder="XXXX-XXXX">
+        <button class="btn" type="submit">Continue</button>
+      </form>
+
+      <!-- The request, to approve or deny. -->
+      <div class="device-confirm hidden" id="confirm">
+        <p>Grant <strong id="client"></strong> access to the hub's LLM as <strong id="login"></strong>?</p>
+        <p class="note">Approve only if you just ran <code>probe login</code> yourself and the terminal shows <strong id="shown-code" class="mono"></strong>. The code expires at <span id="expires"></span>.</p>
+        <div class="device-actions">
+          <button class="btn quiet" id="deny" type="button">Deny</button>
+          <button class="btn" id="approve" type="button">Approve</button>
+        </div>
+      </div>
+
+      <p class="device-done hidden" id="done" role="status"></p>
+
+      <p class="legal">
+        The CLI receives a token that reaches only the LLM gateway. Revoke it at any time from Agent access in the dashboard, or with <code>probe logout</code>.
+      </p>
+    </section>
+  </main>
+</body>
+</html>

@@ -382,6 +382,13 @@ pre.policy { margin: 0; background: var(--code-bg); color: var(--code-text); pad
 .legal { margin-top: 22px; font-size: 0.78rem; color: var(--muted); }
 .error-box { border: 1px solid var(--critical); color: var(--critical); border-radius: 8px; padding: 10px; margin-bottom: 14px; font-size: 0.86rem; }
 
+/* CLI login page */
+.device-form { display: grid; gap: 10px; margin-top: 20px; text-align: left; }
+.device-code { text-align: center; font-family: ui-monospace, "SFMono-Regular", "Cascadia Code", Menlo, Consolas, monospace; font-size: 1.3rem; letter-spacing: 0.15em; text-transform: uppercase; }
+.device-confirm { margin-top: 20px; }
+.device-actions { display: flex; justify-content: center; gap: 10px; margin-top: 16px; }
+.device-done { margin-top: 20px; font-weight: 600; }
+
 /* Branch topology and the two independently cached analysis modes. */
 .workspace { display: flex; align-items: flex-start; }
 .commit-column {

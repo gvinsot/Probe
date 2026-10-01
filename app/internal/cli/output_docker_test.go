@@ -136,11 +136,11 @@ func TestDockerReviewExports(t *testing.T) {
 	url := "https://example.invalid/runs/1"
 	var out, errOut bytes.Buffer
 	code := Run(context.Background(), []string{"review", "--repo", dir, "--config", policy, "--checks=false", "--ci", "--out", "report",
-		"--format", "markdown,json,sarif,pr-comment", "--report-url", url}, &out, &errOut, "integration")
+		"--format", "markdown,json,sarif,pr-comment", "--report-url", url, "--pr-summary=false"}, &out, &errOut, "integration")
 	if code != 1 {
 		t.Fatalf("expected exit 1; got %d\n%s\n%s", code, out.String(), errOut.String())
 	}
-	if calls.Load() != 4 {
+	if calls.Load() != 6 { // two reminders of the unassessed signal follow the answer
 		t.Fatalf("unexpected provider calls %d", calls.Load())
 	}
 	var r model.Report

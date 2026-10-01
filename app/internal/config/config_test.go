@@ -289,3 +289,68 @@ func TestResultsPlaceholderOnlyOnceInGeneratedTest(t *testing.T) {
 		}
 	}
 }
+
+func TestResolveReviewerFallsBackToHubLogin(t *testing.T) {
+	const creds = "/home/a/probe-credentials.json"
+	files := map[string]string{
+		creds:                        `{"hub":"https://hub.example","endpoint":"https://hub.example/llm/v1","model":"hub-model","token":"probe_mcp.a.b","login":"octocat"}`,
+		"/run/secrets/PROBE_API_KEY": "provider-key",
+	}
+	read := func(name string) ([]byte, error) {
+		content, ok := files[name]
+		if !ok {
+			return nil, fs.ErrNotExist
+		}
+		return []byte(content), nil
+	}
+	withoutSecret := func(name string) ([]byte, error) {
+		if name == "/run/secrets/PROBE_API_KEY" {
+			return nil, fs.ErrNotExist
+		}
+		return read(name)
+	}
+	env := func(values map[string]string) func(string) string {
+		values["PROBE_CREDENTIALS_FILE"] = creds
+		return func(name string) string { return values[name] }
+	}
+
+	c := Default("go")
+	c.Reviewer.Model = "gpt-5"
+	got, err := c.ResolveReviewer(env(map[string]string{}), withoutSecret)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Endpoint != "https://hub.example/llm/v1" || got.Model != "hub-model" || got.APIKey != "probe_mcp.a.b" {
+		t.Fatalf("no provider key: resolved %+v, want the hub gateway", got)
+	}
+	if len(got.Sources) != 1 || !strings.Contains(got.Sources[0], "octocat") {
+		t.Fatalf("sources %v", got.Sources)
+	}
+
+	// A configured provider is never replaced.
+	if got, _ := c.ResolveReviewer(env(map[string]string{}), read); got.APIKey != "provider-key" || got.Endpoint != DefaultEndpoint {
+		t.Fatalf("provider key present: resolved %+v", got)
+	}
+	if got, _ := c.ResolveReviewer(env(map[string]string{EndpointEnv: "http://127.0.0.1:11434/v1"}), withoutSecret); got.APIKey != "" || got.Endpoint != "http://127.0.0.1:11434/v1" {
+		t.Fatalf("deployment endpoint: resolved %+v", got)
+	}
+	local := Default("go")
+	local.Reviewer.Endpoint = "http://localhost:11434/v1"
+	if got, _ := local.ResolveReviewer(env(map[string]string{}), withoutSecret); got.APIKey != "" || got.Endpoint != "http://localhost:11434/v1" {
+		t.Fatalf("policy endpoint: resolved %+v", got)
+	}
+	// The hub switches the login off for the CLI it runs.
+	if got, _ := c.ResolveReviewer(func(name string) string {
+		if name == "PROBE_CREDENTIALS_FILE" {
+			return "off"
+		}
+		return ""
+	}, withoutSecret); got.APIKey != "" || got.Model != "gpt-5" {
+		t.Fatalf("login switched off: resolved %+v", got)
+	}
+
+	files[creds] = "not json"
+	if _, err := c.ResolveReviewer(env(map[string]string{}), withoutSecret); err == nil || !strings.Contains(err.Error(), "probe login") {
+		t.Fatalf("a corrupt login must be reported, got %v", err)
+	}
+}

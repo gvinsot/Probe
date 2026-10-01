@@ -343,3 +343,42 @@ func TestSwarmSetting(t *testing.T) {
 		}
 	}
 }
+
+func TestGatewaySettings(t *testing.T) {
+	dir := t.TempDir()
+	env := baseEnv(dir)
+	c, err := Load(envOf(env))
+	if err != nil || c.Gateway.Enabled {
+		t.Fatalf("the gateway is opt-in: %+v, %v", c.Gateway, err)
+	}
+
+	env["PROBE_HUB_LLM_GATEWAY"] = "true"
+	if _, err := Load(envOf(env)); err == nil || !strings.Contains(err.Error(), EndpointEnvName) {
+		t.Fatalf("a gateway without a provider must be refused, got %v", err)
+	}
+
+	env[EndpointEnvName] = "http://vllm:8000/v1"
+	env[ModelEnvName] = "served-model"
+	env["PROBE_API_KEY"] = "provider-key"
+	if _, err := Load(envOf(env)); err == nil || !strings.Contains(err.Error(), "HTTPS") {
+		t.Fatalf("plain HTTP needs the explicit exception, got %v", err)
+	}
+
+	env[AllowInsecureHTTPEnvName] = "true"
+	c, err = Load(envOf(env))
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	g := c.Gateway
+	if !g.Enabled || g.Endpoint != "http://vllm:8000/v1/chat/completions" || g.Model != "served-model" || g.APIKey != "provider-key" {
+		t.Fatalf("gateway = %+v", g)
+	}
+	if g.DailyTokens != defaultGatewayDailyTokens || g.Rate != defaultGatewayRate || g.Concurrency != defaultGatewayConcurrency || g.MaxCompletionTokens != defaultGatewayMaxTokens {
+		t.Fatalf("gateway budgets = %+v", g)
+	}
+
+	env["PROBE_HUB_LLM_DAILY_TOKENS"] = "10"
+	if _, err := Load(envOf(env)); err == nil || !strings.Contains(err.Error(), "PROBE_HUB_LLM_DAILY_TOKENS") {
+		t.Fatalf("a tiny quota must be refused, got %v", err)
+	}
+}

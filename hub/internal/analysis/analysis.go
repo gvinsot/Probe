@@ -696,7 +696,9 @@ func statusDescription(run store.Run) string {
 // cliEnv gives the CLI a minimal environment. Docker and provider settings are
 // forwarded so an operator can enable review mode without patching the image.
 // HOME is the checkout, so the user cache directory the CLI would derive from
-// it is unusable; cache, when set, replaces it (XDG_CACHE_HOME).
+// it is unusable; cache, when set, replaces it (XDG_CACHE_HOME). For the same
+// reason a `probe login` credential is switched off: the analyzed repository
+// could otherwise plant one under HOME and receive the source it reviews.
 func cliEnv(work, cache string) []string {
 	env := []string{
 		"PATH=" + os.Getenv("PATH"),
@@ -704,6 +706,7 @@ func cliEnv(work, cache string) []string {
 		"TMPDIR=" + filepath.Join(work, "tmp"),
 		"GIT_TERMINAL_PROMPT=0",
 		"GIT_CONFIG_NOSYSTEM=1",
+		"PROBE_CREDENTIALS_FILE=off",
 	}
 	if cache != "" {
 		env = append(env, "XDG_CACHE_HOME="+cache)

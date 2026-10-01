@@ -25,6 +25,7 @@ import (
 	"time"
 
 	"github.com/gvinsot/Probe/hub/internal/secrets"
+	"github.com/gvinsot/Probe/hub/internal/store"
 )
 
 // Protocol revisions this server speaks, newest first.
@@ -76,6 +77,7 @@ type agentPrincipal struct {
 	session secrets.Session
 	scope   string
 	token   string // the token's name, for logs
+	id      string // the token's ID, to revoke it
 }
 
 type agentKey struct{}
@@ -119,6 +121,11 @@ func (s *Server) handleMCP(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		w.Header().Set("WWW-Authenticate", `Bearer realm="probe-hub", error="invalid_token"`)
 		writeError(w, http.StatusUnauthorized, err.Error())
+		return
+	}
+	if principal.scope != store.ScopeRead && principal.scope != store.ScopeWrite {
+		w.Header().Set("WWW-Authenticate", `Bearer realm="probe-hub", error="insufficient_scope"`)
+		writeError(w, http.StatusForbidden, "this token only reaches the LLM gateway; create a read or write agent token for MCP")
 		return
 	}
 

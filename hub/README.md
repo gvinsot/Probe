@@ -231,6 +231,11 @@ webhooks there.
 | `PROBE_HUB_COMMIT_STATUS` | `true` | Publish the verdict on the analyzed commit. |
 | `PROBE_HUB_DEFAULT_BRANCH_ONLY` | `false` | Analyze only pushes to the default branch. |
 | `PROBE_HUB_LOG_LEVEL` | `info` | `debug`, `info`, `warn`, `error`. |
+| `PROBE_HUB_LLM_GATEWAY` | `false` | Lend the deployment's LLM (`PROBE_REVIEWER_ENDPOINT`, `PROBE_REVIEWER_MODEL`, `PROBE_API_KEY`) to the CLI of signed-in users through `probe login`. See [LLM gateway](#llm-gateway-for-the-cli). |
+| `PROBE_HUB_LLM_DAILY_TOKENS` | `2000000` | Tokens one account may consume through the gateway per UTC day; beyond it `429`. |
+| `PROBE_HUB_LLM_RATE` | `60` | Gateway requests one account may send per minute. |
+| `PROBE_HUB_LLM_CONCURRENCY` | `4` | Gateway requests relayed at once, all accounts together; further ones wait for a slot. Each account also has at most 4 in flight. |
+| `PROBE_HUB_LLM_MAX_TOKENS` | `8192` | Cap on the completion length a gateway request may ask for. |
 | `PROBE_HUB_GITHUB_CLIENT_ID` / `_SECRET` | — | GitHub OAuth application. |
 | `PROBE_HUB_GITHUB_URL` / `_API_URL` | github.com | Point these at a GitHub Enterprise Server host (`https://ghe.internal`, `https://ghe.internal/api/v3`). |
 | `PROBE_HUB_GITLAB_CLIENT_ID` / `_SECRET` | — | GitLab OAuth application. |
@@ -367,6 +372,11 @@ callback itself: the signed, expiring state must match the cookie set by the
 browser that started the flow, and the code is single-use. Apply the same
 exception on any other proxy that inspects query strings.
 
+The LLM gateway (`/llm/`) skips the WAF too: its requests carry source code,
+which a WAF rule set reads as injection attempts. The hub authenticates every
+gateway request with an `llm` token and bounds its size, rate and quota
+itself.
+
 ### Proxy access logs
 
 The webhook URL registered on the forge is `/hooks/<key>?token=<installation
@@ -468,6 +478,44 @@ The transport is stateless Streamable HTTP (protocol revisions 2025-11-25,
 2025-06-18 and 2025-03-26) with JSON replies; the server sends no
 notifications.
 
+## LLM gateway for the CLI
+
+With `PROBE_HUB_LLM_GATEWAY=true`, the hub lends its own LLM to the Probe CLI
+of its users, so that `probe review`, `probe plan` and `probe knowledge build`
+work on a workstation without a provider key:
+
+```sh
+probe login                      # https://app.probe.technology by default
+probe login --hub https://hub.example.com
+probe login --status             # account, model, tokens used today
+probe logout                     # revokes the token on the hub
+```
+
+`probe login` runs the OAuth device flow (RFC 8628). The CLI prints a link to
+`/device.html` with a code; the user opens it in a browser where they are
+signed in, checks that the code and the machine name match, and approves.
+The CLI then receives an agent token of scope `llm` (90 days), stored in its
+user configuration directory, readable by the user only. A new login from
+the same machine replaces its previous token. The CLI uses the gateway only
+when no provider endpoint or key is configured: a deployment's own provider
+always wins. For CI, create an **LLM gateway** token under **Agent access**
+and set `PROBE_HUB_TOKEN` (and `PROBE_HUB_URL` for another hub) as secrets.
+
+**What the gateway enforces.** No secret ships in the CLI: every request is
+authenticated by one account's `llm` token, which reaches only `/llm/v1/…`,
+never MCP or the dashboard API; the gateway refuses MCP tokens in turn. The
+provider key stays in the hub. The hub imposes its model, caps the
+completion length, relays only the fields of a chat completion (`messages`,
+`tools`, `tool_choice`, sampling settings), refuses streaming and `n>1`, and
+bounds a request to 4 MiB. Each account has a per-minute rate, at most 4
+requests in flight and a daily token quota, counted from the provider's
+`usage` (or estimated when the provider reports none); the dashboard shows
+the day's consumption under **Agent access**. Tokens are revoked like any
+agent token, from the dashboard or with `probe logout`. The source context
+the CLI sends reaches the hub and its provider, as the hub's own read-only
+reviews do. Pending logins live in memory for ten minutes: the shipped stack
+runs one replica.
+
 ## Endpoints
 
 | Method | Path | Purpose |
@@ -488,7 +536,11 @@ notifications.
 | `GET` | `/api/repos/{repo}/runs` | Report history. |
 | `GET` | `/api/repos/{repo}/reports/{commit}` · `/raw` | Rendered view, or the stored JSON report. |
 | `GET` | `/api/events` | Server-sent analysis updates of the signed-in account. |
-| `GET` `POST` `DELETE` | `/api/tokens` · `/api/tokens/{id}` | List, create (`{"name","scope":"read"\|"write","expires_days"}`, the token is returned once) or revoke agent tokens. Session only. |
+| `GET` `POST` `DELETE` | `/api/tokens` · `/api/tokens/{id}` | List, create (`{"name","scope":"read"\|"write"\|"llm","expires_days"}`, the token is returned once) or revoke agent tokens. Session only. With the gateway, the list also reports the day's LLM usage. |
+| `POST` | `/api/device/code` · `/api/device/token` | `probe login`: start a device authorization, then poll it (RFC 8628 errors `authorization_pending`, `slow_down`, `access_denied`, `expired_token`). Anonymous; a token is issued only once a signed-in user approved. |
+| `GET` `POST` | `/api/device?code=…` · `/api/device/decide` | What asks for access, then approve or deny it (`{"user_code","approve"}`). Session and CSRF only; used by `/device.html`. |
+| `POST` | `/llm/v1/chat/completions` | LLM gateway, OpenAI-compatible; `Authorization: Bearer` `llm` token. |
+| `GET` `DELETE` | `/llm/v1/account` · `/llm/v1/token` | The account and quota of an `llm` token; revoke the token presenting itself (`probe logout`). |
 | `POST` | `/mcp` | MCP endpoint for coding agents (Streamable HTTP, JSON replies); `Authorization: Bearer` agent token. `GET`/`DELETE` answer `405`. |
 | `POST` | `/hooks/{key}?token=…` | Webhook receiver; needs the installation token and the forge signature. |
 | `GET` | `/badge/{badge_key}.svg` | Latest verdict as a badge; `badge_key` is returned with a monitored repository. |

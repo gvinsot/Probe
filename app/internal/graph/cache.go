@@ -92,12 +92,13 @@ func (s *Store) Get(commit string, calls bool, limits Limits) (*Graph, bool) {
 	if err != nil {
 		return nil, false
 	}
-	defer f.Close()
+	var data []byte
 	zr, err := gzip.NewReader(f)
-	if err != nil {
-		return bad()
+	if err == nil {
+		data, err = io.ReadAll(io.LimitReader(zr, maxEntryBytes+1))
 	}
-	data, err := io.ReadAll(io.LimitReader(zr, maxEntryBytes+1))
+	// Closed before any removal: Windows does not delete an open file.
+	f.Close()
 	if err != nil || len(data) > maxEntryBytes {
 		return bad()
 	}

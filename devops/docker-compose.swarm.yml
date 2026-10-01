@@ -107,6 +107,15 @@ services:
       PROBE_HUB_USER_QUOTA: "${PROBE_HUB_USER_QUOTA:-8}"
       PROBE_HUB_HOOK_RATE: "${PROBE_HUB_HOOK_RATE:-30}"
       PROBE_HUB_DEFAULT_BRANCH_ONLY: "${PROBE_HUB_DEFAULT_BRANCH_ONLY:-false}"
+      # LLM gateway: `probe login` lends this deployment's LLM to the CLI of
+      # signed-in users, with a daily token quota and a request rate per
+      # account. The provider key stays here. Needs the reviewer endpoint and
+      # model above; off by default.
+      PROBE_HUB_LLM_GATEWAY: "${PROBE_HUB_LLM_GATEWAY:-false}"
+      PROBE_HUB_LLM_DAILY_TOKENS: "${PROBE_HUB_LLM_DAILY_TOKENS:-2000000}"
+      PROBE_HUB_LLM_RATE: "${PROBE_HUB_LLM_RATE:-60}"
+      PROBE_HUB_LLM_CONCURRENCY: "${PROBE_HUB_LLM_CONCURRENCY:-4}"
+      PROBE_HUB_LLM_MAX_TOKENS: "${PROBE_HUB_LLM_MAX_TOKENS:-8192}"
       # Serve the application even before an OAuth app exists: the sign-in page
       # then states that no forge is configured, instead of the task crash
       # looping and the domain answering 502.
@@ -185,6 +194,16 @@ services:
         - "traefik.http.routers.probe-app-oauth.tls.certresolver=letsencrypt"
         - "traefik.http.routers.probe-app-oauth.service=probe-app"
         - "traefik.http.routers.probe-app-oauth.middlewares=security-headers@file,rate-limit@file"
+
+        # LLM gateway router, without the WAF: its requests carry source code,
+        # which the WAF rules read as injection attempts. The hub authenticates
+        # every request with an llm token and bounds its size, rate and quota.
+        - "traefik.http.routers.probe-app-llm.rule=Host(`${PROBE_APP_DOMAIN:-app.probe.technology}`) && PathPrefix(`/llm/`)"
+        - "traefik.http.routers.probe-app-llm.priority=1000"
+        - "traefik.http.routers.probe-app-llm.entrypoints=websecure"
+        - "traefik.http.routers.probe-app-llm.tls.certresolver=letsencrypt"
+        - "traefik.http.routers.probe-app-llm.service=probe-app"
+        - "traefik.http.routers.probe-app-llm.middlewares=security-headers@file,rate-limit@file"
 
         # HTTP -> HTTPS redirect
         - "traefik.http.routers.probe-app-http.rule=Host(`${PROBE_APP_DOMAIN:-app.probe.technology}`)"

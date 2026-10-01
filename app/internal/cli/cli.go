@@ -49,6 +49,8 @@ Usage:
   probe graph build [--commit HEAD] [--out FILE]
   probe graph query search|neighbors|path ARGS [--commit HEAD]
   probe report [--input .probe/confidence-report.json] [--out DIR] [--format LIST] [--report-url URL]
+  probe login [--hub URL] [--status]
+  probe logout
   probe version
 
 Analysis compares the merge base by default; BASE..HEAD compares exact commits.
@@ -60,6 +62,10 @@ PROBE_REVIEWER_ENDPOINT and PROBE_REVIEWER_MODEL override that policy, and
 the API key comes from the api_key_env variable or its /run/secrets/<NAME> Docker secret.
 The reviewer sends bounded, redacted source context to its configured API.
 Use --reviewer=false to disable it. Lint never calls a provider.
+Without a configured endpoint or API key, the provider is the LLM of the Probe
+Hub account this machine logged into: probe login (or PROBE_HUB_TOKEN, a token
+created in the dashboard, for CI) connects it, within the account's daily
+quota; probe logout revokes it.
 Review --read-only inspects the diff with the deployment's LLM, without Docker
 or code execution. Its suspicions stay unverified; execution flags are refused.
 Plan asks the provider for an implementation plan (read-only, nothing runs) and
@@ -123,6 +129,10 @@ func Run(ctx context.Context, args []string, stdout, stderr io.Writer, version s
 		return contextCommand(ctx, args[1:], stdout, stderr)
 	case "graph":
 		return graphCommand(ctx, args[1:], stdout, stderr, version)
+	case "login":
+		return loginCommand(ctx, args[1:], stdout, stderr)
+	case "logout":
+		return logoutCommand(ctx, args[1:], stdout, stderr)
 	default:
 		fmt.Fprintf(stderr, "unknown command %q\n%s", args[0], usage)
 		return 3

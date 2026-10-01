@@ -53,8 +53,12 @@ type Server struct {
 	static   fs.FS
 	// hookLimit bounds webhook deliveries per routing key and minute.
 	hookLimit *windowLimiter
-	cliOnce   sync.Once
-	cli       string
+	// devices holds the pending `probe login` requests.
+	devices *deviceFlows
+	// gateway relays the LLM requests of logged-in CLIs.
+	gateway *gatewayState
+	cliOnce sync.Once
+	cli     string
 	// etagOnce computes etags: a content hash per embedded asset.
 	etagOnce sync.Once
 	etags    map[string]string
@@ -77,6 +81,7 @@ func New(cfg config.Config, s store.Store, a *accounts.Manager, r *analysis.Runn
 		cfg: cfg, store: s, accounts: a, runner: r, events: b, keys: keys, log: log,
 		secure: strings.HasPrefix(cfg.BaseURL, "https://"), version: version, static: static,
 		hookLimit: newWindowLimiter(rate, time.Minute),
+		devices:   newDeviceFlows(), gateway: newGatewayState(cfg.Gateway),
 	}, nil
 }
 
@@ -125,6 +130,14 @@ func (s *Server) buildRoutes() http.Handler {
 	mux.HandleFunc("GET /api/tokens", s.handleTokens)
 	mux.HandleFunc("POST /api/tokens", s.handleCreateToken)
 	mux.HandleFunc("DELETE /api/tokens/{token}", s.handleDeleteToken)
+	mux.HandleFunc("POST /api/device/code", s.handleDeviceCode)
+	mux.HandleFunc("POST /api/device/token", s.handleDeviceToken)
+	mux.HandleFunc("GET /api/device", s.handleDeviceLookup)
+	mux.HandleFunc("POST /api/device/decide", s.handleDeviceDecide)
+
+	mux.HandleFunc("POST /llm/v1/chat/completions", s.handleGatewayCompletions)
+	mux.HandleFunc("GET /llm/v1/account", s.handleGatewayAccount)
+	mux.HandleFunc("DELETE /llm/v1/token", s.handleGatewayLogout)
 
 	mux.HandleFunc("POST /mcp", s.handleMCP)
 	mux.HandleFunc("GET /mcp", s.handleMCPStream)

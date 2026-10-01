@@ -1,10 +1,11 @@
 package server
 
-// Agent tokens: the credentials coding agents present to the MCP endpoint.
-// A signed-in user creates them from the dashboard (session cookie and CSRF
-// token), sees each one once, and revokes them there. Only a SHA-256 of the
-// token is stored, on the account it belongs to, so the token names its
-// account and is checked against that account's list only.
+// Agent tokens: the credentials coding agents present to the MCP endpoint,
+// and the CLI to the LLM gateway (scope llm). A signed-in user creates them
+// from the dashboard (session cookie and CSRF token) or approves a `probe
+// login` (device.go), sees each one once, and revokes them there. Only a
+// SHA-256 of the token is stored, on the account it belongs to, so the token
+// names its account and is checked against that account's list only.
 
 import (
 	"crypto/sha256"
@@ -127,7 +128,7 @@ func (s *Server) authenticateAgent(token string, now time.Time) (*agentPrincipal
 		}
 	}
 	sess := secrets.Session{UserKey: user.Key, Provider: user.Provider, Login: user.Login + " (agent: " + found.Name + ")", IssuedAt: now.Unix(), Expires: now.Add(time.Minute).Unix()}
-	return &agentPrincipal{session: sess, scope: found.Scope, token: found.Name}, nil
+	return &agentPrincipal{session: sess, scope: found.Scope, token: found.Name, id: found.ID}, nil
 }
 
 // handleTokens lists the agent tokens of the signed-in account.
@@ -144,7 +145,11 @@ func (s *Server) handleTokens(w http.ResponseWriter, r *http.Request) {
 	for _, t := range user.AgentTokens {
 		views = append(views, viewAgentToken(t))
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"tokens": views, "endpoint": s.mcpURL()})
+	out := map[string]any{"tokens": views, "endpoint": s.mcpURL()}
+	if s.cfg.Gateway.Enabled {
+		out["llm"] = s.gatewayUsage(user, time.Now())
+	}
+	writeJSON(w, http.StatusOK, out)
 }
 
 // handleCreateToken issues a token and returns it once.
@@ -174,38 +179,17 @@ func (s *Server) handleCreateToken(w http.ResponseWriter, r *http.Request) {
 	case utf8.RuneCountInString(name) > maxAgentTokenName || !utf8.ValidString(name):
 		writeError(w, http.StatusBadRequest, "the token name must be at most 80 characters")
 		return
-	case body.Scope != store.ScopeRead && body.Scope != store.ScopeWrite:
-		writeError(w, http.StatusBadRequest, `scope must be "read" or "write"`)
+	case body.Scope != store.ScopeRead && body.Scope != store.ScopeWrite && body.Scope != store.ScopeLLM:
+		writeError(w, http.StatusBadRequest, `scope must be "read", "write" or "llm"`)
+		return
+	case body.Scope == store.ScopeLLM && !s.cfg.Gateway.Enabled:
+		writeError(w, http.StatusBadRequest, "this deployment does not lend its LLM")
 		return
 	case body.Expires < 0 || body.Expires > maxAgentTokenDays:
 		writeError(w, http.StatusBadRequest, "expires_days must be between 0 (never) and 366")
 		return
 	}
-	token, err := newAgentToken(sess.UserKey)
-	id, idErr := secrets.Random(9)
-	if err != nil || idErr != nil {
-		writeError(w, http.StatusInternalServerError, "could not create the token")
-		return
-	}
-	now := time.Now().UTC()
-	record := store.AgentToken{ID: id, Name: name, Scope: body.Scope, Hash: hashAgentToken(token), CreatedAt: now}
-	if body.Expires > 0 {
-		record.ExpiresAt = now.Add(time.Duration(body.Expires) * 24 * time.Hour)
-	}
-	err = s.store.UpdateUser(sess.UserKey, func(u *store.User) error {
-		// Expired tokens make room for new ones.
-		kept := u.AgentTokens[:0]
-		for _, t := range u.AgentTokens {
-			if t.ExpiresAt.IsZero() || now.Before(t.ExpiresAt) {
-				kept = append(kept, t)
-			}
-		}
-		if len(kept) >= maxAgentTokens {
-			return errTooManyTokens
-		}
-		u.AgentTokens = append(kept, record)
-		return nil
-	})
+	token, record, err := s.issueAgentToken(sess.UserKey, name, body.Scope, body.Expires, false)
 	if errors.Is(err, errTooManyTokens) {
 		writeError(w, http.StatusConflict, "this account already has 20 agent tokens; revoke one first")
 		return
@@ -215,7 +199,49 @@ func (s *Server) handleCreateToken(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "could not store the token")
 		return
 	}
-	writeJSON(w, http.StatusCreated, map[string]any{"token": token, "info": viewAgentToken(record), "endpoint": s.mcpURL()})
+	endpoint := s.mcpURL()
+	if body.Scope == store.ScopeLLM {
+		endpoint = s.gatewayURL()
+	}
+	writeJSON(w, http.StatusCreated, map[string]any{"token": token, "info": viewAgentToken(record), "endpoint": endpoint})
+}
+
+// issueAgentToken stores a new token on the account and returns it once.
+// Expired tokens make room for it; with replace, so does a previous token of
+// the same name and scope, which keeps repeated logins from one machine from
+// filling the account.
+func (s *Server) issueAgentToken(userKey, name, scope string, days int, replace bool) (string, store.AgentToken, error) {
+	token, err := newAgentToken(userKey)
+	id, idErr := secrets.Random(9)
+	if err != nil || idErr != nil {
+		return "", store.AgentToken{}, errors.Join(err, idErr)
+	}
+	now := time.Now().UTC()
+	record := store.AgentToken{ID: id, Name: name, Scope: scope, Hash: hashAgentToken(token), CreatedAt: now}
+	if days > 0 {
+		record.ExpiresAt = now.Add(time.Duration(days) * 24 * time.Hour)
+	}
+	err = s.store.UpdateUser(userKey, func(u *store.User) error {
+		kept := u.AgentTokens[:0]
+		for _, t := range u.AgentTokens {
+			if !t.ExpiresAt.IsZero() && !now.Before(t.ExpiresAt) {
+				continue
+			}
+			if replace && t.Name == name && t.Scope == scope {
+				continue
+			}
+			kept = append(kept, t)
+		}
+		if len(kept) >= maxAgentTokens {
+			return errTooManyTokens
+		}
+		u.AgentTokens = append(kept, record)
+		return nil
+	})
+	if err != nil {
+		return "", store.AgentToken{}, err
+	}
+	return token, record, nil
 }
 
 var errTooManyTokens = errors.New("too many agent tokens")

@@ -8,11 +8,14 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"net/url"
 	"path"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/gvinsot/Probe/app/internal/coverage"
+	"github.com/gvinsot/Probe/app/internal/hublogin"
 )
 
 const Filename = ".probe.json"
@@ -95,7 +98,7 @@ func Default(language string) Config {
 	c := Config{
 		Version: 1, Language: language, Commands: map[string][]string{},
 		Sandbox:        Sandbox{Image: "golang:1.26-bookworm", TimeoutSeconds: 120, MaxRuntimeSeconds: 600, MaxOutputBytes: 65536, MemoryMB: 1024, CPUs: 2},
-		Reviewer:       Reviewer{Endpoint: "https://api.openai.com/v1/chat/completions", APIKeyEnv: "PROBE_API_KEY", MaxIterations: 20, MaxGeneratedTests: 10, TimeoutSeconds: 600, MaxInputBytes: 131072},
+		Reviewer:       Reviewer{Endpoint: DefaultEndpoint, APIKeyEnv: "PROBE_API_KEY", MaxIterations: 20, MaxGeneratedTests: 10, TimeoutSeconds: 600, MaxInputBytes: 131072},
 		SensitivePaths: []string{"**/auth/**", "**/payment*/**", "**/migrations/**", ".github/workflows/**", ".probe.json"},
 	}
 	switch language {
@@ -314,6 +317,9 @@ type Runtime struct {
 // explicitly must be readable; the conventional path simply being absent is
 // not an error, but a mounted file that cannot be used is always reported
 // instead of being silently skipped.
+//
+// When that yields no credential for the default provider, the Probe Hub
+// login of the machine stands in for it (see withHubGateway).
 func (c Config) ResolveReviewer(getenv func(string) string, readFile func(string) ([]byte, error)) (Runtime, error) {
 	if getenv == nil {
 		getenv = func(string) string { return "" }
@@ -321,6 +327,50 @@ func (c Config) ResolveReviewer(getenv func(string) string, readFile func(string
 	if readFile == nil {
 		readFile = func(string) ([]byte, error) { return nil, fs.ErrNotExist }
 	}
+	r, err := c.resolveProvider(getenv, readFile)
+	if err != nil || r.APIKey != "" {
+		return r, err
+	}
+	return withHubGateway(r, getenv, readFile, time.Now())
+}
+
+// withHubGateway points the reviewer at the LLM gateway of the Probe Hub
+// account this machine logged into (`probe login`, or PROBE_HUB_TOKEN), when
+// the deployment selected no endpoint and the policy's provider is OpenAI's
+// default, which cannot work without the key that is missing. An endpoint the
+// operator or the policy chose, such as a local keyless model, is kept.
+func withHubGateway(r Runtime, getenv func(string) string, readFile func(string) ([]byte, error), now time.Time) (Runtime, error) {
+	if strings.TrimSpace(getenv(EndpointEnv)) != "" || !defaultProvider(r.Endpoint) {
+		return r, nil
+	}
+	gateway, found, err := hublogin.Resolve(getenv, readFile, now)
+	if err != nil {
+		return Runtime{}, err
+	}
+	if !found {
+		return r, nil
+	}
+	// The gateway imposes the hub's model; the policy's has no meaning there.
+	r.Endpoint, r.Model, r.APIKey = gateway.Endpoint, gateway.Model, gateway.Token
+	r.Sources = append(r.Sources, gateway.Source)
+	return r, nil
+}
+
+// DefaultEndpoint is the provider of the built-in policy.
+const DefaultEndpoint = "https://api.openai.com/v1/chat/completions"
+
+// defaultProvider reports whether endpoint is unset or OpenAI's.
+func defaultProvider(endpoint string) bool {
+	endpoint = strings.TrimSpace(endpoint)
+	if endpoint == "" {
+		return true
+	}
+	u, err := url.Parse(endpoint)
+	return err == nil && strings.EqualFold(u.Hostname(), "api.openai.com")
+}
+
+// resolveProvider applies the deployment environment and the provider secret.
+func (c Config) resolveProvider(getenv func(string) string, readFile func(string) ([]byte, error)) (Runtime, error) {
 	r := Runtime{Endpoint: c.Reviewer.Endpoint, Model: c.Reviewer.Model}
 	if v := strings.TrimSpace(getenv(AllowInsecureHTTPEnv)); v != "" {
 		allowed, err := strconv.ParseBool(v)

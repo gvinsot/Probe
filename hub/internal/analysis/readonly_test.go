@@ -60,3 +60,12 @@ func TestCLIForwardsProviderKeyFile(t *testing.T) {
 		t.Fatal("CLI did not receive only its provider credential source")
 	}
 }
+
+func TestCLIIgnoresLoginCredentials(t *testing.T) {
+	// HOME is the analyzed checkout: a credential file planted there must
+	// never point the CLI at another gateway.
+	env := strings.Join(cliEnv(t.TempDir(), ""), "\n")
+	if !strings.Contains(env, "PROBE_CREDENTIALS_FILE=off") || strings.Contains(env, "PROBE_HUB_TOKEN") {
+		t.Fatal("the CLI run by the hub must not use a probe login credential")
+	}
+}

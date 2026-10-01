@@ -66,19 +66,41 @@ type User struct {
 	TokenExpiry  time.Time `json:"token_expiry,omitempty"`
 	CreatedAt    time.Time `json:"created_at"`
 	UpdatedAt    time.Time `json:"updated_at"`
-	// AgentTokens authenticate coding agents on the MCP endpoint. Only the
-	// SHA-256 of each token is kept; the token itself is shown once.
+	// AgentTokens authenticate coding agents on the MCP endpoint and the CLI
+	// on the LLM gateway. Only the SHA-256 of each token is kept; the token
+	// itself is shown once.
 	AgentTokens []AgentToken `json:"agent_tokens,omitempty"`
+	// LLMUsage is what the account consumed through the LLM gateway on its
+	// last day of use.
+	LLMUsage *LLMUsage `json:"llm_usage,omitempty"`
 }
 
 // Agent token scopes: read lists repositories and reads reports; write also
-// queues, reruns and cancels analyses and changes review settings.
+// queues, reruns and cancels analyses and changes review settings. An llm
+// token reaches only the LLM gateway, and the gateway accepts nothing else.
 const (
 	ScopeRead  = "read"
 	ScopeWrite = "write"
+	ScopeLLM   = "llm"
 )
 
-// AgentToken is one MCP credential of an account.
+// LLMUsage counts the gateway traffic of one account over one UTC day.
+type LLMUsage struct {
+	Day      string `json:"day"`
+	Tokens   int64  `json:"tokens"`
+	Requests int64  `json:"requests"`
+}
+
+// Today returns the tokens counted on day (YYYY-MM-DD), or 0 when the record
+// belongs to an earlier day.
+func (u *LLMUsage) Today(day string) int64 {
+	if u == nil || u.Day != day {
+		return 0
+	}
+	return u.Tokens
+}
+
+// AgentToken is one credential of an account: an MCP agent or a CLI login.
 type AgentToken struct {
 	ID         string    `json:"id"`
 	Name       string    `json:"name"`

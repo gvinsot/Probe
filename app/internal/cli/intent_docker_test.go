@@ -120,14 +120,15 @@ func runIntentReview(t *testing.T, dir, image string, template []string, steps [
 	writeReviewerPolicy(t, policy, cfg)
 	intentFile := writeIntent(t, shopIntent)
 	out := filepath.Join(t.TempDir(), "report")
-	args := []string{"review", "--repo", dir, "--base", "main", "--config", policy, "--intent-file", intentFile, "--checks=false", "--out", out}
+	args := []string{"review", "--repo", dir, "--base", "main", "--config", policy, "--intent-file", intentFile, "--checks=false", "--out", out, "--pr-summary=false"}
 	if ci {
 		args = append(args, "--ci")
 	}
 	var stdout, stderr bytes.Buffer
 	code := Run(context.Background(), args, &stdout, &stderr, "intent-integration")
-	if calls() != len(steps)+1 {
-		t.Fatalf("provider received %d calls, want %d\n%s", calls(), len(steps)+1, stderr.String())
+	// The script, the closing answer, then two reminders of the unassessed signal.
+	if want := len(steps) + 3; calls() != want {
+		t.Fatalf("provider received %d calls, want %d\n%s", calls(), want, stderr.String())
 	}
 	r := readReport(t, filepath.Join(out, "confidence-report.json"))
 	md, err := os.ReadFile(filepath.Join(out, "CONFIDENCE_REPORT.md"))

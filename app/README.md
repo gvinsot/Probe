@@ -255,6 +255,21 @@ Model claims are checked against harness evidence before entering reproduced iss
 
 The LLM can investigate business rules and interactions beyond static patterns and propose concrete counterexamples. Its findings remain hypotheses until supported by evidence. Better review quality or time savings must be measured on representative PRs; adding a model alone does not establish either.
 
+### The hub's LLM, without a provider key (`probe login`)
+
+A Probe Hub that lends its LLM (`PROBE_HUB_LLM_GATEWAY`, see the hub README) lets a workstation review without a provider account:
+
+```sh
+probe login                 # https://app.probe.technology, or --hub URL / PROBE_HUB_URL
+probe review --base main    # uses the hub's LLM, within your account's daily quota
+probe login --status        # account, model, tokens used today
+probe logout                # revokes the token on the hub and deletes it here
+```
+
+`probe login` prints a link and a code; approve it in a browser where you are signed in to the hub. The CLI stores a token that reaches only the hub's LLM gateway (90 days) in the user configuration directory (`~/.config/probe/credentials.json`, `%AppData%\probe\credentials.json` on Windows), readable by you only; `PROBE_CREDENTIALS_FILE` names another file, `off` disables it. No secret is shipped in the binary: the token stands for your hub account and is limited and revoked as such.
+
+The login applies only when nothing else selects a provider: no `PROBE_REVIEWER_ENDPOINT`, no API key, and a policy endpoint that is OpenAI's default (which cannot work without that key). A configured provider, including a keyless local one, always wins. While it applies, review automatically uses the LLM, `review --read-only`, `plan` and `knowledge build` work, and the hub's model replaces the policy's; the reviewer configuration line names the hub and account. The source context is then sent to the hub and its provider. In CI, create an **LLM gateway** token under **Agent access** in the hub and set it as the secret `PROBE_HUB_TOKEN` (with `PROBE_HUB_URL` for another hub).
+
 ### Read-only AI review
 
 `probe review --read-only --base main --ci` analyzes the actual diff and

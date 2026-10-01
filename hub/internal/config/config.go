@@ -108,8 +108,31 @@ type Config struct {
 	// list of agents. It multiplies provider traffic, so only the operator
 	// chooses it (PROBE_HUB_SWARM).
 	Swarm string
+	// Gateway lends the deployment's LLM to the CLI of signed-in users.
+	Gateway Gateway
 	// Forges is keyed by forge kind and holds only configured forges.
 	Forges map[string]Forge
+}
+
+// Gateway is the LLM gateway: an OpenAI-compatible chat completions endpoint
+// that relays the requests of `probe login` sessions to the deployment's own
+// provider, under the deployment's model and budgets. The provider key never
+// leaves the hub; each account is limited on its own.
+type Gateway struct {
+	Enabled bool
+	// Endpoint is the provider's chat completions URL.
+	Endpoint string
+	Model    string
+	APIKey   string
+	// DailyTokens bounds the tokens one account consumes per UTC day.
+	DailyTokens int64
+	// Rate bounds the requests of one account per minute.
+	Rate int
+	// Concurrency bounds the requests relayed at once, all accounts together;
+	// further requests wait for a slot.
+	Concurrency int
+	// MaxCompletionTokens caps the completion length a request may ask for.
+	MaxCompletionTokens int
 }
 
 // Default values chosen so that a bare `docker run` with one OAuth app works.
@@ -189,6 +212,9 @@ func Load(getenv func(string) string) (Config, error) {
 		}
 	}
 	if c.Swarm, err = swarmSetting(getenv("PROBE_HUB_SWARM")); err != nil {
+		return c, err
+	}
+	if c.Gateway, err = gateway(getenv); err != nil {
 		return c, err
 	}
 	if c.UserQuota < 1 || c.UserQuota > 10000 {
@@ -407,6 +433,60 @@ func envDuration(getenv func(string) string, name string, fallback time.Duration
 		return fallback
 	}
 	return v
+}
+
+// Gateway defaults: generous enough for a swarm review of a large change,
+// small enough that one account cannot monopolize a shared model.
+const (
+	defaultGatewayDailyTokens = 2000000
+	defaultGatewayRate        = 60
+	defaultGatewayConcurrency = 4
+	defaultGatewayMaxTokens   = 8192
+)
+
+// gateway reads PROBE_HUB_LLM_GATEWAY and its budgets. The provider is the
+// one the hub's own reviews use: PROBE_REVIEWER_ENDPOINT, PROBE_REVIEWER_MODEL
+// and the PROBE_API_KEY secret.
+func gateway(getenv func(string) string) (Gateway, error) {
+	g := Gateway{
+		Enabled:             envBool(getenv, "PROBE_HUB_LLM_GATEWAY", false),
+		DailyTokens:         int64(envInt(getenv, "PROBE_HUB_LLM_DAILY_TOKENS", defaultGatewayDailyTokens)),
+		Rate:                envInt(getenv, "PROBE_HUB_LLM_RATE", defaultGatewayRate),
+		Concurrency:         envInt(getenv, "PROBE_HUB_LLM_CONCURRENCY", defaultGatewayConcurrency),
+		MaxCompletionTokens: envInt(getenv, "PROBE_HUB_LLM_MAX_TOKENS", defaultGatewayMaxTokens),
+	}
+	if !g.Enabled {
+		return g, nil
+	}
+	g.Model = strings.TrimSpace(getenv(ModelEnvName))
+	endpoint := strings.TrimSpace(getenv(EndpointEnvName))
+	if endpoint == "" || g.Model == "" {
+		return g, fmt.Errorf("PROBE_HUB_LLM_GATEWAY needs the deployment provider: set %s and %s", EndpointEnvName, ModelEnvName)
+	}
+	u, err := url.Parse(endpoint)
+	if err != nil || u.Host == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" {
+		return g, fmt.Errorf("%s must be an absolute URL without credentials, query or fragment", EndpointEnvName)
+	}
+	if u.Scheme != "https" && !(u.Scheme == "http" && envBool(getenv, AllowInsecureHTTPEnvName, false)) {
+		return g, fmt.Errorf("the LLM gateway relays to %s over HTTPS only, unless %s=true", EndpointEnvName, AllowInsecureHTTPEnvName)
+	}
+	u.Path = strings.TrimRight(u.Path, "/")
+	if !strings.HasSuffix(u.Path, "/chat/completions") {
+		u.Path += "/chat/completions"
+	}
+	g.Endpoint = u.String()
+	g.APIKey = secret(getenv, "PROBE_API_KEY")
+	switch {
+	case g.DailyTokens < 1000 || g.DailyTokens > 1000000000:
+		return g, fmt.Errorf("PROBE_HUB_LLM_DAILY_TOKENS must be between 1000 and 1000000000")
+	case g.Rate < 1 || g.Rate > 10000:
+		return g, fmt.Errorf("PROBE_HUB_LLM_RATE must be between 1 and 10000")
+	case g.Concurrency < 1 || g.Concurrency > 256:
+		return g, fmt.Errorf("PROBE_HUB_LLM_CONCURRENCY must be between 1 and 256")
+	case g.MaxCompletionTokens < 256 || g.MaxCompletionTokens > 131072:
+		return g, fmt.Errorf("PROBE_HUB_LLM_MAX_TOKENS must be between 256 and 131072")
+	}
+	return g, nil
 }
 
 // SwarmAll runs the CLI's default swarm agents.

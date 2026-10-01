@@ -791,7 +791,11 @@ async function openAgentDialog() {
   const intro = document.createElement('p');
   intro.className = 'note';
   intro.textContent = 'Coding agents connect to this hub over the Model Context Protocol with a token. ' +
-    'A read token lists repositories and reads findings; a write token also triggers, reruns and cancels analyses and changes coding rules and learning.';
+    'A read token lists repositories and reads findings; a write token also triggers, reruns and cancels analyses and changes coding rules and learning. ' +
+    'When this hub lends its LLM, an LLM gateway token lets the Probe CLI use it, for example in CI; on a workstation, probe login creates one for you.';
+  const usage = document.createElement('p');
+  usage.className = 'note hidden';
+  usage.id = 'agent-llm-usage';
   const created = document.createElement('div');
   created.id = 'agent-token-created';
   const list = document.createElement('div');
@@ -822,7 +826,7 @@ async function openAgentDialog() {
     expiry.appendChild(option);
   }
   form.append(name, scope, expiry);
-  body.append(intro, form, created, list);
+  body.append(intro, usage, form, created, list);
 
   const create = button('Create token', 'btn small', async () => {
     create.disabled = true;
@@ -850,6 +854,16 @@ function showCreatedToken(holder, out) {
   const token = document.createElement('pre');
   token.className = 'alert-detail mono';
   token.textContent = out.token;
+  if (out.info && out.info.scope === 'llm') {
+    const ci = document.createElement('p');
+    ci.className = 'note';
+    ci.textContent = 'Probe CLI, for example as CI variables (keep the token a secret):';
+    const env = document.createElement('pre');
+    env.className = 'alert-detail mono';
+    env.textContent = 'PROBE_HUB_URL=' + window.location.origin + '\nPROBE_HUB_TOKEN=' + out.token;
+    holder.append(warn, token, ci, env);
+    return;
+  }
   const how = document.createElement('p');
   how.className = 'note';
   how.textContent = 'Claude Code:';
@@ -876,6 +890,19 @@ async function refreshAgentTokens() {
     return;
   }
   list.textContent = '';
+  const usage = el('agent-llm-usage');
+  if (usage && data.llm) {
+    usage.textContent = 'LLM gateway: ' + data.llm.used_today.toLocaleString() + ' of ' +
+      data.llm.daily_tokens.toLocaleString() + ' tokens used today (resets at 00:00 UTC).';
+    usage.classList.remove('hidden');
+    const scope = el('agent-token-scope');
+    if (scope && !scope.querySelector('option[value="llm"]')) {
+      const option = document.createElement('option');
+      option.value = 'llm';
+      option.textContent = 'LLM gateway (CLI)';
+      scope.appendChild(option);
+    }
+  }
   const tokens = data.tokens || [];
   if (!tokens.length) {
     const empty = document.createElement('p');
@@ -888,7 +915,7 @@ async function refreshAgentTokens() {
     const row = document.createElement('div');
     row.className = 'row activity-row';
     const label = document.createElement('span');
-    label.textContent = token.name + ' · ' + (token.scope === 'write' ? 'read and write' : 'read');
+    label.textContent = token.name + ' · ' + ({ write: 'read and write', llm: 'LLM gateway' }[token.scope] || 'read');
     const dates = document.createElement('span');
     dates.className = 'note';
     dates.textContent = 'created ' + new Date(token.created_at).toLocaleDateString() +

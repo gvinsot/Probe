@@ -55,6 +55,9 @@ services:
       PROBE_HUB_HOOK_RATE: "${PROBE_HUB_HOOK_RATE:-30}"
       PROBE_HUB_WORKERS: "${PROBE_HUB_WORKERS:-2}"
       PROBE_HUB_DEFAULT_BRANCH_ONLY: "${PROBE_HUB_DEFAULT_BRANCH_ONLY:-false}"
+      # Lend the reviewer LLM to `probe login` users (see hub/README.md).
+      PROBE_HUB_LLM_GATEWAY: "${PROBE_HUB_LLM_GATEWAY:-false}"
+      PROBE_HUB_LLM_DAILY_TOKENS: "${PROBE_HUB_LLM_DAILY_TOKENS:-2000000}"
       PROBE_HUB_GITHUB_CLIENT_ID: "${PROBE_HUB_GITHUB_CLIENT_ID:-}"
       PROBE_HUB_GITHUB_URL: "${PROBE_HUB_GITHUB_URL:-https://github.com}"
       PROBE_HUB_GITHUB_API_URL: "${PROBE_HUB_GITHUB_API_URL:-https://api.github.com}"
@@ -118,6 +121,15 @@ services:
         - "traefik.http.routers.probe-hub-oauth.tls.certresolver=letsencrypt"
         - "traefik.http.routers.probe-hub-oauth.service=probe-hub"
         - "traefik.http.routers.probe-hub-oauth.middlewares=security-headers@file,rate-limit@file"
+
+        # LLM gateway router, without the WAF: requests carry source code.
+        # The hub authenticates and bounds every request itself.
+        - "traefik.http.routers.probe-hub-llm.rule=Host(`${PROBE_HUB_DOMAIN:-hub.probe.technology}`) && PathPrefix(`/llm/`)"
+        - "traefik.http.routers.probe-hub-llm.priority=1000"
+        - "traefik.http.routers.probe-hub-llm.entrypoints=websecure"
+        - "traefik.http.routers.probe-hub-llm.tls.certresolver=letsencrypt"
+        - "traefik.http.routers.probe-hub-llm.service=probe-hub"
+        - "traefik.http.routers.probe-hub-llm.middlewares=security-headers@file,rate-limit@file"
 
         # HTTP -> HTTPS redirect
         - "traefik.http.routers.probe-hub-http.rule=Host(`${PROBE_HUB_DOMAIN:-hub.probe.technology}`)"
