@@ -64,7 +64,7 @@
             <source srcset="/calm.webp" type="image/webp">
             <img src="/calm.jpg" width="1000" height="1000" alt="A person working calmly at a desk inside a bright circle, at the center of a tunnel of tangled cables, notifications and dashboards" fetchpriority="high" decoding="async">
           </picture>
-          <figcaption><strong>19 / 125</strong> lines need you <span>Probe filters the rest.</span></figcaption>
+          <figcaption><strong>18 / 110</strong> lines need you <span>Probe filters the rest.</span></figcaption>
         </figure>
       </div>
     </section>
@@ -238,7 +238,7 @@ Plan gate: no human review required (low-risk plan, conforming change, checks pa
 
     <section class="band">
       <div class="wrap">
-        <p class="pull">Tests, vet, build and coverage all passed on this change. It also dropped the refund amount validation and let the support role issue refunds. <span>Probe put both at the top of the review plan, among 19 flagged lines out of 125.</span></p>
+        <p class="pull">Tests, vet, build and coverage all passed on this change. It also dropped the check that capped refunds at the amount paid and let the support role issue refunds. <span>Probe put both at the top of the review, among 18 flagged lines out of 110.</span></p>
       </div>
     </section>
 
@@ -252,8 +252,8 @@ Plan gate: no human review required (low-risk plan, conforming change, checks pa
             <h3>Without Probe <span class="tag">every line, same attention</span></h3>
             <ol>
               <li>Check out the branch and run tests, vet and build by hand.</li>
-              <li>Read 125 changed lines in file order, helpers first.</li>
-              <li>Notice, with luck, that a validation call vanished from a refund path.</li>
+              <li>Read 110 changed lines in file order, helpers first.</li>
+              <li>Notice, with luck, that the refund cap vanished from the payment code.</li>
               <li>Write a throwaway test to find out whether it matters.</li>
               <li>Approve without a record of what was actually checked.</li>
             </ol>
@@ -262,8 +262,8 @@ Plan gate: no human review required (low-risk plan, conforming change, checks pa
             <h3>With Probe <span class="tag">risk first, evidence attached</span></h3>
             <ol>
               <li>Checks already ran in an isolated container, with logs and hashes.</li>
-              <li>Open the report: 19 flagged lines, ranked by severity, with reasons.</li>
-              <li>Start with <code>payment/refund.go</code>, where the report shows the removed validation.</li>
+              <li>Open the report: 18 flagged lines, ranked by severity, with reasons.</li>
+              <li>Start with the critical risk of the AI report: the refund cap removed from <code>payment/refund.go</code>, quoted and checked against the diff.</li>
               <li>Let the optional reviewer try to reproduce the issue on base and candidate.</li>
               <li>Keep the Markdown and JSON reports as the review record.</li>
             </ol>
@@ -290,53 +290,103 @@ Plan gate: no human review required (low-risk plan, conforming change, checks pa
       <div class="wrap">
         <span class="kicker">Probe for code · Example report</span>
         <h2>What you open instead of the raw diff</h2>
-        <p class="lead" style="max-width:760px">Excerpt of <code>.probe/CONFIDENCE_REPORT.md</code>, produced by <code>probe review HEAD~1..HEAD --reviewer=false --ci</code> (v0.3.0) on a small shop repository. The commit added catalog helpers with tests, reworked refunds and touched authorization. No AI provider was used.</p>
-        <div class="annotated">
-          <figure class="report" aria-label="Generated confidence report">
-            <figcaption><span class="dot"></span><span class="dot"></span><span class="dot"></span> .probe/CONFIDENCE_REPORT.md</figcaption>
+        <p class="lead" style="max-width:760px">A real run on the <a href="https://github.com/gvinsot/Probe/tree/main/web/examples/shop">example shop repository</a>. The commit lets support agents issue refunds, adds a restocking fee and catalog helpers, and quietly drops the check that a refund never exceeds what was paid. Every test still passes. Rebuild it with <code>make-repo.sh</code> and run the same commands.</p>
+        <div class="tabs" data-tabs>
+          <div class="tablist" role="tablist" aria-label="Example report">
+            <button type="button" role="tab" id="tab-ai" aria-controls="panel-ai">With an AI reviewer</button>
+            <button type="button" role="tab" id="tab-noai" aria-controls="panel-noai">Without AI</button>
+          </div>
+          <div class="tabpanel" role="tabpanel" id="panel-ai" aria-labelledby="tab-ai">
+            <p class="note">Excerpt of <code>.probe/PR_SUMMARY.md</code>, written by <code>probe review HEAD~1..HEAD --ci</code> (v0.5.71) with the reviewer model of Probe Hub. In the hub, the same report heads the alert list, and every citation unfolds its diff.</p>
+            <div class="annotated">
+              <figure class="report" aria-label="Generated AI report">
+                <figcaption><span class="dot"></span><span class="dot"></span><span class="dot"></span> .probe/PR_SUMMARY.md</figcaption>
+<pre><code><span class="h"># Let support agents refund orders and add a restocking fee</span>
+
+<span class="h">## Risks</span><span class="m">1</span>
+- <b class="crit">critical</b> The guard that rejected refunds exceeding the
+  paid amount was removed, so cumulative refunds can now
+  exceed what the order paid.
+  — payment/refund.go:23 (old) <b class="ok">✓</b>, payment/refund.go:24 (old) <b class="ok">✓</b>
+- <b class="hi">high</b> Refund permission is widened to the support role
+  in a sensitive file; … — auth/auth.go:17 <b class="ok">✓</b>
+- <b class="lo">low</b> The restocking fee uses integer division, …
+  — payment/refund.go:34 <b class="ok">✓</b>
+<i>  … 2 more high risks</i>
+
+<span class="h">## Changes</span><span class="m">2</span>
+- <b>Add restocking fee to payment refunds</b>: Refund takes a
+  restock flag, subtracts RestockingFee from the amount when
+  goods come back to stock, records the net amount and
+  returns it. … — payment/refund.go:20 <b class="ok">✓</b>, …
+  - Payment-sensitive function body changed — payment/refund.go:20
+  - Exported Go declaration added — payment/refund.go:33
+<i>  … 5 more areas; each of the 19 signals sits under one area</i>
+
+<span class="h">## Where to look first</span><span class="m">3</span>
+- <b class="crit">critical</b> Confirm that dropping the exceeds-paid check
+  is intended, since refunds can now be recorded beyond
+  what the order paid. — payment/refund.go:23 (old) <b class="ok">✓</b>,
+  payment/refund_test.go:16 (old) <b class="ok">✓</b>
+
+<span class="h">## Testing</span><span class="m">4</span>
+<i>Probe executed 4 checks for this review: 4 PASS.</i></code></pre>
+              </figure>
+              <ol class="notes">
+                <li><strong>The bug comes first.</strong> The reviewer rates every risk; Probe raises it to the most severe finding it cites and sorts the list. The removed refund cap leads, although every test passes.</li>
+                <li><strong>Every citation is checked.</strong> ✓ means the code the model quoted is at those lines of the diff: Probe searched for it, without a model, and drops a citation it cannot find. It proves where the statement points, not that the statement is right.</li>
+                <li><strong>Findings grouped by intent.</strong> The signals Probe computed are listed under the change they belong to, with their own severity and location. A signal no area cites is still listed, at the end.</li>
+                <li><strong>What ran is Probe's, not the model's.</strong> The checks line counts what actually executed in the sandbox, and the verdict comes from evidence: the model describes the change and changes nothing in the result.</li>
+              </ol>
+            </div>
+          </div>
+          <div class="tabpanel" role="tabpanel" id="panel-noai" aria-labelledby="tab-noai">
+            <p class="note">Excerpt of <code>.probe/CONFIDENCE_REPORT.md</code>, produced by <code>probe review HEAD~1..HEAD --reviewer=false --ci</code> (v0.5.71) on the same commit. No AI provider was used.</p>
+            <div class="annotated">
+              <figure class="report" aria-label="Generated confidence report">
+                <figcaption><span class="dot"></span><span class="dot"></span><span class="dot"></span> .probe/CONFIDENCE_REPORT.md</figcaption>
 <pre><code><span class="h">## Change Summary</span>
-120 additions / 5 deletions · 5 files changed
+93 additions / 17 deletions · 7 files changed
 Exit code: 2. No confidence percentage is assigned.
 
 <span class="h">## Automated Checks</span><span class="m">1</span>
-- <b class="ok">PASS</b> test      <i>(check-1; exit 0; 5982 ms)</i>
-- <b class="ok">PASS</b> typecheck <i>(check-2; exit 0; 4866 ms)</i>
-- <b class="ok">PASS</b> build     <i>(check-3; exit 0; 2835 ms)</i>
-- <b class="ok">PASS</b> coverage  <i>(check-4; exit 0; 6416 ms)</i>
+- <b class="ok">PASS</b> test      <i>(check-1; exit 0; 7136 ms)</i>
+- <b class="ok">PASS</b> typecheck <i>(check-2; exit 0; 5006 ms)</i>
+- <b class="ok">PASS</b> build     <i>(check-3; exit 0; 4177 ms)</i>
+- <b class="ok">PASS</b> coverage  <i>(check-4; exit 0; 7480 ms)</i>
 
 <span class="h">## Reproduced Issues</span><span class="m">2</span>
 No issue was reproduced by a passing baseline
 and failing candidate experiment.
 
 <span class="h">## Suggested Human Review</span><span class="m">3</span>
-- <b class="hi">high</b> auth/auth.go:7 (new): Authentication or
-  authorization function body changed
-- <b class="hi">high</b> payment/refund.go:21–22 (new): Payment-sensitive
+- <b class="hi">high</b> api/refund.go:17–17 (new): Added lines were not
+  executed by any instrumented package in the coverage
+  run; Exported Go declaration changed;
+  Payment-sensitive function body changed
+- <b class="hi">high</b> auth/auth.go (whole file): Lines added and
+  removed in a sensitive file
+- <b class="hi">high</b> payment/refund.go:24–26 (new): Payment-sensitive
   function body changed
-- <b class="hi">high</b> payment/refund.go:25–26 (new): Exported Go
-  declaration added; Payment-sensitive function body changed
-- <b class="hi">high</b> payment/refund.go:21 (old): Configured sensitive
-  path changed; No nearby test file changed;
-  <b>Possible input validation removed</b>
-- <b class="lo">medium</b> catalog/format.go:9 (new): Exported Go
-  declaration added
-<i>  … 11 more medium signals in catalog/</i>
+<i>  … 16 more signals</i>
 
 <span class="h">## Review Surface</span><span class="m">4</span>
-Focused review: <b>19 / 125 changed lines</b>.
+Focused review: <b>18 / 110 changed lines</b>.
 
 <span class="h">## Changed-line Execution</span><span class="m">5</span>
-Of 67 added Go lines, 44 were executed at least once,
-0 were not executed, 23 are not inside any
-instrumented block.</code></pre>
-          </figure>
-          <ol class="notes">
-            <li><strong>Checks are done, and they are not the answer.</strong> Every configured command passed in an isolated container. That is exactly why the rest of the report matters.</li>
-            <li><strong>Evidence, not opinions.</strong> A reproduced issue needs a test that passes on the base and fails on the candidate. Without an AI provider nothing is claimed here, and the report says so.</li>
-            <li><strong>Your reading order.</strong> High signals first: an authorization rule and a refund path changed, and a validation call was removed with no nearby test change. That is where the bug is.</li>
-            <li><strong>The size of the job.</strong> 19 of 125 changed lines carry a signal. Read those first, then decide how much of the rest deserves attention.</li>
-            <li><strong>An observation, not a proof.</strong> The new refund code ran during the tests, yet no test asserts the amount check. Probe reports execution but never presents it as proof that the code is tested.</li>
-          </ol>
+Measured from check check-4: of 61 added Go lines,
+33 were executed at least once, 3 were not executed,
+25 are not inside any instrumented block.</code></pre>
+              </figure>
+              <ol class="notes">
+                <li><strong>Checks are done, and they are not the answer.</strong> Every configured command passed in an isolated container, and the commit still lets a refund exceed what was paid.</li>
+                <li><strong>Evidence, not opinions.</strong> A reproduced issue needs a test that passes on the base and fails on the candidate. Without an AI provider nothing is claimed here, and the report says so.</li>
+                <li><strong>Your reading order.</strong> High signals first: the refund API, the authorization rule and the payment code changed in sensitive files. They show where to look; finding the removed check is then your job, or the AI reviewer's.</li>
+                <li><strong>The size of the job.</strong> 18 of 110 changed lines carry a signal. Read those first, then decide how much of the rest deserves attention.</li>
+                <li><strong>An observation, not a proof.</strong> The new refund API never ran during the tests: none of its added lines was executed. Probe reports execution but never presents it as proof that the code is tested.</li>
+              </ol>
+            </div>
+          </div>
         </div>
       </div>
     </section>
@@ -393,7 +443,7 @@ probe review --base main --ci</code></pre>
           <span class="kicker">Probe for code · Docker</span>
           <h2>Or run it for a whole account: Probe&nbsp;Hub</h2>
           <p>The hub is the companion Docker image. Run one container, sign in with GitHub or GitLab, and every repository still missing a <code>.probe.json</code> gets a policy proposed in one click, previewed before it is committed to the default branch.</p>
-          <p>Repositories that have a policy can be watched: each new commit is analyzed and its report opens on its own, with an AI-written pull request summary when a reviewer model is configured. A severity slider filters the alerts from low to critical, and clicking one unfolds every modification it concerns, with the flagged lines highlighted in the diff.</p>
+          <p>Repositories that have a policy can be watched: each new commit is analyzed and its report opens on its own. With a reviewer model configured, the report is written by the AI and checked by Probe: risks and places to look first rated by severity, every citation verified against the diff, and the alerts grouped under the change they belong to. A severity slider filters the whole report from low to critical, and clicking an alert or a citation unfolds the modifications it concerns, with the lines highlighted in the diff.</p>
           <p>The team shapes the reviewer: each repository keeps its coding rules, and votes, comments and replies on findings teach it what the team finds useful. Coding agents such as Claude Code or Cursor connect to the hub's MCP server to trigger reviews, read findings and give feedback.</p>
           <p>The hub can also lend its LLM to the command-line tool: <code>probe login</code> connects a workstation to your account in the browser, and <code>probe review</code> then investigates with the hub's model, within a daily quota, without a provider key of your own.</p>
           <p>One Docker container, no external service required, with its state on a volume or in PostgreSQL — so a company can deploy it internally against its own GitHub Enterprise or GitLab instance. In its default mode it never executes the analyzed code.</p>

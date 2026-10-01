@@ -2,3 +2,6 @@
 app/**/testdata/** -text
 # Shell scripts copied into Linux images must keep LF endings on Windows too.
 *.sh text eol=lf
+# The example repository of the website is rebuilt into fixed commit IDs:
+# its files keep LF endings on every platform.
+web/examples/shop/** text eol=lf

@@ -172,6 +172,8 @@ h3 { font-size: 1.1rem; margin: 0 0 8px; }
 .ok { color: var(--ok); }
 .hi { color: var(--high); }
 .lo { color: var(--low); }
+.crit { color: var(--high); font-weight: 800; }
+.tabs > .tabpanel > .note { margin: 16px 0 0; }
 .terminal .c { color: #6f7c8c; }
 
 /* Band */
