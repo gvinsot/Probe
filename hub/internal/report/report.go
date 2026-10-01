@@ -247,24 +247,49 @@ type Report struct {
 	PRSummary *PRSummary `json:"pr_summary,omitempty"`
 }
 
-// PRSummary is the CLI's pr_summary, passed through to the dashboard.
+// PRSummary is the CLI's pr_summary, passed through to the dashboard. Its
+// CodeRefs were checked by the CLI against the diff; the UI resolves them
+// against Files, and the IDs a risk cites against the alerts.
 type PRSummary struct {
 	Title           string            `json:"title"`
 	Overview        string            `json:"overview"`
 	Changes         []PRSummaryChange `json:"changes"`
-	BehaviorChanges []string          `json:"behavior_changes"`
-	Risks           []string          `json:"risks"`
-	ReviewFocus     []string          `json:"review_focus"`
-	Testing         string            `json:"testing,omitempty"`
+	BehaviorChanges []PRSummaryPoint  `json:"behavior_changes"`
+	Risks           []PRSummaryRisk   `json:"risks"`
+	ReviewFocus     []PRSummaryPoint  `json:"review_focus"`
+	Testing         []PRSummaryPoint  `json:"testing"`
 	Intents         []PRSummaryIntent `json:"intents,omitempty"`
 	Model           string            `json:"model"`
 }
 
+// CodeRef is code a PR summary cites: a changed file, or lines of it.
+type CodeRef struct {
+	Path      string `json:"path"`
+	StartLine int    `json:"start_line,omitempty"`
+	EndLine   int    `json:"end_line,omitempty"`
+	Side      string `json:"side,omitempty"`
+}
+
 // PRSummaryChange is one area of a PR summary.
 type PRSummaryChange struct {
-	Area    string   `json:"area"`
-	Summary string   `json:"summary"`
-	Files   []string `json:"files"`
+	Area    string    `json:"area"`
+	Summary string    `json:"summary"`
+	Refs    []CodeRef `json:"refs"`
+}
+
+// PRSummaryPoint is one statement of a PR summary and the code it cites.
+type PRSummaryPoint struct {
+	Text string    `json:"text"`
+	Refs []CodeRef `json:"refs"`
+}
+
+// PRSummaryRisk is one risk of a PR summary, citing recorded signals and
+// hypotheses by ID, or code.
+type PRSummaryRisk struct {
+	Text          string    `json:"text"`
+	SignalIDs     []string  `json:"signal_ids"`
+	HypothesisIDs []string  `json:"hypothesis_ids"`
+	Refs          []CodeRef `json:"refs"`
 }
 
 // PRSummaryIntent is the developer intention the CLI's summary reads behind

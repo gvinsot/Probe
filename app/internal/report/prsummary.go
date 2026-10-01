@@ -23,13 +23,12 @@ const PRSummaryMarker = "<!-- probe:pr-summary v1 -->"
 // writes nothing without a summary, so that other reports keep their exact
 // rendering.
 func writePRSummarySection(b *bytes.Buffer, r *model.Report) {
-	s := r.PRSummary
-	if s == nil {
+	if r.PRSummary == nil {
 		return
 	}
 	line(b, "## Pull Request Summary\n")
 	line(b, "Model output, not evidence: written by the reviewer model after the review, from its report. It changes no status, severity or exit code.\n")
-	writePRSummaryBody(b, s, "###")
+	writePRSummaryBody(b, r, "###", true)
 	writeIntentGroups(b, r)
 }
 
@@ -91,46 +90,132 @@ func signalLocation(s model.Signal) string {
 }
 
 // writePRSummaryBody renders the fields of a summary; level is the heading
-// prefix of its subsections.
-func writePRSummaryBody(b *bytes.Buffer, s *model.PRSummary, level string) {
-	fmt.Fprintf(b, "**%s**\n\n", inline(s.Title))
-	for _, paragraph := range strings.Split(s.Overview, "\n") {
-		if paragraph = strings.TrimSpace(paragraph); paragraph != "" {
-			line(b, inline(paragraph)+"\n")
+// prefix of its subsections. Each statement ends with the code it cites, as
+// path:lines, and a risk with the findings it cites. The Testing section also
+// states, from the report, which checks Probe executed.
+func writePRSummaryBody(b *bytes.Buffer, r *model.Report, level string, overview bool) {
+	s := r.PRSummary
+	if overview {
+		fmt.Fprintf(b, "**%s**\n\n", inline(s.Title))
+		for _, paragraph := range strings.Split(s.Overview, "\n") {
+			if paragraph = strings.TrimSpace(paragraph); paragraph != "" {
+				line(b, inline(paragraph)+"\n")
+			}
 		}
 	}
 	if len(s.Changes) > 0 {
 		line(b, level+" Changes\n")
 		for _, c := range s.Changes {
-			files := ""
-			if len(c.Files) > 0 {
-				quoted := make([]string, len(c.Files))
-				for i, f := range c.Files {
-					quoted[i] = inline(f)
-				}
-				files = " (" + strings.Join(quoted, ", ") + ")"
-			}
-			fmt.Fprintf(b, "- **%s**: %s%s\n", inline(c.Area), inline(c.Summary), files)
+			fmt.Fprintf(b, "- **%s**: %s%s\n", inline(c.Area), inline(c.Summary), citing(refTexts(c.Refs)))
 		}
 		line(b, "")
 	}
-	list := func(title string, items []string) {
+	points := func(title string, items []model.PRSummaryPoint) {
 		if len(items) == 0 {
 			return
 		}
 		line(b, level+" "+title+"\n")
-		for _, item := range items {
-			line(b, "- "+inline(item))
+		for _, p := range items {
+			line(b, "- "+inline(p.Text)+citing(refTexts(p.Refs)))
 		}
 		line(b, "")
 	}
-	list("Behavior changes", s.BehaviorChanges)
-	list("Risks", s.Risks)
-	list("Where to look first", s.ReviewFocus)
-	if strings.TrimSpace(s.Testing) != "" {
-		line(b, level+" Testing\n")
-		line(b, inline(s.Testing)+"\n")
+	points("Behavior changes", s.BehaviorChanges)
+	if len(s.Risks) > 0 {
+		line(b, level+" Risks\n")
+		for _, risk := range s.Risks {
+			line(b, "- "+inline(risk.Text)+citing(append(refTexts(risk.Refs), findingTexts(r, risk)...)))
+		}
+		line(b, "")
 	}
+	points("Where to look first", s.ReviewFocus)
+	points("Testing", s.Testing)
+	if len(s.Testing) == 0 {
+		line(b, level+" Testing\n")
+	}
+	line(b, checksSentence(r.Checks)+"\n")
+}
+
+// citing joins what a statement cites, after a dash.
+func citing(items []string) string {
+	if len(items) == 0 {
+		return ""
+	}
+	return " — " + strings.Join(items, ", ")
+}
+
+func refTexts(refs []model.CodeRef) []string {
+	out := make([]string, 0, len(refs))
+	for _, ref := range refs {
+		out = append(out, refText(ref))
+	}
+	return out
+}
+
+// refText renders a code reference as path, path:line or path:start-end.
+func refText(ref model.CodeRef) string {
+	text := inline(ref.Path)
+	if ref.StartLine > 0 {
+		text += fmt.Sprintf(":%d", ref.StartLine)
+		if ref.EndLine > ref.StartLine {
+			text += fmt.Sprintf("-%d", ref.EndLine)
+		}
+		if ref.Side == "old" {
+			text += " (old)"
+		}
+	}
+	return text
+}
+
+// findingTexts renders the signals and hypotheses a risk cites with their
+// recorded location and status; an ID the report does not hold is skipped.
+func findingTexts(r *model.Report, risk model.PRSummaryRisk) []string {
+	var out []string
+	for _, id := range risk.HypothesisIDs {
+		for _, h := range r.Hypotheses {
+			if h.ID == id {
+				where := inline(h.Path)
+				if h.Line > 0 {
+					where += fmt.Sprintf(":%d", h.Line)
+				}
+				out = append(out, fmt.Sprintf("%s (%s finding)", where, inline(strings.ToLower(h.Status))))
+				break
+			}
+		}
+	}
+	for _, id := range risk.SignalIDs {
+		for _, sig := range r.Signals {
+			if sig.ID == id {
+				out = append(out, signalLocation(sig)+" (signal)")
+				break
+			}
+		}
+	}
+	return out
+}
+
+// checksSentence states, from the report, what Probe executed.
+func checksSentence(checks []model.Check) string {
+	if len(checks) == 0 {
+		return "_Probe executed no check for this review._"
+	}
+	counts := map[string]int{}
+	var order []string
+	for _, c := range checks {
+		if counts[c.Status] == 0 {
+			order = append(order, c.Status)
+		}
+		counts[c.Status]++
+	}
+	parts := make([]string, len(order))
+	for i, status := range order {
+		parts[i] = fmt.Sprintf("%d %s", counts[status], inline(status))
+	}
+	noun := "checks"
+	if len(checks) == 1 {
+		noun = "check"
+	}
+	return fmt.Sprintf("_Probe executed %d %s for this review: %s._", len(checks), noun, strings.Join(parts, ", "))
 }
 
 // renderPRSummary renders PR_SUMMARY.md from a sanitized, finalized report.
@@ -149,12 +234,7 @@ func renderPRSummary(r *model.Report) []byte {
 			line(&b, inline(paragraph)+"\n")
 		}
 	}
-	body := *s
-	body.Overview = ""
-	var rest bytes.Buffer
-	writePRSummaryBody(&rest, &body, "##")
-	// The body repeats the title in bold; the file has it as its heading.
-	b.Write(bytes.TrimPrefix(rest.Bytes(), []byte(fmt.Sprintf("**%s**\n\n", inline(s.Title)))))
+	writePRSummaryBody(&b, r, "##", false)
 	fmt.Fprintf(&b, "---\n\n_Written by %s from the Probe review of %d changed files (%s). Model output, not evidence; the review verdict is in the confidence report._\n\n", inline(s.Model), len(r.Change.Files), verdictWords(r.ExitCode))
 	line(&b, PRSummaryMarker)
 	return b.Bytes()

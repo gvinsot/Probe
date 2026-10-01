@@ -33,7 +33,7 @@ func summaryServer(t *testing.T) *atomic.Int32 {
 			if !strings.Contains(request.Messages[1].Content, "candidate") {
 				t.Errorf("the commit messages are missing from the summary input")
 			}
-			content = `{"title":"Let every user pass the admin check","overview":"Allowed now returns true for any user.","changes":[{"area":"Authorization","summary":"The role comparison was removed.","files":["auth.go"]}],"behavior_changes":["Non-admins are allowed"],"risks":["Unverified: privilege escalation"],"review_focus":["auth.go line 3"],"testing":"Nothing was executed."}`
+			content = `{"title":"Let every user pass the admin check","overview":"Allowed now returns true for any user.","changes":[{"area":"Authorization","summary":"The role comparison was removed.","refs":[{"path":"auth.go"}]}],"behavior_changes":[{"text":"Non-admins are allowed","refs":[{"path":"auth.go"}]}],"risks":[{"text":"Unverified: privilege escalation","refs":[{"path":"auth.go"}]}],"review_focus":[],"testing":[]}`
 		}
 		reply, _ := json.Marshal(map[string]any{"choices": []any{map[string]any{"finish_reason": "stop", "message": map[string]any{"role": "assistant", "content": content}}}})
 		w.Write(reply)

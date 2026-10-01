@@ -14,8 +14,11 @@ import (
 )
 
 const validSummary = `{"title":"Allow every user through the admin check","overview":"The admin check now returns true for any user.\nThis removes the role test.",
-"changes":[{"area":"Authorization","summary":"Allowed no longer compares the user.","files":["auth.go","/etc/passwd"]},{"area":"","summary":"dropped"}],
-"behavior_changes":["Non-admin users are allowed"],"risks":["Unverified: every user becomes admin"],"review_focus":["auth.go line 3"],"testing":"No test was executed.",
+"changes":[{"area":"Authorization","summary":"Allowed no longer compares the user.","refs":[{"path":"auth.go","start_line":3},{"path":"/etc/passwd"},{"path":"auth.go","start_line":3}]},{"area":"","summary":"dropped"}],
+"behavior_changes":[{"text":"Non-admin users are allowed","refs":[{"path":"auth.go","start_line":2,"end_line":40}]}],
+"risks":[{"text":"Unverified: every user becomes admin","hypothesis_ids":["hypothesis-1","hypothesis-9"]},{"text":"The role test is gone","refs":[{"path":"auth.go","start_line":3,"side":"old"}]},{"text":"Nothing backs this","signal_ids":["signal-9"]}],
+"review_focus":[{"text":"The return statement","refs":[{"path":"auth.go","start_line":3}]},{"text":"No lines","refs":[{"path":"auth.go"}]}],
+"testing":[],
 "intents":[{"intent":"Simplify the admin check","signal_ids":["signal-1","signal-9"],"hypothesis_ids":["hypothesis-1"]},{"intent":"Cover the admin check","signal_ids":["signal-1","signal-2"]},{"intent":"Nothing recorded","signal_ids":["signal-9"]},{"intent":"","signal_ids":["signal-2"]}]}`
 
 // summaryProvider answers with the given contents in turn and records the
@@ -46,7 +49,7 @@ func summaryReport() *model.Report {
 	return &model.Report{
 		Intent:     "Simplify the admin check",
 		ExitCode:   2,
-		Change:     model.Change{Files: []model.ChangedFile{{Path: "auth.go", Status: "M", Additions: 1, Deletions: 1}}},
+		Change:     model.Change{Files: []model.ChangedFile{{Path: "auth.go", Status: "M", Additions: 1, Deletions: 1, Hunks: []model.Hunk{{OldStart: 1, OldLines: 4, NewStart: 1, NewLines: 4}}}}},
 		Hypotheses: []model.Hypothesis{{ID: "hypothesis-1", Title: "Every user is admin", Severity: "critical", Status: "UNVERIFIED", Path: "auth.go", Line: 3}},
 		Signals: []model.Signal{
 			{ID: "signal-1", Kind: "branch_growth", Path: "auth.go", Line: 1, Scope: model.SignalScopeFile, Severity: "low", Summary: "More branching constructs appear in the diff"},
@@ -63,11 +66,27 @@ func TestSummarizeValidatesTheAnswer(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if s.Title != "Allow every user through the admin check" || s.Model != "test-model" || len(s.Changes) != 1 || strings.Join(s.Changes[0].Files, ",") != "auth.go" {
+	if s.Title != "Allow every user through the admin check" || s.Model != "test-model" || len(s.Changes) != 1 {
 		t.Fatalf("summary %+v", s)
 	}
-	if len(s.Risks) != 1 || len(s.BehaviorChanges) != 1 || s.Testing != "No test was executed." {
-		t.Fatalf("summary %+v", s)
+	// Unknown files and duplicates are dropped; lines are clamped to the hunks.
+	if want := []model.CodeRef{{Path: "auth.go", StartLine: 3}}; !reflect.DeepEqual(s.Changes[0].Refs, want) {
+		t.Fatalf("change refs %+v", s.Changes[0].Refs)
+	}
+	if want := []model.CodeRef{{Path: "auth.go", StartLine: 2, EndLine: 4}}; len(s.BehaviorChanges) != 1 || !reflect.DeepEqual(s.BehaviorChanges[0].Refs, want) {
+		t.Fatalf("behavior changes %+v", s.BehaviorChanges)
+	}
+	// A risk keeps its recorded IDs or its code; one with neither is dropped.
+	wantRisks := []model.PRSummaryRisk{
+		{Text: "Unverified: every user becomes admin", SignalIDs: []string{}, HypothesisIDs: []string{"hypothesis-1"}, Refs: []model.CodeRef{}},
+		{Text: "The role test is gone", SignalIDs: []string{}, HypothesisIDs: []string{}, Refs: []model.CodeRef{{Path: "auth.go", StartLine: 3, Side: "old"}}},
+	}
+	if !reflect.DeepEqual(s.Risks, wantRisks) {
+		t.Fatalf("risks %+v", s.Risks)
+	}
+	// A focus point needs lines.
+	if len(s.ReviewFocus) != 1 || s.ReviewFocus[0].Text != "The return statement" || s.Testing == nil || len(s.Testing) != 0 {
+		t.Fatalf("focus %+v testing %+v", s.ReviewFocus, s.Testing)
 	}
 	if len(events) != 1 || events[0].Tool != "pr_summary_completion" || events[0].Status != "OK" {
 		t.Fatalf("events %+v", events)
@@ -115,7 +134,14 @@ func TestSummarizeRetriesOnceThenFails(t *testing.T) {
 
 func TestSummarizeBoundsAndLargeChanges(t *testing.T) {
 	long := strings.Repeat("word ", 400)
-	answer, _ := json.Marshal(map[string]any{"title": long, "overview": long, "risks": []string{long, "", "a", "b", "c", "d", "e", "f", "g", "h", "i"}})
+	risk := func(text string) map[string]any {
+		return map[string]any{"text": text, "refs": []map[string]any{{"path": "auth.go"}}}
+	}
+	risks := []map[string]any{risk(long), risk("")}
+	for _, text := range strings.Fields("a b c d e f g h i") {
+		risks = append(risks, risk(text))
+	}
+	answer, _ := json.Marshal(map[string]any{"title": long, "overview": long, "risks": risks})
 	endpoint, requests := summaryProvider(t, string(answer))
 	r := summaryReport()
 	hunk := model.Hunk{Lines: []model.DiffLine{{Kind: "add", NewLine: 1, Content: strings.Repeat("x", 4000)}}}
@@ -126,11 +152,37 @@ func TestSummarizeBoundsAndLargeChanges(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(s.Title) > maxSummaryTitle || len(s.Overview) > maxSummaryOverview || len(s.Risks) != maxSummaryItems || len(s.Risks[0]) > maxSummaryItem {
+	if len(s.Title) > maxSummaryTitle || len(s.Overview) > maxSummaryOverview || len(s.Risks) != maxSummaryItems || len(s.Risks[0].Text) > maxSummaryItem {
 		t.Fatalf("bounds: title %d overview %d risks %d", len(s.Title), len(s.Overview), len(s.Risks))
 	}
 	user := (*requests)[0]["messages"].([]any)[1].(map[string]any)["content"].(string)
 	if !strings.Contains(user, `"hunks_omitted":true`) || strings.Contains(user, "xxxxxxxx") {
 		t.Fatal("hunks were not omitted from a large change")
+	}
+}
+
+func TestSummaryRefsFollowTheDiff(t *testing.T) {
+	known := summaryRefs{files: map[string]model.ChangedFile{
+		"a.go":    {Path: "a.go", Hunks: []model.Hunk{{OldStart: 10, OldLines: 3, NewStart: 10, NewLines: 5}, {OldStart: 40, OldLines: 2, NewStart: 42, NewLines: 0}}},
+		"bin.png": {Path: "bin.png", Binary: true},
+	}}
+	cases := []struct {
+		in   rawRef
+		want model.CodeRef
+		ok   bool
+	}{
+		{rawRef{Path: "a.go", StartLine: 11, EndLine: 12}, model.CodeRef{Path: "a.go", StartLine: 11, EndLine: 12}, true},
+		{rawRef{Path: "a.go", StartLine: 5, EndLine: 100}, model.CodeRef{Path: "a.go", StartLine: 10, EndLine: 14}, true},
+		{rawRef{Path: "a.go", StartLine: 14, EndLine: 3}, model.CodeRef{Path: "a.go", StartLine: 14}, true},
+		{rawRef{Path: "a.go", StartLine: 41, Side: "old"}, model.CodeRef{Path: "a.go", StartLine: 41, Side: "old"}, true},
+		{rawRef{Path: "a.go", StartLine: 42}, model.CodeRef{Path: "a.go"}, true}, // the hunk adds no line: whole file
+		{rawRef{Path: "a.go", StartLine: 12, Side: "left"}, model.CodeRef{Path: "a.go", StartLine: 12}, true},
+		{rawRef{Path: "bin.png", StartLine: 1}, model.CodeRef{Path: "bin.png"}, true},
+		{rawRef{Path: "b.go", StartLine: 1}, model.CodeRef{}, false},
+	}
+	for _, c := range cases {
+		if got, ok := known.ref(c.in); ok != c.ok || got != c.want {
+			t.Errorf("ref(%+v) = %+v %v, want %+v %v", c.in, got, ok, c.want, c.ok)
+		}
 	}
 }

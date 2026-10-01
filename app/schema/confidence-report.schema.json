@@ -264,28 +264,62 @@
         {"if": {"properties": {"kind": {"const": "intent_test"}, "status": {"const": "INTENT_TEST_FAILED"}}}, "then": {"required": ["referenced_symbols"], "properties": {"referenced_symbols": {"minItems": 1}}}}
       ]
     },
+    "codeRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Code a PR summary cites: a changed file, or lines of it within its hunks. Lines are on the new side unless side is old.",
+      "required": ["path"],
+      "properties": {
+        "path": {"$ref": "#/$defs/path"},
+        "start_line": {"type": "integer", "minimum": 1},
+        "end_line": {"type": "integer", "minimum": 1},
+        "side": {"const": "old"}
+      },
+      "allOf": [{"if": {"required": ["end_line"]}, "then": {"required": ["start_line"]}}, {"if": {"required": ["side"]}, "then": {"required": ["start_line"]}}]
+    },
+    "prSummaryRefs": {"type": "array", "maxItems": 6, "items": {"$ref": "#/$defs/codeRef"}},
+    "prSummaryPoint": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["text", "refs"],
+      "properties": {
+        "text": {"type": "string", "minLength": 1},
+        "refs": {"$ref": "#/$defs/prSummaryRefs"}
+      }
+    },
     "prSummary": {
       "type": "object",
       "additionalProperties": false,
       "description": "A natural-language summary of the change for a pull request description, written by the reviewer model after the review. Model output, not evidence: it changes no status, severity or exit code.",
-      "required": ["title", "overview", "changes", "behavior_changes", "risks", "review_focus", "model"],
+      "required": ["title", "overview", "changes", "behavior_changes", "risks", "review_focus", "testing", "model"],
       "properties": {
         "title": {"type": "string", "minLength": 1, "maxLength": 120},
         "overview": {"type": "string", "minLength": 1},
         "changes": {"type": "array", "maxItems": 12, "items": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["area", "summary", "files"],
+          "required": ["area", "summary", "refs"],
           "properties": {
             "area": {"type": "string", "minLength": 1},
             "summary": {"type": "string", "minLength": 1},
-            "files": {"type": "array", "maxItems": 30, "items": {"type": "string"}, "description": "Changed files only."}
+            "refs": {"$ref": "#/$defs/prSummaryRefs"}
           }
         }},
-        "behavior_changes": {"type": "array", "maxItems": 8, "items": {"type": "string", "minLength": 1}},
-        "risks": {"type": "array", "maxItems": 8, "items": {"type": "string", "minLength": 1}},
-        "review_focus": {"type": "array", "maxItems": 8, "items": {"type": "string", "minLength": 1}},
-        "testing": {"type": "string"},
+        "behavior_changes": {"type": "array", "maxItems": 8, "items": {"$ref": "#/$defs/prSummaryPoint"}},
+        "risks": {"type": "array", "maxItems": 8, "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "A risk the review recorded cites its signals and hypotheses; a risk read from the diff cites code. Each has at least one of them.",
+          "required": ["text", "signal_ids", "hypothesis_ids", "refs"],
+          "properties": {
+            "text": {"type": "string", "minLength": 1},
+            "signal_ids": {"type": "array", "items": {"$ref": "#/$defs/id"}, "description": "IDs from linter."},
+            "hypothesis_ids": {"type": "array", "items": {"$ref": "#/$defs/id"}, "description": "IDs from hypotheses."},
+            "refs": {"$ref": "#/$defs/prSummaryRefs"}
+          }
+        }},
+        "review_focus": {"type": "array", "maxItems": 8, "items": {"$ref": "#/$defs/prSummaryPoint"}, "description": "Each point cites at least one ref with lines."},
+        "testing": {"type": "array", "maxItems": 4, "items": {"$ref": "#/$defs/prSummaryPoint"}, "description": "The tests the change adds or modifies. What Probe executed is in checks."},
         "intents": {"type": "array", "maxItems": 12, "description": "The linter signals and hypotheses of this report grouped by the developer intention that produced the code they point at. Each ID is cited by at most one intent; signals and hypotheses no intent cites stay ungrouped. A reading of the change, not evidence.", "items": {
           "type": "object",
           "additionalProperties": false,

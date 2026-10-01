@@ -3,12 +3,15 @@ package report
 import "testing"
 
 func TestViewCarriesThePRSummary(t *testing.T) {
-	r, err := Decode([]byte(`{"version":1,"exit_code":2,"change":{"files":[]},"pr_summary":{"title":"Round discounts up","overview":"Discounts round up.","changes":[{"area":"Pricing","summary":"Rounding changed.","files":["calc.go"]}],"behavior_changes":[],"risks":["Unverified: off by one cent"],"review_focus":[],"model":"m"}}`))
+	r, err := Decode([]byte(`{"version":1,"exit_code":2,"change":{"files":[]},"pr_summary":{"title":"Round discounts up","overview":"Discounts round up.","changes":[{"area":"Pricing","summary":"Rounding changed.","refs":[{"path":"calc.go","start_line":3,"end_line":5}]}],"behavior_changes":[],"risks":[{"text":"Unverified: off by one cent","signal_ids":[],"hypothesis_ids":["h1"],"refs":[{"path":"calc.go","start_line":2,"side":"old"}]}],"review_focus":[],"testing":[],"model":"m"}}`))
 	if err != nil {
 		t.Fatal(err)
 	}
 	v := r.BuildView()
-	if v.PRSummary == nil || v.PRSummary.Title != "Round discounts up" || v.PRSummary.Changes[0].Files[0] != "calc.go" || v.Summary.ExitCode != 2 {
+	if v.PRSummary == nil || v.PRSummary.Title != "Round discounts up" || v.PRSummary.Changes[0].Refs[0] != (CodeRef{Path: "calc.go", StartLine: 3, EndLine: 5}) || v.Summary.ExitCode != 2 {
+		t.Fatalf("view %+v", v.PRSummary)
+	}
+	if risk := v.PRSummary.Risks[0]; risk.HypothesisIDs[0] != "h1" || risk.Refs[0].Side != "old" {
 		t.Fatalf("view %+v", v.PRSummary)
 	}
 	plain, _ := Decode([]byte(`{"version":1,"change":{"files":[]}}`))
@@ -25,7 +28,7 @@ func TestAlertsCarryTheirIntent(t *testing.T) {
  {"id":"s3","kind":"suppression","path":"sort.test.ts","line":7,"side":"new","severity":"medium","summary":"Type or safety checking suppression added"},
  {"id":"s4","kind":"todo","path":"other.ts","line":3,"side":"new","severity":"low","summary":"TODO added"}],
 "hypotheses":[{"id":"h1","title":"Sort is unstable","severity":"medium","status":"UNVERIFIED","path":"sort.ts","line":20}],
-"pr_summary":{"title":"t","overview":"o","changes":[],"behavior_changes":[],"risks":[],"review_focus":[],"model":"m",
+"pr_summary":{"title":"t","overview":"o","changes":[],"behavior_changes":[],"risks":[],"review_focus":[],"testing":[],"model":"m",
  "intents":[{"intent":"Add agent sorting","signal_ids":["s1","s2"],"hypothesis_ids":["h1"]},{"intent":"Test agent sorting","signal_ids":["s3","s1"],"hypothesis_ids":[]}]}}`))
 	if err != nil {
 		t.Fatal(err)

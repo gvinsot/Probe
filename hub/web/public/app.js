@@ -733,8 +733,10 @@ function openRulesDialog(repo) {
 /* ----------------------------------------------------- PR summary -- */
 
 // The pull request summary the reviewer model wrote after the review: a
-// folded narrative, rendered as text only, with a button that copies it as
-// Markdown for a pull request description.
+// folded narrative, rendered as text only. Every statement ends with links to
+// the code it cites, which unfold the diff under it, and a risk with the
+// alerts it cites. A button copies it as Markdown for a pull request
+// description.
 function renderPRSummary(s) {
   const box = document.createElement('details');
   box.className = 'reviewer-summary pr-summary';
@@ -746,29 +748,49 @@ function renderPRSummary(s) {
   const overview = document.createElement('p');
   overview.textContent = s.overview || '';
   box.appendChild(overview);
-  const section = (title, items) => {
-    if (!items || !items.length) return;
-    const h = document.createElement('b');
-    h.textContent = title;
+  const section = (title, items, fill) => {
+    if (!items || !items.length) return null;
+    if (title) {
+      const h = document.createElement('b');
+      h.textContent = title;
+      box.appendChild(h);
+    }
     const list = document.createElement('ul');
     for (const item of items) {
       const li = document.createElement('li');
-      li.textContent = item;
+      fill(li, item);
       list.appendChild(li);
     }
-    box.append(h, list);
+    box.appendChild(list);
+    return list;
   };
-  section('Changes', (s.changes || []).map((c) => c.area + ': ' + c.summary + (c.files && c.files.length ? ' (' + c.files.join(', ') + ')' : '')));
-  section('Behavior changes', s.behavior_changes);
-  section('Risks', s.risks);
-  section('Where to look first', s.review_focus);
-  if (s.testing) {
-    const h = document.createElement('b');
-    h.textContent = 'Testing';
-    const p = document.createElement('p');
-    p.textContent = s.testing;
-    box.append(h, p);
-  }
+  const point = (li, p) => {
+    const text = document.createElement('span');
+    text.textContent = p.text;
+    li.append(text, summaryCitations(li, p.refs, []));
+  };
+  section('Changes', s.changes, (li, c) => {
+    const area = document.createElement('b');
+    area.textContent = c.area + ': ';
+    li.append(area, document.createTextNode(c.summary), summaryCitations(li, c.refs, []));
+  });
+  section('Behavior changes', s.behavior_changes, point);
+  section('Risks', s.risks, (li, r) => {
+    const text = document.createElement('span');
+    text.textContent = r.text;
+    const cited = (r.hypothesis_ids || []).map((id) => 'issue:' + id).concat((r.signal_ids || []).map((id) => 'signal:' + id));
+    li.append(text, summaryCitations(li, r.refs, cited));
+  });
+  section('Where to look first', s.review_focus, point);
+  const h = document.createElement('b');
+  h.textContent = 'Testing';
+  box.appendChild(h);
+  section(null, s.testing, point);
+  const executed = document.createElement('p');
+  executed.className = 'note';
+  executed.textContent = checksSentence((state.view && state.view.checks) || []);
+  box.appendChild(executed);
+
   const footer = document.createElement('div');
   footer.className = 'row';
   const caveat = document.createElement('span');
@@ -787,18 +809,132 @@ function renderPRSummary(s) {
   return box;
 }
 
+// summaryCitations renders the links of one summary statement: the code it
+// cites, then the alerts (by alert ID prefix) a risk cites. A link unfolds the
+// diff it points at under the statement held by li; a second click folds it.
+// An alert the list shows opens there instead.
+function summaryCitations(li, refs, alertIDs) {
+  const links = document.createElement('span');
+  links.className = 'summary-refs';
+  let open = null;
+  const toggle = (link, target) => {
+    const panel = li.querySelector(':scope > .summary-diff');
+    if (panel) panel.remove();
+    if (open) open.setAttribute('aria-expanded', 'false');
+    if (open === link) {
+      open = null;
+      return;
+    }
+    open = link;
+    link.setAttribute('aria-expanded', 'true');
+    const holder = document.createElement('div');
+    holder.className = 'summary-diff';
+    appendAlertDiff(holder, target);
+    li.appendChild(holder);
+  };
+  for (const ref of refs || []) {
+    const link = refLink(refLabel(ref), ref.path);
+    const target = { path: ref.path, line: ref.start_line || 0, end_line: ref.end_line || ref.start_line || 0, side: ref.side === 'old' ? 'old' : 'new' };
+    link.addEventListener('click', () => toggle(link, target));
+    links.appendChild(link);
+  }
+  for (const id of alertIDs) {
+    const alert = findAlert(id);
+    if (!alert) continue;
+    const link = refLink(alert.title || id, alertLocation(alert));
+    link.classList.add('alert-ref');
+    link.addEventListener('click', () => {
+      if (filteredAlerts().some((a) => a.id === alert.id)) revealAlert(alert.id);
+      else toggle(link, alert);
+    });
+    links.appendChild(link);
+  }
+  return links;
+}
+
+function refLink(text, title) {
+  const link = document.createElement('button');
+  link.type = 'button';
+  link.className = 'ref-link mono';
+  link.textContent = text;
+  link.title = title;
+  link.setAttribute('aria-expanded', 'false');
+  return link;
+}
+
+// refLabel names a code reference by file name and lines; the full path is in
+// the link's title.
+function refLabel(ref) {
+  let label = ref.path.split('/').pop();
+  if (ref.start_line) {
+    label += ':' + ref.start_line;
+    if (ref.end_line && ref.end_line > ref.start_line) label += '-' + ref.end_line;
+    if (ref.side === 'old') label += ' (old)';
+  }
+  return label;
+}
+
+function refText(ref) {
+  let text = ref.path;
+  if (ref.start_line) {
+    text += ':' + ref.start_line;
+    if (ref.end_line && ref.end_line > ref.start_line) text += '-' + ref.end_line;
+    if (ref.side === 'old') text += ' (old)';
+  }
+  return text;
+}
+
+// findAlert finds the alert built from a signal or hypothesis ("signal:<id>",
+// "issue:<id>"), split by line ("#n") or grouped with other signals.
+function findAlert(id) {
+  const view = state.view;
+  if (!view) return null;
+  const matches = (a) => a.id === id || a.id.startsWith(id + '#');
+  for (const alert of (view.alerts || []).concat(view.dismissed || [])) {
+    if (matches(alert) || (alert.members || []).some(matches)) return alert;
+  }
+  return null;
+}
+
+// revealAlert unfolds an alert of the list and scrolls to it.
+function revealAlert(id) {
+  state.expanded.add(id);
+  renderAlerts();
+  const item = [...document.querySelectorAll('#alerts .alert')].find((li) => li.dataset.alertId === id);
+  if (item) requestAnimationFrame(() => item.scrollIntoView({ block: 'start', behavior: 'smooth' }));
+}
+
+// checksSentence states, from the report, what Probe executed: the testing
+// part of the summary never comes from the model.
+function checksSentence(checks) {
+  if (!checks.length) return 'Probe executed no check for this review.';
+  const counts = new Map();
+  for (const c of checks) counts.set(c.status, (counts.get(c.status) || 0) + 1);
+  const parts = [...counts].map(([status, n]) => n + ' ' + status);
+  return 'Probe executed ' + checks.length + (checks.length === 1 ? ' check' : ' checks') + ' for this review: ' + parts.join(', ') + '.';
+}
+
 function prSummaryMarkdown(s) {
   const lines = ['# ' + (s.title || ''), '', s.overview || ''];
+  const cites = (refs) => (refs && refs.length ? ' — ' + refs.map(refText).join(', ') : '');
   const list = (title, items) => {
     if (!items || !items.length) return;
     lines.push('', '## ' + title, '');
     for (const item of items) lines.push('- ' + item);
   };
-  list('Changes', (s.changes || []).map((c) => '**' + c.area + '**: ' + c.summary + (c.files && c.files.length ? ' (' + c.files.join(', ') + ')' : '')));
-  list('Behavior changes', s.behavior_changes);
-  list('Risks', s.risks);
-  list('Where to look first', s.review_focus);
-  if (s.testing) lines.push('', '## Testing', '', s.testing);
+  const points = (items) => (items || []).map((p) => p.text + cites(p.refs));
+  list('Changes', (s.changes || []).map((c) => '**' + c.area + '**: ' + c.summary + cites(c.refs)));
+  list('Behavior changes', points(s.behavior_changes));
+  list('Risks', (s.risks || []).map((r) => {
+    const alerts = (r.hypothesis_ids || []).map((id) => findAlert('issue:' + id)).concat((r.signal_ids || []).map((id) => findAlert('signal:' + id))).filter(Boolean);
+    const where = (r.refs || []).map(refText).concat(alerts.map((a) => alertLocation(a) + ' (' + (a.status ? a.status.toLowerCase() + ' ' : '') + a.kind + ')'));
+    return r.text + (where.length ? ' — ' + where.join(', ') : '');
+  }));
+  list('Where to look first', points(s.review_focus));
+  lines.push('', '## Testing', '');
+  for (const item of points(s.testing)) lines.push('- ' + item);
+  if (s.testing && s.testing.length) lines.push('');
+  lines.push('_' + checksSentence((state.view && state.view.checks) || []) + '_');
   lines.push('', '---', '', '_Written by ' + (s.model || 'the reviewer model') + ' from the Probe review. Model output, not evidence._');
   return lines.join('\n') + '\n';
 }
@@ -1773,6 +1909,7 @@ function intentHeader(group) {
 function alertItem(alert, rerender) {
   const item = document.createElement('li');
   item.className = 'alert';
+  item.dataset.alertId = alert.id;
 
   const head = document.createElement('button');
   head.className = 'alert-head';

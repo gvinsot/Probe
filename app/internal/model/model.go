@@ -131,24 +131,51 @@ type ReviewerAgent struct {
 
 // PRSummary is a model-written, natural-language summary of the change, for
 // a pull request description. It is generated after the verdict and changes
-// nothing in it: model output, never evidence.
+// nothing in it: model output, never evidence. Every location it gives is a
+// CodeRef the CLI checked against the diff, so a reader can open the code a
+// sentence is about.
 type PRSummary struct {
 	Title           string            `json:"title"`
 	Overview        string            `json:"overview"`
 	Changes         []PRSummaryChange `json:"changes"`          // always an array
-	BehaviorChanges []string          `json:"behavior_changes"` // always an array
-	Risks           []string          `json:"risks"`            // always an array
-	ReviewFocus     []string          `json:"review_focus"`     // always an array
-	Testing         string            `json:"testing,omitempty"`
+	BehaviorChanges []PRSummaryPoint  `json:"behavior_changes"` // always an array
+	Risks           []PRSummaryRisk   `json:"risks"`            // always an array
+	ReviewFocus     []PRSummaryPoint  `json:"review_focus"`     // always an array; each point has a ref
+	Testing         []PRSummaryPoint  `json:"testing"`          // always an array; tests the change adds or modifies
 	Intents         []PRSummaryIntent `json:"intents,omitempty"`
 	Model           string            `json:"model"`
 }
 
+// CodeRef points at a changed file, or at lines of it when StartLine is set.
+// Lines are on the new side of the diff unless Side is "old", and lie within
+// the file's hunks: the summary only cites code the change shows.
+type CodeRef struct {
+	Path      string `json:"path"`
+	StartLine int    `json:"start_line,omitempty"`
+	EndLine   int    `json:"end_line,omitempty"`
+	Side      string `json:"side,omitempty"` // "old" for removed code; empty: new side
+}
+
 // PRSummaryChange is one area of a PR summary.
 type PRSummaryChange struct {
-	Area    string   `json:"area"`
-	Summary string   `json:"summary"`
-	Files   []string `json:"files"` // changed files only; always an array
+	Area    string    `json:"area"`
+	Summary string    `json:"summary"`
+	Refs    []CodeRef `json:"refs"` // always an array
+}
+
+// PRSummaryPoint is one statement of a PR summary and the code it is about.
+type PRSummaryPoint struct {
+	Text string    `json:"text"`
+	Refs []CodeRef `json:"refs"` // always an array
+}
+
+// PRSummaryRisk is one risk of a PR summary. A risk the review recorded cites
+// its signals and hypotheses by ID; a risk read from the diff cites code.
+type PRSummaryRisk struct {
+	Text          string    `json:"text"`
+	SignalIDs     []string  `json:"signal_ids"`     // always an array
+	HypothesisIDs []string  `json:"hypothesis_ids"` // always an array
+	Refs          []CodeRef `json:"refs"`           // always an array
 }
 
 // PRSummaryIntent groups the report's linter signals and hypotheses under the

@@ -309,6 +309,12 @@ h1, h2, h3 { line-height: 1.25; }
 .reviewer-summary { margin-top: 4px; }
 .pr-summary summary { cursor: pointer; }
 .pr-summary ul { margin: 0; padding-left: 18px; }
+.pr-summary li { margin: 2px 0; }
+.summary-refs { display: inline-flex; flex-wrap: wrap; gap: 4px; margin-left: 6px; vertical-align: baseline; }
+.ref-link { font-size: 0.75rem; padding: 0 6px; border: 1px solid var(--line); border-radius: 999px; background: var(--surface); color: var(--accent); cursor: pointer; line-height: 1.6; max-width: 28ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ref-link:hover, .ref-link[aria-expanded="true"] { border-color: var(--accent); background: var(--accent-soft); }
+.ref-link.alert-ref { font-family: inherit; color: var(--tone, var(--medium)); }
+.summary-diff { margin: 6px 0 8px; font-size: 0.8rem; }
 .chip.lowered { color: var(--muted); border-style: dashed; text-decoration: line-through; }
 .dismissed { border: 1px dashed var(--line); border-radius: 8px; padding: 8px 10px; margin-bottom: 10px; }
 .dismissed > summary { cursor: pointer; font-weight: 600; font-size: 0.85rem; }

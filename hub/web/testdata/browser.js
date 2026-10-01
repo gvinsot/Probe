@@ -474,6 +474,34 @@ window.addEventListener('DOMContentLoaded', async () => {
     state.view.alerts = state.view.alerts.map(({ intent_group, ...rest }) => rest);
     renderAlerts();
     assert(!el('alerts').querySelector('.intent-group'), 'no header without intents');
+    // The PR summary links each statement to the code it cites: a link
+    // unfolds that diff under it, and a cited alert the list shows opens there.
+    state.view = { files: [diffFile], checks: [{ id: 'c1', kind: 'test', status: 'PASS' }], dismissed: [],
+      alerts: [{ ...lineAlert, id: 'issue:h1#1', kind: 'issue', status: 'UNVERIFIED' }] };
+    renderAlerts();
+    const prSummary = { title: 'Check errors', overview: 'Errors are checked.', model: 'm',
+      changes: [{ area: 'API', summary: 'Adds a check.', refs: [{ path: 'hub/api.go', start_line: 2 }] }],
+      behavior_changes: [],
+      risks: [{ text: 'Unverified: errors are swallowed', signal_ids: ['gone'], hypothesis_ids: ['h1'], refs: [] }],
+      review_focus: [{ text: 'The new branch', refs: [{ path: 'hub/api.go', start_line: 1, end_line: 2 }] }],
+      testing: [] };
+    const prBox = renderPRSummary(prSummary);
+    prBox.open = true;
+    document.body.appendChild(prBox);
+    const refLinks = [...prBox.querySelectorAll('.ref-link')];
+    assert(refLinks.map((l) => l.textContent).join('|') === 'api.go:2|Error handling changed|api.go:1-2', 'summary links: ' + refLinks.map((l) => l.textContent).join('|'));
+    refLinks[0].click();
+    assert(prBox.querySelectorAll('.summary-diff tr.focus').length === 1 && refLinks[0].getAttribute('aria-expanded') === 'true', 'a code link unfolds its diff on the cited line');
+    refLinks[2].click();
+    assert(prBox.querySelectorAll('.summary-diff').length === 2 && prBox.querySelectorAll('.summary-diff tr.focus').length === 3, 'each statement unfolds its own diff');
+    refLinks[0].click();
+    assert(prBox.querySelectorAll('.summary-diff').length === 1 && refLinks[0].getAttribute('aria-expanded') === 'false', 'a second click folds it');
+    refLinks[1].click();
+    assert(state.expanded.has('issue:h1#1') && el('alerts').querySelector('.alert-head').getAttribute('aria-expanded') === 'true', 'a cited alert opens in the list');
+    assert(prBox.textContent.includes('Probe executed 1 check for this review: 1 PASS.'), 'testing states what Probe executed');
+    const prMarkdown = prSummaryMarkdown(prSummary);
+    assert(prMarkdown.includes('- **API**: Adds a check. — hub/api.go:2\n') && prMarkdown.includes('- Unverified: errors are swallowed — hub/api.go:2 (unverified issue)\n') && prMarkdown.includes('- The new branch — hub/api.go:1-2\n'), 'markdown cites code:\n' + prMarkdown);
+    prBox.remove(); state.expanded.delete('issue:h1#1');
     state.view = savedView; state.minSeverity = 0; state.expanded.delete(grouped.id);
     // A partial SSE payload must not erase the known queue date or verdict.
     const liveCommit = fixtureSHA('f');
