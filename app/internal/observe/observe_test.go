@@ -62,6 +62,7 @@ func TestCompareTable(t *testing.T) {
 		{"address-like difference", set("a", "&{0xc000012345}"), set("a", "&{0xc000054321}"), ptr(set("a", "&{0xc000012345}")), model.StatusUnverified, false, map[string]string{"a": model.ObservationIncomparable}},
 		{"address-like but equal", set("a", "0x2a860a162248"), set("a", "0x2a860a162248"), nil, model.StatusNotDiverged, false, map[string]string{"a": model.ObservationEqual}},
 		{"source position difference", set("a", "error at price.go:12"), set("a", "error at price.go:14"), ptr(set("a", "error at price.go:12")), model.StatusUnverified, false, map[string]string{"a": model.ObservationIncomparable}},
+		{"Python source position difference", set("a", "'ValueError at cart.py:12'"), set("a", "'ValueError at cart.py:14'"), ptr(set("a", "'ValueError at cart.py:12'")), model.StatusUnverified, false, map[string]string{"a": model.ObservationIncomparable}},
 		{"key with whitespace", set("a b", "1"), set("a b", "1"), nil, model.StatusUnverified, false, map[string]string{"a b": model.ObservationIncomparable}},
 		{"empty key", set("", "1"), set("", "1"), nil, model.StatusUnverified, false, nil},
 		{"control character in key", set("a\x01", "1"), set("a\x01", "1"), nil, model.StatusUnverified, false, map[string]string{"a\x01": model.ObservationIncomparable}},

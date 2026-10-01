@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"testing"
@@ -113,6 +114,9 @@ func pyProject(t *testing.T, cart string) string {
 
 func requirePython3Pytest(t *testing.T) string {
 	t.Helper()
+	if runtime.GOOS == "windows" {
+		t.Skip("the Python fuzz harness uses SIGALRM, which the Linux sandbox has and Windows does not")
+	}
 	python, err := exec.LookPath("python3")
 	if err != nil || exec.Command(python, "-c", "import pytest").Run() != nil {
 		t.Skip("python3 with pytest is not installed on the host")
