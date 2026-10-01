@@ -57,6 +57,9 @@ type generatedTest struct {
 	// observation test (F1) or a failing intent test (F5). It is never deleted.
 	Reproduced       bool
 	GoTests, JSTests []string
+	// PyTests are the top-level test functions of a generated pytest module,
+	// extracted when the generated_test template is a verifiable pytest one.
+	PyTests []string
 	// Criterion is the acceptance criterion of an intent test (F5 only); such a
 	// test runs on the candidate only.
 	Criterion string
@@ -963,9 +966,16 @@ func (h *Harness) createTest(path, content, description string) (any, error) {
 			return nil, err
 		}
 	}
+	var pyTests []string
+	if isPyTestPath(path) && verifiablePytestTemplate(h.opts.Commands["generated_test"]) {
+		var err error
+		if pyTests, err = generatedPyTests(content); err != nil {
+			return nil, err
+		}
+	}
 	h.generated++
 	id := fmt.Sprintf("generated-test-%d", h.generated)
-	t := &generatedTest{ID: id, Path: path, Content: content, Description: Redact(description), GoTests: goTests, JSTests: jsTests}
+	t := &generatedTest{ID: id, Path: path, Content: content, Description: Redact(description), GoTests: goTests, JSTests: jsTests, PyTests: pyTests}
 	h.tests[id] = t
 	return map[string]any{"test_id": id, "path": path}, nil
 }
@@ -1008,9 +1018,11 @@ func (h *Harness) runGenerated(ctx context.Context, id string) (any, error) {
 		runner, names = RunnerGo, t.GoTests
 	case len(t.JSTests) > 0 && hasFile && verifiableJSTemplate(h.opts.Commands["generated_test"]):
 		runner, names = RunnerJest, t.JSTests
+	case len(t.PyTests) > 0 && hasFile && verifiablePytestTemplate(h.opts.Commands["generated_test"]):
+		runner, names = RunnerPytest, t.PyTests
 	}
 	var base, candidate model.Check
-	if runner == RunnerJest {
+	if capturesResults(runner) {
 		base = h.runWithResultsOptions(ctx, model.CheckGeneratedBase, h.base, command, runOptions{})
 		candidate = h.runWithResultsOptions(ctx, model.CheckGeneratedCandidate, h.candidate, command, runOptions{})
 	} else {
@@ -1117,7 +1129,7 @@ func ToolDefinitions() []map[string]any {
 		{"run_test", "Run an existing test file using the configured test template; Go execution selects its named tests.", map[string]any{"path": str("Existing test file path")}, []string{"path"}},
 		{"run_typecheck", "Run the configured typecheck command in an isolated container.", map[string]any{}, nil},
 		{"run_build", "Run the configured build command in an isolated container.", map[string]any{}, nil},
-		{"create_test", "Create an adversarial test in an ephemeral snapshot; never overwrites source. Go files must define uniquely named TestX(t *testing.T) functions. JavaScript/TypeScript files must declare uniquely titled top-level test(\"title\", ...) or it(\"title\", ...) calls at column 0, with static titles and no describe block. To record values instead of asserting them (an observation experiment, useful when the intended behavior is uncertain): in Go (toolchain 1.25 or later in the sandbox image) call t.Attr(\"probe.<key>\", fmt.Sprintf(\"%#v\", result)) in the top-level test function, never in a subtest; in Vitest write test(\"title\", ({ task }) => { (task.meta as any).probe = { \"<key>\": result } }); Jest cannot record observations. Keys are unique per test, at most 200 bytes, without whitespace. Record at most 32 deterministic, single-line values of at most 1024 bytes each; record errors and recovered panics as values; never record timestamps, random values, pointers, memory addresses, stack traces or file:line positions.", map[string]any{"path": str("New test path, e.g. pkg/probe_regression_test.go"), "content": str("Exact test source"), "description": str("What behavior the test checks")}, []string{"path", "content"}},
+		{"create_test", "Create an adversarial test in an ephemeral snapshot; never overwrites source. Go files must define uniquely named TestX(t *testing.T) functions. JavaScript/TypeScript files must declare uniquely titled top-level test(\"title\", ...) or it(\"title\", ...) calls at column 0, with static titles and no describe block. Python files must be named test_*.py or *_test.py and define uniquely named test functions at column 0, outside any class (def test_name(): ... with plain assert statements), run by pytest. To record values instead of asserting them (an observation experiment, useful when the intended behavior is uncertain): in Go (toolchain 1.25 or later in the sandbox image) call t.Attr(\"probe.<key>\", fmt.Sprintf(\"%#v\", result)) in the top-level test function, never in a subtest; in Vitest write test(\"title\", ({ task }) => { (task.meta as any).probe = { \"<key>\": result } }); Jest and pytest cannot record observations. Keys are unique per test, at most 200 bytes, without whitespace. Record at most 32 deterministic, single-line values of at most 1024 bytes each; record errors and recovered panics as values; never record timestamps, random values, pointers, memory addresses, stack traces or file:line positions.", map[string]any{"path": str("New test path, e.g. pkg/probe_regression_test.go"), "content": str("Exact test source"), "description": str("What behavior the test checks")}, []string{"path", "content"}},
 		{"run_generated_test", "Run identical generated tests on base and candidate. Verified Go named-test events and Jest-compatible JSON reports (Jest, Vitest) support differential conclusions; other runners remain UNVERIFIED. When the test recorded observations (Go t.Attr keys starting with \"probe.\", Vitest task.meta.probe), the result also carries an observation record of kind differential_observation, compared key by key only when the test passes on both revisions: a key whose candidate value differs triggers exactly one more baseline run; DIVERGED means two baseline runs recorded the same value and the candidate a different one, NOT_DIVERGED that every recorded value was equal, and UNVERIFIED anything else (unstable, redacted, duplicated, one-sided or missing values). A divergence records a difference between revisions, not which one is correct.", map[string]any{"test_id": str("ID returned by create_test")}, []string{"test_id"}},
 		{"delete_generated_test", "Discard a generated test that is not retained as evidence.", map[string]any{"test_id": str("Generated test ID")}, []string{"test_id"}},
 	}

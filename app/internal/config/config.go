@@ -118,7 +118,12 @@ func Default(language string) Config {
 		c.Commands = map[string][]string{"test": {"npm", "test"}, "build": {"npm", "run", "build"}, "generated_test": {"npx", "--no", "vitest", "run", "{file}", "--reporter=json", "--outputFile=" + ResultsPlaceholder}}
 	case "python":
 		c.Sandbox.Image = "python:3.13-bookworm"
-		c.Commands = map[string][]string{"test": {"python", "-m", "unittest", "discover"}, "generated_test": {"python", "-m", "unittest", "{file}"}}
+		// pytest's built-in JUnit XML report makes generated tests verifiable
+		// (it also runs unittest test cases). The stock image has no pytest: a
+		// preloaded image or the prepare object provides it, as Vitest for
+		// TypeScript; without it, generated tests stay unverified, as they
+		// were with unittest.
+		c.Commands = map[string][]string{"test": {"python", "-m", "unittest", "discover"}, "generated_test": {"python", "-m", "pytest", "-p", "no:cacheprovider", "{file}", "--junitxml=" + ResultsPlaceholder}}
 	case "rust":
 		// The sandbox has no network: dependencies must be in the image's
 		// Cargo home (preloaded, or fetched by a trusted prepare command), so

@@ -477,7 +477,7 @@ func sortedPaths(manifest map[string]treeEntry) []string {
 // Caller holds h.mu.
 func (h *Harness) confirmBaseline(ctx context.Context, runner, path string, names, command []string, base model.Check) (model.Check, string, string) {
 	var live model.Check
-	if runner == RunnerJest {
+	if capturesResults(runner) {
 		live = h.runWithResultsOptions(ctx, model.CheckGeneratedBase, h.base, command, runOptions{live: true})
 	} else {
 		live, _, _ = h.runWithOptions(ctx, model.CheckGeneratedBase, h.base, command, runOptions{live: true})

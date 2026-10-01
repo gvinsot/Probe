@@ -76,8 +76,11 @@ func verifiableJSTemplate(command []string) bool {
 	if len(command) < 2 {
 		return false
 	}
-	switch filepath.Base(command[0]) {
-	case "npm", "yarn", "pnpm", "bun", "sh", "bash", "env":
+	switch base := filepath.Base(command[0]); {
+	case base == "npm" || base == "yarn" || base == "pnpm" || base == "bun" || base == "sh" || base == "bash" || base == "env":
+		return false
+	case base == "pytest" || base == "py.test" || isPythonInterpreter(base):
+		// pytest writes JUnit XML, never a Jest-compatible report.
 		return false
 	}
 	targets, results := 0, 0
@@ -204,12 +207,18 @@ func (h *Harness) runWithResultsOptions(ctx context.Context, kind, dir string, c
 	}
 	var results string
 	raw, err := coverage.DecodeFrame(payload, truncated)
-	if err != nil {
+	pytest := isPytestCommand(command)
+	switch {
+	case err != nil && pytest:
+		err = errors.New("pytest did not write one complete JUnit XML report at " + config.ResultsPlaceholder)
+	case err != nil:
 		err = errors.New("the test runner did not emit one complete JSON report at " + config.ResultsPlaceholder)
-	} else {
+	case pytest:
+		results, err = normalizePytestReport(raw)
+	default:
 		results, err = normalizeJestReport(raw)
 	}
-	if err == nil && (len(results) > PayloadLimit(h.opts.MaxOutputBytes) || len(results) > h.resultsRemainingFor(kind)) {
+	if err == nil && !pytest && (len(results) > PayloadLimit(h.opts.MaxOutputBytes) || len(results) > h.resultsRemainingFor(kind)) {
 		if smaller, dropErr := normalizeJestReportAs(raw, metaTooLarge); dropErr == nil && len(smaller) < len(results) {
 			results = smaller
 		}
@@ -304,6 +313,8 @@ func ValidateExecution(runner string, check model.Check, path string, names []st
 		return ValidateGoExecution(check, names), true
 	case RunnerJest:
 		return ValidateJestExecution(check, path, names), true
+	case RunnerPytest:
+		return ValidatePytestExecution(check, path, names), true
 	}
 	return check, false
 }

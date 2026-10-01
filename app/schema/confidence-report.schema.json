@@ -249,7 +249,7 @@
         "repeat_check_id": {"$ref": "#/$defs/id", "description": "Live baseline repeat of a differential_observation experiment."},
         "criterion_id": {"$ref": "#/$defs/criterionId"},
         "referenced_symbols": {"type": "array", "maxItems": 32, "items": {"$ref": "#/$defs/identifier"}, "description": "Changed symbols that the intent test references statically."},
-        "runner": {"type": "string", "enum": ["go_test_json", "jest_json"], "description": "Verifier used to confirm that the generated named tests actually ran."},
+        "runner": {"type": "string", "enum": ["go_test_json", "jest_json", "pytest_junit"], "description": "Verifier used to confirm that the generated named tests actually ran: go test events, a Vitest or Jest JSON report, or a pytest JUnit XML report."},
         "test_names": {"type": "array", "items": {"type": "string", "minLength": 1}, "description": "Names extracted from generated test source; empty for observations and unsupported runners."},
         "status": {"type": "string", "enum": ["OBSERVED", "REPRODUCED", "NOT_REPRODUCED", "UNVERIFIED", "DIVERGED", "NOT_DIVERGED", "FAILS_ON_CANDIDATE", "PASSES_ON_CANDIDATE", "INTENT_TEST_FAILED", "INTENT_TEST_PASSED"]}
       },
