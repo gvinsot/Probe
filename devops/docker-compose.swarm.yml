@@ -21,6 +21,9 @@ services:
         # Names the downloads and latest.json; installed Desktops update to it.
         VERSION: "${VERSION:-dev}"
     environment:
+      # The pages link to the web application on this hostname, set at
+      # start-up: QA gets its own (qa.app.probe.technology) from the same image.
+      PROBE_APP_DOMAIN: "${PROBE_APP_DOMAIN:-app.probe.technology}"
       # Signs latest.json at start-up. The _KEY suffix makes PulsarCD mount it
       # as the Swarm secret /run/secrets/PROBE_UPDATE_SIGNING_KEY. Empty: the
       # site serves no signature and no Desktop updates from it.

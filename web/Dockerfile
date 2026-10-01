@@ -64,7 +64,7 @@ RUN --mount=type=bind,source=web/scripts/check-seo.sh,target=/tmp/check-seo.sh \
     sh /tmp/check-seo.sh /usr/share/nginx/html "$SITE_URL"
 COPY --from=build /out/download /usr/share/nginx/html/download
 COPY --from=build /out/manifest /usr/local/bin/probe-manifest
-COPY --chmod=0755 web/docker-entrypoint.d/40-sign-update-manifest.sh /docker-entrypoint.d/
+COPY --chmod=0755 web/docker-entrypoint.d/30-app-domain.sh web/docker-entrypoint.d/40-sign-update-manifest.sh /docker-entrypoint.d/
 
 EXPOSE 80
 
