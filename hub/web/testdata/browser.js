@@ -137,6 +137,7 @@ window.addEventListener('DOMContentLoaded', async () => {
     const settingsCall = fixtureCalls.find((call) => call.path === '/api/settings');
     assert(settingsCall && settingsCall.init.method === 'PUT' && JSON.parse(settingsCall.init.body).report_language === 'French' && settingsCall.init.headers['X-Probe-CSRF'] === 'csrf', 'saving puts the language with CSRF');
     assert(document.getElementById('modal').classList.contains('hidden') && state.me.settings.report_language === 'French', 'the saved language is kept');
+    assert(el('signout').getAttribute('aria-label') === 'Sign out' && el('signout').querySelector('svg') && !el('signout').textContent.trim(), 'sign out is an icon button named for assistive technology');
     const activityButton = document.getElementById('analyses');
     activityButton.click();
     await settle();
