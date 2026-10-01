@@ -144,16 +144,23 @@ type PRSummary struct {
 	Testing         []PRSummaryPoint  `json:"testing"`          // always an array; tests the change adds or modifies
 	Intents         []PRSummaryIntent `json:"intents,omitempty"`
 	Model           string            `json:"model"`
+	// RejectedCitations counts the refs the CLI dropped because their quote
+	// is not in the diff.
+	RejectedCitations int `json:"rejected_citations,omitempty"`
 }
 
 // CodeRef points at a changed file, or at lines of it when StartLine is set.
 // Lines are on the new side of the diff unless Side is "old", and lie within
-// the file's hunks: the summary only cites code the change shows.
+// the file's hunks: the summary only cites code the change shows. Quote, when
+// set, is code the model quoted and the CLI found, whitespace aside, at
+// exactly these lines: the citation is checked, the statement it supports is
+// still model output.
 type CodeRef struct {
 	Path      string `json:"path"`
 	StartLine int    `json:"start_line,omitempty"`
 	EndLine   int    `json:"end_line,omitempty"`
 	Side      string `json:"side,omitempty"` // "old" for removed code; empty: new side
+	Quote     string `json:"quote,omitempty"`
 }
 
 // PRSummaryChange is one area of a PR summary.

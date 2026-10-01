@@ -16,8 +16,8 @@ import (
 const validSummary = `{"title":"Allow every user through the admin check","overview":"The admin check now returns true for any user.\nThis removes the role test.",
 "changes":[{"area":"Authorization","summary":"Allowed no longer compares the user.","refs":[{"path":"auth.go","start_line":3},{"path":"/etc/passwd"},{"path":"auth.go","start_line":3}]},{"area":"","summary":"dropped"}],
 "behavior_changes":[{"text":"Non-admin users are allowed","refs":[{"path":"auth.go","start_line":2,"end_line":40}]}],
-"risks":[{"text":"Unverified: every user becomes admin","hypothesis_ids":["hypothesis-1","hypothesis-9"]},{"text":"The role test is gone","refs":[{"path":"auth.go","start_line":3,"side":"old"}]},{"text":"Nothing backs this","signal_ids":["signal-9"]}],
-"review_focus":[{"text":"The return statement","refs":[{"path":"auth.go","start_line":3}]},{"text":"No lines","refs":[{"path":"auth.go"}]}],
+"risks":[{"text":"Unverified: every user becomes admin","hypothesis_ids":["hypothesis-1","hypothesis-9"]},{"text":"The role test is gone","refs":[{"path":"auth.go","start_line":9,"side":"old","quote":"if u.Role  != \"admin\" {"}]},{"text":"Nothing backs this","signal_ids":["signal-9"]},{"text":"Invented code","refs":[{"path":"auth.go","start_line":3,"quote":"return isAdmin(u)"}]}],
+"review_focus":[{"text":"The return statement","refs":[{"path":"auth.go","start_line":3,"quote":"return true"}]},{"text":"No lines","refs":[{"path":"auth.go"}]}],
 "testing":[],
 "intents":[{"intent":"Simplify the admin check","signal_ids":["signal-1","signal-9"],"hypothesis_ids":["hypothesis-1"]},{"intent":"Cover the admin check","signal_ids":["signal-1","signal-2"]},{"intent":"Nothing recorded","signal_ids":["signal-9"]},{"intent":"","signal_ids":["signal-2"]}]}`
 
@@ -45,11 +45,21 @@ func summaryProvider(t *testing.T, answers ...string) (string, *[]map[string]any
 	return server.URL + "/v1", &requests
 }
 
+// authHunk replaces the role test of Allowed by an unconditional true.
+var authHunk = model.Hunk{OldStart: 1, OldLines: 4, NewStart: 1, NewLines: 4, Lines: []model.DiffLine{
+	{Kind: "context", OldLine: 1, NewLine: 1, Content: "func Allowed(u User) bool {"},
+	{Kind: "delete", OldLine: 2, Content: "\tif u.Role != \"admin\" {"},
+	{Kind: "delete", OldLine: 3, Content: "\t\treturn false"},
+	{Kind: "add", NewLine: 2, Content: "\t// every user passes"},
+	{Kind: "add", NewLine: 3, Content: "\treturn true"},
+	{Kind: "context", OldLine: 4, NewLine: 4, Content: "}"},
+}}
+
 func summaryReport() *model.Report {
 	return &model.Report{
 		Intent:     "Simplify the admin check",
 		ExitCode:   2,
-		Change:     model.Change{Files: []model.ChangedFile{{Path: "auth.go", Status: "M", Additions: 1, Deletions: 1, Hunks: []model.Hunk{{OldStart: 1, OldLines: 4, NewStart: 1, NewLines: 4}}}}},
+		Change:     model.Change{Files: []model.ChangedFile{{Path: "auth.go", Status: "M", Additions: 1, Deletions: 1, Hunks: []model.Hunk{authHunk}}}},
 		Hypotheses: []model.Hypothesis{{ID: "hypothesis-1", Title: "Every user is admin", Severity: "critical", Status: "UNVERIFIED", Path: "auth.go", Line: 3}},
 		Signals: []model.Signal{
 			{ID: "signal-1", Kind: "branch_growth", Path: "auth.go", Line: 1, Scope: model.SignalScopeFile, Severity: "low", Summary: "More branching constructs appear in the diff"},
@@ -76,20 +86,33 @@ func TestSummarizeValidatesTheAnswer(t *testing.T) {
 	if want := []model.CodeRef{{Path: "auth.go", StartLine: 2, EndLine: 4}}; len(s.BehaviorChanges) != 1 || !reflect.DeepEqual(s.BehaviorChanges[0].Refs, want) {
 		t.Fatalf("behavior changes %+v", s.BehaviorChanges)
 	}
-	// A risk keeps its recorded IDs or its code; one with neither is dropped.
+	// A risk keeps its recorded IDs or the code it quotes, at the lines where
+	// the quote really is; one with neither, or quoting code the diff does not
+	// hold, is dropped.
 	wantRisks := []model.PRSummaryRisk{
 		{Text: "Unverified: every user becomes admin", SignalIDs: []string{}, HypothesisIDs: []string{"hypothesis-1"}, Refs: []model.CodeRef{}},
-		{Text: "The role test is gone", SignalIDs: []string{}, HypothesisIDs: []string{}, Refs: []model.CodeRef{{Path: "auth.go", StartLine: 3, Side: "old"}}},
+		{Text: "The role test is gone", SignalIDs: []string{}, HypothesisIDs: []string{}, Refs: []model.CodeRef{{Path: "auth.go", StartLine: 2, Side: "old", Quote: `if u.Role  != "admin" {`}}},
 	}
 	if !reflect.DeepEqual(s.Risks, wantRisks) {
 		t.Fatalf("risks %+v", s.Risks)
 	}
-	// A focus point needs lines.
-	if len(s.ReviewFocus) != 1 || s.ReviewFocus[0].Text != "The return statement" || s.Testing == nil || len(s.Testing) != 0 {
+	// A focus point needs a verified quote.
+	if want := []model.CodeRef{{Path: "auth.go", StartLine: 3, Quote: "return true"}}; len(s.ReviewFocus) != 1 || !reflect.DeepEqual(s.ReviewFocus[0].Refs, want) || s.Testing == nil || len(s.Testing) != 0 {
 		t.Fatalf("focus %+v testing %+v", s.ReviewFocus, s.Testing)
 	}
-	if len(events) != 1 || events[0].Tool != "pr_summary_completion" || events[0].Status != "OK" {
+	if s.RejectedCitations != 1 {
+		t.Fatalf("rejected citations %d", s.RejectedCitations)
+	}
+	// The dropped citations are sent back once; the second answer stands.
+	if len(events) != 2 || events[0].Tool != "pr_summary_completion" || events[0].Status != "OK" {
 		t.Fatalf("events %+v", events)
+	}
+	retry := (*requests)[1]["messages"].([]any)
+	correction := retry[len(retry)-1].(map[string]any)["content"].(string)
+	for _, want := range []string{"did not match the diff", `the quote "return isAdmin(u)" is not in the new lines of auth.go`, `"/etc/passwd" is not a file of the change`, `the risk "Nothing backs this" cites no recorded ID`, `the review_focus point "No lines" cites no quote`} {
+		if !strings.Contains(correction, want) {
+			t.Fatalf("correction lacks %q:\n%s", want, correction)
+		}
 	}
 	body := (*requests)[0]
 	if _, ok := body["tools"]; ok {
@@ -135,7 +158,7 @@ func TestSummarizeRetriesOnceThenFails(t *testing.T) {
 func TestSummarizeBoundsAndLargeChanges(t *testing.T) {
 	long := strings.Repeat("word ", 400)
 	risk := func(text string) map[string]any {
-		return map[string]any{"text": text, "refs": []map[string]any{{"path": "auth.go"}}}
+		return map[string]any{"text": text, "refs": []map[string]any{{"path": "auth.go", "start_line": 3, "quote": "return true"}}}
 	}
 	risks := []map[string]any{risk(long), risk("")}
 	for _, text := range strings.Fields("a b c d e f g h i") {
@@ -183,6 +206,43 @@ func TestSummaryRefsFollowTheDiff(t *testing.T) {
 	for _, c := range cases {
 		if got, ok := known.ref(c.in); ok != c.ok || got != c.want {
 			t.Errorf("ref(%+v) = %+v %v, want %+v %v", c.in, got, ok, c.want, c.ok)
+		}
+	}
+}
+
+func TestSummaryQuotesAnchorRefs(t *testing.T) {
+	line := func(n int, content string) model.DiffLine {
+		return model.DiffLine{Kind: "add", NewLine: n, Content: content}
+	}
+	file := model.ChangedFile{Path: "a.go", Hunks: []model.Hunk{
+		{NewStart: 10, NewLines: 3, Lines: []model.DiffLine{line(10, "\tclose(done)"), line(11, "\treturn nil"), line(12, "}")}},
+		{NewStart: 50, NewLines: 2, OldStart: 48, OldLines: 1, Lines: []model.DiffLine{line(50, "\tclose(done)"), line(51, "\tlog.Print(err)"), {Kind: "delete", OldLine: 48, Content: "\treturn err"}}},
+	}}
+	cases := []struct {
+		in       rawRef
+		want     model.CodeRef
+		rejected bool
+	}{
+		// The occurrence nearest to the given line wins, and sets the lines.
+		{rawRef{Path: "a.go", StartLine: 45, Quote: "close(done)"}, model.CodeRef{Path: "a.go", StartLine: 50, Quote: "close(done)"}, false},
+		{rawRef{Path: "a.go", StartLine: 2, Quote: "close(done)"}, model.CodeRef{Path: "a.go", StartLine: 10, Quote: "close(done)"}, false},
+		// Whitespace aside, a quote may span lines.
+		{rawRef{Path: "a.go", Quote: "close(done)\n    return nil"}, model.CodeRef{Path: "a.go", StartLine: 10, EndLine: 11, Quote: "close(done)\n    return nil"}, false},
+		{rawRef{Path: "a.go", StartLine: 48, Side: "old", Quote: "return err"}, model.CodeRef{Path: "a.go", StartLine: 48, Side: "old", Quote: "return err"}, false},
+		// Code the diff does not hold, on that side or across hunks, and
+		// quotes too short to identify anything are rejected.
+		{rawRef{Path: "a.go", Quote: "return err"}, model.CodeRef{}, true},
+		{rawRef{Path: "a.go", Quote: "} close(done)"}, model.CodeRef{}, true},
+		{rawRef{Path: "a.go", Quote: "close(dome)"}, model.CodeRef{}, true},
+		{rawRef{Path: "a.go", Quote: "}"}, model.CodeRef{}, true},
+		{rawRef{Path: "a.go", Quote: "{ } ( ) ;;"}, model.CodeRef{}, true},
+		{rawRef{Path: "a.go", Quote: strings.Repeat("close(done) ", 30)}, model.CodeRef{}, true},
+	}
+	for _, c := range cases {
+		known := summaryRefs{files: map[string]model.ChangedFile{"a.go": file}}
+		got, ok := known.ref(c.in)
+		if ok == c.rejected || got != c.want || (known.rejected == 1) != c.rejected || len(known.misses) != known.rejected {
+			t.Errorf("ref(%+v) = %+v %v (rejected %d, misses %v), want %+v rejected %v", c.in, got, ok, known.rejected, known.misses, c.want, c.rejected)
 		}
 	}
 }

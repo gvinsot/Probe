@@ -273,9 +273,10 @@
         "path": {"$ref": "#/$defs/path"},
         "start_line": {"type": "integer", "minimum": 1},
         "end_line": {"type": "integer", "minimum": 1},
-        "side": {"const": "old"}
+        "side": {"const": "old"},
+        "quote": {"type": "string", "minLength": 1, "description": "Code the model quoted and the CLI found, whitespace aside, at exactly these lines. It checks the citation, not the statement."}
       },
-      "allOf": [{"if": {"required": ["end_line"]}, "then": {"required": ["start_line"]}}, {"if": {"required": ["side"]}, "then": {"required": ["start_line"]}}]
+      "allOf": [{"if": {"required": ["end_line"]}, "then": {"required": ["start_line"]}}, {"if": {"required": ["side"]}, "then": {"required": ["start_line"]}}, {"if": {"required": ["quote"]}, "then": {"required": ["start_line"]}}]
     },
     "prSummaryRefs": {"type": "array", "maxItems": 6, "items": {"$ref": "#/$defs/codeRef"}},
     "prSummaryPoint": {
@@ -330,7 +331,8 @@
             "hypothesis_ids": {"type": "array", "items": {"$ref": "#/$defs/id"}, "description": "IDs from hypotheses."}
           }
         }},
-        "model": {"type": "string", "minLength": 1}
+        "model": {"type": "string", "minLength": 1},
+        "rejected_citations": {"type": "integer", "minimum": 1, "description": "Refs the CLI dropped because their quote is not in the diff."}
       }
     },
     "reviewerAgent": {

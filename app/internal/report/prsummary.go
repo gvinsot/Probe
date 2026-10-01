@@ -134,6 +134,9 @@ func writePRSummaryBody(b *bytes.Buffer, r *model.Report, level string, overview
 		line(b, level+" Testing\n")
 	}
 	line(b, checksSentence(r.Checks)+"\n")
+	if note := citationsNote(s); note != "" {
+		line(b, note+"\n")
+	}
 }
 
 // citing joins what a statement cites, after a dash.
@@ -152,7 +155,8 @@ func refTexts(refs []model.CodeRef) []string {
 	return out
 }
 
-// refText renders a code reference as path, path:line or path:start-end.
+// refText renders a code reference as path, path:line or path:start-end,
+// with a check mark when its quote was found there.
 func refText(ref model.CodeRef) string {
 	text := inline(ref.Path)
 	if ref.StartLine > 0 {
@@ -164,7 +168,46 @@ func refText(ref model.CodeRef) string {
 			text += " (old)"
 		}
 	}
+	if ref.Quote != "" {
+		text += " ✓"
+	}
 	return text
+}
+
+// citationsNote explains the check marks, and says how many citations were
+// dropped; empty when the summary has neither.
+func citationsNote(s *model.PRSummary) string {
+	quoted := false
+	check := func(refs []model.CodeRef) {
+		for _, r := range refs {
+			quoted = quoted || r.Quote != ""
+		}
+	}
+	for _, c := range s.Changes {
+		check(c.Refs)
+	}
+	for _, list := range [][]model.PRSummaryPoint{s.BehaviorChanges, s.ReviewFocus, s.Testing} {
+		for _, p := range list {
+			check(p.Refs)
+		}
+	}
+	for _, r := range s.Risks {
+		check(r.Refs)
+	}
+	var parts []string
+	if quoted {
+		parts = append(parts, "✓ marks a citation whose quoted code Probe found at those lines of the diff; what the summary says about it remains model output.")
+	}
+	switch n := s.RejectedCitations; {
+	case n == 1:
+		parts = append(parts, "1 citation quoted code that is not in the diff and was dropped.")
+	case n > 1:
+		parts = append(parts, fmt.Sprintf("%d citations quoted code that is not in the diff and were dropped.", n))
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	return "_" + strings.Join(parts, " ") + "_"
 }
 
 // findingTexts renders the signals and hypotheses a risk cites with their

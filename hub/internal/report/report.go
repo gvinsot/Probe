@@ -260,14 +260,19 @@ type PRSummary struct {
 	Testing         []PRSummaryPoint  `json:"testing"`
 	Intents         []PRSummaryIntent `json:"intents,omitempty"`
 	Model           string            `json:"model"`
+	// RejectedCitations counts the refs the CLI dropped because their quote
+	// is not in the diff.
+	RejectedCitations int `json:"rejected_citations,omitempty"`
 }
 
-// CodeRef is code a PR summary cites: a changed file, or lines of it.
+// CodeRef is code a PR summary cites: a changed file, or lines of it. Quote is
+// set when the CLI found the code the model quoted at exactly these lines.
 type CodeRef struct {
 	Path      string `json:"path"`
 	StartLine int    `json:"start_line,omitempty"`
 	EndLine   int    `json:"end_line,omitempty"`
 	Side      string `json:"side,omitempty"`
+	Quote     string `json:"quote,omitempty"`
 }
 
 // PRSummaryChange is one area of a PR summary.

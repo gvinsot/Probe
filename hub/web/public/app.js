@@ -795,7 +795,9 @@ function renderPRSummary(s) {
   footer.className = 'row';
   const caveat = document.createElement('span');
   caveat.className = 'note';
-  caveat.textContent = 'Written by ' + (s.model || 'the reviewer model') + ' after the review. Model output, not evidence.';
+  caveat.textContent = 'Written by ' + (s.model || 'the reviewer model') + ' after the review. Model output, not evidence.'
+    + (summaryQuoted(s) ? ' ✓ marks a citation whose quoted code Probe found at those lines; what the summary says about it remains model output.' : '')
+    + (s.rejected_citations ? ' ' + s.rejected_citations + (s.rejected_citations === 1 ? ' citation quoted code that is not in the diff and was dropped.' : ' citations quoted code that is not in the diff and were dropped.') : '');
   const copy = button('Copy as Markdown', 'btn quiet small', async () => {
     try {
       await navigator.clipboard.writeText(prSummaryMarkdown(s));
@@ -833,7 +835,8 @@ function summaryCitations(li, refs, alertIDs) {
     li.appendChild(holder);
   };
   for (const ref of refs || []) {
-    const link = refLink(refLabel(ref), ref.path);
+    const link = refLink(refLabel(ref), ref.quote ? ref.path + '\nQuoted code found at these lines:\n' + ref.quote : ref.path);
+    if (ref.quote) link.classList.add('verified');
     const target = { path: ref.path, line: ref.start_line || 0, end_line: ref.end_line || ref.start_line || 0, side: ref.side === 'old' ? 'old' : 'new' };
     link.addEventListener('click', () => toggle(link, target));
     links.appendChild(link);
@@ -871,7 +874,7 @@ function refLabel(ref) {
     if (ref.end_line && ref.end_line > ref.start_line) label += '-' + ref.end_line;
     if (ref.side === 'old') label += ' (old)';
   }
-  return label;
+  return ref.quote ? '✓ ' + label : label;
 }
 
 function refText(ref) {
@@ -881,7 +884,13 @@ function refText(ref) {
     if (ref.end_line && ref.end_line > ref.start_line) text += '-' + ref.end_line;
     if (ref.side === 'old') text += ' (old)';
   }
-  return text;
+  return ref.quote ? text + ' ✓' : text;
+}
+
+// summaryQuoted reports whether a summary cites any verified quote.
+function summaryQuoted(s) {
+  const lists = [(s.changes || []), (s.behavior_changes || []), (s.risks || []), (s.review_focus || []), (s.testing || [])];
+  return lists.some((items) => items.some((item) => (item.refs || []).some((ref) => ref.quote)));
 }
 
 // findAlert finds the alert built from a signal or hypothesis ("signal:<id>",
