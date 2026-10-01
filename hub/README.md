@@ -78,7 +78,10 @@ Markdown for a pull request description. The alert list is laid out by the
 summary's change areas ("Add agent sorting", "Test agent sorting"), each with
 what changed, links that unfold the code it cites, and the alerts it groups.
 An alert only a risk cites unfolds whole under that risk, and the alerts the
-summary cites nowhere come last under "Other alerts". The alerts, checks and
+summary cites nowhere come last under "Other alerts". Each risk leads with the
+severity the AI estimated, in its color, and follows the alert filters: the
+review threshold hides the risks below it (unless they cite an alert it
+shows), and Everything shows them all. The alerts, checks and
 verdict stay what Probe computed: the summary never changes them.
 
 **Reviewer swarm.** Set `PROBE_HUB_SWARM=true` (or a list such as

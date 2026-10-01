@@ -108,7 +108,7 @@ func writePRSummaryBody(b *bytes.Buffer, r *model.Report, level string, overview
 	if len(s.Risks) > 0 {
 		line(b, level+" Risks\n")
 		for _, risk := range s.Risks {
-			line(b, "- "+inline(risk.Text)+citing(append(refTexts(risk.Refs), findingTexts(r, risk)...)))
+			line(b, "- **"+inline(risk.Severity)+"** "+inline(risk.Text)+citing(append(refTexts(risk.Refs), findingTexts(r, risk)...)))
 		}
 		line(b, "")
 	}

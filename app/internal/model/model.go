@@ -184,8 +184,12 @@ type PRSummaryPoint struct {
 
 // PRSummaryRisk is one risk of a PR summary. A risk the review recorded cites
 // its signals and hypotheses by ID; a risk read from the diff cites code.
+// Severity is the model's estimate, raised by the CLI to the highest severity
+// of the findings the risk cites: a reading, never evidence, and it changes
+// no exit code. Risks are ordered from the most severe.
 type PRSummaryRisk struct {
 	Text          string    `json:"text"`
+	Severity      string    `json:"severity"`
 	SignalIDs     []string  `json:"signal_ids"`     // always an array
 	HypothesisIDs []string  `json:"hypothesis_ids"` // always an array
 	Refs          []CodeRef `json:"refs"`           // always an array

@@ -294,6 +294,7 @@ type PRSummaryPoint struct {
 // hypotheses by ID, or code.
 type PRSummaryRisk struct {
 	Text          string    `json:"text"`
+	Severity      string    `json:"severity"`
 	SignalIDs     []string  `json:"signal_ids"`
 	HypothesisIDs []string  `json:"hypothesis_ids"`
 	Refs          []CodeRef `json:"refs"`

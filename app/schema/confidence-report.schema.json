@@ -314,9 +314,10 @@
           "type": "object",
           "additionalProperties": false,
           "description": "A risk the review recorded cites its signals and hypotheses; a risk read from the diff cites code. Each has at least one of them.",
-          "required": ["text", "signal_ids", "hypothesis_ids", "refs"],
+          "required": ["text", "severity", "signal_ids", "hypothesis_ids", "refs"],
           "properties": {
             "text": {"type": "string", "minLength": 1},
+            "severity": {"$ref": "#/$defs/severity", "description": "The model's estimate, raised to the highest severity of the findings the risk cites. Not evidence; it changes no exit code."},
             "signal_ids": {"type": "array", "items": {"$ref": "#/$defs/id"}, "description": "IDs from linter."},
             "hypothesis_ids": {"type": "array", "items": {"$ref": "#/$defs/id"}, "description": "IDs from hypotheses."},
             "refs": {"$ref": "#/$defs/prSummaryRefs"}

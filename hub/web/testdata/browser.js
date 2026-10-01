@@ -505,7 +505,7 @@ window.addEventListener('DOMContentLoaded', async () => {
     const prSummary = { title: 'Check errors', overview: 'Errors are checked.', model: 'm',
       changes: [{ area: 'API', summary: 'Adds a check.', refs: [{ path: 'hub/api.go', start_line: 2 }], signal_ids: [], hypothesis_ids: ['h1'] }],
       behavior_changes: [{ text: 'Errors stop the request', refs: [{ path: 'hub/api.go', start_line: 2 }] }],
-      risks: [{ text: 'Unverified: errors are swallowed', signal_ids: ['gone', 's9'], hypothesis_ids: ['h1'], refs: [] }],
+      risks: [{ text: 'Unverified: errors are swallowed', severity: 'high', signal_ids: ['gone', 's9'], hypothesis_ids: ['h1'], refs: [] }],
       review_focus: [{ text: 'The new branch', refs: [{ path: 'hub/api.go', start_line: 1, end_line: 2, quote: 'if err != nil {}' }] }],
       testing: [], rejected_citations: 2 };
     state.view.pr_summary = prSummary;
@@ -529,7 +529,20 @@ window.addEventListener('DOMContentLoaded', async () => {
     assert(prBox.textContent.includes('Probe executed 1 check for this review: 1 PASS.'), 'testing states what Probe executed');
     assert(prBox.textContent.includes('✓ marks a citation') && prBox.textContent.includes('2 citations quoted code that is not in the diff'), 'the caveat explains checked and dropped citations');
     const prMarkdown = prSummaryMarkdown(prSummary);
-    assert(prMarkdown.includes('- **API**: Adds a check. — hub/api.go:2\n  - **UNVERIFIED / medium** Error handling changed — hub/api.go:2\n') && prMarkdown.includes('- Unverified: errors are swallowed — Error handling changed — hub/api.go:2 (unverified issue), Errors are logged — hub/api.go:2 (signal)\n') && prMarkdown.includes('- The new branch — hub/api.go:1-2 ✓\n'), 'markdown cites code:\n' + prMarkdown);
+    assert(prMarkdown.includes('- **API**: Adds a check. — hub/api.go:2\n  - **UNVERIFIED / medium** Error handling changed — hub/api.go:2\n') && prMarkdown.includes('- **high** Unverified: errors are swallowed — Error handling changed — hub/api.go:2 (unverified issue), Errors are logged — hub/api.go:2 (signal)\n') && prMarkdown.includes('- The new branch — hub/api.go:1-2 ✓\n'), 'markdown cites code:\n' + prMarkdown);
+    // A risk leads with the severity the AI estimated, in its color, and
+    // follows the alert filters: the threshold hides it, Everything shows it.
+    const highRisk = prBox.querySelector('li.risk');
+    assert(highRisk.classList.contains('sev-high') && highRisk.querySelector('.chip').textContent === 'high', 'a risk shows its severity in its color');
+    prSummary.risks.push({ text: 'Minor naming', severity: 'low', signal_ids: [], hypothesis_ids: [], refs: [{ path: 'hub/api.go' }] });
+    state.minSeverity = 2; renderAlerts();
+    const shownRisks = () => [...prBox.querySelectorAll('li.risk')].map((li) => li.querySelector('.chip').textContent).join('|');
+    assert(shownRisks() === 'high' && prBox.querySelector('#pr-risks .note').textContent.startsWith('1 risk is below the selected severity'), 'the threshold hides a lower risk: ' + shownRisks());
+    state.kind = 'everything'; renderAlerts();
+    assert(shownRisks() === 'high|low' && !prBox.querySelector('#pr-risks .note'), 'Everything shows every risk: ' + shownRisks());
+    state.kind = 'all'; state.minSeverity = 3; renderAlerts();
+    assert(shownRisks() === '' && prBox.querySelector('#pr-risks .note').textContent.startsWith('2 risks are'), 'every risk can be hidden');
+    state.minSeverity = 0; renderAlerts();
     prBox.remove(); state.expanded.delete('issue:h1#1');
     state.view = savedView; state.minSeverity = 0; state.expanded.delete(grouped.id);
     // A partial SSE payload must not erase the known queue date or verdict.

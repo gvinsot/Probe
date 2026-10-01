@@ -317,6 +317,10 @@ h1, h2, h3 { line-height: 1.25; }
 .summary-refs { display: inline-flex; flex-wrap: wrap; gap: 4px; margin-left: 6px; vertical-align: baseline; }
 .ref-link { font-size: 0.75rem; padding: 0 6px; border: 1px solid var(--line); border-radius: 999px; background: var(--surface); color: var(--accent); cursor: pointer; line-height: 1.6; max-width: 28ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ref-link:hover, .ref-link[aria-expanded="true"] { border-color: var(--accent); background: var(--accent-soft); }
+.pr-summary li.risk { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px; padding: 4px 0 4px 8px; margin: 4px 0; border-left: 3px solid currentColor; list-style: none; }
+.pr-summary li.risk > span:not(.chip) { color: var(--text, inherit); }
+.pr-summary li.risk > .summary-diff { flex-basis: 100%; }
+#pr-risks ul { padding-left: 0; }
 .ref-link.verified { border-color: color-mix(in srgb, var(--ok) 45%, var(--line)); }
 .ref-link.alert-ref { font-family: inherit; color: var(--tone, var(--medium)); }
 .summary-diff { margin: 6px 0 8px; font-size: 0.8rem; }

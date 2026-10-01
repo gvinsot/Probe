@@ -807,12 +807,14 @@ function renderPRSummary(s) {
     li.append(text, summaryCitations(li, p.refs, []));
   };
   section('Behavior changes', s.behavior_changes, point);
-  section('Risks', s.risks, (li, r) => {
-    const text = document.createElement('span');
-    text.textContent = r.text;
-    const cited = (r.hypothesis_ids || []).map((id) => 'issue:' + id).concat((r.signal_ids || []).map((id) => 'signal:' + id));
-    li.append(text, summaryCitations(li, r.refs, cited));
-  });
+  if (s.risks && s.risks.length) {
+    const h = document.createElement('b');
+    h.textContent = 'Risks';
+    const risks = document.createElement('div');
+    risks.id = 'pr-risks';
+    box.append(h, risks);
+    renderSummaryRisks(risks, s);
+  }
   section('Where to look first', s.review_focus, point);
   const h = document.createElement('b');
   h.textContent = 'Testing';
@@ -841,6 +843,55 @@ function renderPRSummary(s) {
   footer.append(caveat, copy);
   box.appendChild(footer);
   return box;
+}
+
+// riskAlerts returns the alerts a risk cites, once each.
+function riskAlerts(risk) {
+  const ids = (risk.hypothesis_ids || []).map((id) => 'issue:' + id).concat((risk.signal_ids || []).map((id) => 'signal:' + id));
+  return [...new Set(ids.map(findAlert).filter(Boolean))];
+}
+
+// riskShown applies the alert filters to a risk: its severity is the
+// model's estimate, so it obeys the review threshold like the alerts, except
+// on Everything; a risk citing an alert the threshold shows stays shown.
+function riskShown(risk) {
+  if (state.kind === 'everything') return true;
+  return LEVELS.indexOf(risk.severity) >= state.minSeverity || riskAlerts(risk).some(aboveThreshold);
+}
+
+function riskFilterKey() {
+  return state.kind + ':' + state.minSeverity + ':' + ((state.view && state.view.alerts) || []).length;
+}
+
+// renderSummaryRisks fills the risks of the summary head, most severe first
+// as the CLI ordered them, each led by its severity in its color. It runs
+// again whenever the alert filters change.
+function renderSummaryRisks(holder, s) {
+  holder.textContent = '';
+  holder.dataset.filter = riskFilterKey();
+  const list = document.createElement('ul');
+  let hidden = 0;
+  for (const risk of s.risks || []) {
+    if (!riskShown(risk)) {
+      hidden++;
+      continue;
+    }
+    const li = document.createElement('li');
+    li.className = 'risk ' + severityClass(risk.severity);
+    const level = dotChip(risk.severity || 'unrated', risk.severity);
+    level.title = 'Severity estimated by the AI reviewer, at least that of the findings it cites. Model output, not evidence.';
+    const text = document.createElement('span');
+    text.textContent = risk.text;
+    li.append(level, text, summaryCitations(li, risk.refs, riskAlerts(risk).map((a) => a.id)));
+    list.appendChild(li);
+  }
+  if (list.children.length) holder.appendChild(list);
+  if (hidden) {
+    const note = document.createElement('p');
+    note.className = 'note';
+    note.textContent = hidden + (hidden === 1 ? ' risk is' : ' risks are') + ' below the selected severity. Lower the filter or choose Everything to see ' + (hidden === 1 ? 'it.' : 'them.');
+    holder.appendChild(note);
+  }
 }
 
 // areaItem heads the alerts of one change area of the summary: its purpose,
@@ -1028,7 +1079,7 @@ function prSummaryMarkdown(s) {
   list('Risks', (s.risks || []).map((r) => {
     const alerts = (r.hypothesis_ids || []).map((id) => findAlert('issue:' + id)).concat((r.signal_ids || []).map((id) => findAlert('signal:' + id))).filter(Boolean);
     const where = (r.refs || []).map(refText).concat([...new Set(alerts)].map((a) => (a.title || a.id) + ' — ' + alertLocation(a) + ' (' + (a.status ? a.status.toLowerCase() + ' ' : '') + a.kind + ')'));
-    return r.text + (where.length ? ' — ' + where.join(', ') : '');
+    return '**' + (r.severity || 'unrated') + '** ' + r.text + (where.length ? ' — ' + where.join(', ') : '');
   }));
   list('Where to look first', points(s.review_focus));
   lines.push('', '## Testing', '');
@@ -1956,6 +2007,10 @@ function renderDashboard() {
 function renderAlerts() {
   const list = el('alerts');
   list.textContent = '';
+  // The summary's risks follow the same filters as the alerts; they are
+  // rebuilt only when the filters changed, so that their open diffs stay.
+  const risks = document.getElementById('pr-risks');
+  if (risks && state.view && state.view.pr_summary && risks.dataset.filter !== riskFilterKey()) renderSummaryRisks(risks, state.view.pr_summary);
   const alerts = filteredAlerts();
   const total = state.view ? (state.view.alerts || []).length : 0;
   el('alert-count').textContent = alerts.length + ' of ' + total + ' alerts shown';

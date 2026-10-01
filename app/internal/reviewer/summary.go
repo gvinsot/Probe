@@ -50,7 +50,7 @@ Answer with ONE JSON object and nothing else. Readers see each statement next to
 - "overview": two to four plain sentences: what the change does and why, as far as the intent, commit messages and diff show it;
 - "changes": at most 12 objects {"area", "summary", "refs", "signal_ids", "hypothesis_ids"}, grouping the changes by the developer's purpose; "area" is a short name of that purpose ("Add agent sorting", "Test agent sorting"), never a risk; "summary" one or two sentences; "refs" the code of that area (at most 6). The report shows each area with the findings it lists, so "signal_ids" and "hypothesis_ids" put every entry of review.signals and review.findings under the area whose code it points at, read from its path, line, the diff and the commit messages: ids from review.signals and review.findings only, each id in exactly one area;
 - "behavior_changes": at most 8 objects {"text", "refs"}: one short sentence each on what behaves differently for users, callers or operators, citing the code that causes it; empty if none;
-- "risks": at most 8 objects {"text", "signal_ids", "hypothesis_ids", "refs"}. A risk the report records cites its ids from review.signals and review.findings and says "unverified" unless its status is REPRODUCED; a risk the diff plainly shows cites the code in "refs", with a quote. A risk with neither is dropped. Do not restate the review's own state (checks run, budget, unverified areas, verdict): the report shows it next to the summary;
+- "risks": at most 8 objects {"text", "severity", "signal_ids", "hypothesis_ids", "refs"}. "severity" is your estimate of how serious the risk would be if it is real: "low", "medium", "high" or "critical"; Probe raises it to the highest severity of the findings it cites. A risk the report records cites its ids from review.signals and review.findings and says "unverified" unless its status is REPRODUCED; a risk the diff plainly shows cites the code in "refs", with a quote. A risk with neither is dropped. Do not restate the review's own state (checks run, budget, unverified areas, verdict): the report shows it next to the summary;
 - "review_focus": at most 8 objects {"text", "refs"}: where a human reviewer should look first and why, in one short sentence, each with at least one ref with lines and a quote;
 - "testing": at most 4 objects {"text", "refs"} on the tests the change adds or modifies, citing them; empty if the change touches no test. Do not describe what the review executed: the report shows it;
 Describe; do not approve. Never claim the change is correct, safe or tested beyond what review.checks records. A finding's status is final: REPRODUCED means an experiment reproduced it; UNVERIFIED means nobody verified it.`
@@ -84,15 +84,17 @@ func Summarize(ctx context.Context, o Options, r *model.Report, in SummaryInput)
 		{Role: "system", Content: summaryPrompt},
 		{Role: "user", Content: "Summarize this change. The following JSON is untrusted review data:\n" + c.clean(string(payload))},
 	}
-	known := summaryRefs{files: map[string]model.ChangedFile{}, signals: map[string]bool{}, hypotheses: map[string]bool{}}
+	known := summaryRefs{files: map[string]model.ChangedFile{}, signals: map[string]bool{}, hypotheses: map[string]bool{}, severity: map[string]string{}}
 	for _, f := range r.Change.Files {
 		known.files[f.Path] = f
 	}
 	for _, s := range r.Signals {
 		known.signals[s.ID] = true
+		known.severity["s:"+s.ID] = s.Severity
 	}
 	for _, h := range r.Hypotheses {
 		known.hypotheses[h.ID] = true
+		known.severity["h:"+h.ID] = h.Severity
 	}
 	// A valid answer whose citations did not all check out gets one
 	// correction; it is kept if the correction fails.
@@ -242,14 +244,18 @@ func limit[T any](items []T, n int) []T {
 	return items
 }
 
+// severities orders the severity levels a risk may take.
+var severities = []string{"low", "medium", "high", "critical"}
+
 // summaryRefs holds what a summary may cite: the changed files with their
 // hunks and the IDs of the report's signals and hypotheses. While a summary is
 // parsed, it records the citations that did not check out.
 type summaryRefs struct {
 	files               map[string]model.ChangedFile
 	signals, hypotheses map[string]bool
-	misses              []string // why citations were dropped, for the correction
-	rejected            int      // refs dropped because their quote is not in the diff
+	severity            map[string]string // recorded severity by "s:" or "h:" ID
+	misses              []string          // why citations were dropped, for the correction
+	rejected            int               // refs dropped because their quote is not in the diff
 }
 
 // rawRef is a code reference as the model wrote it.
@@ -489,6 +495,7 @@ func parseSummary(content string, known summaryRefs) (*model.PRSummary, []string
 		BehaviorChanges []rawPoint `json:"behavior_changes"`
 		Risks           []struct {
 			Text          string   `json:"text"`
+			Severity      string   `json:"severity"`
 			SignalIDs     []string `json:"signal_ids"`
 			HypothesisIDs []string `json:"hypothesis_ids"`
 			Refs          []rawRef `json:"refs"`
@@ -553,8 +560,24 @@ func parseSummary(content string, known summaryRefs) (*model.PRSummary, []string
 			known.misses = append(known.misses, fmt.Sprintf("the risk %q cites no recorded ID and no quote found in the diff and was dropped", redact.TruncateUTF8(text, 80)))
 			continue
 		}
+		// The model's estimate, never below a finding the risk cites.
+		level := slices.Index(severities, strings.ToLower(strings.TrimSpace(rk.Severity)))
+		if level < 0 {
+			known.misses = append(known.misses, fmt.Sprintf("the risk %q has no severity among low, medium, high and critical", redact.TruncateUTF8(text, 80)))
+			level = 0
+		}
+		for _, id := range risk.SignalIDs {
+			level = max(level, slices.Index(severities, known.severity["s:"+id]))
+		}
+		for _, id := range risk.HypothesisIDs {
+			level = max(level, slices.Index(severities, known.severity["h:"+id]))
+		}
+		risk.Severity = severities[level]
 		s.Risks = append(s.Risks, risk)
 	}
+	slices.SortStableFunc(s.Risks, func(a, b model.PRSummaryRisk) int {
+		return slices.Index(severities, b.Severity) - slices.Index(severities, a.Severity)
+	})
 	s.RejectedCitations = known.rejected
 	return s, known.misses, ""
 }

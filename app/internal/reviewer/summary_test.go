@@ -16,7 +16,7 @@ import (
 const validSummary = `{"title":"Allow every user through the admin check","overview":"The admin check now returns true for any user.\nThis removes the role test.",
 "changes":[{"area":"Simplify the admin check","summary":"Allowed no longer compares the user.","refs":[{"path":"auth.go","start_line":3},{"path":"/etc/passwd"},{"path":"auth.go","start_line":3}],"signal_ids":["signal-1","signal-9"],"hypothesis_ids":["hypothesis-1"]},{"area":"Cover the admin check","summary":"A test follows.","signal_ids":["signal-1","signal-2"]},{"area":"","summary":"dropped","signal_ids":["signal-2"]}],
 "behavior_changes":[{"text":"Non-admin users are allowed","refs":[{"path":"auth.go","start_line":2,"end_line":40}]}],
-"risks":[{"text":"Unverified: every user becomes admin","hypothesis_ids":["hypothesis-1","hypothesis-9"]},{"text":"The role test is gone","refs":[{"path":"auth.go","start_line":9,"side":"old","quote":"if u.Role  != \"admin\" {"}]},{"text":"Nothing backs this","signal_ids":["signal-9"]},{"text":"Invented code","refs":[{"path":"auth.go","start_line":3,"quote":"return isAdmin(u)"}]}],
+"risks":[{"text":"The role test is gone","severity":" Medium","refs":[{"path":"auth.go","start_line":9,"side":"old","quote":"if u.Role  != \"admin\" {"}]},{"text":"Unverified: every user becomes admin","severity":"low","hypothesis_ids":["hypothesis-1","hypothesis-9"]},{"text":"Nothing backs this","signal_ids":["signal-9"]},{"text":"Invented code","refs":[{"path":"auth.go","start_line":3,"quote":"return isAdmin(u)"}]}],
 "review_focus":[{"text":"The return statement","refs":[{"path":"auth.go","start_line":3,"quote":"return true"}]},{"text":"No lines","refs":[{"path":"auth.go"}]}],
 "testing":[]}`
 
@@ -88,9 +88,11 @@ func TestSummarizeValidatesTheAnswer(t *testing.T) {
 	// A risk keeps its recorded IDs or the code it quotes, at the lines where
 	// the quote really is; one with neither, or quoting code the diff does not
 	// hold, is dropped.
+	// Its severity is the model's, raised to the findings it cites, and the
+	// most severe risks come first.
 	wantRisks := []model.PRSummaryRisk{
-		{Text: "Unverified: every user becomes admin", SignalIDs: []string{}, HypothesisIDs: []string{"hypothesis-1"}, Refs: []model.CodeRef{}},
-		{Text: "The role test is gone", SignalIDs: []string{}, HypothesisIDs: []string{}, Refs: []model.CodeRef{{Path: "auth.go", StartLine: 2, Side: "old", Quote: `if u.Role  != "admin" {`}}},
+		{Text: "Unverified: every user becomes admin", Severity: "critical", SignalIDs: []string{}, HypothesisIDs: []string{"hypothesis-1"}, Refs: []model.CodeRef{}},
+		{Text: "The role test is gone", Severity: "medium", SignalIDs: []string{}, HypothesisIDs: []string{}, Refs: []model.CodeRef{{Path: "auth.go", StartLine: 2, Side: "old", Quote: `if u.Role  != "admin" {`}}},
 	}
 	if !reflect.DeepEqual(s.Risks, wantRisks) {
 		t.Fatalf("risks %+v", s.Risks)
@@ -153,7 +155,7 @@ func TestSummarizeRetriesOnceThenFails(t *testing.T) {
 func TestSummarizeBoundsAndLargeChanges(t *testing.T) {
 	long := strings.Repeat("word ", 400)
 	risk := func(text string) map[string]any {
-		return map[string]any{"text": text, "refs": []map[string]any{{"path": "auth.go", "start_line": 3, "quote": "return true"}}}
+		return map[string]any{"text": text, "severity": "high", "refs": []map[string]any{{"path": "auth.go", "start_line": 3, "quote": "return true"}}}
 	}
 	risks := []map[string]any{risk(long), risk("")}
 	for _, text := range strings.Fields("a b c d e f g h i") {
