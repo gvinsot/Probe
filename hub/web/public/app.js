@@ -418,11 +418,14 @@ function repoActions(repo) {
   const actions = document.createElement('div');
   actions.className = 'repo-actions';
   const noAdmin = 'Your account cannot manage webhooks on this repository';
-  const rules = button(repo.coding_rules ? 'Review settings ✓' : 'Review settings', 'btn quiet small', (event) => {
+  const rules = button('', 'btn quiet small icon-btn' + (repo.coding_rules ? ' has-rules' : ''), (event) => {
     event.stopPropagation();
     openRulesDialog(repo);
   });
-  rules.title = 'Coding rules and learning from team feedback, for the AI reviewer';
+  rules.appendChild(gearIcon());
+  rules.setAttribute('aria-label', repo.coding_rules ? 'Review settings (coding rules set)' : 'Review settings');
+  rules.title = 'Review settings: monitoring, coding rules and learning from team feedback'
+    + (repo.coding_rules ? ' (coding rules set)' : '');
   if (!repo.has_policy) {
     const addPolicy = button('Add policy', 'btn setup small', (event) => {
       event.stopPropagation();
@@ -454,12 +457,6 @@ function repoActions(repo) {
     event.stopPropagation();
     analyzeNow(repo);
   }));
-  if (repo.monitored) {
-    actions.appendChild(button('Stop monitoring', 'btn quiet small', (event) => {
-      event.stopPropagation();
-      setMonitoring(repo, false);
-    }));
-  }
   actions.appendChild(rules);
   return actions;
 }
@@ -507,6 +504,14 @@ function button(label, className, onClick) {
   b.textContent = label;
   b.addEventListener('click', onClick);
   return b;
+}
+
+// gearIcon draws the cog of the review settings button.
+function gearIcon() {
+  const svg = svgElement('svg', { width: 14, height: 14, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', 'stroke-width': 2, 'stroke-linecap': 'round', 'stroke-linejoin': 'round', 'aria-hidden': 'true' });
+  svg.appendChild(svgElement('circle', { cx: 12, cy: 12, r: 3 }));
+  svg.appendChild(svgElement('path', { d: 'M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z' }));
+  return svg;
 }
 
 /* ----------------------------------------------------- repository actions -- */
@@ -676,6 +681,24 @@ function openRulesDialog(repo) {
   });
   reset.id = 'learning-reset';
   body.appendChild(reset);
+
+  // Monitoring: stopping removes the webhook, so later commits are no longer analyzed.
+  if (repo.monitored) {
+    const monitoringTitle = document.createElement('h3');
+    monitoringTitle.textContent = 'Monitoring';
+    body.appendChild(monitoringTitle);
+    const monitoringNote = document.createElement('p');
+    monitoringNote.className = 'note';
+    monitoringNote.textContent = 'Every new commit of ' + repo.full_name + ' is analyzed. Stopping removes the webhook; existing results are kept.';
+    body.appendChild(monitoringNote);
+    const stop = button('Stop monitoring', 'btn quiet small', async () => {
+      stop.disabled = true;
+      closeModal();
+      await setMonitoring(repo, false);
+    });
+    stop.id = 'stop-monitoring';
+    body.appendChild(stop);
+  }
 
   const save = button('Save', 'btn', async () => {
     save.disabled = true;

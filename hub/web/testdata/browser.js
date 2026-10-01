@@ -198,6 +198,16 @@ window.addEventListener('DOMContentLoaded', async () => {
         monitor.click();
         await settle();
         assert(state.repos.get('missing').monitored && fixtureCalls.at(-1).path.endsWith('/monitor'), 'explicit activation still enables monitoring');
+        const settings = Array.from(document.querySelectorAll('#repos .repo')).find((node) => node.textContent.includes('acme/missing'))
+          .querySelector('.icon-btn');
+        assert(settings && !settings.parentNode.textContent.includes('Stop monitoring'), 'stop monitoring lives in the review settings dialog');
+        settings.click();
+        await settle();
+        const stop = document.getElementById('stop-monitoring');
+        assert(stop && stop.textContent === 'Stop monitoring', 'the review settings dialog offers to stop monitoring');
+        stop.click();
+        await settle();
+        assert(!state.repos.get('missing').monitored && fixtureCalls.at(-1).init.method === 'DELETE' && el('modal').classList.contains('hidden'), 'stopping from the dialog disables monitoring');
       }
     }
     state.repos.delete('missing');
@@ -638,8 +648,9 @@ window.addEventListener('DOMContentLoaded', async () => {
     closeModal();
     await settle();
     // Coding rules are edited from the repository list and saved with CSRF.
-    const rulesButton = () => Array.from(document.querySelectorAll('.repo-actions button')).find((b) => b.textContent.startsWith('Review settings'));
-    assert(rulesButton() && rulesButton().textContent === 'Review settings', 'a repository without rules offers to add them');
+    const rulesButton = () => Array.from(document.querySelectorAll('.repo-actions button')).find((b) => (b.getAttribute('aria-label') || '').startsWith('Review settings'));
+    assert(rulesButton() && rulesButton().textContent === '' && rulesButton().querySelector('svg') && !rulesButton().classList.contains('has-rules'), 'the review settings button is a gear icon without the rules mark');
+    assert(!Array.from(document.querySelectorAll('.repo-actions button')).some((b) => b.textContent === 'Stop monitoring'), 'stop monitoring is not in the repository list');
     rulesButton().click();
     await settle();
     assert(!el('modal').classList.contains('hidden') && el('coding-rules').value === '', 'the rules dialog opens empty');
@@ -653,7 +664,7 @@ window.addEventListener('DOMContentLoaded', async () => {
     assert(el('modal').classList.contains('hidden') && state.repos.get('repo').coding_rules === '- Never log credentials.', 'the saved rules update the repository');
     const learningCall = fixtureCalls.find((call) => call.path === '/api/repos/repo/learning' && call.init?.method === 'PUT');
     assert(learningCall && JSON.parse(learningCall.init.body).enabled === false && state.repos.get('repo').learning === false, 'switching learning off is saved');
-    assert(rulesButton().textContent === 'Review settings ✓', 'a repository with rules shows it');
+    assert(rulesButton().classList.contains('has-rules'), 'a repository with rules shows it');
     rulesButton().click();
     await settle();
     assert(el('coding-rules').value === '- Never log credentials.', 'the dialog shows the saved rules');

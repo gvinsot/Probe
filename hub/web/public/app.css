@@ -193,6 +193,9 @@ h1, h2, h3 { line-height: 1.25; }
 .repo-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; color: var(--muted); font-size: 0.78rem; }
 .repo-actions { flex: none; display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 4px; }
 .repo-actions .btn.small { padding: 2px 8px; font-size: 0.76rem; }
+.repo-actions .icon-btn { position: relative; display: inline-flex; align-items: center; justify-content: center; padding: 2px 6px; }
+.repo-actions .icon-btn svg { display: block; }
+.repo-actions .icon-btn.has-rules::after { content: ''; position: absolute; top: 1px; right: 1px; width: 6px; height: 6px; border-radius: 50%; background: var(--accent); }
 
 /* Chips */
 .chip {
