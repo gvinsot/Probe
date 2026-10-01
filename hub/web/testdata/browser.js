@@ -374,7 +374,7 @@ window.addEventListener('DOMContentLoaded', async () => {
     el('mark-reviewed').click();
     await settle();
     assert(document.querySelector('#report-head .verdict').textContent === 'Human review required' && el('mark-reviewed').textContent === 'Mark as reviewed' && el('review-count').textContent === reviewCountBefore, 'withdrawing the mark asks for a review again');
-    assert(document.getElementById('mode-label').textContent.includes('AI review (read-only)'), 'deployment mode shown');
+    assert(document.getElementById('mode-label').textContent.endsWith(' · AI review') && !document.getElementById('mode-label').textContent.includes('read-only'), 'deployment mode shown, without the read-only detail');
     assert(document.getElementById('report-head').textContent.includes('no code or tests were executed'), 'read-only report scope shown');
     const actualMode = state.run.mode;
     state.run.mode = 'lint'; renderReport();

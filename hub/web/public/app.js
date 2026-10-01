@@ -1973,8 +1973,10 @@ async function analyzeCommit() {
   }
 }
 
-function analysisModeLabel(mode) {
-  if (mode === 'review-read-only') return 'AI review (read-only)';
+// analysisModeLabel names an analysis mode; the short form, for the page
+// title, leaves out the read-only sandbox detail.
+function analysisModeLabel(mode, short) {
+  if (mode === 'review-read-only') return short ? 'AI review' : 'AI review (read-only)';
   return mode || 'lint';
 }
 
@@ -3088,7 +3090,7 @@ async function boot() {
   }
   state.me = me;
   state.csrf = me.csrf;
-  el('mode-label').textContent = 'Hub ' + (me.version || '') + ' · ' + analysisModeLabel(me.mode);
+  el('mode-label').textContent = 'Hub ' + (me.version || '') + ' · ' + analysisModeLabel(me.mode, true);
 
   const who = el('who');
   if (me.user.avatar_url) {
