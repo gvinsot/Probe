@@ -70,7 +70,7 @@ ignore them. The report records the rules it was given. Saving the rules does
 not re-run earlier analyses.
 
 **Reviewed.** A report whose verdict is **Human review required** offers a
-**Reviewed** button in its head. It records that the signed-in person reviewed
+**Mark as reviewed** button in its head. It records that the signed-in person reviewed
 the commit (`PUT /api/repos/{repo}/reports/{commit}/review` with
 `{"reviewed": true}`, or `false` to withdraw the mark): the report, the commit
 tree and the repository list then read **Reviewed**, and the commit no longer
